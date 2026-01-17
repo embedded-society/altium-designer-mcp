@@ -221,8 +221,24 @@ pub fn parse_data_stream(footprint: &mut Footprint, data: &[u8]) {
                 }
             }
             0x03 | 0x05 | 0x06 | 0x0B | 0x0C => {
-                // Via, Text, Fill, Region, ComponentBody
-                // Skip by reading and discarding blocks
+                // These primitives are recognized but not yet fully implemented:
+                // - 0x03: Via (similar to pad but for vias)
+                // - 0x05: Text (designator/comment strings - format undocumented)
+                // - 0x06: Fill (filled rectangle)
+                // - 0x0B: Region (filled polygon with vertices - format undocumented)
+                // - 0x0C: ComponentBody (3D model reference - stored in /Library/Models)
+                //
+                // TODO: Implement parsing for these. See pyAltiumLib/AltiumSharp for reference.
+                // 3D models are embedded in /Library/Models/N streams, referenced here.
+                let type_name = match record_type {
+                    0x03 => "Via",
+                    0x05 => "Text",
+                    0x06 => "Fill",
+                    0x0B => "Region",
+                    0x0C => "ComponentBody",
+                    _ => "Unknown",
+                };
+                tracing::trace!("Skipping {type_name} primitive (0x{record_type:02x}) - not yet implemented");
                 if let Some(new_offset) = skip_primitive(data, offset, record_type) {
                     offset = new_offset;
                 } else {
