@@ -412,8 +412,8 @@ impl McpServer {
             // Library I/O tools
             "read_pcblib" => self.call_read_pcblib(&params.arguments),
             "write_pcblib" => self.call_write_pcblib(&params.arguments),
-            "read_schlib" => self.call_not_implemented("read_schlib"),
-            "write_schlib" => self.call_not_implemented("write_schlib"),
+            "read_schlib" => self.call_read_schlib(&params.arguments),
+            "write_schlib" => self.call_write_schlib(&params.arguments),
             "list_components" => self.call_list_components(&params.arguments),
             // Unknown tool
             _ => ToolCallResult::error(format!("Unknown tool: {}", params.name)),
@@ -710,23 +710,6 @@ impl McpServer {
 
     // ==================== Tool Handlers ====================
 
-    /// Placeholder for tools not yet implemented.
-    #[allow(clippy::unused_self)]
-    fn call_not_implemented(&self, tool_name: &str) -> ToolCallResult {
-        let result = json!({
-            "status": "not_implemented",
-            "tool": tool_name,
-            "message": format!(
-                "The '{}' tool is not yet implemented. Altium file I/O is under development.",
-                tool_name
-            ),
-            "note": "This MCP server provides low-level file I/O and primitive placement. \
-                    The AI handles IPC-7351B calculations and design decisions."
-        });
-
-        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
-    }
-
     /// Reads a `PcbLib` file and returns its contents.
     #[allow(clippy::unused_self)]
     fn call_read_pcblib(&self, arguments: &Value) -> ToolCallResult {
@@ -882,10 +865,162 @@ impl McpServer {
         }
     }
 
+    /// Reads a `SchLib` file and returns its contents.
+    #[allow(clippy::unused_self)]
+    fn call_read_schlib(&self, arguments: &Value) -> ToolCallResult {
+        use crate::altium::SchLib;
+
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        match SchLib::open(filepath) {
+            Ok(library) => {
+                let symbols: Vec<_> = library
+                    .iter()
+                    .map(|(name, symbol)| {
+                        json!({
+                            "name": name,
+                            "description": symbol.description,
+                            "designator": symbol.designator,
+                            "part_count": symbol.part_count,
+                            "pins": symbol.pins,
+                            "rectangles": symbol.rectangles,
+                            "lines": symbol.lines,
+                            "parameters": symbol.parameters,
+                            "footprints": symbol.footprints,
+                        })
+                    })
+                    .collect();
+
+                let result = json!({
+                    "status": "success",
+                    "filepath": filepath,
+                    "symbol_count": library.len(),
+                    "symbols": symbols,
+                });
+
+                ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+            }
+            Err(e) => {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": e.to_string(),
+                });
+                ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
+            }
+        }
+    }
+
+    /// Writes symbols to a `SchLib` file.
+    #[allow(clippy::unused_self)]
+    fn call_write_schlib(&self, arguments: &Value) -> ToolCallResult {
+        use crate::altium::schlib::{FootprintModel, SchLib, Symbol};
+
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        let Some(symbols_json) = arguments.get("symbols").and_then(Value::as_array) else {
+            return ToolCallResult::error("Missing required parameter: symbols");
+        };
+
+        let mut library = SchLib::new();
+
+        for sym_json in symbols_json {
+            let name = sym_json
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("Unnamed");
+            let mut symbol = Symbol::new(name);
+
+            if let Some(desc) = sym_json.get("description").and_then(Value::as_str) {
+                symbol.description = desc.to_string();
+            }
+
+            if let Some(desig) = sym_json.get("designator_prefix").and_then(Value::as_str) {
+                symbol.designator = format!("{desig}?");
+            }
+
+            // Parse pins
+            if let Some(pins) = sym_json.get("pins").and_then(Value::as_array) {
+                for pin_json in pins {
+                    if let Some(pin) = Self::parse_schlib_pin(pin_json) {
+                        symbol.add_pin(pin);
+                    }
+                }
+            }
+
+            // Parse rectangles
+            if let Some(rects) = sym_json.get("rectangles").and_then(Value::as_array) {
+                for rect_json in rects {
+                    if let Some(rect) = Self::parse_schlib_rectangle(rect_json) {
+                        symbol.add_rectangle(rect);
+                    }
+                }
+            }
+
+            // Parse lines
+            if let Some(lines) = sym_json.get("lines").and_then(Value::as_array) {
+                for line_json in lines {
+                    if let Some(line) = Self::parse_schlib_line(line_json) {
+                        symbol.add_line(line);
+                    }
+                }
+            }
+
+            // Parse parameters
+            if let Some(params) = sym_json.get("parameters").and_then(Value::as_array) {
+                for param_json in params {
+                    if let Some(param) = Self::parse_schlib_parameter(param_json) {
+                        symbol.add_parameter(param);
+                    }
+                }
+            }
+
+            // Parse footprint references
+            if let Some(footprints) = sym_json.get("footprints").and_then(Value::as_array) {
+                for fp_json in footprints {
+                    if let Some(fp_name) = fp_json.get("name").and_then(Value::as_str) {
+                        let mut fp = FootprintModel::new(fp_name);
+                        if let Some(desc) = fp_json.get("description").and_then(Value::as_str) {
+                            fp.description = desc.to_string();
+                        }
+                        symbol.add_footprint(fp);
+                    }
+                }
+            }
+
+            library.add_symbol(symbol);
+        }
+
+        match library.save(filepath) {
+            Ok(()) => {
+                let symbol_names: Vec<_> = library.iter().map(|(name, _)| name.clone()).collect();
+                let result = json!({
+                    "status": "success",
+                    "filepath": filepath,
+                    "symbol_count": library.len(),
+                    "symbol_names": symbol_names,
+                });
+                ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+            }
+            Err(e) => {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": e.to_string(),
+                });
+                ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
+            }
+        }
+    }
+
     /// Lists component names in a library file.
     #[allow(clippy::unused_self)]
     fn call_list_components(&self, arguments: &Value) -> ToolCallResult {
-        use crate::altium::PcbLib;
+        use crate::altium::{PcbLib, SchLib};
 
         let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
             return ToolCallResult::error("Missing required parameter: filepath");
@@ -919,15 +1054,27 @@ impl McpServer {
                     ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
                 }
             },
-            Some("schlib") => {
-                let result = json!({
-                    "status": "not_implemented",
-                    "filepath": filepath,
-                    "file_type": "SchLib",
-                    "message": "SchLib reading is not yet implemented",
-                });
-                ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
-            }
+            Some("schlib") => match SchLib::open(filepath) {
+                Ok(library) => {
+                    let symbol_names: Vec<_> = library.iter().map(|(name, _)| name.clone()).collect();
+                    let result = json!({
+                        "status": "success",
+                        "filepath": filepath,
+                        "file_type": "SchLib",
+                        "component_count": library.len(),
+                        "components": symbol_names,
+                    });
+                    ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+                }
+                Err(e) => {
+                    let result = json!({
+                        "status": "error",
+                        "filepath": filepath,
+                        "error": e.to_string(),
+                    });
+                    ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
+                }
+            },
             _ => {
                 let result = json!({
                     "status": "error",
@@ -1077,6 +1224,199 @@ impl McpServer {
             height,
             layer,
             rotation,
+        })
+    }
+
+    // ==================== SchLib Primitive Parsing Helpers ====================
+
+    /// Parses a schematic pin from JSON.
+    #[allow(clippy::cast_possible_truncation)]
+    fn parse_schlib_pin(json: &Value) -> Option<crate::altium::schlib::Pin> {
+        use crate::altium::schlib::{Pin, PinElectricalType, PinOrientation};
+
+        let designator = json.get("designator").and_then(Value::as_str)?;
+        let name = json
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or(designator);
+        let x = json.get("x").and_then(Value::as_i64)? as i32;
+        let y = json.get("y").and_then(Value::as_i64)? as i32;
+        let length = json
+            .get("length")
+            .and_then(Value::as_i64)
+            .unwrap_or(10) as i32;
+
+        let orientation = json
+            .get("orientation")
+            .and_then(Value::as_str)
+            .map_or(PinOrientation::Right, |s| match s.to_lowercase().as_str() {
+                "left" => PinOrientation::Left,
+                "up" => PinOrientation::Up,
+                "down" => PinOrientation::Down,
+                _ => PinOrientation::Right,
+            });
+
+        let electrical_type = json
+            .get("electrical_type")
+            .and_then(Value::as_str)
+            .map_or(PinElectricalType::Passive, |s| {
+                match s.to_lowercase().as_str() {
+                    "input" => PinElectricalType::Input,
+                    "output" => PinElectricalType::Output,
+                    "bidirectional" | "io" | "input_output" => PinElectricalType::InputOutput,
+                    "power" => PinElectricalType::Power,
+                    "open_collector" => PinElectricalType::OpenCollector,
+                    "open_emitter" => PinElectricalType::OpenEmitter,
+                    "hiz" | "hi_z" | "tristate" => PinElectricalType::HiZ,
+                    _ => PinElectricalType::Passive,
+                }
+            });
+
+        let hidden = json
+            .get("hidden")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let show_name = json
+            .get("show_name")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        let show_designator = json
+            .get("show_designator")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        let owner_part_id = json
+            .get("owner_part_id")
+            .and_then(Value::as_i64)
+            .unwrap_or(1) as i32;
+
+        Some(Pin {
+            name: name.to_string(),
+            designator: designator.to_string(),
+            x,
+            y,
+            length,
+            orientation,
+            electrical_type,
+            hidden,
+            show_name,
+            show_designator,
+            description: String::new(),
+            owner_part_id,
+        })
+    }
+
+    /// Parses a schematic rectangle from JSON.
+    #[allow(clippy::cast_possible_truncation)]
+    fn parse_schlib_rectangle(json: &Value) -> Option<crate::altium::schlib::Rectangle> {
+        use crate::altium::schlib::Rectangle;
+
+        let x1 = json.get("x1").and_then(Value::as_i64)? as i32;
+        let y1 = json.get("y1").and_then(Value::as_i64)? as i32;
+        let x2 = json.get("x2").and_then(Value::as_i64)? as i32;
+        let y2 = json.get("y2").and_then(Value::as_i64)? as i32;
+
+        let line_width = json
+            .get("line_width")
+            .and_then(Value::as_u64)
+            .unwrap_or(1) as u8;
+        let line_color = json
+            .get("line_color")
+            .and_then(Value::as_u64)
+            .unwrap_or(0x00_00_80) as u32;
+        let fill_color = json
+            .get("fill_color")
+            .and_then(Value::as_u64)
+            .unwrap_or(0xFF_FF_B0) as u32;
+        let filled = json.get("filled").and_then(Value::as_bool).unwrap_or(true);
+        let owner_part_id = json
+            .get("owner_part_id")
+            .and_then(Value::as_i64)
+            .unwrap_or(1) as i32;
+
+        Some(Rectangle {
+            x1,
+            y1,
+            x2,
+            y2,
+            line_width,
+            line_color,
+            fill_color,
+            filled,
+            owner_part_id,
+        })
+    }
+
+    /// Parses a schematic line from JSON.
+    #[allow(clippy::cast_possible_truncation)]
+    fn parse_schlib_line(json: &Value) -> Option<crate::altium::schlib::Line> {
+        use crate::altium::schlib::Line;
+
+        let x1 = json.get("x1").and_then(Value::as_i64)? as i32;
+        let y1 = json.get("y1").and_then(Value::as_i64)? as i32;
+        let x2 = json.get("x2").and_then(Value::as_i64)? as i32;
+        let y2 = json.get("y2").and_then(Value::as_i64)? as i32;
+
+        let line_width = json
+            .get("line_width")
+            .and_then(Value::as_u64)
+            .unwrap_or(1) as u8;
+        let color = json
+            .get("color")
+            .and_then(Value::as_u64)
+            .unwrap_or(0x00_00_80) as u32;
+        let owner_part_id = json
+            .get("owner_part_id")
+            .and_then(Value::as_i64)
+            .unwrap_or(1) as i32;
+
+        Some(Line {
+            x1,
+            y1,
+            x2,
+            y2,
+            line_width,
+            color,
+            owner_part_id,
+        })
+    }
+
+    /// Parses a schematic parameter from JSON.
+    #[allow(clippy::cast_possible_truncation)]
+    fn parse_schlib_parameter(json: &Value) -> Option<crate::altium::schlib::Parameter> {
+        use crate::altium::schlib::Parameter;
+
+        let name = json.get("name").and_then(Value::as_str)?;
+        let value = json
+            .get("value")
+            .and_then(Value::as_str)
+            .unwrap_or("*")
+            .to_string();
+
+        let x = json.get("x").and_then(Value::as_i64).unwrap_or(0) as i32;
+        let y = json.get("y").and_then(Value::as_i64).unwrap_or(0) as i32;
+        let font_id = json.get("font_id").and_then(Value::as_u64).unwrap_or(1) as u8;
+        let color = json
+            .get("color")
+            .and_then(Value::as_u64)
+            .unwrap_or(0x80_00_00) as u32;
+        let hidden = json
+            .get("hidden")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let owner_part_id = json
+            .get("owner_part_id")
+            .and_then(Value::as_i64)
+            .unwrap_or(1) as i32;
+
+        Some(Parameter {
+            name: name.to_string(),
+            value,
+            x,
+            y,
+            font_id,
+            color,
+            hidden,
+            owner_part_id,
         })
     }
 }
