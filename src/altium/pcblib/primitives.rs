@@ -235,6 +235,19 @@ pub struct Model3D {
 }
 
 /// Altium layer identifiers.
+///
+/// # Recommended Layers for Footprints
+///
+/// AI assistants should prefer these dedicated layers over generic mechanical layers:
+///
+/// | Purpose | Recommended Layer |
+/// |---------|-------------------|
+/// | Pads (SMD) | `TopLayer` or `BottomLayer` |
+/// | Pads (through-hole) | `MultiLayer` |
+/// | Silkscreen | `TopOverlay` / `BottomOverlay` |
+/// | Assembly outline | `TopAssembly` / `BottomAssembly` |
+/// | Courtyard | `TopCourtyard` / `BottomCourtyard` |
+/// | 3D body outline | `Top3DBody` / `Bottom3DBody` |
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Layer {
     // Copper layers
@@ -264,14 +277,28 @@ pub enum Layer {
     /// Bottom solder paste.
     BottomPaste,
 
-    // Mechanical layers
-    /// Mechanical layer 1 (typically assembly outline).
+    // Component layer pairs (preferred over generic mechanical layers)
+    /// Top assembly outline (component body outline for documentation).
+    TopAssembly,
+    /// Bottom assembly outline.
+    BottomAssembly,
+    /// Top courtyard (component keepout area per IPC-7351).
+    TopCourtyard,
+    /// Bottom courtyard.
+    BottomCourtyard,
+    /// Top 3D body outline (for 3D model placement).
+    Top3DBody,
+    /// Bottom 3D body outline.
+    Bottom3DBody,
+
+    // Generic mechanical layers (use component layer pairs when possible)
+    /// Mechanical layer 1.
     Mechanical1,
     /// Mechanical layer 2.
     Mechanical2,
-    /// Mechanical layer 13 (typically 3D body outline).
+    /// Mechanical layer 13.
     Mechanical13,
-    /// Mechanical layer 15 (typically courtyard).
+    /// Mechanical layer 15.
     Mechanical15,
 
     // Keep-out
@@ -293,6 +320,12 @@ impl Layer {
             Self::BottomSolder => "Bottom Solder",
             Self::TopPaste => "Top Paste",
             Self::BottomPaste => "Bottom Paste",
+            Self::TopAssembly => "Top Assembly",
+            Self::BottomAssembly => "Bottom Assembly",
+            Self::TopCourtyard => "Top Courtyard",
+            Self::BottomCourtyard => "Bottom Courtyard",
+            Self::Top3DBody => "Top 3D Body",
+            Self::Bottom3DBody => "Bottom 3D Body",
             Self::Mechanical1 => "Mechanical 1",
             Self::Mechanical2 => "Mechanical 2",
             Self::Mechanical13 => "Mechanical 13",
@@ -314,6 +347,12 @@ impl Layer {
             "Bottom Solder" => Some(Self::BottomSolder),
             "Top Paste" => Some(Self::TopPaste),
             "Bottom Paste" => Some(Self::BottomPaste),
+            "Top Assembly" => Some(Self::TopAssembly),
+            "Bottom Assembly" => Some(Self::BottomAssembly),
+            "Top Courtyard" => Some(Self::TopCourtyard),
+            "Bottom Courtyard" => Some(Self::BottomCourtyard),
+            "Top 3D Body" => Some(Self::Top3DBody),
+            "Bottom 3D Body" => Some(Self::Bottom3DBody),
             "Mechanical 1" => Some(Self::Mechanical1),
             "Mechanical 2" => Some(Self::Mechanical2),
             "Mechanical 13" => Some(Self::Mechanical13),

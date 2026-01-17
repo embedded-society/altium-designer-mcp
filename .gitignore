@@ -2,3 +2,4 @@
 Cargo.lock
 /.claude/settings.local.json
 nul
+.venv/

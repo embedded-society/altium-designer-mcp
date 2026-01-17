@@ -60,7 +60,7 @@ This means the AI can create **any footprint** — not just pre-programmed packa
 
 ## Current Status
 
-**In Development** — MCP infrastructure functional, file I/O scaffold in place.
+**In Development** — MCP infrastructure functional, PcbLib reader/writer implemented.
 
 | Feature | Status |
 |---------|--------|
@@ -68,8 +68,8 @@ This means the AI can create **any footprint** — not just pre-programmed packa
 | Tool definitions and JSON schemas | Working |
 | OLE compound document structure | Working |
 | Primitive types (Pad, Track, Arc, etc.) | Working |
-| Binary format parsing | Stub |
-| Binary format encoding | Stub |
+| PcbLib binary format parsing | Working |
+| PcbLib binary format encoding | Working |
 | SchLib support | Not yet implemented |
 
 ---
@@ -251,6 +251,28 @@ GNU General Public License v3.0 — see [LICENCE](LICENCE).
 
 - [MCP Specification](https://modelcontextprotocol.io/)
 - [Report an Issue](https://github.com/embedded-society/altium-designer-mcp/issues)
+
+## Sample Files
+
+Sample Altium library files are included in the `scripts/` folder for testing and development:
+
+| File | Description |
+|------|-------------|
+| `scripts/sample.PcbLib` | Sample PCB footprint library (chip resistors) |
+| `scripts/sample.SchLib` | Corresponding schematic symbol library |
+
+These files can be used with the analysis scripts:
+
+```bash
+# Python analysis (requires pyaltiumlib)
+cd scripts
+python analyze_pcblib.py sample.PcbLib
+
+# Rust analysis
+cargo test --test pcblib_analysis -- --ignored --nocapture
+```
+
+---
 
 ## Prior Art
 

@@ -17,8 +17,24 @@
 //! │   └── Parameters
 //! └── ...
 //! ```
+//!
+//! # Data Stream Binary Format
+//!
+//! The Data stream contains primitives in binary format:
+//!
+//! ```text
+//! [name_block_len:4][str_len:1][name:str_len]  // Component name
+//! [record_type:1][blocks...]                   // First primitive
+//! [record_type:1][blocks...]                   // Second primitive
+//! ...
+//! [0x00]                                       // End marker
+//! ```
+//!
+//! Record types: Arc(1), Pad(2), Via(3), Track(4), Text(5), Fill(6), Region(11), ComponentBody(12)
 
 pub mod primitives;
+mod reader;
+mod writer;
 
 use serde::{Deserialize, Serialize};
 
@@ -235,79 +251,10 @@ impl PcbLib {
 
     /// Parses primitives from the Data stream.
     ///
-    /// This is a simplified parser - full implementation would need to handle
-    /// all the binary record formats.
-    fn parse_primitives(_footprint: &mut Footprint, data: &[u8]) {
-        // The Data stream contains binary records
-        // Each record starts with a record type byte followed by length and data
-        //
-        // For now, we'll implement a basic parser that can read the most common
-        // primitive types. A full implementation would need extensive reverse
-        // engineering of the binary format.
-
-        let mut offset = 0;
-
-        while offset < data.len() {
-            // Need at least 1 byte for record type
-            if offset >= data.len() {
-                break;
-            }
-
-            let record_type = data[offset];
-            offset += 1;
-
-            // Read record length (varies by record type)
-            // This is a simplified approach - actual format is more complex
-            match record_type {
-                0x00 => {
-                    // End of records or padding
-                    break;
-                }
-                0x02 => {
-                    // Pad record (simplified)
-                    // Skip for now - would need full binary format parsing
-                    if offset + 4 <= data.len() {
-                        let record_len =
-                            u32::from_le_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]])
-                                as usize;
-                        offset += 4 + record_len;
-                    } else {
-                        break;
-                    }
-                }
-                0x04 => {
-                    // Track record (simplified)
-                    if offset + 4 <= data.len() {
-                        let record_len =
-                            u32::from_le_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]])
-                                as usize;
-                        offset += 4 + record_len;
-                    } else {
-                        break;
-                    }
-                }
-                _ => {
-                    // Unknown record type - try to skip based on length prefix
-                    if offset + 4 <= data.len() {
-                        let record_len =
-                            u32::from_le_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]])
-                                as usize;
-                        if record_len > 0 && offset + 4 + record_len <= data.len() {
-                            offset += 4 + record_len;
-                        } else {
-                            // Invalid length, stop parsing
-                            break;
-                        }
-                    } else {
-                        break;
-                    }
-                }
-            }
-        }
-
-        // Note: This is a stub implementation. Full primitive parsing would require
-        // detailed knowledge of the binary format. For now, the footprint structure
-        // is populated with basic info only.
+    /// The Data stream contains binary records for each primitive (pads, tracks, arcs, etc.).
+    /// See the [`reader`] module for format details.
+    fn parse_primitives(footprint: &mut Footprint, data: &[u8]) {
+        reader::parse_data_stream(footprint, data);
     }
 
     /// Writes the library to a file.
@@ -370,7 +317,7 @@ impl PcbLib {
     }
 
     /// Writes a single footprint to the OLE document.
-    #[allow(clippy::unused_self)] // Will need self when encoding is fully implemented
+    #[allow(clippy::unused_self)] // Method for consistency with other write methods
     fn write_footprint<F: std::io::Read + std::io::Write + std::io::Seek>(
         &self,
         cfb: &mut cfb::CompoundFile<F>,
@@ -409,34 +356,9 @@ impl PcbLib {
 
     /// Encodes footprint primitives to binary format.
     ///
-    /// This is a simplified encoder - full implementation would need to match
-    /// Altium's exact binary format for all primitive types.
-    fn encode_primitives(_footprint: &Footprint) -> Vec<u8> {
-        let mut data = Vec::new();
-
-        // Note: This is a stub implementation. Encoding primitives in the exact
-        // Altium binary format requires detailed reverse engineering.
-        //
-        // For a working implementation, we would need to:
-        // 1. Encode each pad with exact binary layout (position, size, shape, layer)
-        // 2. Encode each track, arc, region, text
-        // 3. Include proper record headers and checksums
-        //
-        // For now, we'll create a minimal valid Data stream that Altium can read
-        // but won't contain the actual primitive data. This allows the library
-        // structure to be created, but primitives would need to be added in Altium.
-
-        // Write a minimal header
-        data.extend_from_slice(&[0u8; 4]); // Placeholder
-
-        // TODO: Implement proper binary encoding for:
-        // - Pads (record type 0x02)
-        // - Tracks (record type 0x04)
-        // - Arcs (record type 0x01)
-        // - Regions (record type 0x0B)
-        // - Text (record type 0x05)
-
-        data
+    /// See the [`writer`] module for format details.
+    fn encode_primitives(footprint: &Footprint) -> Vec<u8> {
+        writer::encode_data_stream(footprint)
     }
 
     /// Returns the number of footprints in the library.
@@ -478,6 +400,11 @@ impl PcbLib {
 mod tests {
     use super::*;
 
+    /// Helper to compare floats with tolerance.
+    fn approx_eq(a: f64, b: f64, tolerance: f64) -> bool {
+        (a - b).abs() < tolerance
+    }
+
     #[test]
     fn footprint_creation() {
         let mut fp = Footprint::new("TEST");
@@ -500,5 +427,139 @@ mod tests {
         assert_eq!(lib.names(), vec!["FP1", "FP2"]);
         assert!(lib.get("FP1").is_some());
         assert!(lib.get("FP3").is_none());
+    }
+
+    #[test]
+    fn binary_roundtrip_pads() {
+        // Create a footprint with pads
+        let mut original = Footprint::new("ROUNDTRIP_PAD");
+        original.add_pad(Pad::smd("1", -0.5, 0.0, 0.6, 0.5));
+        original.add_pad(Pad::smd("2", 0.5, 0.0, 0.6, 0.5));
+
+        // Encode to binary
+        let data = writer::encode_data_stream(&original);
+
+        // Decode from binary
+        let mut decoded = Footprint::new("ROUNDTRIP_PAD");
+        reader::parse_data_stream(&mut decoded, &data);
+
+        // Verify
+        assert_eq!(decoded.pads.len(), 2);
+        assert_eq!(decoded.pads[0].designator, "1");
+        assert_eq!(decoded.pads[1].designator, "2");
+        assert!(approx_eq(decoded.pads[0].x, -0.5, 0.001));
+        assert!(approx_eq(decoded.pads[1].x, 0.5, 0.001));
+        assert!(approx_eq(decoded.pads[0].width, 0.6, 0.001));
+        assert!(approx_eq(decoded.pads[0].height, 0.5, 0.001));
+    }
+
+    #[test]
+    fn binary_roundtrip_tracks() {
+        let mut original = Footprint::new("ROUNDTRIP_TRACK");
+        original.add_track(Track::new(-1.0, -0.5, 1.0, -0.5, 0.15, Layer::TopOverlay));
+        original.add_track(Track::new(1.0, -0.5, 1.0, 0.5, 0.15, Layer::TopOverlay));
+
+        let data = writer::encode_data_stream(&original);
+        let mut decoded = Footprint::new("ROUNDTRIP_TRACK");
+        reader::parse_data_stream(&mut decoded, &data);
+
+        assert_eq!(decoded.tracks.len(), 2);
+        assert!(approx_eq(decoded.tracks[0].x1, -1.0, 0.001));
+        assert!(approx_eq(decoded.tracks[0].x2, 1.0, 0.001));
+        assert!(approx_eq(decoded.tracks[0].width, 0.15, 0.001));
+        assert_eq!(decoded.tracks[0].layer, Layer::TopOverlay);
+    }
+
+    #[test]
+    fn binary_roundtrip_arcs() {
+        let mut original = Footprint::new("ROUNDTRIP_ARC");
+        original.add_arc(Arc::circle(0.0, 0.0, 1.0, 0.15, Layer::TopOverlay));
+
+        let data = writer::encode_data_stream(&original);
+        let mut decoded = Footprint::new("ROUNDTRIP_ARC");
+        reader::parse_data_stream(&mut decoded, &data);
+
+        assert_eq!(decoded.arcs.len(), 1);
+        assert!(approx_eq(decoded.arcs[0].x, 0.0, 0.001));
+        assert!(approx_eq(decoded.arcs[0].y, 0.0, 0.001));
+        assert!(approx_eq(decoded.arcs[0].radius, 1.0, 0.001));
+        assert!(approx_eq(decoded.arcs[0].start_angle, 0.0, 0.001));
+        assert!(approx_eq(decoded.arcs[0].end_angle, 360.0, 0.001));
+    }
+
+    #[test]
+    fn binary_roundtrip_mixed_primitives() {
+        let mut original = Footprint::new("ROUNDTRIP_MIXED");
+
+        // Add arcs first (record type 0x01)
+        original.add_arc(Arc::circle(0.0, 0.0, 0.5, 0.1, Layer::TopOverlay));
+
+        // Add pads (record type 0x02)
+        original.add_pad(Pad::smd("1", -1.0, 0.0, 0.6, 0.5));
+        original.add_pad(Pad::smd("2", 1.0, 0.0, 0.6, 0.5));
+
+        // Add tracks (record type 0x04)
+        original.add_track(Track::new(-1.5, -0.3, 1.5, -0.3, 0.12, Layer::TopOverlay));
+
+        let data = writer::encode_data_stream(&original);
+        let mut decoded = Footprint::new("ROUNDTRIP_MIXED");
+        reader::parse_data_stream(&mut decoded, &data);
+
+        assert_eq!(decoded.arcs.len(), 1);
+        assert_eq!(decoded.pads.len(), 2);
+        assert_eq!(decoded.tracks.len(), 1);
+    }
+
+    #[test]
+    fn binary_roundtrip_coordinate_precision() {
+        let mut original = Footprint::new("ROUNDTRIP_PRECISION");
+
+        // Test various coordinate values
+        original.add_pad(Pad::smd("1", 0.125, 0.0, 0.3, 0.4));
+        original.add_pad(Pad::smd("2", 1.27, 0.0, 0.5, 0.5));
+        original.add_pad(Pad::smd("3", 2.54, 0.0, 1.0, 1.0));
+
+        let data = writer::encode_data_stream(&original);
+        let mut decoded = Footprint::new("ROUNDTRIP_PRECISION");
+        reader::parse_data_stream(&mut decoded, &data);
+
+        // Altium internal units give ~2.54nm resolution
+        assert!(approx_eq(decoded.pads[0].x, 0.125, 0.0001));
+        assert!(approx_eq(decoded.pads[1].x, 1.27, 0.0001));
+        assert!(approx_eq(decoded.pads[2].x, 2.54, 0.0001));
+    }
+
+    #[test]
+    fn binary_roundtrip_through_hole_pad() {
+        let mut original = Footprint::new("ROUNDTRIP_TH");
+        original.add_pad(Pad::through_hole("1", 0.0, 0.0, 1.6, 1.6, 0.8));
+
+        let data = writer::encode_data_stream(&original);
+        let mut decoded = Footprint::new("ROUNDTRIP_TH");
+        reader::parse_data_stream(&mut decoded, &data);
+
+        assert_eq!(decoded.pads.len(), 1);
+        assert!(decoded.pads[0].hole_size.is_some());
+        assert!(approx_eq(decoded.pads[0].hole_size.unwrap(), 0.8, 0.001));
+    }
+
+    #[test]
+    fn binary_roundtrip_component_layers() {
+        // Test that component layer pairs roundtrip correctly
+        let mut original = Footprint::new("ROUNDTRIP_LAYERS");
+
+        // Add tracks on each component layer pair
+        original.add_track(Track::new(-1.0, 0.0, 1.0, 0.0, 0.1, Layer::TopAssembly));
+        original.add_track(Track::new(-1.0, 0.1, 1.0, 0.1, 0.1, Layer::TopCourtyard));
+        original.add_track(Track::new(-1.0, 0.2, 1.0, 0.2, 0.1, Layer::Top3DBody));
+
+        let data = writer::encode_data_stream(&original);
+        let mut decoded = Footprint::new("ROUNDTRIP_LAYERS");
+        reader::parse_data_stream(&mut decoded, &data);
+
+        assert_eq!(decoded.tracks.len(), 3);
+        assert_eq!(decoded.tracks[0].layer, Layer::TopAssembly);
+        assert_eq!(decoded.tracks[1].layer, Layer::TopCourtyard);
+        assert_eq!(decoded.tracks[2].layer, Layer::Top3DBody);
     }
 }

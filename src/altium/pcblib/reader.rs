@@ -1,0 +1,459 @@
+//! Binary reader for `PcbLib` Data streams.
+//!
+//! This module handles parsing the binary format of Altium `PcbLib` Data streams,
+//! which contain the primitives (pads, tracks, arcs, etc.) that make up footprints.
+//!
+//! # Data Stream Format
+//!
+//! ```text
+//! [name_block_len:4][str_len:1][name:str_len]  // Component name
+//! [record_type:1][blocks...]                   // First primitive
+//! [record_type:1][blocks...]                   // Second primitive
+//! ...
+//! [0x00]                                       // End marker
+//! ```
+//!
+//! # Record Types
+//!
+//! - `0x01`: Arc
+//! - `0x02`: Pad
+//! - `0x03`: Via
+//! - `0x04`: Track
+//! - `0x05`: Text
+//! - `0x06`: Fill
+//! - `0x0B`: Region
+//! - `0x0C`: `ComponentBody`
+
+use super::primitives::{Arc, Layer, Pad, PadShape, Track};
+use super::Footprint;
+
+/// Conversion factor from Altium internal units to millimetres.
+/// Internal units: 10000 = 1 mil = 0.0254 mm
+const INTERNAL_UNITS_TO_MM: f64 = 0.0254 / 10000.0;
+
+/// Converts Altium internal units to millimetres.
+fn to_mm(internal: i32) -> f64 {
+    f64::from(internal) * INTERNAL_UNITS_TO_MM
+}
+
+/// Reads a 4-byte little-endian unsigned integer.
+fn read_u32(data: &[u8], offset: usize) -> Option<u32> {
+    if offset + 4 > data.len() {
+        return None;
+    }
+    Some(u32::from_le_bytes([
+        data[offset],
+        data[offset + 1],
+        data[offset + 2],
+        data[offset + 3],
+    ]))
+}
+
+/// Reads a 4-byte little-endian signed integer.
+fn read_i32(data: &[u8], offset: usize) -> Option<i32> {
+    if offset + 4 > data.len() {
+        return None;
+    }
+    Some(i32::from_le_bytes([
+        data[offset],
+        data[offset + 1],
+        data[offset + 2],
+        data[offset + 3],
+    ]))
+}
+
+/// Reads an 8-byte little-endian double (IEEE 754).
+fn read_f64(data: &[u8], offset: usize) -> Option<f64> {
+    if offset + 8 > data.len() {
+        return None;
+    }
+    Some(f64::from_le_bytes([
+        data[offset],
+        data[offset + 1],
+        data[offset + 2],
+        data[offset + 3],
+        data[offset + 4],
+        data[offset + 5],
+        data[offset + 6],
+        data[offset + 7],
+    ]))
+}
+
+/// Reads a length-prefixed block from data.
+/// Returns the block data and the new offset.
+fn read_block(data: &[u8], offset: usize) -> Option<(&[u8], usize)> {
+    let block_len = read_u32(data, offset)? as usize;
+    if block_len > 100_000 || offset + 4 + block_len > data.len() {
+        return None;
+    }
+    Some((&data[offset + 4..offset + 4 + block_len], offset + 4 + block_len))
+}
+
+/// Reads a length-prefixed string from block data.
+fn read_string_from_block(block: &[u8]) -> String {
+    if block.is_empty() {
+        return String::new();
+    }
+    let str_len = block[0] as usize;
+    if str_len + 1 > block.len() {
+        return String::new();
+    }
+    // Use Windows-1252 encoding (common in Altium files)
+    String::from_utf8_lossy(&block[1..=str_len]).to_string()
+}
+
+/// Converts Altium layer ID to our Layer enum.
+///
+/// Layer IDs from Altium (based on `pyAltiumLib` and sample files):
+/// - 1: Top Layer, 32: Bottom Layer, 74: Multi-Layer
+/// - 33: Top Overlay, 34: Bottom Overlay
+/// - 35: Top Paste, 36: Bottom Paste
+/// - 37: Top Solder, 38: Bottom Solder
+/// - 56: Keep-Out Layer
+/// - 57-72: Mechanical 1-16
+///
+/// Component layer pairs (from sample library analysis):
+/// - 58 (Mech 2): Top Assembly
+/// - 59 (Mech 3): Bottom Assembly
+/// - 60 (Mech 4): Top Courtyard
+/// - 61 (Mech 5): Bottom Courtyard
+/// - 62 (Mech 6): Top 3D Body
+/// - 63 (Mech 7): Bottom 3D Body
+const fn layer_from_id(id: u8) -> Layer {
+    match id {
+        1 => Layer::TopLayer,
+        32 => Layer::BottomLayer,
+        33 => Layer::TopOverlay,
+        34 => Layer::BottomOverlay,
+        35 => Layer::TopPaste,
+        36 => Layer::BottomPaste,
+        37 => Layer::TopSolder,
+        38 => Layer::BottomSolder,
+        56 => Layer::KeepOut,
+        57 => Layer::Mechanical1,
+        // Component layer pairs (from sample library)
+        58 => Layer::TopAssembly,
+        59 => Layer::BottomAssembly,
+        60 => Layer::TopCourtyard,
+        61 => Layer::BottomCourtyard,
+        62 => Layer::Top3DBody,
+        63 => Layer::Bottom3DBody,
+        // Remaining mechanical layers
+        64..=68 => Layer::Mechanical2, // Mechanical 8-12
+        69 | 70 => Layer::Mechanical13,
+        71 | 72 => Layer::Mechanical15,
+        // 74 = Multi-Layer and all other unknown layers
+        _ => Layer::MultiLayer,
+    }
+}
+
+/// Converts Altium pad shape ID to our `PadShape` enum.
+const fn pad_shape_from_id(id: u8) -> PadShape {
+    match id {
+        1 => PadShape::Round,
+        2 => PadShape::Rectangle,
+        3 => PadShape::Oval, // Octagon maps to Oval as closest match
+        _ => PadShape::RoundedRectangle,
+    }
+}
+
+/// Parses primitives from a `PcbLib` Data stream.
+pub fn parse_data_stream(footprint: &mut Footprint, data: &[u8]) {
+    if data.len() < 5 {
+        tracing::warn!("Data stream too short");
+        return;
+    }
+
+    // Read name block: [block_len:4][str_len:1][name:str_len]
+    let Some(name_block_len) = read_u32(data, 0) else {
+        tracing::warn!("Failed to read name block length");
+        return;
+    };
+
+    let mut offset = 4 + name_block_len as usize;
+
+    // Parse primitives until end marker (0x00) or end of data
+    while offset < data.len() {
+        let record_type = data[offset];
+
+        if record_type == 0x00 {
+            // End of records
+            break;
+        }
+
+        offset += 1;
+
+        match record_type {
+            0x01 => {
+                // Arc
+                if let Some((arc, new_offset)) = parse_arc(data, offset) {
+                    footprint.add_arc(arc);
+                    offset = new_offset;
+                } else {
+                    tracing::debug!("Failed to parse Arc at offset {offset:#x}");
+                    break;
+                }
+            }
+            0x02 => {
+                // Pad
+                if let Some((pad, new_offset)) = parse_pad(data, offset) {
+                    footprint.add_pad(pad);
+                    offset = new_offset;
+                } else {
+                    tracing::debug!("Failed to parse Pad at offset {offset:#x}");
+                    break;
+                }
+            }
+            0x04 => {
+                // Track
+                if let Some((track, new_offset)) = parse_track(data, offset) {
+                    footprint.add_track(track);
+                    offset = new_offset;
+                } else {
+                    tracing::debug!("Failed to parse Track at offset {offset:#x}");
+                    break;
+                }
+            }
+            0x03 | 0x05 | 0x06 | 0x0B | 0x0C => {
+                // Via, Text, Fill, Region, ComponentBody
+                // Skip by reading and discarding blocks
+                if let Some(new_offset) = skip_primitive(data, offset, record_type) {
+                    offset = new_offset;
+                } else {
+                    tracing::debug!(
+                        "Failed to skip primitive type {record_type:#x} at offset {offset:#x}"
+                    );
+                    break;
+                }
+            }
+            _ => {
+                tracing::debug!("Unknown record type {record_type:#x} at offset {offset:#x}");
+                break;
+            }
+        }
+    }
+}
+
+/// Parses a Pad primitive.
+/// Returns the parsed `Pad` and the new offset on success.
+fn parse_pad(data: &[u8], offset: usize) -> Option<(Pad, usize)> {
+    let mut current = offset;
+
+    // Block 0: Designator string
+    let (block0, next) = read_block(data, current)?;
+    let designator = read_string_from_block(block0);
+    current = next;
+
+    // Block 1: Unknown (skip)
+    let (_, next) = read_block(data, current)?;
+    current = next;
+
+    // Block 2: Unknown string ("|&|0")
+    let (_, next) = read_block(data, current)?;
+    current = next;
+
+    // Block 3: Unknown (skip)
+    let (_, next) = read_block(data, current)?;
+    current = next;
+
+    // Block 4: Geometry data
+    let (geometry, next) = read_block(data, current)?;
+    current = next;
+
+    // Block 5: Per-layer data (optional)
+    if let Some((_, next)) = read_block(data, current) {
+        current = next;
+    }
+
+    // Parse geometry block
+    if geometry.len() < 52 {
+        return None;
+    }
+
+    // Common header (13 bytes)
+    let layer_id = geometry[0];
+    let layer = layer_from_id(layer_id);
+
+    // Location (X, Y) - offsets 13-20
+    let x = to_mm(read_i32(geometry, 13)?);
+    let y = to_mm(read_i32(geometry, 17)?);
+
+    // Size top (X, Y) - offsets 21-28
+    let size_top_x = to_mm(read_i32(geometry, 21)?);
+    let size_top_y = to_mm(read_i32(geometry, 25)?);
+
+    // Use top size for width/height
+    let width = size_top_x;
+    let height = size_top_y;
+
+    // Hole size - offset 45
+    let hole_size = if geometry.len() > 48 {
+        let hole = to_mm(read_i32(geometry, 45)?);
+        if hole > 0.001 {
+            Some(hole)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Shape - offset 49
+    let shape = if geometry.len() > 49 {
+        pad_shape_from_id(geometry[49])
+    } else {
+        PadShape::RoundedRectangle
+    };
+
+    // Rotation - offset 52 (8-byte double)
+    let rotation = if geometry.len() > 59 {
+        read_f64(geometry, 52).unwrap_or(0.0)
+    } else {
+        0.0
+    };
+
+    let pad = Pad {
+        designator,
+        x,
+        y,
+        width,
+        height,
+        shape,
+        layer,
+        hole_size,
+        rotation,
+    };
+
+    Some((pad, current))
+}
+
+/// Parses a Track primitive.
+/// Returns the parsed `Track` and the new offset on success.
+fn parse_track(data: &[u8], offset: usize) -> Option<(Track, usize)> {
+    // Track has a single block with geometry data
+    let (block, next) = read_block(data, offset)?;
+
+    if block.len() < 33 {
+        return None;
+    }
+
+    // Common header (13 bytes)
+    let layer_id = block[0];
+    let layer = layer_from_id(layer_id);
+
+    // Start coordinates (X, Y) - offsets 13-20
+    let x1 = to_mm(read_i32(block, 13)?);
+    let y1 = to_mm(read_i32(block, 17)?);
+
+    // End coordinates (X, Y) - offsets 21-28
+    let x2 = to_mm(read_i32(block, 21)?);
+    let y2 = to_mm(read_i32(block, 25)?);
+
+    // Width - offset 29
+    let width = to_mm(read_i32(block, 29)?);
+
+    let track = Track::new(x1, y1, x2, y2, width, layer);
+
+    Some((track, next))
+}
+
+/// Parses an Arc primitive.
+/// Returns the parsed `Arc` and the new offset on success.
+fn parse_arc(data: &[u8], offset: usize) -> Option<(Arc, usize)> {
+    // Arc has a single block with geometry data
+    let (block, next) = read_block(data, offset)?;
+
+    if block.len() < 45 {
+        return None;
+    }
+
+    // Common header (13 bytes)
+    let layer_id = block[0];
+    let layer = layer_from_id(layer_id);
+
+    // Center coordinates (X, Y) - offsets 13-20
+    let x = to_mm(read_i32(block, 13)?);
+    let y = to_mm(read_i32(block, 17)?);
+
+    // Radius - offset 21
+    let radius = to_mm(read_i32(block, 21)?);
+
+    // Angles (doubles) - offsets 25-40
+    let start_angle = read_f64(block, 25).unwrap_or(0.0);
+    let end_angle = read_f64(block, 33).unwrap_or(360.0);
+
+    // Width - offset 41
+    let width = to_mm(read_i32(block, 41)?);
+
+    let arc = Arc {
+        x,
+        y,
+        radius,
+        start_angle,
+        end_angle,
+        width,
+        layer,
+    };
+
+    Some((arc, next))
+}
+
+/// Skips a primitive by reading its blocks.
+/// Returns the new offset on success.
+fn skip_primitive(data: &[u8], offset: usize, record_type: u8) -> Option<usize> {
+    let mut current = offset;
+
+    // Different primitives have different numbers of blocks
+    let block_count: u8 = match record_type {
+        0x03 => 6, // Via (similar to Pad)
+        0x0B => 2, // Region (has outline vertices)
+        0x0C => 3, // ComponentBody
+        // Text (0x05), Fill (0x06), and others default to 1 block
+        _ => 1,
+    };
+
+    for _ in 0..block_count {
+        let (_, next) = read_block(data, current)?;
+        current = next;
+    }
+
+    Some(current)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_to_mm() {
+        // 1 mil = 10000 internal units = 0.0254 mm
+        assert!((to_mm(10000) - 0.0254).abs() < 1e-9);
+        // 1 inch = 1000 mils = 10_000_000 internal = 25.4 mm
+        assert!((to_mm(10_000_000) - 25.4).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_read_block() {
+        let data = [
+            0x05, 0x00, 0x00, 0x00, // Length = 5
+            0x04, 0x7c, 0x26, 0x7c, 0x30, // Content: "|&|0"
+        ];
+        let (block, offset) = read_block(&data, 0).unwrap();
+        assert_eq!(block.len(), 5);
+        assert_eq!(offset, 9);
+    }
+
+    #[test]
+    fn test_read_string_from_block() {
+        let block = [0x04, 0x7c, 0x26, 0x7c, 0x30]; // "|&|0"
+        let s = read_string_from_block(&block);
+        assert_eq!(s, "|&|0");
+    }
+
+    #[test]
+    fn test_layer_from_id() {
+        assert_eq!(layer_from_id(1), Layer::TopLayer);
+        assert_eq!(layer_from_id(32), Layer::BottomLayer);
+        assert_eq!(layer_from_id(74), Layer::MultiLayer);
+    }
+}
