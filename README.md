@@ -210,12 +210,12 @@ Add to your Claude Desktop MCP configuration:
 
 ```json
 {
-  "mcpServers": {
-    "altium": {
-      "command": "altium-designer-mcp",
-      "args": ["/path/to/libraries"]
+    "mcpServers": {
+        "altium": {
+            "command": "altium-designer-mcp",
+            "args": ["/path/to/config.json"]
+        }
     }
-  }
 }
 ```
 
@@ -230,12 +230,22 @@ Configuration file location:
 
 ```json
 {
-  "library_path": "/path/to/libraries",
-  "logging": {
-    "level": "warn"
-  }
+    "allowed_paths": [
+        "/path/to/your/altium/libraries",
+        "/another/library/path"
+    ],
+    "logging": {
+        "level": "warn"
+    }
 }
 ```
+
+### Configuration Options
+
+| Option | Description |
+|--------|-------------|
+| `allowed_paths` | Array of directory paths where library files can be accessed |
+| `logging.level` | Log level: trace, debug, info, warn, error (default: warn) |
 
 ---
 

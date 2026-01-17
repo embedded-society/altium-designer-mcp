@@ -21,12 +21,8 @@ use altium_designer_mcp::mcp::server::McpServer;
 #[command(name = "altium-designer-mcp")]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Path to the component library directory
-    #[arg(value_name = "LIBRARY_PATH")]
-    library_path: Option<PathBuf>,
-
     /// Path to configuration file
-    #[arg(short, long, value_name = "FILE")]
+    #[arg(value_name = "CONFIG_FILE")]
     config: Option<PathBuf>,
 
     /// Increase logging verbosity (-v for info, -vv for debug, -vvv for trace)
@@ -108,19 +104,20 @@ fn main() -> ExitCode {
         "Starting altium-designer-mcp server"
     );
 
-    // Resolve library path
-    let library_path = args
-        .library_path
-        .or(cfg.library_path)
-        .unwrap_or_else(|| PathBuf::from("."));
+    // Get allowed paths from config
+    let allowed_paths = if cfg.allowed_paths.is_empty() {
+        vec![PathBuf::from(".")]
+    } else {
+        cfg.allowed_paths
+    };
 
     info!(
-        library_path = %library_path.display(),
-        "Library path configured"
+        allowed_paths = ?allowed_paths,
+        "Allowed paths configured"
     );
 
     // Create MCP server
-    let mut server = McpServer::new(library_path);
+    let mut server = McpServer::new(allowed_paths);
 
     info!("MCP server ready, waiting for client connection...");
 
