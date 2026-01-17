@@ -17,20 +17,20 @@
 //!
 //! - [`config`] — Configuration loading and validation
 //! - [`error`] — Error types
+//! - [`ipc7351`] — IPC-7351B land pattern calculations
 //! - [`mcp`] — MCP protocol implementation
 //! - `altium` — Altium file format handling (TODO)
-//! - `ipc7351` — IPC-7351B land pattern calculations (TODO)
 //! - `style` — Style extraction and application (TODO)
 //! - `symbols` — Schematic symbol generation (TODO)
 //! - `database` — CSV database management (TODO)
 
 pub mod config;
 pub mod error;
+pub mod ipc7351;
 pub mod mcp;
 
 // TODO: Implement these modules
 // pub mod altium;
-// pub mod ipc7351;
 // pub mod style;
 // pub mod symbols;
 // pub mod database;

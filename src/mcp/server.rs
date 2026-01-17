@@ -173,6 +173,7 @@ pub struct McpServer {
     /// Negotiated protocol version (set after initialisation).
     protocol_version: Option<String>,
     /// Path to the component library directory.
+    #[allow(dead_code)] // Will be used when Altium file I/O is implemented
     library_path: PathBuf,
 }
 
@@ -606,13 +607,19 @@ impl McpServer {
         ToolCallResult::text(serde_json::to_string_pretty(&package_types).unwrap())
     }
 
-    /// Calculates IPC-7351B compliant footprint (placeholder).
+    /// Calculates IPC-7351B compliant footprint.
+    #[allow(clippy::unused_self)]
     fn call_calculate_footprint(&self, arguments: &Value) -> ToolCallResult {
-        // TODO: Implement actual IPC-7351B calculations
+        use crate::ipc7351::{
+            density::DensityLevel,
+            packages::{chip::ChipCalculator, PackageDimensions},
+        };
+
         let package_type = arguments
             .get("package_type")
             .and_then(Value::as_str)
-            .unwrap_or("CHIP");
+            .unwrap_or("CHIP")
+            .to_uppercase();
         let body_length = arguments
             .get("body_length")
             .and_then(Value::as_f64)
@@ -621,40 +628,83 @@ impl McpServer {
             .get("body_width")
             .and_then(Value::as_f64)
             .unwrap_or(0.8);
-        let pin_count = arguments
+        let lead_span = arguments.get("lead_span").and_then(Value::as_f64);
+        let terminal_length = arguments.get("terminal_length").and_then(Value::as_f64);
+        let height = arguments
+            .get("height")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.5);
+        let _pin_count = arguments
             .get("pin_count")
             .and_then(Value::as_u64)
             .unwrap_or(2);
-        let density = arguments
+        let density_str = arguments
             .get("density")
             .and_then(Value::as_str)
             .unwrap_or("N");
+        let density = DensityLevel::from_str_loose(density_str).unwrap_or_default();
 
-        let result = json!({
-            "status": "placeholder",
-            "message": "IPC-7351B calculation not yet implemented",
-            "input": {
-                "package_type": package_type,
-                "body_length": body_length,
-                "body_width": body_width,
-                "pin_count": pin_count,
-                "density": density
-            },
-            "library_path": self.library_path.display().to_string(),
-            "note": "This is a placeholder response. Full IPC-7351B calculations will be implemented in future versions."
-        });
+        match package_type.as_str() {
+            "CHIP" | "RESC" | "CAPC" | "INDC" => {
+                // For chip components, estimate terminal length if not provided
+                // Estimate based on lead_span: term_len = (lead_span - body_centre) / 2
+                let term_len = terminal_length
+                    .or_else(|| lead_span.map(|ls| (ls - 2.0f64.mul_add(-0.3, body_length)) / 2.0))
+                    .unwrap_or(body_length * 0.2);
 
-        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+                let dims = PackageDimensions::chip(body_length, body_width, term_len, height);
+                let calc = ChipCalculator::new();
+                let pattern = calc.calculate(&dims, density);
+
+                let result = json!({
+                    "status": "success",
+                    "ipc_name": pattern.ipc_name,
+                    "pads": pattern.pads,
+                    "courtyard": {
+                        "min_x": pattern.courtyard.min_x,
+                        "min_y": pattern.courtyard.min_y,
+                        "max_x": pattern.courtyard.max_x,
+                        "max_y": pattern.courtyard.max_y,
+                        "width": pattern.courtyard.width(),
+                        "height": pattern.courtyard.height()
+                    },
+                    "silkscreen": pattern.silkscreen,
+                    "assembly": pattern.assembly,
+                    "input": {
+                        "package_type": package_type,
+                        "body_length_mm": body_length,
+                        "body_width_mm": body_width,
+                        "terminal_length_mm": term_len,
+                        "height_mm": height,
+                        "density": density.to_string()
+                    }
+                });
+
+                ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+            }
+            _ => {
+                let result = json!({
+                    "status": "not_implemented",
+                    "message": format!("Package type '{}' not yet implemented", package_type),
+                    "supported_types": ["CHIP", "RESC", "CAPC", "INDC"],
+                    "note": "More package types (SOIC, QFP, QFN, BGA, SOT) coming soon."
+                });
+
+                ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+            }
+        }
     }
 
-    /// Generates IPC-7351B compliant name (placeholder).
+    /// Generates IPC-7351B compliant name.
     #[allow(clippy::unused_self)]
     fn call_get_ipc_name(&self, arguments: &Value) -> ToolCallResult {
-        // TODO: Implement actual IPC naming convention
+        use crate::ipc7351::{density::DensityLevel, naming};
+
         let package_type = arguments
             .get("package_type")
             .and_then(Value::as_str)
-            .unwrap_or("CHIP");
+            .unwrap_or("CHIP")
+            .to_uppercase();
         let body_length = arguments
             .get("body_length")
             .and_then(Value::as_f64)
@@ -667,28 +717,58 @@ impl McpServer {
             .get("height")
             .and_then(Value::as_f64)
             .unwrap_or(0.55);
+        let pitch = arguments.get("pitch").and_then(Value::as_f64);
+        #[allow(clippy::cast_possible_truncation)]
         let pin_count = arguments
             .get("pin_count")
             .and_then(Value::as_u64)
-            .unwrap_or(2);
-        let density = arguments
+            .map_or(2, |v| v as u32);
+        let density_str = arguments
             .get("density")
             .and_then(Value::as_str)
             .unwrap_or("N");
+        let density = DensityLevel::from_str_loose(density_str).unwrap_or_default();
 
-        // Generate placeholder IPC name
-        // IPC naming uses dimensions in 0.01mm units (e.g., 1.6mm = 160)
-        // Values are always positive and small for PCB components
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let ipc_name = format!(
-            "{}{}X{}X{}-{}{}",
-            package_type.to_uppercase(),
-            (body_length * 100.0) as u32,
-            (body_width * 100.0) as u32,
-            (height * 100.0) as u32,
-            pin_count,
-            density.to_uppercase()
-        );
+        let ipc_name = match package_type.as_str() {
+            "CHIP" | "RESC" => naming::chip_name(body_length, body_width, height, density),
+            "CAPC" => naming::chip_capacitor_name(body_length, body_width, height, density),
+            "INDC" => naming::chip_inductor_name(body_length, body_width, height, density),
+            "MELF" => naming::melf_name(body_length, body_width, density),
+            "SOIC" | "SSOP" | "TSSOP" | "MSOP" => {
+                let p = pitch.unwrap_or(1.27);
+                naming::soic_name(&package_type, p, body_length, body_width, height, pin_count, density)
+            }
+            "QFP" | "LQFP" | "TQFP" => {
+                let p = pitch.unwrap_or(0.5);
+                naming::qfp_name(&package_type, p, body_length, body_width, height, pin_count, density)
+            }
+            "QFN" | "DFN" | "SON" => {
+                let p = pitch.unwrap_or(0.5);
+                let has_thermal = arguments
+                    .get("has_thermal_pad")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                naming::qfn_name(&package_type, p, body_length, body_width, height, pin_count, has_thermal, density)
+            }
+            "BGA" => {
+                let p = pitch.unwrap_or(0.5);
+                naming::bga_name(p, body_length, body_width, pin_count, density)
+            }
+            _ => {
+                // Generic fallback format
+                // Dimensions already validated as positive by JSON parsing
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let (l, w, h) = (
+                    (body_length * 100.0) as u32,
+                    (body_width * 100.0) as u32,
+                    (height * 100.0) as u32,
+                );
+                format!(
+                    "{}{}X{}X{}-{}{}",
+                    package_type, l, w, h, pin_count, density.suffix()
+                )
+            }
+        };
 
         let result = json!({
             "ipc_name": ipc_name,
@@ -698,9 +778,8 @@ impl McpServer {
                 "body_width_mm": body_width,
                 "height_mm": height,
                 "pin_count": pin_count,
-                "density_level": density
-            },
-            "note": "This is a simplified placeholder. Full IPC-7351B naming will be implemented."
+                "density_level": density.to_string()
+            }
         });
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
