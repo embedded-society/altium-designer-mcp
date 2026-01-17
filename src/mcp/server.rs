@@ -178,7 +178,6 @@ pub struct McpServer {
     /// Negotiated protocol version (set after initialisation).
     protocol_version: Option<String>,
     /// Allowed paths for library operations.
-    #[allow(dead_code)] // Will be used for path validation
     allowed_paths: Vec<PathBuf>,
 }
 
@@ -198,6 +197,49 @@ impl McpServer {
     #[must_use]
     pub const fn state(&self) -> ServerState {
         self.state
+    }
+
+    /// Validates that a path is within one of the allowed paths.
+    ///
+    /// Returns `Ok(())` if the path is allowed, or an error message if not.
+    fn validate_path(&self, filepath: &str) -> Result<(), String> {
+        use std::path::Path;
+
+        // If no allowed paths are configured, allow all paths (backwards compatibility)
+        if self.allowed_paths.is_empty() {
+            return Ok(());
+        }
+
+        let path = Path::new(filepath);
+
+        // Try to canonicalize the path. If it doesn't exist yet (for write operations),
+        // canonicalize the parent directory and append the filename.
+        let canonical_path = if path.exists() {
+            path.canonicalize()
+                .map_err(|e| format!("Failed to resolve path: {e}"))?
+        } else {
+            // For new files, check the parent directory
+            let parent = path.parent().ok_or_else(|| "Invalid path: no parent directory".to_string())?;
+            let filename = path.file_name().ok_or_else(|| "Invalid path: no filename".to_string())?;
+            let canonical_parent = parent
+                .canonicalize()
+                .map_err(|e| format!("Failed to resolve parent directory: {e}"))?;
+            canonical_parent.join(filename)
+        };
+
+        // Check if the path is within any of the allowed paths
+        for allowed in &self.allowed_paths {
+            let Ok(canonical_allowed) = allowed.canonicalize() else {
+                continue; // Skip non-existent allowed paths
+            };
+
+            if canonical_path.starts_with(&canonical_allowed) {
+                return Ok(());
+            }
+        }
+
+        // Path is not within any allowed path - return error without exposing internal paths
+        Err("Access denied: path is outside the configured allowed directories".to_string())
     }
 
     /// Runs the MCP server main loop with graceful shutdown handling.
@@ -733,13 +775,17 @@ impl McpServer {
     // ==================== Tool Handlers ====================
 
     /// Reads a `PcbLib` file and returns its contents.
-    #[allow(clippy::unused_self)]
     fn call_read_pcblib(&self, arguments: &Value) -> ToolCallResult {
         use crate::altium::PcbLib;
 
         let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
             return ToolCallResult::error("Missing required parameter: filepath");
         };
+
+        // Validate path is within allowed directories
+        if let Err(e) = self.validate_path(filepath) {
+            return ToolCallResult::error(e);
+        }
 
         match PcbLib::read(filepath) {
             Ok(library) => {
@@ -780,7 +826,7 @@ impl McpServer {
     }
 
     /// Writes footprints to a `PcbLib` file.
-    #[allow(clippy::unused_self, clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines)]
     fn call_write_pcblib(&self, arguments: &Value) -> ToolCallResult {
         use crate::altium::pcblib::{Footprint, Model3D, PcbLib};
 
@@ -788,9 +834,32 @@ impl McpServer {
             return ToolCallResult::error("Missing required parameter: filepath");
         };
 
+        // Validate path is within allowed directories
+        if let Err(e) = self.validate_path(filepath) {
+            return ToolCallResult::error(e);
+        }
+
         let Some(footprints_json) = arguments.get("footprints").and_then(Value::as_array) else {
             return ToolCallResult::error("Missing required parameter: footprints");
         };
+
+        // Collect and validate footprint names for duplicates
+        let new_names: Vec<&str> = footprints_json
+            .iter()
+            .filter_map(|fp| fp.get("name").and_then(Value::as_str))
+            .collect();
+
+        // Check for duplicates within the new footprints
+        {
+            let mut seen = std::collections::HashSet::new();
+            for name in &new_names {
+                if !seen.insert(*name) {
+                    return ToolCallResult::error(format!(
+                        "Duplicate footprint name in request: '{name}'"
+                    ));
+                }
+            }
+        }
 
         let append = arguments
             .get("append")
@@ -810,6 +879,19 @@ impl McpServer {
         } else {
             PcbLib::new()
         };
+
+        // Check for duplicates with existing footprints in append mode
+        if append {
+            let existing_names: std::collections::HashSet<_> =
+                library.names().into_iter().collect();
+            for name in &new_names {
+                if existing_names.contains(*name) {
+                    return ToolCallResult::error(format!(
+                        "Footprint '{name}' already exists in the library"
+                    ));
+                }
+            }
+        }
 
         for fp_json in footprints_json {
             let name = fp_json
@@ -917,13 +999,17 @@ impl McpServer {
     }
 
     /// Reads a `SchLib` file and returns its contents.
-    #[allow(clippy::unused_self)]
     fn call_read_schlib(&self, arguments: &Value) -> ToolCallResult {
         use crate::altium::SchLib;
 
         let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
             return ToolCallResult::error("Missing required parameter: filepath");
         };
+
+        // Validate path is within allowed directories
+        if let Err(e) = self.validate_path(filepath) {
+            return ToolCallResult::error(e);
+        }
 
         match SchLib::open(filepath) {
             Ok(library) => {
@@ -969,13 +1055,18 @@ impl McpServer {
     }
 
     /// Writes symbols to a `SchLib` file.
-    #[allow(clippy::unused_self, clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines)]
     fn call_write_schlib(&self, arguments: &Value) -> ToolCallResult {
         use crate::altium::schlib::{FootprintModel, SchLib, Symbol};
 
         let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
             return ToolCallResult::error("Missing required parameter: filepath");
         };
+
+        // Validate path is within allowed directories
+        if let Err(e) = self.validate_path(filepath) {
+            return ToolCallResult::error(e);
+        }
 
         let Some(symbols_json) = arguments.get("symbols").and_then(Value::as_array) else {
             return ToolCallResult::error("Missing required parameter: symbols");
@@ -1117,13 +1208,17 @@ impl McpServer {
     }
 
     /// Lists component names in a library file.
-    #[allow(clippy::unused_self)]
     fn call_list_components(&self, arguments: &Value) -> ToolCallResult {
         use crate::altium::{PcbLib, SchLib};
 
         let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
             return ToolCallResult::error("Missing required parameter: filepath");
         };
+
+        // Validate path is within allowed directories
+        if let Err(e) = self.validate_path(filepath) {
+            return ToolCallResult::error(e);
+        }
 
         // Try to determine file type from extension
         let path = std::path::Path::new(filepath);
@@ -1187,11 +1282,15 @@ impl McpServer {
     }
 
     /// Extracts style information from a library file.
-    #[allow(clippy::unused_self)]
     fn call_extract_style(&self, arguments: &Value) -> ToolCallResult {
         let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
             return ToolCallResult::error("Missing required parameter: filepath");
         };
+
+        // Validate path is within allowed directories
+        if let Err(e) = self.validate_path(filepath) {
+            return ToolCallResult::error(e);
+        }
 
         let path = std::path::Path::new(filepath);
         let extension = path

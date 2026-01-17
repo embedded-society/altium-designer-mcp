@@ -103,7 +103,9 @@ fn parse_text_record_from_string(symbol: &mut Symbol, text: &str) {
                 symbol.description.clone_from(desc);
             }
             if let Some(part_count) = props.get("partcount") {
-                symbol.part_count = part_count.trim().parse().unwrap_or(1);
+                // Altium stores part_count + 1, so we subtract 1 when reading
+                let raw_count: u32 = part_count.trim().parse().unwrap_or(2);
+                symbol.part_count = raw_count.saturating_sub(1).max(1);
             }
         }
         14 => {
