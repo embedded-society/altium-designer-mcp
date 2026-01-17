@@ -21,7 +21,7 @@ A clear and concise description of what you want to happen.
 Please consider:
 
 - [ ] Does this feature affect existing Altium file formats?
-- [ ] Is this feature compatible with IPC-7351B standards?
+- [ ] Does this feature change the primitive API (Pad, Track, Arc, etc.)?
 - [ ] Are there any backwards compatibility implications?
 
 If yes to any of these, please describe how compatibility would be maintained.
@@ -37,5 +37,5 @@ Add any other context, mockups, or examples about the feature request here.
 ## Checklist
 
 - [ ] I have searched for similar feature requests
-- [ ] This feature aligns with the project's IPC-7351B compliance goals
+- [ ] This feature aligns with the project's primitive-based file I/O goals
 - [ ] I am willing to help implement this feature (optional)

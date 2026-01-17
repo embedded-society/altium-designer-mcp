@@ -1,7 +1,7 @@
 //! altium-designer-mcp: MCP server for AI-assisted Altium Designer library management
 //!
-//! This tool allows AI assistants to create, read, and manage Altium Designer
-//! component libraries with full IPC-7351B compliance.
+//! This tool provides file I/O and primitive placement capabilities that enable
+//! AI assistants to create and manage Altium Designer component libraries.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -15,8 +15,8 @@ use altium_designer_mcp::mcp::server::McpServer;
 
 /// MCP server for AI-assisted Altium Designer library management.
 ///
-/// Enables AI assistants to create, read, and manage Altium Designer
-/// component libraries with IPC-7351B compliance.
+/// Provides file I/O and primitive placement tools that enable AI assistants
+/// to create and manage Altium Designer component libraries.
 #[derive(Parser, Debug)]
 #[command(name = "altium-designer-mcp")]
 #[command(author, version, about, long_about = None)]

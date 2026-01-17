@@ -18,7 +18,7 @@ Fixes #(issue number)
 
 ## Standards Checklist
 
-- [ ] Changes comply with IPC-7351B standards where applicable
+- [ ] Primitive types (Pad, Track, Arc, etc.) maintain backwards compatibility
 - [ ] Altium file format compatibility is maintained
 - [ ] No breaking changes to existing MCP tool interfaces
 

@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.75"
 license = "GPL-3.0-or-later"
-description = "MCP server for AI-assisted Altium Designer component library management with IPC-7351B compliance"
+description = "MCP server for AI-assisted Altium Designer component library management"
 repository = "https://github.com/embedded-society/altium-designer-mcp"
 readme = "README.md"
-keywords = ["mcp", "altium", "pcb", "eda", "ipc-7351b"]
+keywords = ["mcp", "altium", "pcb", "eda", "footprint"]
 categories = ["development-tools", "command-line-utilities"]
 authors = ["MatejGomboc"]
 

@@ -2,281 +2,510 @@
 
 This document explains how an AI assistant uses altium-designer-mcp to create Altium components.
 
+## Core Principle
+
+**The AI handles the intelligence. The tool handles the file I/O.**
+
+| Responsibility | Owner |
+|---------------|-------|
+| IPC-7351B calculations | AI |
+| Package layout decisions | AI |
+| Style choices | AI |
+| Datasheet interpretation | AI |
+| Reading/writing Altium files | This tool |
+| Primitive placement | This tool |
+
+---
+
 ## The Complete Workflow
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                        AI's Component Creation Workflow                     │
+│                    AI's Component Creation Workflow                         │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  1. DISCOVER TOOLS                                                          │
-│     AI calls: tools/list                                                    │
-│     Receives: Available MCP tools and their schemas                         │
+│  1. UNDERSTAND THE REQUEST                                                  │
+│     Engineer: "Create a 0603 chip resistor footprint"                       │
+│     AI reasons about the component requirements                             │
 │                                                                             │
-│  2. GET PACKAGE INFO                                                        │
-│     AI calls: list_package_types                                            │
-│     Receives: ["CHIP", "SOIC", "QFN", "QFP", "BGA", ...]                     │
+│  2. CALCULATE DIMENSIONS (AI's job)                                         │
+│     AI applies IPC-7351B formulas:                                          │
+│     • Body: 1.6mm × 0.8mm                                                   │
+│     • Terminal length: 0.3mm                                                │
+│     • Pad size = terminal + toe + heel                                      │
+│     • Courtyard = body + margins                                            │
 │                                                                             │
-│  3. CALCULATE FOOTPRINT                                                     │
-│     AI calls: calculate_footprint                                           │
-│       { package_type: "CHIP",                                               │
-│         body_length: 1.6, body_width: 0.8,                                  │
-│         terminal_length: 0.3, density: "N" }                                │
-│     Receives: { pads, courtyard, silkscreen, ipc_name }                     │
+│  3. DEFINE PRIMITIVES (AI's job)                                            │
+│     AI constructs the complete footprint:                                   │
+│     • Pads with exact positions and sizes                                   │
+│     • Silkscreen tracks                                                     │
+│     • Courtyard region                                                      │
+│     • Assembly outline                                                      │
 │                                                                             │
-│  4. CREATE COMPONENT (when implemented)                                     │
-│     AI calls: create_component                                              │
-│       { footprint: {...}, symbol: {...}, parameters: {...} }                │
-│     Receives: { success: true, component_name: "CHIP_0603_N" }              │
+│  4. WRITE TO FILE (Tool's job)                                              │
+│     AI calls: write_pcblib { filepath, footprints }                         │
+│     Tool writes the OLE compound document                                   │
 │                                                                             │
 │  5. VERIFY                                                                  │
-│     AI calls: validate_component { name: "CHIP_0603_N" }                    │
-│     Receives: { valid: true, warnings: [] }                                 │
+│     AI calls: read_pcblib to verify the result                              │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## Step-by-Step Example
+---
 
-### 1. List Available Package Types
+## Step-by-Step Example: Creating a 0603 Resistor
 
-**MCP Tool Call:**
+### 1. AI Calculates the Footprint
 
-```json
-{
-    "name": "list_package_types",
-    "arguments": {}
-}
+The AI applies IPC-7351B knowledge:
+
+```
+Component: 0603 Chip Resistor (1608 metric)
+Body: 1.6mm × 0.8mm × 0.55mm
+Terminal: 0.3mm
+
+IPC-7351B Calculations (Nominal density):
+- Toe extension: 0.35mm
+- Heel extension: 0.35mm
+- Side extension: 0.05mm
+
+Pad dimensions:
+- Width: 0.3 + 0.35 + 0.35 = 1.0mm (but typically 0.9mm)
+- Height: 0.8 + 2×0.05 = 0.9mm (but typically 0.95mm)
+- Span: 1.6 - 0.3 + 0.9 = 2.2mm (centre-to-centre: 1.5mm)
+
+IPC Name: RESC1608X55N
 ```
 
-**Response:**
+### 2. AI Constructs Primitives
 
 ```json
 {
-    "package_types": [
+    "name": "RESC1608X55N",
+    "description": "Chip resistor, 0603 (1608 metric), IPC-7351B Nominal",
+    "pads": [
         {
-            "name": "CHIP",
-            "description": "Chip resistors and capacitors (0201, 0402, 0603, etc.)",
-            "required_dimensions": ["body_length", "body_width", "terminal_length"]
+            "designator": "1",
+            "x": -0.75,
+            "y": 0,
+            "width": 0.9,
+            "height": 0.95,
+            "shape": "rounded_rectangle",
+            "layer": "Top Layer"
         },
         {
-            "name": "SOIC",
-            "description": "Small Outline IC packages",
-            "required_dimensions": ["body_length", "body_width", "pin_count", "pitch"]
+            "designator": "2",
+            "x": 0.75,
+            "y": 0,
+            "width": 0.9,
+            "height": 0.95,
+            "shape": "rounded_rectangle",
+            "layer": "Top Layer"
+        }
+    ],
+    "tracks": [
+        { "x1": -0.8, "y1": -0.55, "x2": 0.8, "y2": -0.55, "width": 0.12, "layer": "Top Overlay" },
+        { "x1": -0.8, "y1": 0.55, "x2": 0.8, "y2": 0.55, "width": 0.12, "layer": "Top Overlay" }
+    ],
+    "regions": [
+        {
+            "vertices": [
+                { "x": -1.45, "y": -0.73 },
+                { "x": 1.45, "y": -0.73 },
+                { "x": 1.45, "y": 0.73 },
+                { "x": -1.45, "y": 0.73 }
+            ],
+            "layer": "Mechanical 15"
         }
     ]
 }
 ```
 
-### 2. Calculate Footprint
+### 3. AI Calls write_pcblib
 
 **MCP Tool Call:**
 
 ```json
 {
-    "name": "calculate_footprint",
+    "name": "write_pcblib",
     "arguments": {
-        "package_type": "CHIP",
-        "body_length": 1.6,
-        "body_width": 0.8,
-        "terminal_length": 0.3,
-        "density_level": "N"
-    }
-}
-```
-
-**Response:**
-
-```json
-{
-    "ipc_name": "CHIP_0603_N",
-    "pads": [
-        { "number": "1", "x": -0.75, "y": 0, "width": 0.9, "height": 0.95 },
-        { "number": "2", "x": 0.75, "y": 0, "width": 0.9, "height": 0.95 }
-    ],
-    "courtyard": {
-        "x": 0, "y": 0,
-        "width": 2.4, "height": 1.2
-    },
-    "silkscreen": {
-        "lines": [
-            { "x1": -0.3, "y1": 0.6, "x2": 0.3, "y2": 0.6 },
-            { "x1": -0.3, "y1": -0.6, "x2": 0.3, "y2": -0.6 }
+        "filepath": "./Passives.PcbLib",
+        "footprints": [
+            {
+                "name": "RESC1608X55N",
+                "description": "Chip resistor, 0603 (1608 metric)",
+                "pads": [...],
+                "tracks": [...],
+                "regions": [...]
+            }
         ]
     }
 }
 ```
 
-### 3. Get IPC Name
+**Response:**
+
+```json
+{
+    "success": true,
+    "footprints_written": 1
+}
+```
+
+### 4. AI Verifies the Result
 
 **MCP Tool Call:**
 
 ```json
 {
-    "name": "get_ipc_name",
+    "name": "read_pcblib",
     "arguments": {
-        "package_type": "CHIP",
-        "body_length": 1.6,
-        "body_width": 0.8,
-        "density_level": "N"
+        "filepath": "./Passives.PcbLib"
     }
 }
 ```
 
-**Response:**
+---
+
+## Available MCP Tools
+
+### read_pcblib
+
+Read footprints from an existing library.
 
 ```json
 {
-    "ipc_name": "CHIP_0603_N",
-    "description": "IPC-7351B compliant name for 0603 chip component, Nominal density"
+    "name": "read_pcblib",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib"
+    }
 }
 ```
 
-## Working with Existing Libraries
+### write_pcblib
 
-### Extract Style from Existing Library
+Write footprints with complete primitive definitions.
+
+```json
+{
+    "name": "write_pcblib",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib",
+        "footprints": [...]
+    }
+}
+```
+
+### read_schlib
+
+Read symbols from an existing schematic library.
+
+```json
+{
+    "name": "read_schlib",
+    "arguments": {
+        "filepath": "./MyLibrary.SchLib"
+    }
+}
+```
+
+### write_schlib
+
+Write symbols with complete primitive definitions.
+
+```json
+{
+    "name": "write_schlib",
+    "arguments": {
+        "filepath": "./MyLibrary.SchLib",
+        "symbols": [...]
+    }
+}
+```
+
+### list_components
+
+List component names in a library.
+
+```json
+{
+    "name": "list_components",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib"
+    }
+}
+```
+
+### extract_style
+
+Extract styling information from an existing library.
 
 ```json
 {
     "name": "extract_style",
     "arguments": {
-        "library_path": "/path/to/existing/Library.PcbLib"
+        "filepath": "./MyLibrary.PcbLib"
     }
 }
 ```
 
-**Response:**
+Returns statistics about track widths, pad shapes, pin lengths, colours, and layer usage.
+
+---
+
+## Primitive Types
+
+The AI provides complete primitive definitions. The tool writes them.
+
+### Pad
 
 ```json
 {
-    "style": {
-        "silkscreen_line_width": 0.15,
-        "assembly_line_width": 0.10,
-        "pad_corner_radius_percent": 25,
-        "pin1_marker_style": "dot",
-        "courtyard_layer": "Mechanical 15",
-        "assembly_layer": "Mechanical 13"
-    }
+    "designator": "1",
+    "x": 0,
+    "y": 0,
+    "width": 1.0,
+    "height": 0.8,
+    "shape": "rounded_rectangle",
+    "layer": "Top Layer",
+    "hole_size": null,
+    "rotation": 0
 }
 ```
 
-### Apply Style to New Components
+### Track
 
 ```json
 {
-    "name": "apply_style",
-    "arguments": {
-        "style": { "silkscreen_line_width": 0.15 },
-        "components": ["CHIP_0603_N", "CHIP_0805_N"]
-    }
+    "x1": -1.0,
+    "y1": 0.5,
+    "x2": 1.0,
+    "y2": 0.5,
+    "width": 0.12,
+    "layer": "Top Overlay"
 }
 ```
+
+### Arc
+
+```json
+{
+    "x": 0,
+    "y": 0,
+    "radius": 0.5,
+    "start_angle": 0,
+    "end_angle": 360,
+    "width": 0.12,
+    "layer": "Top Overlay"
+}
+```
+
+### Region
+
+```json
+{
+    "vertices": [
+        { "x": -1, "y": -1 },
+        { "x": 1, "y": -1 },
+        { "x": 1, "y": 1 },
+        { "x": -1, "y": 1 }
+    ],
+    "layer": "Mechanical 15"
+}
+```
+
+### Text
+
+```json
+{
+    "x": 0,
+    "y": 1.5,
+    "text": ".Designator",
+    "height": 0.8,
+    "layer": "Top Overlay",
+    "rotation": 0
+}
+```
+
+---
+
+## Standard Altium Layers
+
+| Layer | Usage |
+|-------|-------|
+| Top Layer | SMD copper pads |
+| Multi-Layer | Through-hole pads (all copper layers) |
+| Top Overlay | Silkscreen |
+| Top Paste | Solder paste stencil |
+| Top Solder | Solder mask openings |
+| Mechanical 1 | Assembly outline |
+| Mechanical 13 | 3D body outline |
+| Mechanical 15 | Courtyard |
+
+---
 
 ## Batch Component Creation
 
-AI assistants can create multiple components efficiently:
+The AI can create entire libraries efficiently:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │ BATCH CREATION: 100 components in minutes                                   │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  User: "Create a resistor library with all standard sizes"                  │
+│  User: "Create a resistor library with all standard chip sizes"             │
 │                                                                             │
 │  AI:                                                                        │
-│    1. Get standard chip sizes: [0201, 0402, 0603, 0805, 1206, 2512]         │
-│    2. Get density levels: [M, N, L]                                         │
-│    3. For each size × density:                                              │
-│       - calculate_footprint(...)                                            │
-│       - create_component(...)                                               │
-│    4. validate_library(...)                                                 │
+│    1. List standard chip sizes: [0201, 0402, 0603, 0805, 1206, 2512]        │
+│    2. For each size:                                                        │
+│       - Look up body dimensions                                             │
+│       - Apply IPC-7351B formulas                                            │
+│       - Construct pad, track, region primitives                             │
+│    3. Call write_pcblib with all footprints                                 │
+│    4. Verify with read_pcblib                                               │
 │                                                                             │
-│  Result: 18 components created in ~2 minutes                                │
+│  Result: Complete resistor library created                                  │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+---
+
 ## Tips for AI Assistants
 
-### 1. Always Validate Dimensions
+### 1. Apply IPC-7351B Correctly
 
-Before calculating footprints, verify dimensions are reasonable:
+The AI is responsible for correct calculations:
+
+- Use appropriate density level (M/N/L) for the application
+- Calculate toe, heel, and side extensions
+- Determine courtyard margins
+- Generate correct IPC names
+
+### 2. Use Consistent Style
+
+When creating multiple components:
+
+- Use the same silkscreen line width (typically 0.12mm or 0.15mm)
+- Use the same courtyard margins
+- Place silkscreen outside the pads
+- Use consistent layer assignments
+
+### 3. Verify Dimensions
+
+Before calling write_pcblib:
 
 - Body length > terminal length
-- Width > 0
-- Reasonable metric sizes (typically 0.2mm to 50mm)
+- Pad width and height > 0
+- Courtyard encompasses all pads
+- Silkscreen doesn't overlap pads
 
-### 2. Use Appropriate Density Level
+### 4. Handle Through-Hole Components
 
-| Density | Use Case |
-|---------|----------|
-| M (Most) | Prototype boards, hand soldering |
-| N (Nominal) | Standard production |
-| L (Least) | High-density designs |
+For through-hole pads:
 
-### 3. Extract Style First
+- Set `layer` to "Multi-Layer"
+- Provide `hole_size` in mm
+- Pad size should be hole + annular ring
 
-When working with existing libraries:
-
-1. Extract style from a reference component
-2. Apply the same style to new components
-3. This ensures visual consistency
-
-### 4. Batch Similar Components
-
-Group similar components together:
-
-```
-All 0603 sizes → then all 0805 → etc.
-```
-
-This is faster than random order.
-
-### 5. Verify Before Committing
-
-Always run validation before finalising:
-
-```json
-{
-    "name": "validate_component",
-    "arguments": {
-        "component_name": "CHIP_0603_N",
-        "checks": ["ipc_compliance", "drc", "style"]
-    }
-}
-```
+---
 
 ## Error Handling
 
-### Invalid Dimensions
+### File Not Found
 
 ```json
 {
-    "error": {
-        "code": "INVALID_DIMENSIONS",
-        "message": "Terminal length (0.5mm) cannot exceed body length (0.4mm)"
-    }
+    "error": "Failed to read file: ./Missing.PcbLib"
 }
 ```
 
-### Unsupported Package Type
+### Invalid Primitive
 
 ```json
 {
-    "error": {
-        "code": "UNSUPPORTED_PACKAGE",
-        "message": "Package type 'CUSTOM' is not supported. Use list_package_types to see available types."
-    }
+    "error": "Invalid parameter 'width': must be positive"
 }
 ```
 
-### Library Write Error
+### Write Error
 
 ```json
 {
-    "error": {
-        "code": "WRITE_ERROR",
-        "message": "Cannot write to library: file is read-only"
-    }
+    "error": "Failed to write file: ./Library.PcbLib"
 }
 ```
+
+---
+
+## Why This Architecture?
+
+This design lets the AI create **any footprint** — not just pre-programmed package types.
+
+| Approach | Limitation |
+|----------|------------|
+| Calculator-based | Only supports coded package types |
+| Primitive-based | AI can create any footprint |
+
+The AI already knows IPC-7351B. The tool doesn't need to duplicate that knowledge.
+
+---
+
+## IPC Standards Reference
+
+When calculating footprints, the AI should apply these IPC standards:
+
+### Primary Standards
+
+| Standard | Description | Key Content |
+|----------|-------------|-------------|
+| **IPC-7351B** | Generic Requirements for Surface Mount Design and Land Pattern Standard | Pad dimensions, courtyard, naming conventions |
+| **IPC-2221** | Generic Standard on Printed Board Design | Through-hole annular rings, via sizing |
+| **IPC-2222** | Sectional Design Standard for Rigid Organic Printed Boards | Layer stackup, design rules |
+
+### IPC-7351B Quick Reference
+
+**Density Levels:**
+
+| Level | Code | Application |
+|-------|------|-------------|
+| Most (M) | N/A | High-density designs, fine-pitch |
+| Nominal (N) | N | Standard manufacturing |
+| Least (L) | N/A | Wave soldering, hand assembly |
+
+**Naming Convention:**
+
+```
+RESC1608X55N
+│   │    │ └── Density: N=Nominal, M=Most, L=Least
+│   │    └──── Height in 0.01mm (55 = 0.55mm)
+│   └───────── Body size in 0.01mm (1608 = 1.6mm x 0.8mm)
+└───────────── Package type (RESC = Chip Resistor)
+```
+
+**Common Package Codes:**
+
+| Code | Package Type |
+|------|-------------|
+| RESC | Chip Resistor |
+| CAPC | Chip Capacitor |
+| INDC | Chip Inductor |
+| DIOM | Molded Diode |
+| LEDC | Chip LED |
+| SOIC | Small Outline IC |
+| QFP | Quad Flat Package |
+| QFN | Quad Flat No-Lead |
+| BGA | Ball Grid Array |
+| SOT | Small Outline Transistor |
+
+### Official IPC Resources
+
+- **IPC Standards Store**: [shop.ipc.org](https://shop.ipc.org/)
+- **IPC-7351B LP Calculator**: [PCB Libraries Calculator](https://www.pcblibraries.com/Products/FPL_702-IPC7351LandPatternCalculator.asp)
+- **IPC-7351B Naming and Land Pattern Tool**: [PCB Libraries](https://www.pcblibraries.com/)
+
+### Additional References
+
+- **JEDEC Package Outlines**: [jedec.org/standards-documents](https://www.jedec.org/standards-documents)
+- **EIA/JEDEC Component Sizes**: Standard chip sizes (0201, 0402, 0603, etc.)

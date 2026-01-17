@@ -5,6 +5,11 @@
 //! 1. **Initialisation**: Capability negotiation and version agreement
 //! 2. **Operation**: Handling tool calls and other requests
 //! 3. **Shutdown**: Graceful connection termination
+//!
+//! # Architecture
+//!
+//! This server provides low-level file I/O and primitive placement tools.
+//! The AI handles the intelligence (IPC calculations, style decisions, etc.).
 
 use std::path::PathBuf;
 
@@ -173,6 +178,7 @@ pub struct McpServer {
     /// Negotiated protocol version (set after initialisation).
     protocol_version: Option<String>,
     /// Path to the component library directory.
+    #[allow(dead_code)] // Will be used when Altium file I/O is implemented
     library_path: PathBuf,
 }
 
@@ -403,9 +409,14 @@ impl McpServer {
             })?;
 
         let result = match params.name.as_str() {
-            "list_package_types" => self.call_list_package_types(),
-            "calculate_footprint" => self.call_calculate_footprint(&params.arguments),
-            "get_ipc_name" => self.call_get_ipc_name(&params.arguments),
+            // Library I/O tools
+            "read_pcblib" => self.call_read_pcblib(&params.arguments),
+            "write_pcblib" => self.call_write_pcblib(&params.arguments),
+            "read_schlib" => self.call_read_schlib(&params.arguments),
+            "write_schlib" => self.call_write_schlib(&params.arguments),
+            "list_components" => self.call_list_components(&params.arguments),
+            "extract_style" => self.call_extract_style(&params.arguments),
+            // Unknown tool
             _ => ToolCallResult::error(format!("Unknown tool: {}", params.name)),
         };
 
@@ -440,109 +451,280 @@ impl McpServer {
     }
 
     /// Returns the list of available tools.
+    ///
+    /// These are low-level file I/O and primitive placement tools.
+    /// The AI handles IPC calculations and design decisions.
     #[allow(clippy::too_many_lines)]
     fn get_tool_definitions() -> Vec<ToolDefinition> {
         vec![
-            // IPC-7351B Tools
+            // === Library Reading ===
             ToolDefinition {
-                name: "list_package_types".to_string(),
+                name: "read_pcblib".to_string(),
                 description: Some(
-                    "List all supported IPC-7351B package types with descriptions. \
-                     Use this to discover available package families before calculating footprints."
-                        .to_string(),
-                ),
-                input_schema: json!({
-                    "type": "object",
-                    "properties": {},
-                    "required": []
-                }),
-            },
-            ToolDefinition {
-                name: "calculate_footprint".to_string(),
-                description: Some(
-                    "Calculate IPC-7351B compliant land pattern from package dimensions. \
-                     Returns pad positions, sizes, courtyard, and silkscreen geometry."
+                    "Read an Altium .PcbLib file and return its contents including all footprints \
+                     with their primitives (pads, tracks, arcs, regions, text). Returns structured \
+                     data that can be used to understand existing footprint styles."
                         .to_string(),
                 ),
                 input_schema: json!({
                     "type": "object",
                     "properties": {
-                        "package_type": {
+                        "filepath": {
                             "type": "string",
-                            "description": "Package type: CHIP, SOIC, QFP, QFN, BGA, SOT, MELF"
-                        },
-                        "body_length": {
-                            "type": "number",
-                            "description": "Component body length in mm"
-                        },
-                        "body_width": {
-                            "type": "number",
-                            "description": "Component body width in mm"
-                        },
-                        "lead_span": {
-                            "type": "number",
-                            "description": "Lead span (toe-to-toe) in mm"
-                        },
-                        "lead_width": {
-                            "type": "number",
-                            "description": "Lead width in mm"
-                        },
-                        "pitch": {
-                            "type": "number",
-                            "description": "Lead pitch in mm (for multi-pin packages)"
-                        },
-                        "pin_count": {
-                            "type": "integer",
-                            "description": "Total pin count"
-                        },
-                        "density": {
-                            "type": "string",
-                            "description": "Density level: M (Most), N (Nominal), L (Least). Default: N"
+                            "description": "Path to the .PcbLib file"
                         }
                     },
-                    "required": ["package_type", "body_length", "body_width", "pin_count"]
+                    "required": ["filepath"]
                 }),
             },
             ToolDefinition {
-                name: "get_ipc_name".to_string(),
+                name: "read_schlib".to_string(),
                 description: Some(
-                    "Generate IPC-7351B compliant component name from package parameters. \
-                     Example: SOIC127P600X175-8N"
+                    "Read an Altium .SchLib file and return its contents including all symbols \
+                     with their primitives (pins, rectangles, lines, text)."
                         .to_string(),
                 ),
                 input_schema: json!({
                     "type": "object",
                     "properties": {
-                        "package_type": {
+                        "filepath": {
                             "type": "string",
-                            "description": "Package type: CHIP, SOIC, QFP, QFN, BGA, SOT"
-                        },
-                        "pitch": {
-                            "type": "number",
-                            "description": "Lead pitch in mm"
-                        },
-                        "body_length": {
-                            "type": "number",
-                            "description": "Body length in mm"
-                        },
-                        "body_width": {
-                            "type": "number",
-                            "description": "Body width in mm"
-                        },
-                        "height": {
-                            "type": "number",
-                            "description": "Component height in mm"
-                        },
-                        "pin_count": {
-                            "type": "integer",
-                            "description": "Total pin count"
-                        },
-                        "density": {
-                            "type": "string",
-                            "description": "Density level: M, N, or L. Default: N"
+                            "description": "Path to the .SchLib file"
                         }
                     },
-                    "required": ["package_type", "body_length", "body_width", "pin_count"]
+                    "required": ["filepath"]
+                }),
+            },
+            ToolDefinition {
+                name: "list_components".to_string(),
+                description: Some(
+                    "List all component/footprint names in an Altium library file (.PcbLib or .SchLib)."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepath": {
+                            "type": "string",
+                            "description": "Path to the library file"
+                        }
+                    },
+                    "required": ["filepath"]
+                }),
+            },
+            // === Style Extraction ===
+            ToolDefinition {
+                name: "extract_style".to_string(),
+                description: Some(
+                    "Extract style information from an existing Altium library file. Returns \
+                     statistics about track widths, colors, pin lengths, layer usage, and other \
+                     styling parameters. Use this to learn from existing libraries and create \
+                     consistent new components."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepath": {
+                            "type": "string",
+                            "description": "Path to the .PcbLib or .SchLib file"
+                        }
+                    },
+                    "required": ["filepath"]
+                }),
+            },
+            // === Library Writing ===
+            ToolDefinition {
+                name: "write_pcblib".to_string(),
+                description: Some(
+                    "Write footprints to an Altium .PcbLib file. Each footprint is defined by \
+                     its primitives: pads (with position, size, shape, layer), tracks, arcs, \
+                     regions, and text. The AI is responsible for calculating correct positions \
+                     and sizes based on IPC-7351B or other standards."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepath": {
+                            "type": "string",
+                            "description": "Path to the .PcbLib file to create/modify"
+                        },
+                        "footprints": {
+                            "type": "array",
+                            "description": "Array of footprint definitions",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {
+                                        "type": "string",
+                                        "description": "Footprint name (e.g., 'RESC1608X55N')"
+                                    },
+                                    "description": {
+                                        "type": "string",
+                                        "description": "Footprint description"
+                                    },
+                                    "pads": {
+                                        "type": "array",
+                                        "description": "Pad definitions",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "designator": { "type": "string" },
+                                                "x": { "type": "number", "description": "X position in mm" },
+                                                "y": { "type": "number", "description": "Y position in mm" },
+                                                "width": { "type": "number", "description": "Pad width in mm" },
+                                                "height": { "type": "number", "description": "Pad height in mm" },
+                                                "shape": { "type": "string", "enum": ["rectangle", "rounded_rectangle", "circle"] },
+                                                "layer": { "type": "string", "description": "Layer name (default: multi-layer for SMD)" },
+                                                "hole_size": { "type": "number", "description": "Hole diameter for through-hole pads (mm)" }
+                                            },
+                                            "required": ["designator", "x", "y", "width", "height"]
+                                        }
+                                    },
+                                    "tracks": {
+                                        "type": "array",
+                                        "description": "Track/line definitions for silkscreen, assembly, etc.",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "x1": { "type": "number" },
+                                                "y1": { "type": "number" },
+                                                "x2": { "type": "number" },
+                                                "y2": { "type": "number" },
+                                                "width": { "type": "number", "description": "Line width in mm" },
+                                                "layer": { "type": "string", "description": "Layer name (e.g., 'Top Overlay', 'Mechanical 1')" }
+                                            },
+                                            "required": ["x1", "y1", "x2", "y2", "width", "layer"]
+                                        }
+                                    },
+                                    "arcs": {
+                                        "type": "array",
+                                        "description": "Arc definitions",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "x": { "type": "number", "description": "Center X" },
+                                                "y": { "type": "number", "description": "Center Y" },
+                                                "radius": { "type": "number" },
+                                                "start_angle": { "type": "number", "description": "Start angle in degrees" },
+                                                "end_angle": { "type": "number", "description": "End angle in degrees" },
+                                                "width": { "type": "number", "description": "Line width in mm" },
+                                                "layer": { "type": "string" }
+                                            },
+                                            "required": ["x", "y", "radius", "start_angle", "end_angle", "width", "layer"]
+                                        }
+                                    },
+                                    "regions": {
+                                        "type": "array",
+                                        "description": "Filled region definitions (courtyard, etc.)",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "vertices": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "x": { "type": "number" },
+                                                            "y": { "type": "number" }
+                                                        }
+                                                    }
+                                                },
+                                                "layer": { "type": "string" }
+                                            },
+                                            "required": ["vertices", "layer"]
+                                        }
+                                    },
+                                    "text": {
+                                        "type": "array",
+                                        "description": "Text/string definitions",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "x": { "type": "number" },
+                                                "y": { "type": "number" },
+                                                "text": { "type": "string" },
+                                                "height": { "type": "number", "description": "Text height in mm" },
+                                                "layer": { "type": "string" },
+                                                "rotation": { "type": "number", "description": "Rotation in degrees" }
+                                            },
+                                            "required": ["x", "y", "text", "height", "layer"]
+                                        }
+                                    },
+                                    "step_model": {
+                                        "type": "object",
+                                        "description": "Optional STEP 3D model attachment",
+                                        "properties": {
+                                            "filepath": { "type": "string", "description": "Path to .step file" },
+                                            "x_offset": { "type": "number" },
+                                            "y_offset": { "type": "number" },
+                                            "z_offset": { "type": "number" },
+                                            "rotation": { "type": "number", "description": "Z rotation in degrees" }
+                                        },
+                                        "required": ["filepath"]
+                                    }
+                                },
+                                "required": ["name", "pads"]
+                            }
+                        },
+                        "append": {
+                            "type": "boolean",
+                            "description": "If true, append to existing file; if false, create new file"
+                        }
+                    },
+                    "required": ["filepath", "footprints"]
+                }),
+            },
+            ToolDefinition {
+                name: "write_schlib".to_string(),
+                description: Some(
+                    "Write schematic symbols to an Altium .SchLib file. Each symbol is defined by \
+                     its primitives: pins, rectangles, lines, polylines, arcs, ellipses, and labels."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepath": {
+                            "type": "string",
+                            "description": "Path to the .SchLib file to create/modify"
+                        },
+                        "symbols": {
+                            "type": "array",
+                            "description": "Array of symbol definitions",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": { "type": "string" },
+                                    "description": { "type": "string" },
+                                    "designator_prefix": { "type": "string", "description": "e.g., 'R' for resistors, 'U' for ICs" },
+                                    "pins": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "designator": { "type": "string" },
+                                                "name": { "type": "string" },
+                                                "x": { "type": "number" },
+                                                "y": { "type": "number" },
+                                                "length": { "type": "number" },
+                                                "orientation": { "type": "string", "enum": ["left", "right", "up", "down"] },
+                                                "electrical_type": { "type": "string", "enum": ["input", "output", "bidirectional", "passive", "power"] }
+                                            },
+                                            "required": ["designator", "name", "x", "y", "length", "orientation"]
+                                        }
+                                    },
+                                    "rectangles": { "type": "array" },
+                                    "lines": { "type": "array" },
+                                    "text": { "type": "array" }
+                                },
+                                "required": ["name", "pins"]
+                            }
+                        },
+                        "append": { "type": "boolean" }
+                    },
+                    "required": ["filepath", "symbols"]
                 }),
             },
         ]
@@ -550,160 +732,1143 @@ impl McpServer {
 
     // ==================== Tool Handlers ====================
 
-    /// Lists supported IPC-7351B package types.
+    /// Reads a `PcbLib` file and returns its contents.
     #[allow(clippy::unused_self)]
-    fn call_list_package_types(&self) -> ToolCallResult {
-        let package_types = json!({
-            "package_types": [
-                {
-                    "type": "CHIP",
-                    "description": "Chip resistors, capacitors, inductors (0201, 0402, 0603, 0805, 1206, etc.)",
-                    "examples": ["0201", "0402", "0603", "0805", "1206", "1210", "2512"]
-                },
-                {
-                    "type": "SOIC",
-                    "description": "Small Outline Integrated Circuit",
-                    "variants": ["SOIC", "SSOP", "TSSOP", "MSOP"]
-                },
-                {
-                    "type": "QFP",
-                    "description": "Quad Flat Package",
-                    "variants": ["QFP", "LQFP", "TQFP"]
-                },
-                {
-                    "type": "QFN",
-                    "description": "Quad Flat No-Lead package",
-                    "variants": ["QFN", "DFN", "SON", "VSON"]
-                },
-                {
-                    "type": "BGA",
-                    "description": "Ball Grid Array",
-                    "variants": ["BGA", "CSP", "WLCSP"]
-                },
-                {
-                    "type": "SOT",
-                    "description": "Small Outline Transistor",
-                    "variants": ["SOT-23", "SOT-223", "SOT-363", "SOT-23-5", "SOT-23-6"]
-                },
-                {
-                    "type": "MELF",
-                    "description": "Metal Electrode Leadless Face",
-                    "examples": ["MiniMELF", "MELF", "SOD-80"]
-                },
-                {
-                    "type": "SMA",
-                    "description": "Surface Mount Assembly diodes",
-                    "variants": ["SMA", "SMB", "SMC", "SOD-123", "SOD-323"]
-                }
-            ],
-            "density_levels": {
-                "M": "Most (largest pads, maximum solder fillet)",
-                "N": "Nominal (standard density, recommended for most applications)",
-                "L": "Least (smallest pads, minimum solder fillet, for high-density boards)"
+    fn call_read_pcblib(&self, arguments: &Value) -> ToolCallResult {
+        use crate::altium::PcbLib;
+
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        match PcbLib::read(filepath) {
+            Ok(library) => {
+                let footprints: Vec<_> = library
+                    .footprints()
+                    .map(|fp| {
+                        json!({
+                            "name": fp.name,
+                            "description": fp.description,
+                            "pads": fp.pads,
+                            "tracks": fp.tracks,
+                            "arcs": fp.arcs,
+                            "regions": fp.regions,
+                            "text": fp.text,
+                            "model_3d": fp.model_3d,
+                        })
+                    })
+                    .collect();
+
+                let result = json!({
+                    "status": "success",
+                    "filepath": filepath,
+                    "footprint_count": library.len(),
+                    "footprints": footprints,
+                });
+
+                ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
             }
-        });
-
-        ToolCallResult::text(serde_json::to_string_pretty(&package_types).unwrap())
+            Err(e) => {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": e.to_string(),
+                });
+                ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
+            }
+        }
     }
 
-    /// Calculates IPC-7351B compliant footprint (placeholder).
-    fn call_calculate_footprint(&self, arguments: &Value) -> ToolCallResult {
-        // TODO: Implement actual IPC-7351B calculations
-        let package_type = arguments
-            .get("package_type")
-            .and_then(Value::as_str)
-            .unwrap_or("CHIP");
-        let body_length = arguments
-            .get("body_length")
-            .and_then(Value::as_f64)
-            .unwrap_or(1.6);
-        let body_width = arguments
-            .get("body_width")
-            .and_then(Value::as_f64)
-            .unwrap_or(0.8);
-        let pin_count = arguments
-            .get("pin_count")
-            .and_then(Value::as_u64)
-            .unwrap_or(2);
-        let density = arguments
-            .get("density")
-            .and_then(Value::as_str)
-            .unwrap_or("N");
-
-        let result = json!({
-            "status": "placeholder",
-            "message": "IPC-7351B calculation not yet implemented",
-            "input": {
-                "package_type": package_type,
-                "body_length": body_length,
-                "body_width": body_width,
-                "pin_count": pin_count,
-                "density": density
-            },
-            "library_path": self.library_path.display().to_string(),
-            "note": "This is a placeholder response. Full IPC-7351B calculations will be implemented in future versions."
-        });
-
-        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
-    }
-
-    /// Generates IPC-7351B compliant name (placeholder).
+    /// Writes footprints to a `PcbLib` file.
     #[allow(clippy::unused_self)]
-    fn call_get_ipc_name(&self, arguments: &Value) -> ToolCallResult {
-        // TODO: Implement actual IPC naming convention
-        let package_type = arguments
-            .get("package_type")
-            .and_then(Value::as_str)
-            .unwrap_or("CHIP");
-        let body_length = arguments
-            .get("body_length")
-            .and_then(Value::as_f64)
-            .unwrap_or(1.6);
-        let body_width = arguments
-            .get("body_width")
-            .and_then(Value::as_f64)
-            .unwrap_or(0.8);
-        let height = arguments
-            .get("height")
-            .and_then(Value::as_f64)
-            .unwrap_or(0.55);
-        let pin_count = arguments
-            .get("pin_count")
-            .and_then(Value::as_u64)
-            .unwrap_or(2);
-        let density = arguments
-            .get("density")
-            .and_then(Value::as_str)
-            .unwrap_or("N");
+    fn call_write_pcblib(&self, arguments: &Value) -> ToolCallResult {
+        use crate::altium::pcblib::{Footprint, Model3D, PcbLib};
 
-        // Generate placeholder IPC name
-        // IPC naming uses dimensions in 0.01mm units (e.g., 1.6mm = 160)
-        // Values are always positive and small for PCB components
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let ipc_name = format!(
-            "{}{}X{}X{}-{}{}",
-            package_type.to_uppercase(),
-            (body_length * 100.0) as u32,
-            (body_width * 100.0) as u32,
-            (height * 100.0) as u32,
-            pin_count,
-            density.to_uppercase()
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        let Some(footprints_json) = arguments.get("footprints").and_then(Value::as_array) else {
+            return ToolCallResult::error("Missing required parameter: footprints");
+        };
+
+        let mut library = PcbLib::new();
+
+        for fp_json in footprints_json {
+            let name = fp_json
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("Unnamed");
+            let mut footprint = Footprint::new(name);
+
+            if let Some(desc) = fp_json.get("description").and_then(Value::as_str) {
+                footprint.description = desc.to_string();
+            }
+
+            // Parse pads
+            if let Some(pads) = fp_json.get("pads").and_then(Value::as_array) {
+                for pad_json in pads {
+                    if let Some(pad) = Self::parse_pad(pad_json) {
+                        footprint.add_pad(pad);
+                    }
+                }
+            }
+
+            // Parse tracks
+            if let Some(tracks) = fp_json.get("tracks").and_then(Value::as_array) {
+                for track_json in tracks {
+                    if let Some(track) = Self::parse_track(track_json) {
+                        footprint.add_track(track);
+                    }
+                }
+            }
+
+            // Parse arcs
+            if let Some(arcs) = fp_json.get("arcs").and_then(Value::as_array) {
+                for arc_json in arcs {
+                    if let Some(arc) = Self::parse_arc(arc_json) {
+                        footprint.add_arc(arc);
+                    }
+                }
+            }
+
+            // Parse regions
+            if let Some(regions) = fp_json.get("regions").and_then(Value::as_array) {
+                for region_json in regions {
+                    if let Some(region) = Self::parse_region(region_json) {
+                        footprint.add_region(region);
+                    }
+                }
+            }
+
+            // Parse text
+            if let Some(texts) = fp_json.get("text").and_then(Value::as_array) {
+                for text_json in texts {
+                    if let Some(text) = Self::parse_text(text_json) {
+                        footprint.add_text(text);
+                    }
+                }
+            }
+
+            // Parse 3D model
+            if let Some(model_json) = fp_json.get("step_model") {
+                if let Some(model_path) = model_json.get("filepath").and_then(Value::as_str) {
+                    footprint.model_3d = Some(Model3D {
+                        filepath: model_path.to_string(),
+                        x_offset: model_json
+                            .get("x_offset")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(0.0),
+                        y_offset: model_json
+                            .get("y_offset")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(0.0),
+                        z_offset: model_json
+                            .get("z_offset")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(0.0),
+                        rotation: model_json
+                            .get("rotation")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(0.0),
+                    });
+                }
+            }
+
+            library.add(footprint);
+        }
+
+        match library.write(filepath) {
+            Ok(()) => {
+                let result = json!({
+                    "status": "success",
+                    "filepath": filepath,
+                    "footprint_count": library.len(),
+                    "footprint_names": library.names(),
+                });
+                ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+            }
+            Err(e) => {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": e.to_string(),
+                });
+                ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
+            }
+        }
+    }
+
+    /// Reads a `SchLib` file and returns its contents.
+    #[allow(clippy::unused_self)]
+    fn call_read_schlib(&self, arguments: &Value) -> ToolCallResult {
+        use crate::altium::SchLib;
+
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        match SchLib::open(filepath) {
+            Ok(library) => {
+                let symbols: Vec<_> = library
+                    .iter()
+                    .map(|(name, symbol)| {
+                        json!({
+                            "name": name,
+                            "description": symbol.description,
+                            "designator": symbol.designator,
+                            "part_count": symbol.part_count,
+                            "pins": symbol.pins,
+                            "rectangles": symbol.rectangles,
+                            "lines": symbol.lines,
+                            "polylines": symbol.polylines,
+                            "arcs": symbol.arcs,
+                            "ellipses": symbol.ellipses,
+                            "labels": symbol.labels,
+                            "parameters": symbol.parameters,
+                            "footprints": symbol.footprints,
+                        })
+                    })
+                    .collect();
+
+                let result = json!({
+                    "status": "success",
+                    "filepath": filepath,
+                    "symbol_count": library.len(),
+                    "symbols": symbols,
+                });
+
+                ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+            }
+            Err(e) => {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": e.to_string(),
+                });
+                ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
+            }
+        }
+    }
+
+    /// Writes symbols to a `SchLib` file.
+    #[allow(clippy::unused_self, clippy::too_many_lines)]
+    fn call_write_schlib(&self, arguments: &Value) -> ToolCallResult {
+        use crate::altium::schlib::{FootprintModel, SchLib, Symbol};
+
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        let Some(symbols_json) = arguments.get("symbols").and_then(Value::as_array) else {
+            return ToolCallResult::error("Missing required parameter: symbols");
+        };
+
+        let mut library = SchLib::new();
+
+        for sym_json in symbols_json {
+            let name = sym_json
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("Unnamed");
+            let mut symbol = Symbol::new(name);
+
+            if let Some(desc) = sym_json.get("description").and_then(Value::as_str) {
+                symbol.description = desc.to_string();
+            }
+
+            if let Some(desig) = sym_json.get("designator_prefix").and_then(Value::as_str) {
+                symbol.designator = format!("{desig}?");
+            }
+
+            // Parse pins
+            if let Some(pins) = sym_json.get("pins").and_then(Value::as_array) {
+                for pin_json in pins {
+                    if let Some(pin) = Self::parse_schlib_pin(pin_json) {
+                        symbol.add_pin(pin);
+                    }
+                }
+            }
+
+            // Parse rectangles
+            if let Some(rects) = sym_json.get("rectangles").and_then(Value::as_array) {
+                for rect_json in rects {
+                    if let Some(rect) = Self::parse_schlib_rectangle(rect_json) {
+                        symbol.add_rectangle(rect);
+                    }
+                }
+            }
+
+            // Parse lines
+            if let Some(lines) = sym_json.get("lines").and_then(Value::as_array) {
+                for line_json in lines {
+                    if let Some(line) = Self::parse_schlib_line(line_json) {
+                        symbol.add_line(line);
+                    }
+                }
+            }
+
+            // Parse polylines
+            if let Some(polylines) = sym_json.get("polylines").and_then(Value::as_array) {
+                for polyline_json in polylines {
+                    if let Some(polyline) = Self::parse_schlib_polyline(polyline_json) {
+                        symbol.add_polyline(polyline);
+                    }
+                }
+            }
+
+            // Parse arcs
+            if let Some(arcs) = sym_json.get("arcs").and_then(Value::as_array) {
+                for arc_json in arcs {
+                    if let Some(arc) = Self::parse_schlib_arc(arc_json) {
+                        symbol.add_arc(arc);
+                    }
+                }
+            }
+
+            // Parse ellipses
+            if let Some(ellipses) = sym_json.get("ellipses").and_then(Value::as_array) {
+                for ellipse_json in ellipses {
+                    if let Some(ellipse) = Self::parse_schlib_ellipse(ellipse_json) {
+                        symbol.add_ellipse(ellipse);
+                    }
+                }
+            }
+
+            // Parse parameters
+            if let Some(params) = sym_json.get("parameters").and_then(Value::as_array) {
+                for param_json in params {
+                    if let Some(param) = Self::parse_schlib_parameter(param_json) {
+                        symbol.add_parameter(param);
+                    }
+                }
+            }
+
+            // Parse footprint references
+            if let Some(footprints) = sym_json.get("footprints").and_then(Value::as_array) {
+                for fp_json in footprints {
+                    if let Some(fp_name) = fp_json.get("name").and_then(Value::as_str) {
+                        let mut fp = FootprintModel::new(fp_name);
+                        if let Some(desc) = fp_json.get("description").and_then(Value::as_str) {
+                            fp.description = desc.to_string();
+                        }
+                        symbol.add_footprint(fp);
+                    }
+                }
+            }
+
+            library.add_symbol(symbol);
+        }
+
+        match library.save(filepath) {
+            Ok(()) => {
+                let symbol_names: Vec<_> = library.iter().map(|(name, _)| name.clone()).collect();
+                let result = json!({
+                    "status": "success",
+                    "filepath": filepath,
+                    "symbol_count": library.len(),
+                    "symbol_names": symbol_names,
+                });
+                ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+            }
+            Err(e) => {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": e.to_string(),
+                });
+                ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
+            }
+        }
+    }
+
+    /// Lists component names in a library file.
+    #[allow(clippy::unused_self)]
+    fn call_list_components(&self, arguments: &Value) -> ToolCallResult {
+        use crate::altium::{PcbLib, SchLib};
+
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        // Try to determine file type from extension
+        let path = std::path::Path::new(filepath);
+        let extension = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_lowercase);
+
+        match extension.as_deref() {
+            Some("pcblib") => match PcbLib::read(filepath) {
+                Ok(library) => {
+                    let result = json!({
+                        "status": "success",
+                        "filepath": filepath,
+                        "file_type": "PcbLib",
+                        "component_count": library.len(),
+                        "components": library.names(),
+                    });
+                    ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+                }
+                Err(e) => {
+                    let result = json!({
+                        "status": "error",
+                        "filepath": filepath,
+                        "error": e.to_string(),
+                    });
+                    ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
+                }
+            },
+            Some("schlib") => match SchLib::open(filepath) {
+                Ok(library) => {
+                    let symbol_names: Vec<_> =
+                        library.iter().map(|(name, _)| name.clone()).collect();
+                    let result = json!({
+                        "status": "success",
+                        "filepath": filepath,
+                        "file_type": "SchLib",
+                        "component_count": library.len(),
+                        "components": symbol_names,
+                    });
+                    ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+                }
+                Err(e) => {
+                    let result = json!({
+                        "status": "error",
+                        "filepath": filepath,
+                        "error": e.to_string(),
+                    });
+                    ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
+                }
+            },
+            _ => {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": "Unknown file type. Expected .PcbLib or .SchLib extension.",
+                });
+                ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
+            }
+        }
+    }
+
+    /// Extracts style information from a library file.
+    #[allow(clippy::unused_self)]
+    fn call_extract_style(&self, arguments: &Value) -> ToolCallResult {
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        let path = std::path::Path::new(filepath);
+        let extension = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_lowercase);
+
+        match extension.as_deref() {
+            Some("pcblib") => Self::extract_pcblib_style(filepath),
+            Some("schlib") => Self::extract_schlib_style(filepath),
+            _ => {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": "Unknown file type. Expected .PcbLib or .SchLib extension.",
+                });
+                ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
+            }
+        }
+    }
+
+    /// Extracts style from a `PcbLib` file.
+    fn extract_pcblib_style(filepath: &str) -> ToolCallResult {
+        use crate::altium::PcbLib;
+        use std::collections::HashMap;
+
+        match PcbLib::read(filepath) {
+            Ok(library) => {
+                // Track widths by layer
+                let mut track_widths: HashMap<String, Vec<f64>> = HashMap::new();
+                // Pad shapes count
+                let mut pad_shapes: HashMap<String, usize> = HashMap::new();
+                // Text heights
+                let mut text_heights: Vec<f64> = Vec::new();
+                // Layers used
+                let mut layers_used: HashMap<String, usize> = HashMap::new();
+
+                for fp in library.footprints() {
+                    // Analyze tracks
+                    for track in &fp.tracks {
+                        let layer_name = track.layer.as_str().to_string();
+                        track_widths
+                            .entry(layer_name.clone())
+                            .or_default()
+                            .push(track.width);
+                        *layers_used.entry(layer_name).or_insert(0) += 1;
+                    }
+
+                    // Analyze pads
+                    for pad in &fp.pads {
+                        let shape_name = format!("{:?}", pad.shape);
+                        *pad_shapes.entry(shape_name).or_insert(0) += 1;
+                        let layer_name = pad.layer.as_str().to_string();
+                        *layers_used.entry(layer_name).or_insert(0) += 1;
+                    }
+
+                    // Analyze text
+                    for text in &fp.text {
+                        text_heights.push(text.height);
+                        let layer_name = text.layer.as_str().to_string();
+                        *layers_used.entry(layer_name).or_insert(0) += 1;
+                    }
+
+                    // Analyze regions
+                    for region in &fp.regions {
+                        let layer_name = region.layer.as_str().to_string();
+                        *layers_used.entry(layer_name).or_insert(0) += 1;
+                    }
+                }
+
+                // Calculate statistics for track widths
+                #[allow(clippy::cast_precision_loss)]
+                let track_width_stats: HashMap<String, Value> = track_widths
+                    .into_iter()
+                    .map(|(layer, widths)| {
+                        let min = widths.iter().copied().fold(f64::INFINITY, f64::min);
+                        let max = widths.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                        let avg = widths.iter().sum::<f64>() / widths.len() as f64;
+                        let most_common = Self::most_common_f64(&widths);
+                        (
+                            layer,
+                            json!({
+                                "min_mm": min,
+                                "max_mm": max,
+                                "avg_mm": avg,
+                                "most_common_mm": most_common,
+                                "count": widths.len()
+                            }),
+                        )
+                    })
+                    .collect();
+
+                // Calculate text height stats
+                let text_height_stats = if text_heights.is_empty() {
+                    json!(null)
+                } else {
+                    let min = text_heights.iter().copied().fold(f64::INFINITY, f64::min);
+                    let max = text_heights
+                        .iter()
+                        .copied()
+                        .fold(f64::NEG_INFINITY, f64::max);
+                    let most_common = Self::most_common_f64(&text_heights);
+                    json!({
+                        "min_mm": min,
+                        "max_mm": max,
+                        "most_common_mm": most_common,
+                        "count": text_heights.len()
+                    })
+                };
+
+                let result = json!({
+                    "status": "success",
+                    "filepath": filepath,
+                    "file_type": "PcbLib",
+                    "footprint_count": library.len(),
+                    "style": {
+                        "track_widths_by_layer": track_width_stats,
+                        "pad_shapes": pad_shapes,
+                        "text_heights": text_height_stats,
+                        "layers_used": layers_used
+                    }
+                });
+
+                ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+            }
+            Err(e) => {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": e.to_string(),
+                });
+                ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
+            }
+        }
+    }
+
+    /// Extracts style from a `SchLib` file.
+    fn extract_schlib_style(filepath: &str) -> ToolCallResult {
+        use crate::altium::SchLib;
+        use std::collections::HashMap;
+
+        match SchLib::open(filepath) {
+            Ok(library) => {
+                // Line widths
+                let mut line_widths: Vec<u8> = Vec::new();
+                // Pin lengths
+                let mut pin_lengths: Vec<i32> = Vec::new();
+                // Colors used
+                let mut line_colors: HashMap<String, usize> = HashMap::new();
+                let mut fill_colors: HashMap<String, usize> = HashMap::new();
+                // Rectangle stats
+                let mut rect_filled_count = 0usize;
+                let mut rect_unfilled_count = 0usize;
+
+                for (_name, symbol) in library.iter() {
+                    // Analyze pins
+                    for pin in &symbol.pins {
+                        pin_lengths.push(pin.length);
+                    }
+
+                    // Analyze rectangles
+                    for rect in &symbol.rectangles {
+                        line_widths.push(rect.line_width);
+                        let line_color = format!("#{:06X}", rect.line_color);
+                        let fill_color = format!("#{:06X}", rect.fill_color);
+                        *line_colors.entry(line_color).or_insert(0) += 1;
+                        *fill_colors.entry(fill_color).or_insert(0) += 1;
+                        if rect.filled {
+                            rect_filled_count += 1;
+                        } else {
+                            rect_unfilled_count += 1;
+                        }
+                    }
+
+                    // Analyze lines
+                    for line in &symbol.lines {
+                        line_widths.push(line.line_width);
+                        let color = format!("#{:06X}", line.color);
+                        *line_colors.entry(color).or_insert(0) += 1;
+                    }
+                }
+
+                // Calculate stats
+                let pin_length_stats = if pin_lengths.is_empty() {
+                    json!(null)
+                } else {
+                    let min = *pin_lengths.iter().min().unwrap();
+                    let max = *pin_lengths.iter().max().unwrap();
+                    let most_common = Self::most_common_i32(&pin_lengths);
+                    json!({
+                        "min_units": min,
+                        "max_units": max,
+                        "most_common_units": most_common,
+                        "count": pin_lengths.len()
+                    })
+                };
+
+                let line_width_stats = if line_widths.is_empty() {
+                    json!(null)
+                } else {
+                    let min = *line_widths.iter().min().unwrap();
+                    let max = *line_widths.iter().max().unwrap();
+                    let most_common = Self::most_common_u8(&line_widths);
+                    json!({
+                        "min": min,
+                        "max": max,
+                        "most_common": most_common,
+                        "count": line_widths.len()
+                    })
+                };
+
+                let result = json!({
+                    "status": "success",
+                    "filepath": filepath,
+                    "file_type": "SchLib",
+                    "symbol_count": library.len(),
+                    "style": {
+                        "pin_lengths": pin_length_stats,
+                        "line_widths": line_width_stats,
+                        "line_colors": line_colors,
+                        "fill_colors": fill_colors,
+                        "rectangles": {
+                            "filled_count": rect_filled_count,
+                            "unfilled_count": rect_unfilled_count
+                        }
+                    }
+                });
+
+                ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+            }
+            Err(e) => {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": e.to_string(),
+                });
+                ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
+            }
+        }
+    }
+
+    /// Finds the most common value in a slice of f64, rounded to 2 decimal places.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+    fn most_common_f64(values: &[f64]) -> f64 {
+        use std::collections::HashMap;
+        let mut counts: HashMap<i64, usize> = HashMap::new();
+        for &v in values {
+            // Round to 2 decimal places for grouping
+            let key = (v * 100.0).round() as i64;
+            *counts.entry(key).or_insert(0) += 1;
+        }
+        counts
+            .into_iter()
+            .max_by_key(|(_, count)| *count)
+            .map_or(0.0, |(key, _)| key as f64 / 100.0)
+    }
+
+    /// Finds the most common value in a slice of i32.
+    fn most_common_i32(values: &[i32]) -> i32 {
+        use std::collections::HashMap;
+        let mut counts: HashMap<i32, usize> = HashMap::new();
+        for &v in values {
+            *counts.entry(v).or_insert(0) += 1;
+        }
+        counts
+            .into_iter()
+            .max_by_key(|(_, count)| *count)
+            .map_or(0, |(key, _)| key)
+    }
+
+    /// Finds the most common value in a slice of u8.
+    fn most_common_u8(values: &[u8]) -> u8 {
+        use std::collections::HashMap;
+        let mut counts: HashMap<u8, usize> = HashMap::new();
+        for &v in values {
+            *counts.entry(v).or_insert(0) += 1;
+        }
+        counts
+            .into_iter()
+            .max_by_key(|(_, count)| *count)
+            .map_or(0, |(key, _)| key)
+    }
+
+    // ==================== Primitive Parsing Helpers ====================
+
+    /// Parses a pad from JSON.
+    fn parse_pad(json: &Value) -> Option<crate::altium::pcblib::Pad> {
+        use crate::altium::pcblib::{Layer, Pad, PadShape};
+
+        let designator = json.get("designator").and_then(Value::as_str)?;
+        let x = json.get("x").and_then(Value::as_f64)?;
+        let y = json.get("y").and_then(Value::as_f64)?;
+        let width = json.get("width").and_then(Value::as_f64)?;
+        let height = json.get("height").and_then(Value::as_f64)?;
+
+        let shape = json.get("shape").and_then(Value::as_str).map_or(
+            PadShape::RoundedRectangle,
+            |s| match s {
+                "rectangle" => PadShape::Rectangle,
+                "round" | "circle" => PadShape::Round,
+                "oval" => PadShape::Oval,
+                _ => PadShape::RoundedRectangle, // includes "rounded_rectangle"
+            },
         );
 
-        let result = json!({
-            "ipc_name": ipc_name,
-            "components": {
-                "package_type": package_type,
-                "body_length_mm": body_length,
-                "body_width_mm": body_width,
-                "height_mm": height,
-                "pin_count": pin_count,
-                "density_level": density
-            },
-            "note": "This is a simplified placeholder. Full IPC-7351B naming will be implemented."
-        });
+        let layer = json
+            .get("layer")
+            .and_then(Value::as_str)
+            .and_then(Layer::parse)
+            .unwrap_or(Layer::MultiLayer);
 
-        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+        let hole_size = json.get("hole_size").and_then(Value::as_f64);
+        let rotation = json.get("rotation").and_then(Value::as_f64).unwrap_or(0.0);
+
+        Some(Pad {
+            designator: designator.to_string(),
+            x,
+            y,
+            width,
+            height,
+            shape,
+            layer,
+            hole_size,
+            rotation,
+        })
+    }
+
+    /// Parses a track from JSON.
+    fn parse_track(json: &Value) -> Option<crate::altium::pcblib::Track> {
+        use crate::altium::pcblib::{Layer, Track};
+
+        let x1 = json.get("x1").and_then(Value::as_f64)?;
+        let y1 = json.get("y1").and_then(Value::as_f64)?;
+        let x2 = json.get("x2").and_then(Value::as_f64)?;
+        let y2 = json.get("y2").and_then(Value::as_f64)?;
+        let width = json.get("width").and_then(Value::as_f64)?;
+        let layer = json
+            .get("layer")
+            .and_then(Value::as_str)
+            .and_then(Layer::parse)
+            .unwrap_or(Layer::TopOverlay);
+
+        Some(Track::new(x1, y1, x2, y2, width, layer))
+    }
+
+    /// Parses an arc from JSON.
+    fn parse_arc(json: &Value) -> Option<crate::altium::pcblib::Arc> {
+        use crate::altium::pcblib::{Arc, Layer};
+
+        let x = json.get("x").and_then(Value::as_f64)?;
+        let y = json.get("y").and_then(Value::as_f64)?;
+        let radius = json.get("radius").and_then(Value::as_f64)?;
+        let start_angle = json.get("start_angle").and_then(Value::as_f64)?;
+        let end_angle = json.get("end_angle").and_then(Value::as_f64)?;
+        let width = json.get("width").and_then(Value::as_f64)?;
+        let layer = json
+            .get("layer")
+            .and_then(Value::as_str)
+            .and_then(Layer::parse)
+            .unwrap_or(Layer::TopOverlay);
+
+        Some(Arc {
+            x,
+            y,
+            radius,
+            start_angle,
+            end_angle,
+            width,
+            layer,
+        })
+    }
+
+    /// Parses a region from JSON.
+    fn parse_region(json: &Value) -> Option<crate::altium::pcblib::Region> {
+        use crate::altium::pcblib::{Layer, Region, Vertex};
+
+        let vertices_json = json.get("vertices").and_then(Value::as_array)?;
+        let layer = json
+            .get("layer")
+            .and_then(Value::as_str)
+            .and_then(Layer::parse)
+            .unwrap_or(Layer::Mechanical15);
+
+        let vertices: Vec<Vertex> = vertices_json
+            .iter()
+            .filter_map(|v| {
+                let x = v.get("x").and_then(Value::as_f64)?;
+                let y = v.get("y").and_then(Value::as_f64)?;
+                Some(Vertex { x, y })
+            })
+            .collect();
+
+        if vertices.len() < 3 {
+            return None; // Need at least 3 vertices for a polygon
+        }
+
+        Some(Region { vertices, layer })
+    }
+
+    /// Parses text from JSON.
+    fn parse_text(json: &Value) -> Option<crate::altium::pcblib::Text> {
+        use crate::altium::pcblib::{Layer, Text};
+
+        let x = json.get("x").and_then(Value::as_f64)?;
+        let y = json.get("y").and_then(Value::as_f64)?;
+        let text = json.get("text").and_then(Value::as_str)?;
+        let height = json.get("height").and_then(Value::as_f64)?;
+        let layer = json
+            .get("layer")
+            .and_then(Value::as_str)
+            .and_then(Layer::parse)
+            .unwrap_or(Layer::TopOverlay);
+        let rotation = json.get("rotation").and_then(Value::as_f64).unwrap_or(0.0);
+
+        Some(Text {
+            x,
+            y,
+            text: text.to_string(),
+            height,
+            layer,
+            rotation,
+        })
+    }
+
+    // ==================== SchLib Primitive Parsing Helpers ====================
+
+    /// Parses a schematic pin from JSON.
+    #[allow(clippy::cast_possible_truncation)]
+    fn parse_schlib_pin(json: &Value) -> Option<crate::altium::schlib::Pin> {
+        use crate::altium::schlib::{Pin, PinElectricalType, PinOrientation};
+
+        let designator = json.get("designator").and_then(Value::as_str)?;
+        let name = json
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or(designator);
+        let x = json.get("x").and_then(Value::as_i64)? as i32;
+        let y = json.get("y").and_then(Value::as_i64)? as i32;
+        let length = json.get("length").and_then(Value::as_i64).unwrap_or(10) as i32;
+
+        let orientation =
+            json.get("orientation")
+                .and_then(Value::as_str)
+                .map_or(PinOrientation::Right, |s| match s.to_lowercase().as_str() {
+                    "left" => PinOrientation::Left,
+                    "up" => PinOrientation::Up,
+                    "down" => PinOrientation::Down,
+                    _ => PinOrientation::Right,
+                });
+
+        let electrical_type = json.get("electrical_type").and_then(Value::as_str).map_or(
+            PinElectricalType::Passive,
+            |s| match s.to_lowercase().as_str() {
+                "input" => PinElectricalType::Input,
+                "output" => PinElectricalType::Output,
+                "bidirectional" | "io" | "input_output" => PinElectricalType::InputOutput,
+                "power" => PinElectricalType::Power,
+                "open_collector" => PinElectricalType::OpenCollector,
+                "open_emitter" => PinElectricalType::OpenEmitter,
+                "hiz" | "hi_z" | "tristate" => PinElectricalType::HiZ,
+                _ => PinElectricalType::Passive,
+            },
+        );
+
+        let hidden = json.get("hidden").and_then(Value::as_bool).unwrap_or(false);
+        let show_name = json
+            .get("show_name")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        let show_designator = json
+            .get("show_designator")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        let owner_part_id = json
+            .get("owner_part_id")
+            .and_then(Value::as_i64)
+            .unwrap_or(1) as i32;
+
+        Some(Pin {
+            name: name.to_string(),
+            designator: designator.to_string(),
+            x,
+            y,
+            length,
+            orientation,
+            electrical_type,
+            hidden,
+            show_name,
+            show_designator,
+            description: String::new(),
+            owner_part_id,
+        })
+    }
+
+    /// Parses a schematic rectangle from JSON.
+    #[allow(clippy::cast_possible_truncation)]
+    fn parse_schlib_rectangle(json: &Value) -> Option<crate::altium::schlib::Rectangle> {
+        use crate::altium::schlib::Rectangle;
+
+        let x1 = json.get("x1").and_then(Value::as_i64)? as i32;
+        let y1 = json.get("y1").and_then(Value::as_i64)? as i32;
+        let x2 = json.get("x2").and_then(Value::as_i64)? as i32;
+        let y2 = json.get("y2").and_then(Value::as_i64)? as i32;
+
+        let line_width = json.get("line_width").and_then(Value::as_u64).unwrap_or(1) as u8;
+        let line_color = json
+            .get("line_color")
+            .and_then(Value::as_u64)
+            .unwrap_or(0x00_00_80) as u32;
+        let fill_color = json
+            .get("fill_color")
+            .and_then(Value::as_u64)
+            .unwrap_or(0xFF_FF_B0) as u32;
+        let filled = json.get("filled").and_then(Value::as_bool).unwrap_or(true);
+        let owner_part_id = json
+            .get("owner_part_id")
+            .and_then(Value::as_i64)
+            .unwrap_or(1) as i32;
+
+        Some(Rectangle {
+            x1,
+            y1,
+            x2,
+            y2,
+            line_width,
+            line_color,
+            fill_color,
+            filled,
+            owner_part_id,
+        })
+    }
+
+    /// Parses a schematic line from JSON.
+    #[allow(clippy::cast_possible_truncation)]
+    fn parse_schlib_line(json: &Value) -> Option<crate::altium::schlib::Line> {
+        use crate::altium::schlib::Line;
+
+        let x1 = json.get("x1").and_then(Value::as_i64)? as i32;
+        let y1 = json.get("y1").and_then(Value::as_i64)? as i32;
+        let x2 = json.get("x2").and_then(Value::as_i64)? as i32;
+        let y2 = json.get("y2").and_then(Value::as_i64)? as i32;
+
+        let line_width = json.get("line_width").and_then(Value::as_u64).unwrap_or(1) as u8;
+        let color = json
+            .get("color")
+            .and_then(Value::as_u64)
+            .unwrap_or(0x00_00_80) as u32;
+        let owner_part_id = json
+            .get("owner_part_id")
+            .and_then(Value::as_i64)
+            .unwrap_or(1) as i32;
+
+        Some(Line {
+            x1,
+            y1,
+            x2,
+            y2,
+            line_width,
+            color,
+            owner_part_id,
+        })
+    }
+
+    /// Parses a schematic parameter from JSON.
+    #[allow(clippy::cast_possible_truncation)]
+    fn parse_schlib_parameter(json: &Value) -> Option<crate::altium::schlib::Parameter> {
+        use crate::altium::schlib::Parameter;
+
+        let name = json.get("name").and_then(Value::as_str)?;
+        let value = json
+            .get("value")
+            .and_then(Value::as_str)
+            .unwrap_or("*")
+            .to_string();
+
+        let x = json.get("x").and_then(Value::as_i64).unwrap_or(0) as i32;
+        let y = json.get("y").and_then(Value::as_i64).unwrap_or(0) as i32;
+        let font_id = json.get("font_id").and_then(Value::as_u64).unwrap_or(1) as u8;
+        let color = json
+            .get("color")
+            .and_then(Value::as_u64)
+            .unwrap_or(0x80_00_00) as u32;
+        let hidden = json.get("hidden").and_then(Value::as_bool).unwrap_or(false);
+        let owner_part_id = json
+            .get("owner_part_id")
+            .and_then(Value::as_i64)
+            .unwrap_or(1) as i32;
+
+        Some(Parameter {
+            name: name.to_string(),
+            value,
+            x,
+            y,
+            font_id,
+            color,
+            hidden,
+            owner_part_id,
+        })
+    }
+
+    /// Parses a schematic polyline from JSON.
+    #[allow(clippy::cast_possible_truncation)]
+    fn parse_schlib_polyline(json: &Value) -> Option<crate::altium::schlib::Polyline> {
+        use crate::altium::schlib::Polyline;
+
+        let points_json = json.get("points").and_then(Value::as_array)?;
+        let points: Vec<(i32, i32)> = points_json
+            .iter()
+            .filter_map(|p| {
+                let x = p.get("x").and_then(Value::as_i64)? as i32;
+                let y = p.get("y").and_then(Value::as_i64)? as i32;
+                Some((x, y))
+            })
+            .collect();
+
+        if points.len() < 2 {
+            return None; // Need at least 2 points for a polyline
+        }
+
+        let line_width = json.get("line_width").and_then(Value::as_u64).unwrap_or(1) as u8;
+        let color = json
+            .get("color")
+            .and_then(Value::as_u64)
+            .unwrap_or(0x00_00_80) as u32;
+        let owner_part_id = json
+            .get("owner_part_id")
+            .and_then(Value::as_i64)
+            .unwrap_or(1) as i32;
+
+        Some(Polyline {
+            points,
+            line_width,
+            color,
+            owner_part_id,
+        })
+    }
+
+    /// Parses a schematic arc from JSON.
+    #[allow(clippy::cast_possible_truncation)]
+    fn parse_schlib_arc(json: &Value) -> Option<crate::altium::schlib::Arc> {
+        use crate::altium::schlib::Arc;
+
+        let x = json.get("x").and_then(Value::as_i64)? as i32;
+        let y = json.get("y").and_then(Value::as_i64)? as i32;
+        let radius = json.get("radius").and_then(Value::as_i64)? as i32;
+        let start_angle = json
+            .get("start_angle")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0);
+        let end_angle = json
+            .get("end_angle")
+            .and_then(Value::as_f64)
+            .unwrap_or(360.0);
+        let line_width = json.get("line_width").and_then(Value::as_u64).unwrap_or(1) as u8;
+        let color = json
+            .get("color")
+            .and_then(Value::as_u64)
+            .unwrap_or(0x00_00_80) as u32;
+        let owner_part_id = json
+            .get("owner_part_id")
+            .and_then(Value::as_i64)
+            .unwrap_or(1) as i32;
+
+        Some(Arc {
+            x,
+            y,
+            radius,
+            start_angle,
+            end_angle,
+            line_width,
+            color,
+            owner_part_id,
+        })
+    }
+
+    /// Parses a schematic ellipse from JSON.
+    #[allow(clippy::cast_possible_truncation)]
+    fn parse_schlib_ellipse(json: &Value) -> Option<crate::altium::schlib::Ellipse> {
+        use crate::altium::schlib::Ellipse;
+
+        let x = json.get("x").and_then(Value::as_i64)? as i32;
+        let y = json.get("y").and_then(Value::as_i64)? as i32;
+        let radius_x = json.get("radius_x").and_then(Value::as_i64)? as i32;
+        let radius_y = json.get("radius_y").and_then(Value::as_i64)? as i32;
+
+        let line_width = json.get("line_width").and_then(Value::as_u64).unwrap_or(1) as u8;
+        let line_color = json
+            .get("line_color")
+            .and_then(Value::as_u64)
+            .unwrap_or(0x00_00_80) as u32;
+        let fill_color = json
+            .get("fill_color")
+            .and_then(Value::as_u64)
+            .unwrap_or(0xFF_FF_B0) as u32;
+        let filled = json.get("filled").and_then(Value::as_bool).unwrap_or(true);
+        let owner_part_id = json
+            .get("owner_part_id")
+            .and_then(Value::as_i64)
+            .unwrap_or(1) as i32;
+
+        Some(Ellipse {
+            x,
+            y,
+            radius_x,
+            radius_y,
+            line_width,
+            line_color,
+            fill_color,
+            filled,
+            owner_part_id,
+        })
     }
 }
 
