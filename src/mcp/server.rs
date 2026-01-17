@@ -1677,7 +1677,9 @@ impl McpServer {
     /// Validates that a coordinate is within the safe range for Altium internal units.
     fn validate_coordinate(value: f64, field_name: &str) -> Result<(), String> {
         if !value.is_finite() {
-            return Err(format!("{field_name} must be a finite number, got: {value}"));
+            return Err(format!(
+                "{field_name} must be a finite number, got: {value}"
+            ));
         }
         if value.abs() > Self::MAX_COORDINATE_MM {
             return Err(format!(
@@ -1757,22 +1759,35 @@ impl McpServer {
     }
 
     /// Validates all coordinates in a symbol before writing.
-    fn validate_symbol_coordinates(
-        symbol: &crate::altium::schlib::Symbol,
-    ) -> Result<(), String> {
+    fn validate_symbol_coordinates(symbol: &crate::altium::schlib::Symbol) -> Result<(), String> {
         let name = &symbol.name;
 
         for (i, pin) in symbol.pins.iter().enumerate() {
             Self::validate_schlib_coordinate(pin.x, &format!("Symbol '{name}' pin {i} x"))?;
             Self::validate_schlib_coordinate(pin.y, &format!("Symbol '{name}' pin {i} y"))?;
-            Self::validate_schlib_coordinate(pin.length, &format!("Symbol '{name}' pin {i} length"))?;
+            Self::validate_schlib_coordinate(
+                pin.length,
+                &format!("Symbol '{name}' pin {i} length"),
+            )?;
         }
 
         for (i, rect) in symbol.rectangles.iter().enumerate() {
-            Self::validate_schlib_coordinate(rect.x1, &format!("Symbol '{name}' rectangle {i} x1"))?;
-            Self::validate_schlib_coordinate(rect.y1, &format!("Symbol '{name}' rectangle {i} y1"))?;
-            Self::validate_schlib_coordinate(rect.x2, &format!("Symbol '{name}' rectangle {i} x2"))?;
-            Self::validate_schlib_coordinate(rect.y2, &format!("Symbol '{name}' rectangle {i} y2"))?;
+            Self::validate_schlib_coordinate(
+                rect.x1,
+                &format!("Symbol '{name}' rectangle {i} x1"),
+            )?;
+            Self::validate_schlib_coordinate(
+                rect.y1,
+                &format!("Symbol '{name}' rectangle {i} y1"),
+            )?;
+            Self::validate_schlib_coordinate(
+                rect.x2,
+                &format!("Symbol '{name}' rectangle {i} x2"),
+            )?;
+            Self::validate_schlib_coordinate(
+                rect.y2,
+                &format!("Symbol '{name}' rectangle {i} y2"),
+            )?;
         }
 
         for (i, line) in symbol.lines.iter().enumerate() {
@@ -1798,7 +1813,10 @@ impl McpServer {
         for (i, arc) in symbol.arcs.iter().enumerate() {
             Self::validate_schlib_coordinate(arc.x, &format!("Symbol '{name}' arc {i} x"))?;
             Self::validate_schlib_coordinate(arc.y, &format!("Symbol '{name}' arc {i} y"))?;
-            Self::validate_schlib_coordinate(arc.radius, &format!("Symbol '{name}' arc {i} radius"))?;
+            Self::validate_schlib_coordinate(
+                arc.radius,
+                &format!("Symbol '{name}' arc {i} radius"),
+            )?;
         }
 
         for (i, ellipse) in symbol.ellipses.iter().enumerate() {
