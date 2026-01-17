@@ -6,11 +6,14 @@
 
 ## Executive Summary
 
-**altium-designer-mcp** is an open-source Rust implementation of a Model Context Protocol (MCP) server that enables AI assistants (Claude Code, Claude Desktop, VSCode Copilot) to create, read, and manage Altium Designer component libraries with full IPC-7351B compliance.
+**altium-designer-mcp** is an open-source Rust implementation of a Model Context Protocol
+(MCP) server that enables AI assistants (Claude Code, Claude Desktop, VSCode Copilot) to
+create, read, and manage Altium Designer component libraries with full IPC-7351B compliance.
 
 ### The Problem
 
 Creating a single IPC-compliant Altium component manually takes **~1 hour**:
+
 - Hunt through datasheets for package dimensions
 - Look up IPC-7351B tables and calculate land patterns
 - Manually place pads, silkscreen, courtyard in Altium
@@ -29,6 +32,7 @@ Creating a single IPC-compliant Altium component manually takes **~1 hour**:
 ### The Solution
 
 A single Rust binary that:
+
 1. **Reads existing Altium libraries** to learn your style preferences
 2. **Calculates IPC-7351B compliant footprints** from package dimensions
 3. **Generates complete components** (footprint + symbol + parameters)
@@ -114,7 +118,7 @@ altium-designer-mcp/
 │   │
 │   ├── style/                   # Style extraction & application
 │   │   ├── mod.rs
-│   │   ├── extractor.rs         # Analyze existing libraries
+│   │   ├── extractor.rs         # Analyse existing libraries
 │   │   ├── guide.rs             # StyleGuide struct definition
 │   │   └── applicator.rs        # Apply style to new components
 │   │
@@ -179,7 +183,7 @@ async fn get_component(filepath: String, component_name: String) -> ComponentDet
 ### Category 2: Style Management
 
 ```rust
-/// Analyze an existing library and extract style preferences
+/// Analyse an existing library and extract style preferences
 #[tool(name = "extract_style_guide")]
 async fn extract_style_guide(filepath: String) -> StyleGuide;
 
@@ -462,6 +466,7 @@ my-altium-library/
 ```
 
 **Benefits:**
+
 - Clone repo → everything works
 - Team shares same config via git
 - Config changes tracked with library
@@ -504,33 +509,40 @@ Create `.vscode/mcp.json` in your workspace:
 This project builds upon the excellent work of others:
 
 ### AltiumSharp (C# / .NET)
-- **Repository**: https://github.com/issus/AltiumSharp
+
+- **Repository**: <https://github.com/issus/AltiumSharp>
 - **Author**: issus, Tiago Trinidad (@Kronal)
 - **License**: MIT
-- **Contribution**: Understanding of Altium binary file formats, OLE structure, read/write implementations
+- **Contribution**: Understanding of Altium binary file formats, OLE structure,
+  read/write implementations
 - **Usage**: File format specifications and parsing logic will be ported to Rust
 
 ### pyAltiumLib (Python)
-- **Repository**: https://github.com/ChrisHoyer/pyAltiumLib
+
+- **Repository**: <https://github.com/ChrisHoyer/pyAltiumLib>
 - **Author**: Chris Hoyer
 - **Contribution**: File structure documentation, rendering logic
 - **Usage**: Reference for file format documentation
 
 ### python-altium
-- **Repository**: https://github.com/vadmium/python-altium
+
+- **Repository**: <https://github.com/vadmium/python-altium>
 - **Author**: vadmium
 - **Contribution**: Detailed format.md documentation of Altium file structures
 - **Usage**: Primary reference for ASCII and binary format specifications
 
 ### KiCad MCP Server
-- **Repository**: https://github.com/mixelpixx/KiCAD-MCP-Server
+
+- **Repository**: <https://github.com/mixelpixx/KiCAD-MCP-Server>
 - **Author**: mixelpixx
 - **Contribution**: Proof of concept that EDA + MCP integration works and is valuable
 - **Usage**: Architectural inspiration for tool organization
 
 ### IPC-7351B Standard
+
 - **Publisher**: IPC (Institute for Printed Circuits)
-- **Document**: IPC-7351B - Generic Requirements for Surface Mount Design and Land Pattern Standard
+- **Document**: IPC-7351B - Generic Requirements for Surface Mount Design and
+  Land Pattern Standard
 - **Usage**: All land pattern calculations follow this standard
 
 ---
@@ -541,20 +553,24 @@ This project builds upon the excellent work of others:
 
 ### Why GPLv3?
 
-1. **Prevent monetization** - No one can take this code and sell it as proprietary software
-2. **Ensure contributions flow back** - Any improvements must be shared with the community
+1. **Prevent monetization** - No one can take this code and sell it as proprietary
+   software
+2. **Ensure contributions flow back** - Any improvements must be shared with the
+   community
 3. **Protect engineer users** - The tool remains free and open forever
 4. **Encourage collaboration** - Companies can use it, but must share improvements
 
 ### What GPLv3 Means For Users
 
 **You CAN:**
+
 - Use this tool for any purpose (personal, commercial, educational)
 - Modify the code to suit your needs
 - Distribute copies
 - Use generated libraries in proprietary products (libraries are data, not code)
 
 **You CANNOT:**
+
 - Distribute modified versions without sharing source code
 - Create proprietary forks
 - Remove license notices
@@ -575,7 +591,9 @@ This project builds upon the excellent work of others:
 
 #### 1. Altium File Format Writing (CRITICAL RISK)
 
-Reading Altium files is well-documented. **Writing files that Altium reliably accepts is harder:**
+Reading Altium files is well-documented. **Writing files that Altium reliably accepts
+is harder:**
+
 - Undocumented fields may need specific values
 - Version-specific quirks
 - Internal consistency requirements (checksums, offsets, reference counts)
@@ -622,6 +640,7 @@ Phase 2: Native File I/O (if Phase 1 succeeds)
 **Timeline: ~1 year**
 
 ### Phase 1: Foundation (Months 1-2)
+
 - [ ] Project scaffold with Cargo workspace
 - [ ] Basic MCP server with rmcp SDK
 - [ ] IPC-7351B calculator for chip components (0201-2512)
@@ -629,6 +648,7 @@ Phase 2: Native File I/O (if Phase 1 succeeds)
 - [ ] Unit tests for calculations
 
 ### Phase 2: Altium File I/O (Months 3-5)
+
 - [ ] OLE compound document parser
 - [ ] PcbLib reader (footprint extraction)
 - [ ] PcbLib writer (footprint creation)
@@ -638,12 +658,14 @@ Phase 2: Native File I/O (if Phase 1 succeeds)
 - [ ] ASCII format support as fallback
 
 ### Phase 3: Style System (Month 6)
+
 - [ ] Style extractor from existing libraries
 - [ ] StyleGuide JSON serialization
 - [ ] Style applicator for new components
 - [ ] Silkscreen, courtyard, assembly layer handling
 
 ### Phase 4: Package Types (Months 7-8)
+
 - [ ] SOIC, SSOP, TSSOP, MSOP
 - [ ] QFP, LQFP, TQFP
 - [ ] QFN, DFN, SON (with thermal pad)
@@ -652,6 +674,7 @@ Phase 2: Native File I/O (if Phase 1 succeeds)
 - [ ] Discrete (MELF, SOD, SMA/SMB/SMC)
 
 ### Phase 5: Database System (Month 9)
+
 - [ ] CSV schema definition
 - [ ] CRUD operations
 - [ ] DbLib XML generator
@@ -659,12 +682,14 @@ Phase 2: Native File I/O (if Phase 1 succeeds)
 - [ ] Validation and reporting
 
 ### Phase 6: Symbol Generation (Month 10)
+
 - [ ] Passive templates (R, C, L)
 - [ ] Semiconductor templates (D, Q, U)
 - [ ] IC pin layout algorithms
 - [ ] Multi-part symbol support
 
 ### Phase 7: Polish & Release (Months 11-12)
+
 - [ ] Documentation
 - [ ] Example libraries
 - [ ] CI/CD pipeline
@@ -674,6 +699,7 @@ Phase 2: Native File I/O (if Phase 1 succeeds)
 - [ ] Real-world testing with users
 
 ### Future Enhancements
+
 - [ ] 3D model generation (STEP via CadQuery/Rust)
 - [ ] Octopart/Digi-Key API integration
 - [ ] Datasheet dimension extraction (PDF parsing)
@@ -782,11 +808,12 @@ Claude:   [Analyzing BOM...]
 ## Contributing
 
 Areas needing help:
+
 - Additional package type implementations
 - Testing with real Altium libraries
 - Documentation improvements
 - Windows/Mac testing
-- Performance optimization
+- Performance optimisation
 
 ---
 

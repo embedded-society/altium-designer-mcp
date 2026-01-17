@@ -22,12 +22,28 @@ VS Code also displays a ruler at 170 characters (configured in `.vscode/settings
 
 ---
 
+## Language
+
+Use **British English** in all documentation and user-facing text.
+
+See `CONTRIBUTING.md` § British Spelling for the full spelling guide.
+
+**Exceptions:**
+
+- Code identifiers matching Rust/library conventions (e.g., `Color` in external APIs)
+- Protocol-defined terms (e.g., `initialize` in MCP specification)
+- Standard file names (e.g., `LICENSE` if required by tooling)
+- External legal documents (e.g., GPL licence text)
+
+---
+
 ## Single Source of Truth
 
 Avoid duplicating information across files. Each piece of information should have one canonical location.
 
 | Information | Canonical Source |
 |-------------|------------------|
+| British spelling | `CONTRIBUTING.md` § British Spelling |
 | Build commands | `CONTRIBUTING.md` § Development Setup |
 | Coding standards | `CONTRIBUTING.md` § Coding Standards |
 | Commit conventions | `CONTRIBUTING.md` § Commit Messages |
@@ -225,4 +241,4 @@ See `CONTRIBUTING.md` § Commit Messages for conventions and allowed types.
 
 ---
 
-*Last updated: 2025-01-17*
+*Last updated: 2026-01-17*
