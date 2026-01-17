@@ -26,6 +26,13 @@ This means the AI can create **any footprint** — not just pre-programmed packa
 
 ---
 
+## Quick Start with Claude Code
+
+> **[Claude Code Setup Guide](docs/CLAUDE_CODE_GUIDE.md)** — Complete step-by-step instructions
+> for using this MCP server with Claude Code CLI on **Windows**, **Linux**, and **macOS**.
+
+---
+
 ## How It Works
 
 ```text
