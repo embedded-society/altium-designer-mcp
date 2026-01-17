@@ -42,6 +42,22 @@ pub use primitives::{Arc, Layer, Model3D, Pad, PadShape, Region, Text, Track, Ve
 
 use crate::altium::error::{AltiumError, AltiumResult};
 
+/// Internal OLE storage entries that should be filtered out when reading `PcbLib` files.
+/// These are not actual footprints, but internal Altium data structures.
+const INTERNAL_OLE_ENTRIES: &[&str] = &[
+    "FileHeader",
+    "Library",
+    "Models",
+    "Textures",
+    "ModelsNoEmbed",
+    "PadViaLibrary",
+    "LayerKindMapping",
+    "ComponentParamsTOC",
+    "FileVersionInfo",
+    "PrimitiveGuids",
+    "UniqueIDPrimitiveInformation",
+];
+
 /// A complete PCB footprint.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Footprint {
@@ -175,7 +191,12 @@ impl PcbLib {
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_default();
 
-                if !component_name.is_empty() && component_name != "FileHeader" {
+                // Filter out internal OLE storage entries (not actual footprints)
+                let is_internal = INTERNAL_OLE_ENTRIES
+                    .iter()
+                    .any(|&entry| component_name == entry);
+
+                if !component_name.is_empty() && !is_internal {
                     // Read the component data
                     match Self::read_footprint(&mut cfb, &entry_path, &component_name) {
                         Ok(footprint) => library.footprints.push(footprint),

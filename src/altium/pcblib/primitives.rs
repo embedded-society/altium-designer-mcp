@@ -252,57 +252,77 @@ pub struct Model3D {
 pub enum Layer {
     // Copper layers
     /// Top copper layer.
+    #[serde(rename = "Top Layer", alias = "TopLayer")]
     TopLayer,
     /// Bottom copper layer.
+    #[serde(rename = "Bottom Layer", alias = "BottomLayer")]
     BottomLayer,
     /// Multi-layer (all copper layers, for through-hole pads).
     #[default]
+    #[serde(rename = "Multi-Layer", alias = "MultiLayer")]
     MultiLayer,
 
     // Silkscreen
     /// Top silkscreen (overlay).
+    #[serde(rename = "Top Overlay", alias = "TopOverlay")]
     TopOverlay,
     /// Bottom silkscreen.
+    #[serde(rename = "Bottom Overlay", alias = "BottomOverlay")]
     BottomOverlay,
 
     // Solder mask
     /// Top solder mask.
+    #[serde(rename = "Top Solder", alias = "TopSolder")]
     TopSolder,
     /// Bottom solder mask.
+    #[serde(rename = "Bottom Solder", alias = "BottomSolder")]
     BottomSolder,
 
     // Paste
     /// Top solder paste.
+    #[serde(rename = "Top Paste", alias = "TopPaste")]
     TopPaste,
     /// Bottom solder paste.
+    #[serde(rename = "Bottom Paste", alias = "BottomPaste")]
     BottomPaste,
 
     // Component layer pairs (preferred over generic mechanical layers)
     /// Top assembly outline (component body outline for documentation).
+    #[serde(rename = "Top Assembly", alias = "TopAssembly")]
     TopAssembly,
     /// Bottom assembly outline.
+    #[serde(rename = "Bottom Assembly", alias = "BottomAssembly")]
     BottomAssembly,
     /// Top courtyard (component keepout area per IPC-7351).
+    #[serde(rename = "Top Courtyard", alias = "TopCourtyard")]
     TopCourtyard,
     /// Bottom courtyard.
+    #[serde(rename = "Bottom Courtyard", alias = "BottomCourtyard")]
     BottomCourtyard,
     /// Top 3D body outline (for 3D model placement).
+    #[serde(rename = "Top 3D Body", alias = "Top3DBody")]
     Top3DBody,
     /// Bottom 3D body outline.
+    #[serde(rename = "Bottom 3D Body", alias = "Bottom3DBody")]
     Bottom3DBody,
 
     // Generic mechanical layers (use component layer pairs when possible)
     /// Mechanical layer 1.
+    #[serde(rename = "Mechanical 1", alias = "Mechanical1")]
     Mechanical1,
     /// Mechanical layer 2.
+    #[serde(rename = "Mechanical 2", alias = "Mechanical2")]
     Mechanical2,
     /// Mechanical layer 13.
+    #[serde(rename = "Mechanical 13", alias = "Mechanical13")]
     Mechanical13,
     /// Mechanical layer 15.
+    #[serde(rename = "Mechanical 15", alias = "Mechanical15")]
     Mechanical15,
 
     // Keep-out
     /// Keep-out layer.
+    #[serde(rename = "Keep-Out Layer", alias = "KeepOut")]
     KeepOut,
 }
 

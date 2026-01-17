@@ -780,7 +780,7 @@ impl McpServer {
     }
 
     /// Writes footprints to a `PcbLib` file.
-    #[allow(clippy::unused_self)]
+    #[allow(clippy::unused_self, clippy::too_many_lines)]
     fn call_write_pcblib(&self, arguments: &Value) -> ToolCallResult {
         use crate::altium::pcblib::{Footprint, Model3D, PcbLib};
 
@@ -792,7 +792,24 @@ impl McpServer {
             return ToolCallResult::error("Missing required parameter: footprints");
         };
 
-        let mut library = PcbLib::new();
+        let append = arguments
+            .get("append")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+        // If append mode and file exists, read existing library; otherwise create new
+        let mut library = if append && std::path::Path::new(filepath).exists() {
+            match PcbLib::read(filepath) {
+                Ok(lib) => lib,
+                Err(e) => {
+                    return ToolCallResult::error(format!(
+                        "Failed to read existing library for append: {e}"
+                    ));
+                }
+            }
+        } else {
+            PcbLib::new()
+        };
 
         for fp_json in footprints_json {
             let name = fp_json
@@ -964,7 +981,24 @@ impl McpServer {
             return ToolCallResult::error("Missing required parameter: symbols");
         };
 
-        let mut library = SchLib::new();
+        let append = arguments
+            .get("append")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+        // If append mode and file exists, read existing library; otherwise create new
+        let mut library = if append && std::path::Path::new(filepath).exists() {
+            match SchLib::open(filepath) {
+                Ok(lib) => lib,
+                Err(e) => {
+                    return ToolCallResult::error(format!(
+                        "Failed to read existing library for append: {e}"
+                    ));
+                }
+            }
+        } else {
+            SchLib::new()
+        };
 
         for sym_json in symbols_json {
             let name = sym_json
