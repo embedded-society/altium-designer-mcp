@@ -771,6 +771,14 @@ Claude:   [Analyzing BOM...]
 
 ---
 
+## Project Maintainers
+
+- **Organization**: [The Embedded Society](https://github.com/embedded-society/)
+- **Repository**: [altium-designer-mcp](https://github.com/embedded-society/altium-designer-mcp)
+- **Contact**: <matejg03@gmail.com>
+
+---
+
 ## Contributing
 
 Areas needing help:
