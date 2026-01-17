@@ -10,14 +10,14 @@ assignees: ''
 
 A clear and concise description of what the bug is.
 
-## Security Reminder ⚠️
+## Before Submitting
 
-**Before submitting, ensure you have:**
-- [ ] Removed any credentials, tokens, or secrets from this report
-- [ ] Removed any private repository URLs
-- [ ] Redacted any sensitive information from logs or error messages
+**Please ensure you have:**
 
-If this is a **security vulnerability**, please do NOT open an issue. Instead, report it privately via [GitHub Security Advisories](https://github.com/embedded-society/altium-designer-mcp/security/advisories/new).
+- [ ] Checked existing issues to avoid duplicates
+- [ ] Included relevant file paths or library names (if applicable)
+
+If this is a **security vulnerability**, please report it privately via [GitHub Security Advisories](https://github.com/embedded-society/altium-designer-mcp/security/advisories/new).
 
 ## Steps to Reproduce
 
@@ -35,8 +35,8 @@ What actually happened.
 
 ## Error Messages / Logs
 
-```
-Paste any error messages here (remember to redact credentials!)
+```text
+Paste any error messages here
 ```
 
 ## Environment
