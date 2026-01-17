@@ -18,16 +18,16 @@ jobs:
 
         steps:
             - name: Checkout repository
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Install Rust toolchain
-              uses: dtolnay/rust-toolchain@stable
+              uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
               with:
                 components: rustfmt
 
             - name: Setup Node.js
               id: setup-node
-              uses: actions/setup-node@v6
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                 node-version: "lts/*"
 
@@ -37,7 +37,7 @@ jobs:
 
             # Restore cache from main branch (read-only)
             - name: Restore npm cache
-              uses: actions/cache/restore@v5
+              uses: actions/cache/restore@8b402f58fbc84540c8b491a91e594a4576fec3d7 # v5.0.2
               with:
                 path: ~/.npm
                 key: npm-markdownlint-${{ runner.os }}-node-${{ steps.setup-node.outputs.node-version }}-mdlint-${{ steps.mdlint-version.outputs.version }}
@@ -70,10 +70,10 @@ jobs:
 
         steps:
             - name: Checkout repository
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Install Rust toolchain
-              uses: dtolnay/rust-toolchain@stable
+              uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
               with:
                 components: clippy
 
@@ -91,7 +91,7 @@ jobs:
 
             # Restore cache from main branch (read-only)
             - name: Restore Rust cache
-              uses: actions/cache/restore@v5
+              uses: actions/cache/restore@8b402f58fbc84540c8b491a91e594a4576fec3d7 # v5.0.2
               with:
                 path: |
                     ~/.cargo/bin/
