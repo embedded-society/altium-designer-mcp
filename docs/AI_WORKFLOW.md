@@ -44,8 +44,8 @@ This document explains how an AI assistant uses altium-designer-mcp to create Al
 
 ```json
 {
-  "name": "list_package_types",
-  "arguments": {}
+    "name": "list_package_types",
+    "arguments": {}
 }
 ```
 
@@ -53,18 +53,18 @@ This document explains how an AI assistant uses altium-designer-mcp to create Al
 
 ```json
 {
-  "package_types": [
-    {
-      "name": "CHIP",
-      "description": "Chip resistors and capacitors (0201, 0402, 0603, etc.)",
-      "required_dimensions": ["body_length", "body_width", "terminal_length"]
-    },
-    {
-      "name": "SOIC",
-      "description": "Small Outline IC packages",
-      "required_dimensions": ["body_length", "body_width", "pin_count", "pitch"]
-    }
-  ]
+    "package_types": [
+        {
+            "name": "CHIP",
+            "description": "Chip resistors and capacitors (0201, 0402, 0603, etc.)",
+            "required_dimensions": ["body_length", "body_width", "terminal_length"]
+        },
+        {
+            "name": "SOIC",
+            "description": "Small Outline IC packages",
+            "required_dimensions": ["body_length", "body_width", "pin_count", "pitch"]
+        }
+    ]
 }
 ```
 
@@ -74,14 +74,14 @@ This document explains how an AI assistant uses altium-designer-mcp to create Al
 
 ```json
 {
-  "name": "calculate_footprint",
-  "arguments": {
-    "package_type": "CHIP",
-    "body_length": 1.6,
-    "body_width": 0.8,
-    "terminal_length": 0.3,
-    "density_level": "N"
-  }
+    "name": "calculate_footprint",
+    "arguments": {
+        "package_type": "CHIP",
+        "body_length": 1.6,
+        "body_width": 0.8,
+        "terminal_length": 0.3,
+        "density_level": "N"
+    }
 }
 ```
 
@@ -89,21 +89,21 @@ This document explains how an AI assistant uses altium-designer-mcp to create Al
 
 ```json
 {
-  "ipc_name": "CHIP_0603_N",
-  "pads": [
-    { "number": "1", "x": -0.75, "y": 0, "width": 0.9, "height": 0.95 },
-    { "number": "2", "x": 0.75, "y": 0, "width": 0.9, "height": 0.95 }
-  ],
-  "courtyard": {
-    "x": 0, "y": 0,
-    "width": 2.4, "height": 1.2
-  },
-  "silkscreen": {
-    "lines": [
-      { "x1": -0.3, "y1": 0.6, "x2": 0.3, "y2": 0.6 },
-      { "x1": -0.3, "y1": -0.6, "x2": 0.3, "y2": -0.6 }
-    ]
-  }
+    "ipc_name": "CHIP_0603_N",
+    "pads": [
+        { "number": "1", "x": -0.75, "y": 0, "width": 0.9, "height": 0.95 },
+        { "number": "2", "x": 0.75, "y": 0, "width": 0.9, "height": 0.95 }
+    ],
+    "courtyard": {
+        "x": 0, "y": 0,
+        "width": 2.4, "height": 1.2
+    },
+    "silkscreen": {
+        "lines": [
+            { "x1": -0.3, "y1": 0.6, "x2": 0.3, "y2": 0.6 },
+            { "x1": -0.3, "y1": -0.6, "x2": 0.3, "y2": -0.6 }
+        ]
+    }
 }
 ```
 
@@ -113,13 +113,13 @@ This document explains how an AI assistant uses altium-designer-mcp to create Al
 
 ```json
 {
-  "name": "get_ipc_name",
-  "arguments": {
-    "package_type": "CHIP",
-    "body_length": 1.6,
-    "body_width": 0.8,
-    "density_level": "N"
-  }
+    "name": "get_ipc_name",
+    "arguments": {
+        "package_type": "CHIP",
+        "body_length": 1.6,
+        "body_width": 0.8,
+        "density_level": "N"
+    }
 }
 ```
 
@@ -127,8 +127,8 @@ This document explains how an AI assistant uses altium-designer-mcp to create Al
 
 ```json
 {
-  "ipc_name": "CHIP_0603_N",
-  "description": "IPC-7351B compliant name for 0603 chip component, Nominal density"
+    "ipc_name": "CHIP_0603_N",
+    "description": "IPC-7351B compliant name for 0603 chip component, Nominal density"
 }
 ```
 
@@ -138,10 +138,10 @@ This document explains how an AI assistant uses altium-designer-mcp to create Al
 
 ```json
 {
-  "name": "extract_style",
-  "arguments": {
-    "library_path": "/path/to/existing/Library.PcbLib"
-  }
+    "name": "extract_style",
+    "arguments": {
+        "library_path": "/path/to/existing/Library.PcbLib"
+    }
 }
 ```
 
@@ -149,14 +149,14 @@ This document explains how an AI assistant uses altium-designer-mcp to create Al
 
 ```json
 {
-  "style": {
-    "silkscreen_line_width": 0.15,
-    "assembly_line_width": 0.10,
-    "pad_corner_radius_percent": 25,
-    "pin1_marker_style": "dot",
-    "courtyard_layer": "Mechanical 15",
-    "assembly_layer": "Mechanical 13"
-  }
+    "style": {
+        "silkscreen_line_width": 0.15,
+        "assembly_line_width": 0.10,
+        "pad_corner_radius_percent": 25,
+        "pin1_marker_style": "dot",
+        "courtyard_layer": "Mechanical 15",
+        "assembly_layer": "Mechanical 13"
+    }
 }
 ```
 
@@ -164,11 +164,11 @@ This document explains how an AI assistant uses altium-designer-mcp to create Al
 
 ```json
 {
-  "name": "apply_style",
-  "arguments": {
-    "style": { "silkscreen_line_width": 0.15 },
-    "components": ["CHIP_0603_N", "CHIP_0805_N"]
-  }
+    "name": "apply_style",
+    "arguments": {
+        "style": { "silkscreen_line_width": 0.15 },
+        "components": ["CHIP_0603_N", "CHIP_0805_N"]
+    }
 }
 ```
 
@@ -238,11 +238,11 @@ Always run validation before finalising:
 
 ```json
 {
-  "name": "validate_component",
-  "arguments": {
-    "component_name": "CHIP_0603_N",
-    "checks": ["ipc_compliance", "drc", "style"]
-  }
+    "name": "validate_component",
+    "arguments": {
+        "component_name": "CHIP_0603_N",
+        "checks": ["ipc_compliance", "drc", "style"]
+    }
 }
 ```
 
@@ -252,10 +252,10 @@ Always run validation before finalising:
 
 ```json
 {
-  "error": {
-    "code": "INVALID_DIMENSIONS",
-    "message": "Terminal length (0.5mm) cannot exceed body length (0.4mm)"
-  }
+    "error": {
+        "code": "INVALID_DIMENSIONS",
+        "message": "Terminal length (0.5mm) cannot exceed body length (0.4mm)"
+    }
 }
 ```
 
@@ -263,10 +263,10 @@ Always run validation before finalising:
 
 ```json
 {
-  "error": {
-    "code": "UNSUPPORTED_PACKAGE",
-    "message": "Package type 'CUSTOM' is not supported. Use list_package_types to see available types."
-  }
+    "error": {
+        "code": "UNSUPPORTED_PACKAGE",
+        "message": "Package type 'CUSTOM' is not supported. Use list_package_types to see available types."
+    }
 }
 ```
 
@@ -274,9 +274,9 @@ Always run validation before finalising:
 
 ```json
 {
-  "error": {
-    "code": "WRITE_ERROR",
-    "message": "Cannot write to library: file is read-only"
-  }
+    "error": {
+        "code": "WRITE_ERROR",
+        "message": "Cannot write to library: file is read-only"
+    }
 }
 ```
