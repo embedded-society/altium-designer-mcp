@@ -6,7 +6,7 @@ This document describes the architecture of the MCP server.
 
 **The AI handles the intelligence. The tool handles the file I/O.**
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  RESPONSIBILITY SPLIT                                                    │
 │                                                                         │
@@ -28,7 +28,7 @@ package types. The tool is package-agnostic.
 
 ## Component Overview
 
-```
+```text
 src/
 ├── lib.rs                       # Library crate root
 ├── main.rs                      # CLI entry point
@@ -61,7 +61,7 @@ src/
 
 ## Data Flow: Component Creation
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │ CREATE FOOTPRINT: AI calculates dimensions, tool writes file                 │
 ├─────────────────────────────────────────────────────────────────────────────┤
@@ -123,9 +123,9 @@ The AI provides complete primitive definitions. The tool writes them.
 | Top Overlay | Silkscreen |
 | Top Paste | Solder paste |
 | Top Solder | Solder mask |
-| Mechanical 1 | Assembly outline |
-| Mechanical 13 | 3D body outline |
-| Mechanical 15 | Courtyard |
+| Top Assembly | Assembly outline |
+| Top 3D Body | 3D body outline |
+| Top Courtyard | Courtyard (IPC-7351) |
 
 ---
 
@@ -133,7 +133,7 @@ The AI provides complete primitive definitions. The tool writes them.
 
 Altium libraries use OLE Compound File Binary (CFB) format:
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │ .PcbLib File Structure                                                      │
 ├─────────────────────────────────────────────────────────────────────────────┤

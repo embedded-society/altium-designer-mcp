@@ -18,7 +18,7 @@
 
 mod settings;
 
-pub use settings::{Config, IpcConfig, LoggingConfig, StyleConfig};
+pub use settings::{Config, LoggingConfig};
 
 use std::path::{Path, PathBuf};
 

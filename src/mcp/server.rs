@@ -177,20 +177,20 @@ pub struct McpServer {
     transport: StdioTransport,
     /// Negotiated protocol version (set after initialisation).
     protocol_version: Option<String>,
-    /// Path to the component library directory.
-    #[allow(dead_code)] // Will be used when Altium file I/O is implemented
-    library_path: PathBuf,
+    /// Allowed paths for library operations.
+    #[allow(dead_code)] // Will be used for path validation
+    allowed_paths: Vec<PathBuf>,
 }
 
 impl McpServer {
-    /// Creates a new MCP server with the given library path.
+    /// Creates a new MCP server with the given allowed paths.
     #[must_use]
-    pub fn new(library_path: PathBuf) -> Self {
+    pub fn new(allowed_paths: Vec<PathBuf>) -> Self {
         Self {
             state: ServerState::AwaitingInit,
             transport: StdioTransport::new(),
             protocol_version: None,
-            library_path,
+            allowed_paths,
         }
     }
 
@@ -1912,7 +1912,7 @@ mod tests {
 
     #[test]
     fn server_initial_state() {
-        let server = McpServer::new(PathBuf::from("."));
+        let server = McpServer::new(vec![PathBuf::from(".")]);
         assert_eq!(server.state(), ServerState::AwaitingInit);
     }
 

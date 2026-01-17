@@ -155,7 +155,7 @@ Use British spelling in all documentation and user-facing text:
 
 We use [Conventional Commits](https://www.conventionalcommits.org/). Format:
 
-```
+```text
 <type>(<scope>): <description>
 
 [optional body]
@@ -179,7 +179,7 @@ We use [Conventional Commits](https://www.conventionalcommits.org/). Format:
 
 ### Examples
 
-```
+```text
 feat(altium): implement pad primitive encoding
 
 fix(pcblib): correct binary format for track records
@@ -250,12 +250,10 @@ cargo test module_name::
 
 ## Areas Needing Help
 
-- **Altium binary format**: Reverse-engineer primitive encoding for the Data stream
-- **PcbLib reading**: Parse existing footprints and extract all primitive types
-- **PcbLib writing**: Encode primitives in correct Altium binary format
-- **SchLib support**: Implement symbol reading and writing (similar to PcbLib)
 - **Testing**: Test with real Altium libraries across different versions
 - **Documentation**: Improve user guides and API documentation
+- **Edge cases**: Handle unusual primitive configurations and older file formats
+- **3D models**: Improve STEP model attachment and component body support
 
 ---
 

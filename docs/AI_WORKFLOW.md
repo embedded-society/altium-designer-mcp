@@ -19,7 +19,7 @@ This document explains how an AI assistant uses altium-designer-mcp to create Al
 
 ## The Complete Workflow
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                    AI's Component Creation Workflow                         │
 ├─────────────────────────────────────────────────────────────────────────────┤
@@ -60,7 +60,7 @@ This document explains how an AI assistant uses altium-designer-mcp to create Al
 
 The AI applies IPC-7351B knowledge:
 
-```
+```text
 Component: 0603 Chip Resistor (1608 metric)
 Body: 1.6mm × 0.8mm × 0.55mm
 Terminal: 0.3mm
@@ -116,7 +116,7 @@ IPC Name: RESC1608X55N
                 { "x": 1.45, "y": 0.73 },
                 { "x": -1.45, "y": 0.73 }
             ],
-            "layer": "Mechanical 15"
+            "layer": "Top Courtyard"
         }
     ]
 }
@@ -311,7 +311,7 @@ The AI provides complete primitive definitions. The tool writes them.
         { "x": 1, "y": 1 },
         { "x": -1, "y": 1 }
     ],
-    "layer": "Mechanical 15"
+    "layer": "Top Courtyard"
 }
 ```
 
@@ -339,9 +339,9 @@ The AI provides complete primitive definitions. The tool writes them.
 | Top Overlay | Silkscreen |
 | Top Paste | Solder paste stencil |
 | Top Solder | Solder mask openings |
-| Mechanical 1 | Assembly outline |
-| Mechanical 13 | 3D body outline |
-| Mechanical 15 | Courtyard |
+| Top Assembly | Assembly outline |
+| Top 3D Body | 3D body outline |
+| Top Courtyard | Courtyard (IPC-7351) |
 
 ---
 
@@ -349,7 +349,7 @@ The AI provides complete primitive definitions. The tool writes them.
 
 The AI can create entire libraries efficiently:
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │ BATCH CREATION: 100 components in minutes                                   │
 ├─────────────────────────────────────────────────────────────────────────────┤
@@ -476,7 +476,7 @@ When calculating footprints, the AI should apply these IPC standards:
 
 **Naming Convention:**
 
-```
+```text
 RESC1608X55N
 │   │    │ └── Density: N=Nominal, M=Most, L=Least
 │   │    └──── Height in 0.01mm (55 = 0.55mm)

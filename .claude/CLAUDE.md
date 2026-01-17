@@ -24,7 +24,8 @@ See `docs/VISION.md` for the full architecture.
 | Resource | Location |
 |----------|----------|
 | Vision | `docs/VISION.md` |
-| Project TODO | `TODO.md` |
+| Architecture | `docs/ARCHITECTURE.md` |
+| AI Workflow | `docs/AI_WORKFLOW.md` |
 
 ## Critical Rules
 
@@ -55,11 +56,19 @@ src/
 │   ├── server.rs       # Tool definitions & handlers
 │   ├── protocol.rs     # JSON-RPC types
 │   └── transport.rs    # Stdio transport
-└── altium/             # Altium file I/O (TODO)
+└── altium/             # Altium file I/O
     ├── mod.rs
-    ├── ole.rs          # OLE compound file handling
+    ├── error.rs        # Altium-specific errors
     ├── pcblib/         # .PcbLib read/write
+    │   ├── mod.rs
+    │   ├── primitives.rs
+    │   ├── reader.rs
+    │   └── writer.rs
     └── schlib/         # .SchLib read/write
+        ├── mod.rs
+        ├── primitives.rs
+        ├── reader.rs
+        └── writer.rs
 ```
 
 ## MCP Tools
@@ -69,6 +78,7 @@ src/
 | `read_pcblib` | Read footprints and primitives from .PcbLib |
 | `read_schlib` | Read symbols and primitives from .SchLib |
 | `list_components` | List component names in a library |
+| `extract_style` | Extract styling info from existing libraries |
 | `write_pcblib` | Write footprints to .PcbLib |
 | `write_schlib` | Write symbols to .SchLib |
 

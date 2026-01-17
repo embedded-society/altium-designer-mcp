@@ -38,4 +38,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rewrote docs/AI_WORKFLOW.md with primitive-based workflow
 - Updated docs/VISION.md with simplified approach
 - Updated .claude/CLAUDE.md with new project structure
-- Updated TODO.md with current status

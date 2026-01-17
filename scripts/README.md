@@ -64,7 +64,7 @@ cargo test --test pcblib_analysis -- --ignored --nocapture
 
 ### PcbLib Data Stream Format
 
-```
+```text
 [name_block_len:4][str_len:1][name:str_len]  // Component name block
 [record_type:1][blocks...]                   // First primitive
 [record_type:1][blocks...]                   // Second primitive
