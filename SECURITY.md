@@ -1,5 +1,16 @@
 # Security Policy
 
+## Our Commitment
+
+**altium-designer-mcp** is designed to work with local Altium Designer libraries.
+We take security seriously — particularly around file system access and input validation.
+
+**Key security properties:**
+
+- The MCP server only accesses paths configured by the user
+- Path traversal attacks are prevented
+- Invalid inputs return clear error messages without exposing internals
+
 ## Supported Versions
 
 | Version | Supported              |
@@ -34,7 +45,7 @@ When reporting a vulnerability, please include:
 | **High** | Arbitrary file access outside configured library paths |
 | **High** | Path traversal vulnerabilities |
 | **Medium** | Denial of service vulnerabilities |
-| **Medium** | Information disclosure |
+| **Medium** | Information disclosure (file paths, system info) |
 | **Low** | Issues requiring local access or unlikely scenarios |
 
 ### Response Timeline
@@ -74,6 +85,24 @@ See `config/example-config.json` for the full structure.
 - Only configure library paths to directories you trust
 - Avoid using paths that contain untrusted user content
 - Use absolute paths when possible
+- Keep library files in version control for audit trail
+
+### File Permissions
+
+- Ensure library directories have appropriate permissions
+- Don't run the MCP server as root/administrator
+- Review generated components before committing to production libraries
+
+## Security Design Principles
+
+This project follows these security principles:
+
+1. **Minimal file access:** Only access paths explicitly configured
+2. **Input validation:** All dimensions and parameters validated
+3. **Error sanitisation:** Internal paths not exposed in error messages
+4. **Defence in depth:** Multiple validation layers
+5. **Secure defaults:** Conservative defaults for all settings
+6. **Transparency:** Open source code for community review
 
 ## Acknowledgements
 

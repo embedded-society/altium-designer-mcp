@@ -6,13 +6,14 @@ Thank you for your interest in contributing to altium-designer-mcp! This documen
 
 - [Code of Conduct](#code-of-conduct)
 - [How to Contribute](#how-to-contribute)
-  - [Reporting Bugs](#reporting-bugs)
-  - [Suggesting Features](#suggesting-features)
-  - [Pull Requests](#pull-requests)
+    - [Reporting Bugs](#reporting-bugs)
+    - [Suggesting Features](#suggesting-features)
+    - [Pull Requests](#pull-requests)
 - [Development Setup](#development-setup)
 - [Coding Standards](#coding-standards)
 - [Commit Messages](#commit-messages)
 - [Testing](#testing)
+- [Documentation](#documentation)
 
 ---
 
@@ -32,11 +33,11 @@ Before submitting a bug report:
 1. Check the [existing issues](https://github.com/embedded-society/altium-designer-mcp/issues) to avoid duplicates
 2. Ensure you're using the latest version
 3. Collect relevant information:
-   - Operating system and version
-   - Rust version (`rustc --version`)
-   - altium-designer-mcp version
-   - Steps to reproduce
-   - Expected vs actual behaviour
+    - Operating system and version
+    - Rust version (`rustc --version`)
+    - altium-designer-mcp version
+    - Steps to reproduce
+    - Expected vs actual behaviour
 
 When submitting:
 
@@ -48,7 +49,8 @@ When submitting:
 
 We welcome feature suggestions! Before submitting:
 
-1. Check [existing issues](https://github.com/embedded-society/altium-designer-mcp/issues) for similar ideas
+1. Check [existing issues](https://github.com/embedded-society/altium-designer-mcp/issues) and
+   [discussions](https://github.com/embedded-society/altium-designer-mcp/discussions) for similar ideas
 2. Consider how the feature fits the project's goals
 3. Think about backwards compatibility
 
@@ -92,8 +94,7 @@ When submitting:
 
 ### Prerequisites
 
-- Rust 1.75+ (see `Cargo.toml` for minimum version)
-- Cargo
+- Rust 1.75+ (see `Cargo.toml` for minimum version, `rust-toolchain.toml` for channel)
 
 ### Setup
 
@@ -132,13 +133,29 @@ cargo clippy -- -D warnings
 - Include examples in documentation where helpful
 - Keep comments up to date with code changes
 
+### British Spelling
+
+Use British spelling in all documentation and user-facing text:
+
+| American | British |
+|----------|---------|
+| color | colour |
+| behavior | behaviour |
+| organization | organisation |
+| center | centre |
+| license (noun) | licence |
+| analyze | analyse |
+| initialize | initialise |
+
+**Note:** Code identifiers may use American spelling where it matches Rust/library conventions.
+
 ---
 
 ## Commit Messages
 
 We use [Conventional Commits](https://www.conventionalcommits.org/). Format:
 
-```text
+```
 <type>(<scope>): <description>
 
 [optional body]
@@ -148,21 +165,21 @@ We use [Conventional Commits](https://www.conventionalcommits.org/). Format:
 
 ### Types
 
-| Type       | Description                                           |
-|------------|-------------------------------------------------------|
-| `feat`     | New feature                                           |
-| `fix`      | Bug fix                                               |
-| `docs`     | Documentation only                                    |
-| `style`    | Formatting, no code change                            |
-| `refactor` | Code change that neither fixes a bug nor adds feature |
-| `perf`     | Performance improvement                               |
-| `test`     | Adding or updating tests                              |
-| `chore`    | Maintenance tasks                                     |
-| `ci`       | CI/CD changes                                         |
+| Type | Description |
+|------|-------------|
+| `feat` | New feature |
+| `fix` | Bug fix |
+| `docs` | Documentation only |
+| `style` | Formatting, no code change |
+| `refactor` | Code change that neither fixes a bug nor adds a feature |
+| `perf` | Performance improvement |
+| `test` | Adding or updating tests |
+| `chore` | Maintenance tasks |
+| `ci` | CI/CD changes |
 
 ### Examples
 
-```text
+```
 feat(ipc): add SOIC package calculations
 
 fix(altium): correct pad position for QFN thermal pad
@@ -171,6 +188,14 @@ docs: update README with installation instructions
 
 chore: update dependencies
 ```
+
+### Rules
+
+- Use imperative mood ("Add feature" not "Added feature")
+- Don't capitalise the first letter of the description
+- No period at the end of the subject line
+- Keep the subject line under 72 characters
+- Reference issues in the footer: `Fixes #123`
 
 ---
 
@@ -202,6 +227,27 @@ cargo test module_name::
 
 ---
 
+## Documentation
+
+### Types of Documentation
+
+| Location | Purpose |
+|----------|--------|
+| `README.md` | User-facing overview and quick start |
+| `CONTRIBUTING.md` | This file — contributor guidelines |
+| `SECURITY.md` | Security policy and vulnerability reporting |
+| `CHANGELOG.md` | User-facing change history |
+| Rustdoc comments | API documentation |
+
+### Updating Documentation
+
+- Update `README.md` for user-facing changes
+- Update `CHANGELOG.md` for all notable changes
+- Update rustdoc comments when changing public APIs
+- Keep examples up to date and working
+
+---
+
 ## Areas Needing Help
 
 - **IPC-7351B calculations**: Implement the full IPC-7351B land pattern algorithms
@@ -216,5 +262,6 @@ cargo test module_name::
 
 - Open a [Discussion](https://github.com/embedded-society/altium-designer-mcp/discussions) for questions
 - Check existing issues and discussions first
+- Be patient — maintainers are volunteers
 
 Thank you for contributing!

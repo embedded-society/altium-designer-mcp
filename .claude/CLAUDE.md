@@ -1,88 +1,119 @@
-# altium-designer-mcp
+# altium-designer-mcp — AI Assistant Context
 
-MCP server for AI-assisted Altium Designer component library management with IPC-7351B compliance.
+## The Vision (Read First!)
 
-## Project Overview
+See `docs/VISION.md` for the full architecture:
 
-This Rust MCP server enables AI assistants (Claude Code, Claude Desktop, VSCode Copilot) to create, read, and manage Altium Designer component libraries.
+| Component | Data Flow |
+|-----------|-----------|
+| **IPC-7351B** | Dimensions → Calculations → Land Pattern |
+| **Altium I/O** | MCP Server ↔ .PcbLib/.SchLib Files |
 
-### Key Features (Planned)
+**Core principle:** AI handles repetitive calculations. Engineers focus on design decisions.
 
-- **IPC-7351B Calculations**: Generate compliant land patterns from package dimensions
-- **Altium File I/O**: Read and write .PcbLib, .SchLib, .DbLib files
-- **Style Management**: Extract and apply consistent component styles
-- **CSV Database**: Manage component data with version-controlled CSV files
-- **Symbol Generation**: Create schematic symbols from pin definitions
+## What Is This Project?
 
-### Current Status
+An MCP server for AI-assisted Altium Designer component library management with IPC-7351B compliance.
 
-This is an early-stage project with placeholder implementations. The MCP server infrastructure is in place, but the actual Altium file I/O and IPC calculations are not yet implemented.
+**IPC-7351B First:** All footprints follow the standard.
+**Style Extraction:** Learn from existing library components.
 
-## Architecture
+## Quick Reference
+
+| Resource | Location |
+|----------|----------|
+| Vision | `docs/VISION.md` |
+| Architecture | `docs/ARCHITECTURE.md` |
+| AI Workflow | `docs/AI_WORKFLOW.md` |
+
+## Critical Rules
+
+### NEVER Do These
+
+1. **NEVER write arbitrary files outside library paths**
+2. **NEVER expose internal file paths in error messages**
+3. **NEVER skip IPC validation**
+4. **NEVER ignore user's style configuration**
+5. **NEVER push to main**
+
+### ALWAYS Do These
+
+1. **Use IPC-7351B formulas** for land patterns
+2. **Validate dimensions** before calculation
+3. **Extract style** from reference components when available
+4. **Use sensible defaults** when config is missing
+5. **Sanitise paths** in error messages
+
+## Implementation Pattern
+
+```rust
+// CORRECT: IPC-7351B calculation with validation
+pub fn calculate_chip_footprint(
+    body_length: f64,
+    body_width: f64,
+    terminal_length: f64,
+    density: DensityLevel,
+) -> Result<Footprint, IpcError> {
+    // Validate inputs
+    if terminal_length >= body_length {
+        return Err(IpcError::InvalidDimensions(
+            "Terminal length must be less than body length".into()
+        ));
+    }
+
+    // IPC-7351B calculations
+    let (toe, heel, side) = density.solder_goals();
+    let pad_width = terminal_length + toe + heel;
+    let pad_height = body_width + 2.0 * side;
+
+    Ok(Footprint {
+        pads: vec![
+            Pad::new(1, -pad_span/2.0, 0.0, pad_width, pad_height),
+            Pad::new(2, pad_span/2.0, 0.0, pad_width, pad_height),
+        ],
+        courtyard: Courtyard::from_bounds(...),
+        silkscreen: Silkscreen::chip_outline(...),
+    })
+}
+```
+
+## Project Structure
 
 ```
 src/
-├── main.rs          # CLI entry point
-├── lib.rs           # Library root
-├── config/          # Configuration loading
-├── error.rs         # Error types
-└── mcp/             # MCP server implementation
-    ├── mod.rs
-    ├── protocol.rs  # JSON-RPC 2.0 types
-    ├── server.rs    # MCP server with tool handlers
-    └── transport.rs # stdio transport
+├── lib.rs              # Library crate root
+├── main.rs             # CLI entry point
+├── error.rs            # Top-level error types
+├── config/             # Configuration
+│   ├── mod.rs          # Module exports
+│   └── settings.rs     # Config file parsing
+├── mcp/                # MCP server
+│   ├── mod.rs          # Module exports
+│   ├── server.rs       # JSON-RPC server
+│   ├── protocol.rs     # MCP protocol types
+│   └── transport.rs    # Stdio transport
+├── ipc7351/            # IPC-7351B calculations (planned)
+│   ├── mod.rs          # Module exports
+│   ├── chip.rs         # Chip resistor/capacitor patterns
+│   ├── soic.rs         # SOIC/SOP patterns
+│   ├── qfn.rs          # QFN/DFN patterns
+│   └── naming.rs       # IPC naming conventions
+├── altium/             # Altium file I/O (planned)
+│   ├── mod.rs          # Module exports
+│   ├── cfb.rs          # OLE compound file handling
+│   ├── pcblib.rs       # .PcbLib reading/writing
+│   └── schlib.rs       # .SchLib reading/writing
+├── style/              # Style management (planned)
+│   ├── mod.rs          # Module exports
+│   ├── extract.rs      # Extract style from existing lib
+│   └── apply.rs        # Apply style to components
+├── symbols/            # Symbol generation (planned)
+│   └── generator.rs    # Schematic symbol creation
+└── database/           # CSV database (planned)
+    ├── schema.rs       # Database schema
+    └── csv_io.rs       # CSV reading/writing
 ```
 
-## Building
+## Off Limits
 
-```bash
-cargo build --release
-```
-
-## Running
-
-```bash
-# With library path
-./target/release/altium-designer-mcp /path/to/libraries
-
-# With config file
-./target/release/altium-designer-mcp --config config.json
-```
-
-## MCP Tools (Currently Implemented)
-
-1. **list_package_types** - Lists supported IPC-7351B package families
-2. **calculate_footprint** - Calculates footprint from dimensions (placeholder)
-3. **get_ipc_name** - Generates IPC-7351B compliant name (placeholder)
-
-## Development Guidelines
-
-### Code Style
-
-- Use `cargo fmt` before committing
-- All code must pass `cargo clippy` with pedantic lints
-- No `unsafe` code allowed
-- Tests required for new functionality
-
-### Module Organization
-
-- Keep modules focused and single-purpose
-- Use `mod.rs` for module re-exports
-- Document public APIs with rustdoc comments
-
-### Error Handling
-
-- Use `thiserror` for error types
-- Provide meaningful error messages
-- Never expose internal details in user-facing errors
-
-### Testing
-
-```bash
-cargo test
-cargo clippy -- -D warnings
-```
-
-## License
-
-GPL-3.0-or-later
+**`CODE_OF_CONDUCT.md`** — Do not modify.
