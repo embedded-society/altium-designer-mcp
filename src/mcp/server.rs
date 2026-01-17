@@ -5,6 +5,11 @@
 //! 1. **Initialisation**: Capability negotiation and version agreement
 //! 2. **Operation**: Handling tool calls and other requests
 //! 3. **Shutdown**: Graceful connection termination
+//!
+//! # Architecture
+//!
+//! This server provides low-level file I/O and primitive placement tools.
+//! The AI handles the intelligence (IPC calculations, style decisions, etc.).
 
 use std::path::PathBuf;
 
@@ -404,9 +409,13 @@ impl McpServer {
             })?;
 
         let result = match params.name.as_str() {
-            "list_package_types" => self.call_list_package_types(),
-            "calculate_footprint" => self.call_calculate_footprint(&params.arguments),
-            "get_ipc_name" => self.call_get_ipc_name(&params.arguments),
+            // Library I/O tools (not yet implemented)
+            "read_pcblib" => self.call_not_implemented("read_pcblib"),
+            "write_pcblib" => self.call_not_implemented("write_pcblib"),
+            "read_schlib" => self.call_not_implemented("read_schlib"),
+            "write_schlib" => self.call_not_implemented("write_schlib"),
+            "list_components" => self.call_not_implemented("list_components"),
+            // Unknown tool
             _ => ToolCallResult::error(format!("Unknown tool: {}", params.name)),
         };
 
@@ -441,109 +450,259 @@ impl McpServer {
     }
 
     /// Returns the list of available tools.
+    ///
+    /// These are low-level file I/O and primitive placement tools.
+    /// The AI handles IPC calculations and design decisions.
     #[allow(clippy::too_many_lines)]
     fn get_tool_definitions() -> Vec<ToolDefinition> {
         vec![
-            // IPC-7351B Tools
+            // === Library Reading ===
             ToolDefinition {
-                name: "list_package_types".to_string(),
+                name: "read_pcblib".to_string(),
                 description: Some(
-                    "List all supported IPC-7351B package types with descriptions. \
-                     Use this to discover available package families before calculating footprints."
-                        .to_string(),
-                ),
-                input_schema: json!({
-                    "type": "object",
-                    "properties": {},
-                    "required": []
-                }),
-            },
-            ToolDefinition {
-                name: "calculate_footprint".to_string(),
-                description: Some(
-                    "Calculate IPC-7351B compliant land pattern from package dimensions. \
-                     Returns pad positions, sizes, courtyard, and silkscreen geometry."
+                    "Read an Altium .PcbLib file and return its contents including all footprints \
+                     with their primitives (pads, tracks, arcs, regions, text). Returns structured \
+                     data that can be used to understand existing footprint styles."
                         .to_string(),
                 ),
                 input_schema: json!({
                     "type": "object",
                     "properties": {
-                        "package_type": {
+                        "filepath": {
                             "type": "string",
-                            "description": "Package type: CHIP, SOIC, QFP, QFN, BGA, SOT, MELF"
-                        },
-                        "body_length": {
-                            "type": "number",
-                            "description": "Component body length in mm"
-                        },
-                        "body_width": {
-                            "type": "number",
-                            "description": "Component body width in mm"
-                        },
-                        "lead_span": {
-                            "type": "number",
-                            "description": "Lead span (toe-to-toe) in mm"
-                        },
-                        "lead_width": {
-                            "type": "number",
-                            "description": "Lead width in mm"
-                        },
-                        "pitch": {
-                            "type": "number",
-                            "description": "Lead pitch in mm (for multi-pin packages)"
-                        },
-                        "pin_count": {
-                            "type": "integer",
-                            "description": "Total pin count"
-                        },
-                        "density": {
-                            "type": "string",
-                            "description": "Density level: M (Most), N (Nominal), L (Least). Default: N"
+                            "description": "Path to the .PcbLib file"
                         }
                     },
-                    "required": ["package_type", "body_length", "body_width", "pin_count"]
+                    "required": ["filepath"]
                 }),
             },
             ToolDefinition {
-                name: "get_ipc_name".to_string(),
+                name: "read_schlib".to_string(),
                 description: Some(
-                    "Generate IPC-7351B compliant component name from package parameters. \
-                     Example: SOIC127P600X175-8N"
+                    "Read an Altium .SchLib file and return its contents including all symbols \
+                     with their primitives (pins, rectangles, lines, text)."
                         .to_string(),
                 ),
                 input_schema: json!({
                     "type": "object",
                     "properties": {
-                        "package_type": {
+                        "filepath": {
                             "type": "string",
-                            "description": "Package type: CHIP, SOIC, QFP, QFN, BGA, SOT"
-                        },
-                        "pitch": {
-                            "type": "number",
-                            "description": "Lead pitch in mm"
-                        },
-                        "body_length": {
-                            "type": "number",
-                            "description": "Body length in mm"
-                        },
-                        "body_width": {
-                            "type": "number",
-                            "description": "Body width in mm"
-                        },
-                        "height": {
-                            "type": "number",
-                            "description": "Component height in mm"
-                        },
-                        "pin_count": {
-                            "type": "integer",
-                            "description": "Total pin count"
-                        },
-                        "density": {
-                            "type": "string",
-                            "description": "Density level: M, N, or L. Default: N"
+                            "description": "Path to the .SchLib file"
                         }
                     },
-                    "required": ["package_type", "body_length", "body_width", "pin_count"]
+                    "required": ["filepath"]
+                }),
+            },
+            ToolDefinition {
+                name: "list_components".to_string(),
+                description: Some(
+                    "List all component/footprint names in an Altium library file (.PcbLib or .SchLib)."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepath": {
+                            "type": "string",
+                            "description": "Path to the library file"
+                        }
+                    },
+                    "required": ["filepath"]
+                }),
+            },
+            // === Library Writing ===
+            ToolDefinition {
+                name: "write_pcblib".to_string(),
+                description: Some(
+                    "Write footprints to an Altium .PcbLib file. Each footprint is defined by \
+                     its primitives: pads (with position, size, shape, layer), tracks, arcs, \
+                     regions, and text. The AI is responsible for calculating correct positions \
+                     and sizes based on IPC-7351B or other standards."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepath": {
+                            "type": "string",
+                            "description": "Path to the .PcbLib file to create/modify"
+                        },
+                        "footprints": {
+                            "type": "array",
+                            "description": "Array of footprint definitions",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {
+                                        "type": "string",
+                                        "description": "Footprint name (e.g., 'RESC1608X55N')"
+                                    },
+                                    "description": {
+                                        "type": "string",
+                                        "description": "Footprint description"
+                                    },
+                                    "pads": {
+                                        "type": "array",
+                                        "description": "Pad definitions",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "designator": { "type": "string" },
+                                                "x": { "type": "number", "description": "X position in mm" },
+                                                "y": { "type": "number", "description": "Y position in mm" },
+                                                "width": { "type": "number", "description": "Pad width in mm" },
+                                                "height": { "type": "number", "description": "Pad height in mm" },
+                                                "shape": { "type": "string", "enum": ["rectangle", "rounded_rectangle", "circle"] },
+                                                "layer": { "type": "string", "description": "Layer name (default: multi-layer for SMD)" },
+                                                "hole_size": { "type": "number", "description": "Hole diameter for through-hole pads (mm)" }
+                                            },
+                                            "required": ["designator", "x", "y", "width", "height"]
+                                        }
+                                    },
+                                    "tracks": {
+                                        "type": "array",
+                                        "description": "Track/line definitions for silkscreen, assembly, etc.",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "x1": { "type": "number" },
+                                                "y1": { "type": "number" },
+                                                "x2": { "type": "number" },
+                                                "y2": { "type": "number" },
+                                                "width": { "type": "number", "description": "Line width in mm" },
+                                                "layer": { "type": "string", "description": "Layer name (e.g., 'Top Overlay', 'Mechanical 1')" }
+                                            },
+                                            "required": ["x1", "y1", "x2", "y2", "width", "layer"]
+                                        }
+                                    },
+                                    "arcs": {
+                                        "type": "array",
+                                        "description": "Arc definitions",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "x": { "type": "number", "description": "Center X" },
+                                                "y": { "type": "number", "description": "Center Y" },
+                                                "radius": { "type": "number" },
+                                                "start_angle": { "type": "number", "description": "Start angle in degrees" },
+                                                "end_angle": { "type": "number", "description": "End angle in degrees" },
+                                                "width": { "type": "number", "description": "Line width in mm" },
+                                                "layer": { "type": "string" }
+                                            },
+                                            "required": ["x", "y", "radius", "start_angle", "end_angle", "width", "layer"]
+                                        }
+                                    },
+                                    "regions": {
+                                        "type": "array",
+                                        "description": "Filled region definitions (courtyard, etc.)",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "vertices": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "x": { "type": "number" },
+                                                            "y": { "type": "number" }
+                                                        }
+                                                    }
+                                                },
+                                                "layer": { "type": "string" }
+                                            },
+                                            "required": ["vertices", "layer"]
+                                        }
+                                    },
+                                    "text": {
+                                        "type": "array",
+                                        "description": "Text/string definitions",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "x": { "type": "number" },
+                                                "y": { "type": "number" },
+                                                "text": { "type": "string" },
+                                                "height": { "type": "number", "description": "Text height in mm" },
+                                                "layer": { "type": "string" },
+                                                "rotation": { "type": "number", "description": "Rotation in degrees" }
+                                            },
+                                            "required": ["x", "y", "text", "height", "layer"]
+                                        }
+                                    },
+                                    "step_model": {
+                                        "type": "object",
+                                        "description": "Optional STEP 3D model attachment",
+                                        "properties": {
+                                            "filepath": { "type": "string", "description": "Path to .step file" },
+                                            "x_offset": { "type": "number" },
+                                            "y_offset": { "type": "number" },
+                                            "z_offset": { "type": "number" },
+                                            "rotation": { "type": "number", "description": "Z rotation in degrees" }
+                                        },
+                                        "required": ["filepath"]
+                                    }
+                                },
+                                "required": ["name", "pads"]
+                            }
+                        },
+                        "append": {
+                            "type": "boolean",
+                            "description": "If true, append to existing file; if false, create new file"
+                        }
+                    },
+                    "required": ["filepath", "footprints"]
+                }),
+            },
+            ToolDefinition {
+                name: "write_schlib".to_string(),
+                description: Some(
+                    "Write schematic symbols to an Altium .SchLib file. Each symbol is defined by \
+                     its primitives: pins, rectangles, lines, arcs, and text."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepath": {
+                            "type": "string",
+                            "description": "Path to the .SchLib file to create/modify"
+                        },
+                        "symbols": {
+                            "type": "array",
+                            "description": "Array of symbol definitions",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": { "type": "string" },
+                                    "description": { "type": "string" },
+                                    "designator_prefix": { "type": "string", "description": "e.g., 'R' for resistors, 'U' for ICs" },
+                                    "pins": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "designator": { "type": "string" },
+                                                "name": { "type": "string" },
+                                                "x": { "type": "number" },
+                                                "y": { "type": "number" },
+                                                "length": { "type": "number" },
+                                                "orientation": { "type": "string", "enum": ["left", "right", "up", "down"] },
+                                                "electrical_type": { "type": "string", "enum": ["input", "output", "bidirectional", "passive", "power"] }
+                                            },
+                                            "required": ["designator", "name", "x", "y", "length", "orientation"]
+                                        }
+                                    },
+                                    "rectangles": { "type": "array" },
+                                    "lines": { "type": "array" },
+                                    "text": { "type": "array" }
+                                },
+                                "required": ["name", "pins"]
+                            }
+                        },
+                        "append": { "type": "boolean" }
+                    },
+                    "required": ["filepath", "symbols"]
                 }),
             },
         ]
@@ -551,307 +710,18 @@ impl McpServer {
 
     // ==================== Tool Handlers ====================
 
-    /// Lists supported IPC-7351B package types.
+    /// Placeholder for tools not yet implemented.
     #[allow(clippy::unused_self)]
-    fn call_list_package_types(&self) -> ToolCallResult {
-        let package_types = json!({
-            "package_types": [
-                {
-                    "type": "CHIP",
-                    "description": "Chip resistors, capacitors, inductors (0201, 0402, 0603, 0805, 1206, etc.)",
-                    "examples": ["0201", "0402", "0603", "0805", "1206", "1210", "2512"]
-                },
-                {
-                    "type": "SOIC",
-                    "description": "Small Outline Integrated Circuit",
-                    "variants": ["SOIC", "SSOP", "TSSOP", "MSOP"]
-                },
-                {
-                    "type": "QFP",
-                    "description": "Quad Flat Package",
-                    "variants": ["QFP", "LQFP", "TQFP"]
-                },
-                {
-                    "type": "QFN",
-                    "description": "Quad Flat No-Lead package",
-                    "variants": ["QFN", "DFN", "SON", "VSON"]
-                },
-                {
-                    "type": "BGA",
-                    "description": "Ball Grid Array",
-                    "variants": ["BGA", "CSP", "WLCSP"]
-                },
-                {
-                    "type": "SOT",
-                    "description": "Small Outline Transistor",
-                    "variants": ["SOT-23", "SOT-223", "SOT-363", "SOT-23-5", "SOT-23-6"]
-                },
-                {
-                    "type": "MELF",
-                    "description": "Metal Electrode Leadless Face",
-                    "examples": ["MiniMELF", "MELF", "SOD-80"]
-                },
-                {
-                    "type": "SMA",
-                    "description": "Surface Mount Assembly diodes",
-                    "variants": ["SMA", "SMB", "SMC", "SOD-123", "SOD-323"]
-                }
-            ],
-            "density_levels": {
-                "M": "Most (largest pads, maximum solder fillet)",
-                "N": "Nominal (standard density, recommended for most applications)",
-                "L": "Least (smallest pads, minimum solder fillet, for high-density boards)"
-            }
-        });
-
-        ToolCallResult::text(serde_json::to_string_pretty(&package_types).unwrap())
-    }
-
-    /// Calculates IPC-7351B compliant footprint.
-    #[allow(clippy::unused_self, clippy::too_many_lines)]
-    fn call_calculate_footprint(&self, arguments: &Value) -> ToolCallResult {
-        use crate::ipc7351::{
-            density::DensityLevel,
-            packages::{chip::ChipCalculator, sot::{SotCalculator, SotDimensions}, PackageDimensions},
-        };
-
-        let package_type = arguments
-            .get("package_type")
-            .and_then(Value::as_str)
-            .unwrap_or("CHIP")
-            .to_uppercase();
-        let body_length = arguments
-            .get("body_length")
-            .and_then(Value::as_f64)
-            .unwrap_or(1.6);
-        let body_width = arguments
-            .get("body_width")
-            .and_then(Value::as_f64)
-            .unwrap_or(0.8);
-        let lead_span = arguments.get("lead_span").and_then(Value::as_f64);
-        let terminal_length = arguments.get("terminal_length").and_then(Value::as_f64);
-        let height = arguments
-            .get("height")
-            .and_then(Value::as_f64)
-            .unwrap_or(0.5);
-        #[allow(clippy::cast_possible_truncation)]
-        let pin_count = arguments
-            .get("pin_count")
-            .and_then(Value::as_u64)
-            .map_or(2, |v| v as u32);
-        let pitch = arguments.get("pitch").and_then(Value::as_f64);
-        let lead_width = arguments.get("lead_width").and_then(Value::as_f64);
-        let density_str = arguments
-            .get("density")
-            .and_then(Value::as_str)
-            .unwrap_or("N");
-        let density = DensityLevel::from_str_loose(density_str).unwrap_or_default();
-
-        match package_type.as_str() {
-            "CHIP" | "RESC" | "CAPC" | "INDC" => {
-                // For chip components, estimate terminal length if not provided
-                // Estimate based on lead_span: term_len = (lead_span - body_centre) / 2
-                let term_len = terminal_length
-                    .or_else(|| lead_span.map(|ls| (ls - 2.0f64.mul_add(-0.3, body_length)) / 2.0))
-                    .unwrap_or(body_length * 0.2);
-
-                let dims = PackageDimensions::chip(body_length, body_width, term_len, height);
-                let calc = ChipCalculator::new();
-                let pattern = calc.calculate(&dims, density);
-
-                let result = json!({
-                    "status": "success",
-                    "ipc_name": pattern.ipc_name,
-                    "pads": pattern.pads,
-                    "courtyard": {
-                        "min_x": pattern.courtyard.min_x,
-                        "min_y": pattern.courtyard.min_y,
-                        "max_x": pattern.courtyard.max_x,
-                        "max_y": pattern.courtyard.max_y,
-                        "width": pattern.courtyard.width(),
-                        "height": pattern.courtyard.height()
-                    },
-                    "silkscreen": pattern.silkscreen,
-                    "assembly": pattern.assembly,
-                    "input": {
-                        "package_type": package_type,
-                        "body_length_mm": body_length,
-                        "body_width_mm": body_width,
-                        "terminal_length_mm": term_len,
-                        "height_mm": height,
-                        "density": density.to_string()
-                    }
-                });
-
-                ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
-            }
-            "SOT" | "SOT23" | "SOT89" | "SOT223" | "SOT323" | "SOT363" => {
-                // Get SOT dimensions based on variant or use custom
-                let sot_dims = match package_type.as_str() {
-                    "SOT89" => SotDimensions::sot89(),
-                    "SOT223" => SotDimensions::sot223(),
-                    "SOT323" => SotDimensions::sot323(pin_count),
-                    "SOT363" => SotDimensions::sot363(),
-                    _ => {
-                        // SOT23 variants or custom SOT
-                        if pin_count == 3 || pin_count == 5 || pin_count == 6 {
-                            SotDimensions::sot23(pin_count)
-                        } else {
-                            // Custom dimensions from parameters
-                            let lw = lead_width.unwrap_or(0.4);
-                            let ll = terminal_length.unwrap_or(0.45);
-                            let p = pitch.unwrap_or(0.95);
-                            let ls = lead_span.unwrap_or(2.4);
-                            SotDimensions::custom(
-                                body_length,
-                                body_width,
-                                height,
-                                lw,
-                                ll,
-                                p,
-                                ls,
-                                pin_count,
-                                crate::ipc7351::packages::sot::SotVariant::Sot23,
-                            )
-                        }
-                    }
-                };
-
-                let calc = SotCalculator::new();
-                let pattern = calc.calculate(&sot_dims, density);
-
-                let result = json!({
-                    "status": "success",
-                    "ipc_name": pattern.ipc_name,
-                    "pads": pattern.pads,
-                    "courtyard": {
-                        "min_x": pattern.courtyard.min_x,
-                        "min_y": pattern.courtyard.min_y,
-                        "max_x": pattern.courtyard.max_x,
-                        "max_y": pattern.courtyard.max_y,
-                        "width": pattern.courtyard.width(),
-                        "height": pattern.courtyard.height()
-                    },
-                    "silkscreen": pattern.silkscreen,
-                    "assembly": pattern.assembly,
-                    "input": {
-                        "package_type": package_type,
-                        "body_length_mm": sot_dims.body_length,
-                        "body_width_mm": sot_dims.body_width,
-                        "lead_span_mm": sot_dims.lead_span,
-                        "lead_width_mm": sot_dims.lead_width,
-                        "lead_length_mm": sot_dims.lead_length,
-                        "pitch_mm": sot_dims.pitch,
-                        "height_mm": sot_dims.height,
-                        "pin_count": sot_dims.lead_count,
-                        "density": density.to_string()
-                    }
-                });
-
-                ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
-            }
-            _ => {
-                let result = json!({
-                    "status": "not_implemented",
-                    "message": format!("Package type '{}' not yet implemented", package_type),
-                    "supported_types": ["CHIP", "RESC", "CAPC", "INDC", "SOT", "SOT23", "SOT89", "SOT223", "SOT323", "SOT363"],
-                    "note": "More package types (SOIC, QFP, QFN, BGA) coming soon."
-                });
-
-                ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
-            }
-        }
-    }
-
-    /// Generates IPC-7351B compliant name.
-    #[allow(clippy::unused_self)]
-    fn call_get_ipc_name(&self, arguments: &Value) -> ToolCallResult {
-        use crate::ipc7351::{density::DensityLevel, naming};
-
-        let package_type = arguments
-            .get("package_type")
-            .and_then(Value::as_str)
-            .unwrap_or("CHIP")
-            .to_uppercase();
-        let body_length = arguments
-            .get("body_length")
-            .and_then(Value::as_f64)
-            .unwrap_or(1.6);
-        let body_width = arguments
-            .get("body_width")
-            .and_then(Value::as_f64)
-            .unwrap_or(0.8);
-        let height = arguments
-            .get("height")
-            .and_then(Value::as_f64)
-            .unwrap_or(0.55);
-        let pitch = arguments.get("pitch").and_then(Value::as_f64);
-        #[allow(clippy::cast_possible_truncation)]
-        let pin_count = arguments
-            .get("pin_count")
-            .and_then(Value::as_u64)
-            .map_or(2, |v| v as u32);
-        let density_str = arguments
-            .get("density")
-            .and_then(Value::as_str)
-            .unwrap_or("N");
-        let density = DensityLevel::from_str_loose(density_str).unwrap_or_default();
-
-        let ipc_name = match package_type.as_str() {
-            "CHIP" | "RESC" => naming::chip_name(body_length, body_width, height, density),
-            "CAPC" => naming::chip_capacitor_name(body_length, body_width, height, density),
-            "INDC" => naming::chip_inductor_name(body_length, body_width, height, density),
-            "MELF" => naming::melf_name(body_length, body_width, density),
-            "SOIC" | "SSOP" | "TSSOP" | "MSOP" => {
-                let p = pitch.unwrap_or(1.27);
-                naming::soic_name(&package_type, p, body_length, body_width, height, pin_count, density)
-            }
-            "QFP" | "LQFP" | "TQFP" => {
-                let p = pitch.unwrap_or(0.5);
-                naming::qfp_name(&package_type, p, body_length, body_width, height, pin_count, density)
-            }
-            "QFN" | "DFN" | "SON" => {
-                let p = pitch.unwrap_or(0.5);
-                let has_thermal = arguments
-                    .get("has_thermal_pad")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false);
-                naming::qfn_name(&package_type, p, body_length, body_width, height, pin_count, has_thermal, density)
-            }
-            "BGA" => {
-                let p = pitch.unwrap_or(0.5);
-                naming::bga_name(p, body_length, body_width, pin_count, density)
-            }
-            "SOT" | "SOT23" | "SOT89" | "SOT223" | "SOT323" | "SOT363" => {
-                let p = pitch.unwrap_or(0.95);
-                naming::sot_name("", p, body_width, body_length, height, pin_count, density)
-            }
-            _ => {
-                // Generic fallback format
-                // Dimensions already validated as positive by JSON parsing
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                let (l, w, h) = (
-                    (body_length * 100.0) as u32,
-                    (body_width * 100.0) as u32,
-                    (height * 100.0) as u32,
-                );
-                format!(
-                    "{}{}X{}X{}-{}{}",
-                    package_type, l, w, h, pin_count, density.suffix()
-                )
-            }
-        };
-
+    fn call_not_implemented(&self, tool_name: &str) -> ToolCallResult {
         let result = json!({
-            "ipc_name": ipc_name,
-            "components": {
-                "package_type": package_type,
-                "body_length_mm": body_length,
-                "body_width_mm": body_width,
-                "height_mm": height,
-                "pin_count": pin_count,
-                "density_level": density.to_string()
-            }
+            "status": "not_implemented",
+            "tool": tool_name,
+            "message": format!(
+                "The '{}' tool is not yet implemented. Altium file I/O is under development.",
+                tool_name
+            ),
+            "note": "This MCP server provides low-level file I/O and primitive placement. \
+                    The AI handles IPC-7351B calculations and design decisions."
         });
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())

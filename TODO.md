@@ -1,66 +1,50 @@
 # Altium Designer MCP Server — Project TODO
 
-> Everything discussed and planned for the altium-designer-mcp project.
+> Primitive-based file I/O for AI-assisted component library creation.
 
 ---
 
 ## Executive Summary
 
-**altium-designer-mcp** is an open-source Rust implementation of a Model Context Protocol
-(MCP) server that enables AI assistants (Claude Code, Claude Desktop, VSCode Copilot) to
-create, read, and manage Altium Designer component libraries with full IPC-7351B compliance.
+**altium-designer-mcp** is an MCP server that provides file I/O and primitive placement
+tools enabling AI assistants to create and manage Altium Designer component libraries.
 
-### The Problem
+### Core Principle
 
-Creating a single IPC-compliant Altium component manually takes **~1 hour**:
+**The AI handles the intelligence. The tool handles file I/O.**
 
-- Hunt through datasheets for package dimensions
-- Look up IPC-7351B tables and calculate land patterns
-- Manually place pads, silkscreen, courtyard in Altium
-- Create matching schematic symbol
-- Enter 40+ parameter fields (MPN, manufacturer, specs, suppliers...)
-- Repeat hundreds of times per project
+| Responsibility | Owner |
+|---------------|-------|
+| IPC-7351B calculations | AI |
+| Package layout decisions | AI |
+| Style choices | AI |
+| Reading/writing Altium files | This tool |
+| Primitive placement | This tool |
+| STEP model attachment | This tool |
 
-**Time cost for a typical library:**
+### Why This Architecture?
 
-| Components | Manual Time | With This Tool |
-|------------|-------------|----------------|
-| 100        | 2.5 weeks   | ~10 minutes    |
-| 500        | 3 months    | ~1 hour        |
-| 1000       | 6 months    | ~2 hours       |
+The previous approach encoded IPC-7351B formulas into "calculators" — duplicating
+intelligence that the AI already has. This was over-engineered.
 
-### The Solution
+**Simpler approach:**
 
-A single Rust binary that:
+- Tool provides low-level primitives (pads, tracks, arcs, text)
+- AI reasons about IPC standards, datasheets, and design choices
+- Tool writes the result to native Altium files
 
-1. **Reads existing Altium libraries** to learn your style preferences
-2. **Calculates IPC-7351B compliant footprints** from package dimensions
-3. **Generates complete components** (footprint + symbol + parameters)
-4. **Writes native Altium files** (.PcbLib, .SchLib, .DbLib)
-5. **Manages CSV-based component databases** for easy version control
-6. **Integrates with Claude Code/VSCode** via MCP for natural language interaction
+This makes the codebase smaller, more flexible, and easier to maintain.
 
 ---
 
 ## Technology Stack
 
-| Component          | Choice              | Rationale                                      |
-|--------------------|---------------------|------------------------------------------------|
-| **Language**       | Rust                | Single binary, zero deps, memory safe, fast    |
-| **MCP SDK**        | `rmcp` (official)   | Anthropic's official Rust SDK for MCP          |
-| **Async Runtime**  | Tokio               | Industry standard for Rust async               |
-| **Serialization**  | Serde               | JSON/binary parsing                            |
-| **OLE Parsing**    | Custom + `cfb` crate| Altium uses MS OLE compound documents          |
-
-### Why Rust Over TypeScript/Python?
-
-| Aspect           | TypeScript        | Python          | Rust          |
-|------------------|-------------------|-----------------|---------------|
-| Distribution     | npm + node bloat  | pip + venv conflicts | Single binary |
-| Binary parsing   | Clunky buffers    | Slow            | Native        |
-| Startup time     | ~500ms (Node)     | ~300ms          | <10ms         |
-| Memory safety    | Runtime errors    | Runtime         | Compile       |
-| Engineer appeal  | "Ugh, npm"        | "OK"            | "Nice!"       |
+| Component | Choice | Rationale |
+|-----------|--------|-----------|
+| **Language** | Rust | Single binary, memory safe, fast |
+| **MCP SDK** | Custom (JSON-RPC) | Simple stdio transport |
+| **Async Runtime** | Tokio | Industry standard |
+| **OLE Parsing** | `cfb` crate | Altium uses MS OLE compound documents |
 
 ---
 
@@ -72,478 +56,221 @@ altium-designer-mcp/
 ├── LICENSE                      # GPLv3
 ├── README.md
 ├── TODO.md                      # This file
-├── CREDITS.md                   # Attribution to prior art
 │
 ├── src/
-│   ├── main.rs                  # Entry point, MCP server bootstrap
-│   ├── lib.rs                   # Public API for library use
+│   ├── main.rs                  # Entry point
+│   ├── lib.rs                   # Library crate root
+│   ├── error.rs                 # Error types
 │   │
-│   ├── mcp/                     # MCP protocol layer
+│   ├── config/                  # Configuration
 │   │   ├── mod.rs
-│   │   ├── server.rs            # rmcp server implementation
-│   │   ├── tools.rs             # Tool definitions
-│   │   └── resources.rs         # MCP resources (if needed)
+│   │   └── settings.rs
 │   │
-│   ├── altium/                  # Altium file format handling
+│   ├── mcp/                     # MCP protocol
 │   │   ├── mod.rs
-│   │   ├── ole.rs               # OLE compound document parser
-│   │   ├── pcblib/
-│   │   │   ├── mod.rs
-│   │   │   ├── reader.rs        # Read .PcbLib files
-│   │   │   ├── writer.rs        # Write .PcbLib files
-│   │   │   └── primitives.rs    # Pad, Track, Arc, Region, etc.
-│   │   ├── schlib/
-│   │   │   ├── mod.rs
-│   │   │   ├── reader.rs        # Read .SchLib files
-│   │   │   ├── writer.rs        # Write .SchLib files
-│   │   │   └── primitives.rs    # Pin, Rectangle, Line, etc.
-│   │   ├── dblib.rs             # DbLib XML generation
-│   │   └── ascii.rs             # ASCII format support
+│   │   ├── server.rs            # Tool definitions & handlers
+│   │   ├── protocol.rs          # JSON-RPC types
+│   │   └── transport.rs         # Stdio transport
 │   │
-│   ├── ipc7351/                 # IPC-7351B standard implementation
-│   │   ├── mod.rs
-│   │   ├── calculator.rs        # Land pattern calculations
-│   │   ├── packages/
-│   │   │   ├── mod.rs
-│   │   │   ├── chip.rs          # 0201, 0402, 0603, 0805, 1206...
-│   │   │   ├── soic.rs          # SOIC, SSOP, TSSOP, MSOP
-│   │   │   ├── qfp.rs           # QFP, LQFP, TQFP
-│   │   │   ├── qfn.rs           # QFN, DFN, SON
-│   │   │   ├── bga.rs           # BGA, CSP
-│   │   │   ├── sot.rs           # SOT-23, SOT-223, SOT-363...
-│   │   │   └── discrete.rs      # MELF, SOD, SMA, SMB, SMC
-│   │   ├── naming.rs            # IPC naming convention generator
-│   │   ├── density.rs           # M/N/L density level handling
-│   │   └── tolerances.rs        # Fabrication tolerances
-│   │
-│   ├── style/                   # Style extraction & application
-│   │   ├── mod.rs
-│   │   ├── extractor.rs         # Analyse existing libraries
-│   │   ├── guide.rs             # StyleGuide struct definition
-│   │   └── applicator.rs        # Apply style to new components
-│   │
-│   ├── symbols/                 # Schematic symbol generation
-│   │   ├── mod.rs
-│   │   ├── templates.rs         # R, C, L, D, Q, U templates
-│   │   ├── generator.rs         # Symbol generation logic
-│   │   └── pin_layout.rs        # IC pin arrangement algorithms
-│   │
-│   ├── database/                # CSV database management
-│   │   ├── mod.rs
-│   │   ├── schema.rs            # Column definitions
-│   │   ├── csv_ops.rs           # CRUD operations
-│   │   ├── validation.rs        # Data validation
-│   │   └── batch_gen.rs         # Batch library generation
-│   │
-│   └── component_data/          # External data sources (future)
+│   └── altium/                  # Altium file I/O (TODO)
 │       ├── mod.rs
-│       ├── octopart.rs          # Octopart API client
-│       ├── digikey.rs           # Digi-Key API client
-│       └── mouser.rs            # Mouser API client
+│       ├── ole.rs               # OLE compound document handling
+│       ├── pcblib/
+│       │   ├── mod.rs
+│       │   ├── reader.rs        # Read .PcbLib files
+│       │   ├── writer.rs        # Write .PcbLib files
+│       │   └── primitives.rs    # Pad, Track, Arc, Region, Text
+│       └── schlib/
+│           ├── mod.rs
+│           ├── reader.rs        # Read .SchLib files
+│           ├── writer.rs        # Write .SchLib files
+│           └── primitives.rs    # Pin, Rectangle, Line, Arc, Text
 │
 ├── tests/
-│   ├── ipc7351_tests.rs         # Calculation validation
-│   ├── altium_roundtrip.rs      # Read→Write→Read validation
-│   └── integration_tests.rs     # Full workflow tests
-│
-├── examples/
-│   ├── create_resistor.rs
-│   ├── batch_import.rs
-│   └── style_extraction.rs
+│   └── altium_roundtrip.rs      # Read→Write→Read validation
 │
 └── data/
-    ├── ipc7351b_tables.json     # J-values, tolerances
-    └── package_definitions.json  # Standard package dimensions
+    └── test_libraries/          # Sample .PcbLib/.SchLib for testing
 ```
 
 ---
 
-## MCP Tools Specification
+## MCP Tools
 
-### Category 1: Library Reading
+### Library Reading
 
 ```rust
-/// Read and parse an Altium PcbLib file
+/// Read a .PcbLib file and return all footprints with their primitives
 #[tool(name = "read_pcblib")]
 async fn read_pcblib(filepath: String) -> PcbLibContents;
 
-/// Read and parse an Altium SchLib file
+/// Read a .SchLib file and return all symbols with their primitives
 #[tool(name = "read_schlib")]
 async fn read_schlib(filepath: String) -> SchLibContents;
 
-/// List all component names in a library
+/// List component names in a library file
 #[tool(name = "list_components")]
 async fn list_components(filepath: String) -> Vec<String>;
-
-/// Get detailed information about a specific component
-#[tool(name = "get_component")]
-async fn get_component(filepath: String, component_name: String) -> ComponentDetails;
 ```
 
-### Category 2: Style Management
+### Library Writing
 
 ```rust
-/// Analyse an existing library and extract style preferences
-#[tool(name = "extract_style_guide")]
-async fn extract_style_guide(filepath: String) -> StyleGuide;
-
-// StyleGuide contains:
-// - silkscreen_line_width: f64 (mm)
-// - silkscreen_font: String
-// - courtyard_margin: f64 (mm)
-// - courtyard_layer: String
-// - pad_corner_radius: f64 (percentage)
-// - assembly_line_width: f64 (mm)
-// - pin1_marker_style: String
-// - naming_convention: String
-
-/// Save style guide to JSON file for reuse
-#[tool(name = "save_style_guide")]
-async fn save_style_guide(style_guide: StyleGuide, filepath: String);
-
-/// Load previously saved style guide
-#[tool(name = "load_style_guide")]
-async fn load_style_guide(filepath: String) -> StyleGuide;
-```
-
-### Category 3: IPC-7351B Calculations
-
-```rust
-/// Calculate IPC-7351B compliant land pattern from package dimensions
-#[tool(name = "calculate_footprint")]
-async fn calculate_footprint(
-    package_type: String,      // CHIP, SOIC, QFP, QFN, BGA, SOT, MELF
-    body_length: f64,          // mm
-    body_width: f64,           // mm
-    lead_span: f64,            // toe-to-toe, mm
-    lead_width: f64,           // mm
-    pitch: Option<f64>,        // mm, for multi-pin packages
-    pin_count: u32,
-    density: Option<String>,   // "M" (Most), "N" (Nominal), "L" (Least)
-) -> CalculatedFootprint;
-
-/// Generate IPC-7351B compliant component name
-#[tool(name = "get_ipc_name")]
-async fn get_ipc_name(
-    package_type: String,
-    pitch: f64,
-    body_length: f64,
-    body_width: f64,
-    height: f64,
-    pin_count: u32,
-    density: String,
-) -> String;
-
-/// List all supported IPC-7351B package types with descriptions
-#[tool(name = "list_package_types")]
-async fn list_package_types() -> Vec<PackageTypeInfo>;
-
-/// Get J-values (solder fillet goals) for a density level
-#[tool(name = "get_j_values")]
-async fn get_j_values(density: String) -> JValues;
-```
-
-### Category 4: Component Generation
-
-```rust
-/// Create a complete footprint with all layers
-#[tool(name = "create_footprint")]
-async fn create_footprint(
-    name: String,
-    package_type: String,
-    dimensions: PackageDimensions,
-    density: String,
-    style_guide: Option<StyleGuide>,
-) -> Footprint;
-
-/// Create a schematic symbol
-#[tool(name = "create_symbol")]
-async fn create_symbol(
-    name: String,
-    symbol_type: String,       // "resistor", "capacitor", "ic", etc.
-    pins: Vec<PinDefinition>,
-    style_guide: Option<StyleGuide>,
-) -> Symbol;
-
-/// Create complete component with footprint, symbol, and all parameters
-#[tool(name = "create_component")]
-async fn create_component(
-    mpn: String,
-    manufacturer: String,
-    package_dims: PackageDimensions,
-    parameters: HashMap<String, String>,
-    pins: Vec<PinDefinition>,
-    style_guide: Option<StyleGuide>,
-) -> FullComponent;
-```
-
-### Category 5: Library Writing
-
-```rust
-/// Write footprints to a PcbLib file
+/// Write footprints to a .PcbLib file
+/// The AI provides all primitive data (pads, tracks, etc.)
 #[tool(name = "write_pcblib")]
 async fn write_pcblib(
-    footprints: Vec<Footprint>,
     filepath: String,
+    footprints: Vec<FootprintDefinition>,
     append: Option<bool>,
 );
 
-/// Write symbols to a SchLib file
+/// Write symbols to a .SchLib file
 #[tool(name = "write_schlib")]
 async fn write_schlib(
-    symbols: Vec<Symbol>,
     filepath: String,
+    symbols: Vec<SymbolDefinition>,
     append: Option<bool>,
 );
-
-/// Add a component to existing libraries
-#[tool(name = "add_to_library")]
-async fn add_to_library(
-    component: FullComponent,
-    pcblib_path: String,
-    schlib_path: String,
-);
-```
-
-### Category 6: CSV Database Management
-
-```rust
-/// Create a new component database CSV with proper schema
-#[tool(name = "create_database")]
-async fn create_database(
-    filepath: String,
-    custom_columns: Option<Vec<String>>,
-);
-
-/// Add a component record to the database
-#[tool(name = "add_component_to_db")]
-async fn add_component_to_db(csv_path: String, record: ComponentRecord);
-
-/// Query components from database with filtering
-#[tool(name = "query_database")]
-async fn query_database(
-    csv_path: String,
-    filter: Option<HashMap<String, String>>,
-) -> Vec<ComponentRecord>;
-
-/// Generate Altium DbLib file from CSV database
-#[tool(name = "generate_dblib")]
-async fn generate_dblib(
-    csv_path: String,
-    output_path: String,
-    library_paths: Vec<String>,
-);
-
-/// Regenerate all libraries from CSV database (full rebuild)
-#[tool(name = "regenerate_libraries")]
-async fn regenerate_libraries(
-    csv_path: String,
-    output_dir: String,
-    style_guide: Option<StyleGuide>,
-) -> GenerationReport;
-```
-
-### Category 7: Component Data Lookup (Future)
-
-```rust
-/// Lookup component data from distributor APIs
-#[tool(name = "lookup_component")]
-async fn lookup_component(mpn: String) -> ComponentData;
-
-/// Search for components by parameters
-#[tool(name = "search_components")]
-async fn search_components(
-    category: String,
-    specs: HashMap<String, String>,
-) -> Vec<ComponentInfo>;
 ```
 
 ---
 
-## CSV Database Schema
+## Primitive Types
 
-The master CSV file serves as the single source of truth:
+### Footprint Primitives (PcbLib)
 
-```csv
-ID,Part Number,Manufacturer,Description,Category,Value,Package,Package Type,Body Length,Body Width,Lead Span,Lead Width,Pitch,Pin Count,Footprint Ref,Symbol Ref,Datasheet,Supplier 1,Supplier PN 1,Unit Price,RoHS,Lifecycle,Tolerance,Power Rating,Voltage Rating,Temperature Range
-1,RC0402FR-0710KL,Yageo,Thick Film Resistor,Resistor,10k,0402,CHIP,1.0,0.5,1.0,0.3,,2,RESC1005X40N,RES_2PIN,https://...,Digi-Key,311-10KLRCT-ND,0.01,Compliant,Active,1%,0.0625W,50V,-55C to +155C
-```
+| Primitive | Description |
+|-----------|-------------|
+| **Pad** | SMD or through-hole pad with designator, position, size, shape, layer |
+| **Track** | Line segment on any layer (silkscreen, assembly, etc.) |
+| **Arc** | Arc or circle on any layer |
+| **Region** | Filled polygon (courtyard, copper pour) |
+| **Text** | Text string with font, size, position, layer |
 
-### Standard Columns
+### Symbol Primitives (SchLib)
 
-| Column         | Description                          | Required    |
-|----------------|--------------------------------------|-------------|
-| ID             | Unique identifier                    | Yes         |
-| Part Number    | Manufacturer part number (MPN)       | Yes         |
-| Manufacturer   | Manufacturer name                    | Yes         |
-| Description    | Human-readable description           | Yes         |
-| Category       | Component category                   | Yes         |
-| Value          | Component value (10k, 100nF, etc.)   | No          |
-| Package        | Package name (0402, LQFP-48, etc.)   | Yes         |
-| Package Type   | IPC package type (CHIP, QFP, etc.)   | Yes         |
-| Body Length    | Package body length in mm            | Yes         |
-| Body Width     | Package body width in mm             | Yes         |
-| Lead Span      | Toe-to-toe dimension in mm           | Yes         |
-| Lead Width     | Lead/terminal width in mm            | Yes         |
-| Pitch          | Lead pitch in mm                     | For multi-pin |
-| Pin Count      | Total number of pins                 | Yes         |
-| Footprint Ref  | Reference to PcbLib footprint        | Generated   |
-| Symbol Ref     | Reference to SchLib symbol           | Generated   |
-| Datasheet      | URL to datasheet                     | Recommended |
-| Supplier 1     | Primary supplier name                | Recommended |
-| Supplier PN 1  | Supplier part number                 | Recommended |
-| Unit Price     | Unit cost                            | Optional    |
-| RoHS           | RoHS compliance status               | Recommended |
-| Lifecycle      | Product lifecycle status             | Recommended |
-| + Custom       | User-defined columns                 | Optional    |
+| Primitive | Description |
+|-----------|-------------|
+| **Pin** | Electrical pin with designator, name, position, orientation, type |
+| **Rectangle** | Rectangle shape for IC body |
+| **Line** | Line segment for symbol graphics |
+| **Arc** | Arc for symbol graphics |
+| **Text** | Text for labels, part info |
+
+### Standard Altium Layers
+
+| Layer | Usage |
+|-------|-------|
+| Top Layer | Copper pads (multi-layer for SMD) |
+| Top Overlay | Silkscreen |
+| Top Paste | Solder paste |
+| Top Solder | Solder mask |
+| Mechanical 1 | Assembly outline |
+| Mechanical 13 | 3D body outline |
+| Mechanical 15 | Courtyard |
+
+The AI decides which layers to use based on the component requirements.
 
 ---
 
-## MCP Integration
+## STEP Model Integration
 
-### How It Works
-
-1. You build and install the MCP server binary
-2. Configure Claude Code to use it
-3. Claude Code launches the server and discovers its tools
-4. Claude can then call those tools on your behalf
-
-### Claude Code CLI Setup
-
-```bash
-# Install the server
-cargo install altium-designer-mcp
-
-# Add to Claude Code (user scope - available everywhere)
-claude mcp add --scope user --transport stdio altium -- altium-designer-mcp /path/to/libraries
-```
-
-Or via JSON:
-
-```bash
-claude mcp add-json altium '{
-  "type": "stdio",
-  "command": "altium-designer-mcp",
-  "args": ["/path/to/your/libraries"],
-  "env": {
-    "OCTOPART_API_KEY": "your-key-here"
-  }
-}' --scope user
-```
-
-### Project-Scoped Config (Recommended)
-
-Put `.mcp.json` in your component library Git repo:
-
-```
-my-altium-library/
-├── .mcp.json                    <- MCP server config
-├── libraries/
-│   ├── Passives.PcbLib
-│   ├── Passives.SchLib
-│   └── ...
-├── database/
-│   └── components.csv
-└── styles/
-    └── company-style.json
-```
-
-**.mcp.json contents:**
+STEP models are **attached**, not generated. The tool links existing STEP files to footprints.
 
 ```json
 {
-  "mcpServers": {
-    "altium": {
-      "type": "stdio",
-      "command": "altium-designer-mcp",
-      "args": ["./libraries", "--style", "./styles/company-style.json"],
-      "env": {
-        "OCTOPART_API_KEY": "${OCTOPART_API_KEY}"
-      }
-    }
+  "step_model": {
+    "filepath": "./3d-models/0603.step",
+    "x_offset": 0,
+    "y_offset": 0,
+    "z_offset": 0,
+    "rotation": 0
   }
 }
 ```
 
-**Benefits:**
+For parametric 3D model generation, use a dedicated mechanical MCP server (future project).
 
-- Clone repo → everything works
-- Team shares same config via git
-- Config changes tracked with library
-- Works on any machine with the server installed
+---
 
-### Claude Desktop
+## Example: AI Creates a 0603 Resistor Footprint
 
-Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
+The AI calculates IPC-7351B dimensions and calls `write_pcblib`:
 
 ```json
 {
-  "mcpServers": {
-    "altium": {
-      "command": "altium-designer-mcp",
-      "args": ["/Users/engineer/altium-libraries"]
-    }
-  }
+  "filepath": "./Passives.PcbLib",
+  "footprints": [{
+    "name": "RESC1608X55N",
+    "description": "Chip resistor, 0603 (1608 metric)",
+    "pads": [
+      { "designator": "1", "x": -0.75, "y": 0, "width": 0.9, "height": 0.95, "shape": "rounded_rectangle" },
+      { "designator": "2", "x": 0.75, "y": 0, "width": 0.9, "height": 0.95, "shape": "rounded_rectangle" }
+    ],
+    "tracks": [
+      { "x1": -0.8, "y1": -0.425, "x2": 0.8, "y2": -0.425, "width": 0.12, "layer": "Top Overlay" },
+      { "x1": -0.8, "y1": 0.425, "x2": 0.8, "y2": 0.425, "width": 0.12, "layer": "Top Overlay" }
+    ],
+    "regions": [
+      { "vertices": [{"x": -1.45, "y": -0.73}, {"x": 1.45, "y": -0.73}, {"x": 1.45, "y": 0.73}, {"x": -1.45, "y": 0.73}], "layer": "Mechanical 15" }
+    ]
+  }]
 }
 ```
 
-### VSCode
+The AI:
 
-Create `.vscode/mcp.json` in your workspace:
+- Looked up IPC-7351B tables for 0603 chip
+- Calculated pad size, span, courtyard
+- Decided on silkscreen style
+- Generated the JSON
 
-```json
-{
-  "servers": {
-    "altium": {
-      "command": "altium-designer-mcp",
-      "args": ["${workspaceFolder}/libraries"]
-    }
-  }
-}
-```
+The tool:
+
+- Wrote the data to the .PcbLib file
+- Handled OLE compound document format
+
+---
+
+## Development Roadmap
+
+### Phase 1: Foundation (Done)
+
+- [x] MCP server scaffold
+- [x] JSON-RPC protocol
+- [x] Tool definitions
+- [x] Configuration system
+
+### Phase 2: Altium File I/O (Current Focus)
+
+- [ ] OLE compound document parser (`cfb` crate integration)
+- [ ] PcbLib reader — extract footprints and primitives
+- [ ] PcbLib writer — create footprints from primitive data
+- [ ] SchLib reader — extract symbols and primitives
+- [ ] SchLib writer — create symbols from primitive data
+- [ ] Round-trip validation tests
+
+### Phase 3: Polish
+
+- [ ] Error handling improvements
+- [ ] Documentation
+- [ ] Pre-built binaries
+- [ ] Real-world testing
 
 ---
 
 ## Prior Art & Credits
 
-This project builds upon the excellent work of others:
+### Altium File Format References
 
-### AltiumSharp (C# / .NET)
+- **AltiumSharp** (C#): <https://github.com/issus/AltiumSharp>
+- **pyAltiumLib** (Python): <https://github.com/ChrisHoyer/pyAltiumLib>
+- **python-altium**: <https://github.com/vadmium/python-altium>
 
-- **Repository**: <https://github.com/issus/AltiumSharp>
-- **Author**: issus, Tiago Trinidad (@Kronal)
-- **License**: MIT
-- **Contribution**: Understanding of Altium binary file formats, OLE structure,
-  read/write implementations
-- **Usage**: File format specifications and parsing logic will be ported to Rust
+### MCP Inspiration
 
-### pyAltiumLib (Python)
-
-- **Repository**: <https://github.com/ChrisHoyer/pyAltiumLib>
-- **Author**: Chris Hoyer
-- **Contribution**: File structure documentation, rendering logic
-- **Usage**: Reference for file format documentation
-
-### python-altium
-
-- **Repository**: <https://github.com/vadmium/python-altium>
-- **Author**: vadmium
-- **Contribution**: Detailed format.md documentation of Altium file structures
-- **Usage**: Primary reference for ASCII and binary format specifications
-
-### KiCad MCP Server
-
-- **Repository**: <https://github.com/mixelpixx/KiCAD-MCP-Server>
-- **Author**: mixelpixx
-- **Contribution**: Proof of concept that EDA + MCP integration works and is valuable
-- **Usage**: Architectural inspiration for tool organization
-
-### IPC-7351B Standard
-
-- **Publisher**: IPC (Institute for Printed Circuits)
-- **Document**: IPC-7351B - Generic Requirements for Surface Mount Design and
-  Land Pattern Standard
-- **Usage**: All land pattern calculations follow this standard
+- **KiCad MCP Server**: <https://github.com/mixelpixx/KiCAD-MCP-Server>
 
 ---
 
@@ -551,321 +278,8 @@ This project builds upon the excellent work of others:
 
 **GNU General Public License v3.0 (GPLv3)**
 
-### Why GPLv3?
-
-1. **Prevent monetization** - No one can take this code and sell it as proprietary
-   software
-2. **Ensure contributions flow back** - Any improvements must be shared with the
-   community
-3. **Protect engineer users** - The tool remains free and open forever
-4. **Encourage collaboration** - Companies can use it, but must share improvements
-
-### What GPLv3 Means For Users
-
-**You CAN:**
-
-- Use this tool for any purpose (personal, commercial, educational)
-- Modify the code to suit your needs
-- Distribute copies
-- Use generated libraries in proprietary products (libraries are data, not code)
-
-**You CANNOT:**
-
-- Distribute modified versions without sharing source code
-- Create proprietary forks
-- Remove license notices
-
----
-
-## Viability Analysis
-
-### Strengths
-
-- **Real problem** - The pain of manual component creation is genuine and widespread
-- **Clear value proposition** - Time savings are measurable and significant
-- **Good prior art** - Not starting from zero on file format understanding
-- **Appropriate technology** - Rust is the right choice for binary parsing + distribution
-- **Well-defined API** - MCP tools have clear boundaries
-
-### Primary Risks
-
-#### 1. Altium File Format Writing (CRITICAL RISK)
-
-Reading Altium files is well-documented. **Writing files that Altium reliably accepts
-is harder:**
-
-- Undocumented fields may need specific values
-- Version-specific quirks
-- Internal consistency requirements (checksums, offsets, reference counts)
-
-**Mitigation:** Consider ASCII format as fallback (simpler but requires user conversion).
-
-#### 2. Altium Version Compatibility
-
-- Altium releases major versions annually
-- Format changes could break the tool
-- No official API or documentation
-
-**Mitigation:** Target specific versions, detect/warn on version mismatch.
-
-#### 3. Symbol Generation Complexity
-
-IC symbols with proper pin grouping (power, I/O, etc.) is a deep rabbit hole.
-
-**Mitigation:** V1 uses simple rectangular symbols; V2 adds intelligent pin grouping.
-
-### Alternative Architecture to Consider
-
-**Phased approach to de-risk:**
-
-```
-Phase 1: CSV + DelphiScript Generator
-─────────────────────────────────────
-• MCP server manages CSV database only
-• IPC calculations output to CSV
-• Generate DelphiScript that creates components in Altium
-• User runs script inside Altium
-• Avoids file format complexity entirely
-
-Phase 2: Native File I/O (if Phase 1 succeeds)
-──────────────────────────────────────────────
-• Add binary read/write once value is proven
-• Can iterate on file format support over time
-```
-
----
-
-## Development Roadmap
-
-**Timeline: ~1 year**
-
-### Phase 1: Foundation (Months 1-2)
-
-- [x] Project scaffold with Cargo workspace
-- [x] Basic MCP server with rmcp SDK
-- [x] IPC-7351B calculator for chip components (0201-2512)
-- [x] IPC naming convention generator
-- [x] Unit tests for calculations
-
-### Phase 2: Altium File I/O (Months 3-5)
-
-- [ ] OLE compound document parser
-- [ ] PcbLib reader (footprint extraction)
-- [ ] PcbLib writer (footprint creation)
-- [ ] SchLib reader (symbol extraction)
-- [ ] SchLib writer (symbol creation)
-- [ ] Round-trip validation tests
-- [ ] ASCII format support as fallback
-
-### Phase 3: Style System (Month 6)
-
-- [ ] Style extractor from existing libraries
-- [ ] StyleGuide JSON serialization
-- [ ] Style applicator for new components
-- [ ] Silkscreen, courtyard, assembly layer handling
-
-### Phase 4: Package Types (Months 7-8)
-
-- [ ] SOIC, SSOP, TSSOP, MSOP
-- [ ] QFP, LQFP, TQFP
-- [ ] QFN, DFN, SON (with thermal pad)
-- [ ] BGA, CSP
-- [x] SOT family (SOT-23, SOT-89, SOT-223, SOT-323, SOT-363)
-- [ ] Discrete (MELF, SOD, SMA/SMB/SMC)
-
-### Phase 5: Database System (Month 9)
-
-- [ ] CSV schema definition
-- [ ] CRUD operations
-- [ ] DbLib XML generator
-- [ ] Batch library regeneration
-- [ ] Validation and reporting
-
-### Phase 6: Symbol Generation (Month 10)
-
-- [ ] Passive templates (R, C, L)
-- [ ] Semiconductor templates (D, Q, U)
-- [ ] IC pin layout algorithms
-- [ ] Multi-part symbol support
-
-### Phase 7: Polish & Release (Months 11-12)
-
-- [ ] Documentation
-- [ ] Example libraries
-- [ ] CI/CD pipeline
-- [ ] Pre-built binaries for Win/Mac/Linux
-- [ ] crates.io publication
-- [ ] GitHub release
-- [ ] Real-world testing with users
-
-### Future Enhancements
-
-- [ ] 3D STEP model generation (see dedicated section below)
-- [ ] Octopart/Digi-Key API integration
-- [ ] Datasheet dimension extraction (PDF parsing)
-- [ ] Web UI for non-CLI users
-
----
-
-## 3D STEP Model Generation
-
-Generate IPC-compliant 3D models as STEP files for PCB design visualisation.
-
-### Output Options
-
-1. **Separate STEP files** - Standalone `.step` files alongside footprints
-   - Stored in parallel directory (e.g., `libraries/3d-models/`)
-   - Referenced by footprint via model path
-   - Easy to edit/replace individual models
-   - Git-friendly (binary diffs per model)
-
-2. **Embedded in PcbLib** - 3D model stored within footprint record
-   - Single file contains everything
-   - No external dependencies
-   - Simpler distribution
-   - Larger file size
-
-### Model Generation Approach
-
-For each package type, generate parametric 3D geometry based on IPC dimensions:
-
-| Package | Geometry | Details |
-|---------|----------|---------|
-| CHIP    | Rectangular body + metallic terminals | Body colour by category (tan=resistor, brown=capacitor) |
-| SOT     | Moulded body + gull-wing leads | Lead bend per JEDEC spec |
-| SOIC    | Moulded body + gull-wing leads | Mould mark, pin 1 indicator |
-| QFP     | Moulded body + gull-wing leads (4 sides) | Lead tip radius |
-| QFN     | Moulded body + bottom terminals + thermal pad | Exposed pad visible |
-| BGA     | Moulded body + solder balls array | Ball diameter from pitch |
-
-### Implementation Options
-
-1. **Pure Rust** - Use `truck` crate for STEP generation
-   - Native Rust, single binary
-   - No external dependencies
-   - Newer library, less mature
-
-2. **CadQuery via Python** - Generate via subprocess
-   - Mature, battle-tested
-   - Requires Python runtime
-   - Excellent parametric modelling
-
-3. **OpenCASCADE bindings** - Use `opencascade-rs`
-   - Industrial-strength geometry kernel
-   - Complex build (C++ dependency)
-   - Most capable option
-
-### MVP Scope
-
-Start with simple extruded/filleted bodies for common packages:
-
-- Chip components (0201-2512)
-- SOT23, SOT223
-- SOIC-8, SOIC-16
-- QFN basic shapes
-
-### MCP Tool Addition
-
-```rust
-/// Generate 3D STEP model for a footprint
-#[tool(name = "generate_step_model")]
-async fn generate_step_model(
-    footprint_name: String,
-    package_type: String,
-    dimensions: PackageDimensions,
-    output_mode: StepOutputMode, // "separate" or "embedded"
-    output_path: Option<String>, // For separate mode
-) -> StepModelResult;
-```
-
----
-
-## Minimum Viable Package Set (V1)
-
-To ship something useful faster, V1 could focus on:
-
-| Package Type | Coverage | % of Typical BOM |
-|--------------|----------|------------------|
-| CHIP         | 0201-2512 passives | ~40% |
-| SOIC/TSSOP   | Standard ICs | ~20% |
-| QFN          | Modern ICs | ~15% |
-| SOT-23       | Small transistors/regulators | ~10% |
-
-This covers ~85% of typical BOM components with 4 package families.
-
----
-
-## Example Interactions
-
-### Creating a Single Component
-
-```
-Engineer: Create a footprint for the TPS63000DRCR buck-boost converter.
-          It's in a VSON-10 package (3x3mm body, 0.5mm pitch).
-          Use my existing library style.
-
-Claude:   [extract_style_guide] Analyzing your existing library...
-          → Silkscreen: 0.15mm lines, Courtyard: 0.25mm margin
-
-          [calculate_footprint] Computing IPC-7351B land pattern...
-          → Package: SON50P300X300X80-11N
-          → Pad size: 0.30mm x 0.85mm
-          → Thermal pad: 1.65mm x 2.40mm
-
-          [create_component] Generating complete component...
-          [write_pcblib] Saved to ./libraries/PowerIC.PcbLib
-
-          Done. Created TPS63000DRCR with IPC-7351B Nominal density footprint.
-```
-
-### Batch Import from BOM
-
-```
-Engineer: I have a BOM with 150 components. Can you create the library?
-
-Claude:   [Analyzing BOM...]
-          → 150 components, 43 unique packages, 12 categories
-
-          [Processing...]
-          ████████████████████████████████ 100%
-
-          Created Libraries:
-          • Passives.PcbLib (23 footprints)
-          • Semiconductors.PcbLib (15 footprints)
-          • Connectors.PcbLib (5 footprints)
-
-          Database: components.csv (150 records)
-
-          Warnings:
-          - 3 components missing package dimensions
-          - 2 components have obsolete lifecycle status
-
-          Time: 2 minutes (estimated manual: ~150 hours)
-```
-
----
-
-## Open Questions to Resolve
-
-1. **Binary vs ASCII format?**
-   - ASCII is 10x simpler but has UX friction
-   - Binary is complex but seamless
-   - Decision: Support both, ASCII first?
-
-2. **How to test file output?**
-   - Need Altium Designer licenses for validation
-   - CI/CD strategy for automated testing
-   - Matrix of Altium versions to support
-
-3. **DbLib vs Integrated Libraries?**
-   - DbLib is simpler (CSV + references)
-   - Integrated requires embedding in binary format
-   - Decision: Start with DbLib workflow?
-
-4. **Symbol generation scope for V1?**
-   - Simple rectangular symbols (fast to implement)
-   - vs. Intelligent pin grouping (complex)
-   - Decision: Simple for V1, intelligent for V2
+The tool is free software. Generated libraries are data, not code — you can use them
+in any project.
 
 ---
 
@@ -873,20 +287,3 @@ Claude:   [Analyzing BOM...]
 
 - **Organization**: [The Embedded Society](https://github.com/embedded-society/)
 - **Repository**: [altium-designer-mcp](https://github.com/embedded-society/altium-designer-mcp)
-- **Contact**: <matejg03@gmail.com>
-
----
-
-## Contributing
-
-Areas needing help:
-
-- Additional package type implementations
-- Testing with real Altium libraries
-- Documentation improvements
-- Windows/Mac testing
-- Performance optimisation
-
----
-
-*This project is not affiliated with Altium Limited. Altium Designer is a trademark of Altium Limited.*

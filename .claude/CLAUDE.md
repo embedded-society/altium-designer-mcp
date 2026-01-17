@@ -1,30 +1,30 @@
 # altium-designer-mcp — AI Assistant Context
 
-## The Vision (Read First!)
+## Core Principle
 
-See `docs/VISION.md` for the full architecture:
+**The AI handles the intelligence. The tool handles file I/O.**
 
-| Component | Data Flow |
-|-----------|-----------|
-| **IPC-7351B** | Dimensions → Calculations → Land Pattern |
-| **Altium I/O** | MCP Server ↔ .PcbLib/.SchLib Files |
-
-**Core principle:** AI handles repetitive calculations. Engineers focus on design decisions.
+| Responsibility | Owner |
+|---------------|-------|
+| IPC-7351B calculations | AI |
+| Package layout decisions | AI |
+| Style choices | AI |
+| Reading/writing Altium files | This tool |
+| Primitive placement | This tool |
 
 ## What Is This Project?
 
-An MCP server for AI-assisted Altium Designer component library management with IPC-7351B compliance.
+An MCP server that provides file I/O and primitive placement tools for Altium Designer
+component libraries. The AI calculates footprint dimensions; the tool writes them to files.
 
-**IPC-7351B First:** All footprints follow the standard.
-**Style Extraction:** Learn from existing library components.
+See `docs/VISION.md` for the full architecture.
 
 ## Quick Reference
 
 | Resource | Location |
 |----------|----------|
 | Vision | `docs/VISION.md` |
-| Architecture | `docs/ARCHITECTURE.md` |
-| AI Workflow | `docs/AI_WORKFLOW.md` |
+| Project TODO | `TODO.md` |
 
 ## Critical Rules
 
@@ -32,50 +32,13 @@ An MCP server for AI-assisted Altium Designer component library management with 
 
 1. **NEVER write arbitrary files outside library paths**
 2. **NEVER expose internal file paths in error messages**
-3. **NEVER skip IPC validation**
-4. **NEVER ignore user's style configuration**
-5. **NEVER push to main**
+3. **NEVER push to main**
 
 ### ALWAYS Do These
 
-1. **Use IPC-7351B formulas** for land patterns
-2. **Validate dimensions** before calculation
-3. **Extract style** from reference components when available
-4. **Use sensible defaults** when config is missing
-5. **Sanitise paths** in error messages
-
-## Implementation Pattern
-
-```rust
-// CORRECT: IPC-7351B calculation with validation
-pub fn calculate_chip_footprint(
-    body_length: f64,
-    body_width: f64,
-    terminal_length: f64,
-    density: DensityLevel,
-) -> Result<Footprint, IpcError> {
-    // Validate inputs
-    if terminal_length >= body_length {
-        return Err(IpcError::InvalidDimensions(
-            "Terminal length must be less than body length".into()
-        ));
-    }
-
-    // IPC-7351B calculations
-    let (toe, heel, side) = density.solder_goals();
-    let pad_width = terminal_length + toe + heel;
-    let pad_height = body_width + 2.0 * side;
-
-    Ok(Footprint {
-        pads: vec![
-            Pad::new(1, -pad_span/2.0, 0.0, pad_width, pad_height),
-            Pad::new(2, pad_span/2.0, 0.0, pad_width, pad_height),
-        ],
-        courtyard: Courtyard::from_bounds(...),
-        silkscreen: Silkscreen::chip_outline(...),
-    })
-}
-```
+1. **Validate file paths** before reading/writing
+2. **Use sensible defaults** when config is missing
+3. **Sanitise paths** in error messages
 
 ## Project Structure
 
@@ -85,34 +48,36 @@ src/
 ├── main.rs             # CLI entry point
 ├── error.rs            # Top-level error types
 ├── config/             # Configuration
-│   ├── mod.rs          # Module exports
-│   └── settings.rs     # Config file parsing
+│   ├── mod.rs
+│   └── settings.rs
 ├── mcp/                # MCP server
-│   ├── mod.rs          # Module exports
-│   ├── server.rs       # JSON-RPC server
-│   ├── protocol.rs     # MCP protocol types
+│   ├── mod.rs
+│   ├── server.rs       # Tool definitions & handlers
+│   ├── protocol.rs     # JSON-RPC types
 │   └── transport.rs    # Stdio transport
-├── ipc7351/            # IPC-7351B calculations (planned)
-│   ├── mod.rs          # Module exports
-│   ├── chip.rs         # Chip resistor/capacitor patterns
-│   ├── soic.rs         # SOIC/SOP patterns
-│   ├── qfn.rs          # QFN/DFN patterns
-│   └── naming.rs       # IPC naming conventions
-├── altium/             # Altium file I/O (planned)
-│   ├── mod.rs          # Module exports
-│   ├── cfb.rs          # OLE compound file handling
-│   ├── pcblib.rs       # .PcbLib reading/writing
-│   └── schlib.rs       # .SchLib reading/writing
-├── style/              # Style management (planned)
-│   ├── mod.rs          # Module exports
-│   ├── extract.rs      # Extract style from existing lib
-│   └── apply.rs        # Apply style to components
-├── symbols/            # Symbol generation (planned)
-│   └── generator.rs    # Schematic symbol creation
-└── database/           # CSV database (planned)
-    ├── schema.rs       # Database schema
-    └── csv_io.rs       # CSV reading/writing
+└── altium/             # Altium file I/O (TODO)
+    ├── mod.rs
+    ├── ole.rs          # OLE compound file handling
+    ├── pcblib/         # .PcbLib read/write
+    └── schlib/         # .SchLib read/write
 ```
+
+## MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `read_pcblib` | Read footprints and primitives from .PcbLib |
+| `read_schlib` | Read symbols and primitives from .SchLib |
+| `list_components` | List component names in a library |
+| `write_pcblib` | Write footprints to .PcbLib |
+| `write_schlib` | Write symbols to .SchLib |
+
+## Primitives
+
+The AI provides primitive definitions. The tool writes them.
+
+**Footprint**: Pads, tracks, arcs, regions, text
+**Symbol**: Pins, rectangles, lines, arcs, text
 
 ## Off Limits
 
