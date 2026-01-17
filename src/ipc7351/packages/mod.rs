@@ -4,6 +4,7 @@
 //! implementing the land pattern calculations per the IPC-7351B standard.
 
 pub mod chip;
+pub mod sot;
 
 use serde::{Deserialize, Serialize};
 

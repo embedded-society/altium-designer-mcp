@@ -641,11 +641,11 @@ Phase 2: Native File I/O (if Phase 1 succeeds)
 
 ### Phase 1: Foundation (Months 1-2)
 
-- [ ] Project scaffold with Cargo workspace
-- [ ] Basic MCP server with rmcp SDK
-- [ ] IPC-7351B calculator for chip components (0201-2512)
-- [ ] IPC naming convention generator
-- [ ] Unit tests for calculations
+- [x] Project scaffold with Cargo workspace
+- [x] Basic MCP server with rmcp SDK
+- [x] IPC-7351B calculator for chip components (0201-2512)
+- [x] IPC naming convention generator
+- [x] Unit tests for calculations
 
 ### Phase 2: Altium File I/O (Months 3-5)
 
@@ -670,7 +670,7 @@ Phase 2: Native File I/O (if Phase 1 succeeds)
 - [ ] QFP, LQFP, TQFP
 - [ ] QFN, DFN, SON (with thermal pad)
 - [ ] BGA, CSP
-- [ ] SOT family (SOT-23, SOT-223, SOT-363, etc.)
+- [x] SOT family (SOT-23, SOT-89, SOT-223, SOT-323, SOT-363)
 - [ ] Discrete (MELF, SOD, SMA/SMB/SMC)
 
 ### Phase 5: Database System (Month 9)
@@ -700,11 +700,83 @@ Phase 2: Native File I/O (if Phase 1 succeeds)
 
 ### Future Enhancements
 
-- [ ] 3D model generation (STEP via CadQuery/Rust)
+- [ ] 3D STEP model generation (see dedicated section below)
 - [ ] Octopart/Digi-Key API integration
 - [ ] Datasheet dimension extraction (PDF parsing)
 - [ ] Web UI for non-CLI users
-- [ ] Altium 365 API integration
+
+---
+
+## 3D STEP Model Generation
+
+Generate IPC-compliant 3D models as STEP files for PCB design visualisation.
+
+### Output Options
+
+1. **Separate STEP files** - Standalone `.step` files alongside footprints
+   - Stored in parallel directory (e.g., `libraries/3d-models/`)
+   - Referenced by footprint via model path
+   - Easy to edit/replace individual models
+   - Git-friendly (binary diffs per model)
+
+2. **Embedded in PcbLib** - 3D model stored within footprint record
+   - Single file contains everything
+   - No external dependencies
+   - Simpler distribution
+   - Larger file size
+
+### Model Generation Approach
+
+For each package type, generate parametric 3D geometry based on IPC dimensions:
+
+| Package | Geometry | Details |
+|---------|----------|---------|
+| CHIP    | Rectangular body + metallic terminals | Body colour by category (tan=resistor, brown=capacitor) |
+| SOT     | Moulded body + gull-wing leads | Lead bend per JEDEC spec |
+| SOIC    | Moulded body + gull-wing leads | Mould mark, pin 1 indicator |
+| QFP     | Moulded body + gull-wing leads (4 sides) | Lead tip radius |
+| QFN     | Moulded body + bottom terminals + thermal pad | Exposed pad visible |
+| BGA     | Moulded body + solder balls array | Ball diameter from pitch |
+
+### Implementation Options
+
+1. **Pure Rust** - Use `truck` crate for STEP generation
+   - Native Rust, single binary
+   - No external dependencies
+   - Newer library, less mature
+
+2. **CadQuery via Python** - Generate via subprocess
+   - Mature, battle-tested
+   - Requires Python runtime
+   - Excellent parametric modelling
+
+3. **OpenCASCADE bindings** - Use `opencascade-rs`
+   - Industrial-strength geometry kernel
+   - Complex build (C++ dependency)
+   - Most capable option
+
+### MVP Scope
+
+Start with simple extruded/filleted bodies for common packages:
+
+- Chip components (0201-2512)
+- SOT23, SOT223
+- SOIC-8, SOIC-16
+- QFN basic shapes
+
+### MCP Tool Addition
+
+```rust
+/// Generate 3D STEP model for a footprint
+#[tool(name = "generate_step_model")]
+async fn generate_step_model(
+    footprint_name: String,
+    package_type: String,
+    dimensions: PackageDimensions,
+    output_mode: StepOutputMode, // "separate" or "embedded"
+    output_path: Option<String>, // For separate mode
+) -> StepModelResult;
+```
 
 ---
 

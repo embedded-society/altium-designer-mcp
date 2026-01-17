@@ -608,11 +608,11 @@ impl McpServer {
     }
 
     /// Calculates IPC-7351B compliant footprint.
-    #[allow(clippy::unused_self)]
+    #[allow(clippy::unused_self, clippy::too_many_lines)]
     fn call_calculate_footprint(&self, arguments: &Value) -> ToolCallResult {
         use crate::ipc7351::{
             density::DensityLevel,
-            packages::{chip::ChipCalculator, PackageDimensions},
+            packages::{chip::ChipCalculator, sot::{SotCalculator, SotDimensions}, PackageDimensions},
         };
 
         let package_type = arguments
@@ -634,10 +634,13 @@ impl McpServer {
             .get("height")
             .and_then(Value::as_f64)
             .unwrap_or(0.5);
-        let _pin_count = arguments
+        #[allow(clippy::cast_possible_truncation)]
+        let pin_count = arguments
             .get("pin_count")
             .and_then(Value::as_u64)
-            .unwrap_or(2);
+            .map_or(2, |v| v as u32);
+        let pitch = arguments.get("pitch").and_then(Value::as_f64);
+        let lead_width = arguments.get("lead_width").and_then(Value::as_f64);
         let density_str = arguments
             .get("density")
             .and_then(Value::as_str)
@@ -682,12 +685,77 @@ impl McpServer {
 
                 ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
             }
+            "SOT" | "SOT23" | "SOT89" | "SOT223" | "SOT323" | "SOT363" => {
+                // Get SOT dimensions based on variant or use custom
+                let sot_dims = match package_type.as_str() {
+                    "SOT89" => SotDimensions::sot89(),
+                    "SOT223" => SotDimensions::sot223(),
+                    "SOT323" => SotDimensions::sot323(pin_count),
+                    "SOT363" => SotDimensions::sot363(),
+                    _ => {
+                        // SOT23 variants or custom SOT
+                        if pin_count == 3 || pin_count == 5 || pin_count == 6 {
+                            SotDimensions::sot23(pin_count)
+                        } else {
+                            // Custom dimensions from parameters
+                            let lw = lead_width.unwrap_or(0.4);
+                            let ll = terminal_length.unwrap_or(0.45);
+                            let p = pitch.unwrap_or(0.95);
+                            let ls = lead_span.unwrap_or(2.4);
+                            SotDimensions::custom(
+                                body_length,
+                                body_width,
+                                height,
+                                lw,
+                                ll,
+                                p,
+                                ls,
+                                pin_count,
+                                crate::ipc7351::packages::sot::SotVariant::Sot23,
+                            )
+                        }
+                    }
+                };
+
+                let calc = SotCalculator::new();
+                let pattern = calc.calculate(&sot_dims, density);
+
+                let result = json!({
+                    "status": "success",
+                    "ipc_name": pattern.ipc_name,
+                    "pads": pattern.pads,
+                    "courtyard": {
+                        "min_x": pattern.courtyard.min_x,
+                        "min_y": pattern.courtyard.min_y,
+                        "max_x": pattern.courtyard.max_x,
+                        "max_y": pattern.courtyard.max_y,
+                        "width": pattern.courtyard.width(),
+                        "height": pattern.courtyard.height()
+                    },
+                    "silkscreen": pattern.silkscreen,
+                    "assembly": pattern.assembly,
+                    "input": {
+                        "package_type": package_type,
+                        "body_length_mm": sot_dims.body_length,
+                        "body_width_mm": sot_dims.body_width,
+                        "lead_span_mm": sot_dims.lead_span,
+                        "lead_width_mm": sot_dims.lead_width,
+                        "lead_length_mm": sot_dims.lead_length,
+                        "pitch_mm": sot_dims.pitch,
+                        "height_mm": sot_dims.height,
+                        "pin_count": sot_dims.lead_count,
+                        "density": density.to_string()
+                    }
+                });
+
+                ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+            }
             _ => {
                 let result = json!({
                     "status": "not_implemented",
                     "message": format!("Package type '{}' not yet implemented", package_type),
-                    "supported_types": ["CHIP", "RESC", "CAPC", "INDC"],
-                    "note": "More package types (SOIC, QFP, QFN, BGA, SOT) coming soon."
+                    "supported_types": ["CHIP", "RESC", "CAPC", "INDC", "SOT", "SOT23", "SOT89", "SOT223", "SOT323", "SOT363"],
+                    "note": "More package types (SOIC, QFP, QFN, BGA) coming soon."
                 });
 
                 ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
@@ -753,6 +821,10 @@ impl McpServer {
             "BGA" => {
                 let p = pitch.unwrap_or(0.5);
                 naming::bga_name(p, body_length, body_width, pin_count, density)
+            }
+            "SOT" | "SOT23" | "SOT89" | "SOT223" | "SOT323" | "SOT363" => {
+                let p = pitch.unwrap_or(0.95);
+                naming::sot_name("", p, body_width, body_length, height, pin_count, density)
             }
             _ => {
                 // Generic fallback format
