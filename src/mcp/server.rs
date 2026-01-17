@@ -865,6 +865,22 @@ impl McpServer {
             }
         }
 
+        // Validate name lengths (OLE storage names are limited to 31 characters)
+        // While we store the full name in the Parameters stream, the storage name
+        // must still fit within this limit
+        const MAX_OLE_NAME_LEN: usize = 31;
+        for name in &new_names {
+            if name.len() > MAX_OLE_NAME_LEN {
+                return ToolCallResult::error(format!(
+                    "Footprint name '{}' is too long ({} characters). \
+                     Maximum length is {} characters due to OLE storage format limitations.",
+                    name,
+                    name.len(),
+                    MAX_OLE_NAME_LEN
+                ));
+            }
+        }
+
         let append = arguments
             .get("append")
             .and_then(Value::as_bool)
@@ -1076,6 +1092,38 @@ impl McpServer {
             return ToolCallResult::error("Missing required parameter: symbols");
         };
 
+        // Collect and validate symbol names
+        let new_names: Vec<&str> = symbols_json
+            .iter()
+            .filter_map(|sym| sym.get("name").and_then(Value::as_str))
+            .collect();
+
+        // Check for duplicates within the new symbols
+        {
+            let mut seen = std::collections::HashSet::new();
+            for name in &new_names {
+                if !seen.insert(*name) {
+                    return ToolCallResult::error(format!(
+                        "Duplicate symbol name in request: '{name}'"
+                    ));
+                }
+            }
+        }
+
+        // Validate name lengths (OLE storage names are limited to 31 characters)
+        const MAX_OLE_NAME_LEN: usize = 31;
+        for name in &new_names {
+            if name.len() > MAX_OLE_NAME_LEN {
+                return ToolCallResult::error(format!(
+                    "Symbol name '{}' is too long ({} characters). \
+                     Maximum length is {} characters due to OLE storage format limitations.",
+                    name,
+                    name.len(),
+                    MAX_OLE_NAME_LEN
+                ));
+            }
+        }
+
         let append = arguments
             .get("append")
             .and_then(Value::as_bool)
@@ -1094,6 +1142,17 @@ impl McpServer {
         } else {
             SchLib::new()
         };
+
+        // Check for duplicates with existing symbols in append mode
+        if append {
+            for name in &new_names {
+                if library.get(name).is_some() {
+                    return ToolCallResult::error(format!(
+                        "Symbol '{name}' already exists in the library"
+                    ));
+                }
+            }
+        }
 
         for sym_json in symbols_json {
             let name = sym_json
