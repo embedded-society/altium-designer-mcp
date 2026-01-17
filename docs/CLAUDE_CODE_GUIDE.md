@@ -211,6 +211,7 @@ claude mcp list
 ```
 
 You should see the Altium tools listed:
+
 - `read_pcblib`
 - `write_pcblib`
 - `read_schlib`
@@ -230,6 +231,7 @@ Create an IPC-7351B compliant 0603 chip resistor footprint and save it to
 ```
 
 Claude Code will:
+
 1. Calculate the land pattern using IPC-7351B
 2. Generate pad coordinates, silkscreen, and courtyard
 3. Call `write_pcblib` to create the file
@@ -249,6 +251,7 @@ What silkscreen style does it use?
 ```
 
 Claude Code will:
+
 1. Call `read_pcblib` to read the library
 2. Analyse the primitives
 3. Describe the styling conventions
@@ -261,6 +264,7 @@ footprint that matches the same style conventions.
 ```
 
 Claude Code will:
+
 1. Call `extract_style` to analyse the existing library
 2. Apply the same track widths, pad shapes, and layer usage
 3. Create a style-matched footprint
@@ -358,6 +362,7 @@ First analyse ./ExistingLib.PcbLib, then create new components matching that sty
 ### 4. Provide Datasheet Details
 
 When creating custom packages, provide:
+
 - Body dimensions (L x W x H)
 - Pin pitch
 - Pin count and arrangement
@@ -381,6 +386,7 @@ directory where you want to create libraries.
 ### MCP Server Not Found
 
 Verify the path in your Claude Code configuration points to the correct binary:
+
 - Windows: `.exe` extension required
 - Check the path exists and is executable
 
@@ -402,6 +408,7 @@ mixed styles, you may see multiple values for each property.
 ### Windows
 
 This is the primary platform since Altium Designer runs on Windows. You can:
+
 - Generate libraries directly in your Altium project folder
 - Use Windows paths with backslashes in config.json (escape them: `\\`)
 - Run Claude Code in PowerShell, CMD, or Windows Terminal
@@ -409,6 +416,7 @@ This is the primary platform since Altium Designer runs on Windows. You can:
 ### Linux
 
 Generate libraries on Linux and transfer to Windows for use in Altium:
+
 - Use a shared folder, cloud sync, or version control
 - File format is binary-compatible across platforms
 - Consider using Wine with Altium Designer (community-supported)
@@ -416,6 +424,7 @@ Generate libraries on Linux and transfer to Windows for use in Altium:
 ### macOS
 
 Same approach as Linux:
+
 - Generate libraries and transfer to Windows
 - Use Apple Silicon or Intel Mac - both work
 - File format is binary-compatible
