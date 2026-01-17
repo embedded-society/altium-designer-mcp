@@ -1,4 +1,4 @@
-//! Error types for git-proxy-mcp.
+//! Error types for altium-designer-mcp.
 //!
 //! # Security Note
 //!

@@ -49,7 +49,7 @@ Tensions can occur between community members even when they are trying their bes
 violation, and this Code of Conduct reinforces encouraged behaviours and norms that can help avoid conflicts and minimise harm.
 
 When an incident does occur, it is important to report it promptly. **To report a possible violation, please contact this repo's owner
-([MatejGomboc](https://github.com/MatejGomboc)) at <matejg03@gmail.com>**.
+([The Embedded Society](https://github.com/embedded-society/)) at <matejg03@gmail.com>**.
 
 Community Moderators take reports of violations seriously and will make every effort to respond in a timely manner. They will investigate all reports
 of code of conduct violations, reviewing messages, logs, and recordings, or interviewing witnesses and other participants. Community Moderators will keep
