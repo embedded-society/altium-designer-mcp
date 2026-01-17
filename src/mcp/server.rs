@@ -855,10 +855,22 @@ impl McpServer {
                 if let Some(model_path) = model_json.get("filepath").and_then(Value::as_str) {
                     footprint.model_3d = Some(Model3D {
                         filepath: model_path.to_string(),
-                        x_offset: model_json.get("x_offset").and_then(Value::as_f64).unwrap_or(0.0),
-                        y_offset: model_json.get("y_offset").and_then(Value::as_f64).unwrap_or(0.0),
-                        z_offset: model_json.get("z_offset").and_then(Value::as_f64).unwrap_or(0.0),
-                        rotation: model_json.get("rotation").and_then(Value::as_f64).unwrap_or(0.0),
+                        x_offset: model_json
+                            .get("x_offset")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(0.0),
+                        y_offset: model_json
+                            .get("y_offset")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(0.0),
+                        z_offset: model_json
+                            .get("z_offset")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(0.0),
+                        rotation: model_json
+                            .get("rotation")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(0.0),
                     });
                 }
             }
@@ -1109,7 +1121,8 @@ impl McpServer {
             },
             Some("schlib") => match SchLib::open(filepath) {
                 Ok(library) => {
-                    let symbol_names: Vec<_> = library.iter().map(|(name, _)| name.clone()).collect();
+                    let symbol_names: Vec<_> =
+                        library.iter().map(|(name, _)| name.clone()).collect();
                     let result = json!({
                         "status": "success",
                         "filepath": filepath,
@@ -1440,15 +1453,15 @@ impl McpServer {
         let width = json.get("width").and_then(Value::as_f64)?;
         let height = json.get("height").and_then(Value::as_f64)?;
 
-        let shape = json
-            .get("shape")
-            .and_then(Value::as_str)
-            .map_or(PadShape::RoundedRectangle, |s| match s {
+        let shape = json.get("shape").and_then(Value::as_str).map_or(
+            PadShape::RoundedRectangle,
+            |s| match s {
                 "rectangle" => PadShape::Rectangle,
                 "round" | "circle" => PadShape::Round,
                 "oval" => PadShape::Oval,
                 _ => PadShape::RoundedRectangle, // includes "rounded_rectangle"
-            });
+            },
+        );
 
         let layer = json
             .get("layer")
@@ -1583,41 +1596,33 @@ impl McpServer {
             .unwrap_or(designator);
         let x = json.get("x").and_then(Value::as_i64)? as i32;
         let y = json.get("y").and_then(Value::as_i64)? as i32;
-        let length = json
-            .get("length")
-            .and_then(Value::as_i64)
-            .unwrap_or(10) as i32;
+        let length = json.get("length").and_then(Value::as_i64).unwrap_or(10) as i32;
 
-        let orientation = json
-            .get("orientation")
-            .and_then(Value::as_str)
-            .map_or(PinOrientation::Right, |s| match s.to_lowercase().as_str() {
-                "left" => PinOrientation::Left,
-                "up" => PinOrientation::Up,
-                "down" => PinOrientation::Down,
-                _ => PinOrientation::Right,
-            });
+        let orientation =
+            json.get("orientation")
+                .and_then(Value::as_str)
+                .map_or(PinOrientation::Right, |s| match s.to_lowercase().as_str() {
+                    "left" => PinOrientation::Left,
+                    "up" => PinOrientation::Up,
+                    "down" => PinOrientation::Down,
+                    _ => PinOrientation::Right,
+                });
 
-        let electrical_type = json
-            .get("electrical_type")
-            .and_then(Value::as_str)
-            .map_or(PinElectricalType::Passive, |s| {
-                match s.to_lowercase().as_str() {
-                    "input" => PinElectricalType::Input,
-                    "output" => PinElectricalType::Output,
-                    "bidirectional" | "io" | "input_output" => PinElectricalType::InputOutput,
-                    "power" => PinElectricalType::Power,
-                    "open_collector" => PinElectricalType::OpenCollector,
-                    "open_emitter" => PinElectricalType::OpenEmitter,
-                    "hiz" | "hi_z" | "tristate" => PinElectricalType::HiZ,
-                    _ => PinElectricalType::Passive,
-                }
-            });
+        let electrical_type = json.get("electrical_type").and_then(Value::as_str).map_or(
+            PinElectricalType::Passive,
+            |s| match s.to_lowercase().as_str() {
+                "input" => PinElectricalType::Input,
+                "output" => PinElectricalType::Output,
+                "bidirectional" | "io" | "input_output" => PinElectricalType::InputOutput,
+                "power" => PinElectricalType::Power,
+                "open_collector" => PinElectricalType::OpenCollector,
+                "open_emitter" => PinElectricalType::OpenEmitter,
+                "hiz" | "hi_z" | "tristate" => PinElectricalType::HiZ,
+                _ => PinElectricalType::Passive,
+            },
+        );
 
-        let hidden = json
-            .get("hidden")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
+        let hidden = json.get("hidden").and_then(Value::as_bool).unwrap_or(false);
         let show_name = json
             .get("show_name")
             .and_then(Value::as_bool)
@@ -1657,10 +1662,7 @@ impl McpServer {
         let x2 = json.get("x2").and_then(Value::as_i64)? as i32;
         let y2 = json.get("y2").and_then(Value::as_i64)? as i32;
 
-        let line_width = json
-            .get("line_width")
-            .and_then(Value::as_u64)
-            .unwrap_or(1) as u8;
+        let line_width = json.get("line_width").and_then(Value::as_u64).unwrap_or(1) as u8;
         let line_color = json
             .get("line_color")
             .and_then(Value::as_u64)
@@ -1698,10 +1700,7 @@ impl McpServer {
         let x2 = json.get("x2").and_then(Value::as_i64)? as i32;
         let y2 = json.get("y2").and_then(Value::as_i64)? as i32;
 
-        let line_width = json
-            .get("line_width")
-            .and_then(Value::as_u64)
-            .unwrap_or(1) as u8;
+        let line_width = json.get("line_width").and_then(Value::as_u64).unwrap_or(1) as u8;
         let color = json
             .get("color")
             .and_then(Value::as_u64)
@@ -1741,10 +1740,7 @@ impl McpServer {
             .get("color")
             .and_then(Value::as_u64)
             .unwrap_or(0x80_00_00) as u32;
-        let hidden = json
-            .get("hidden")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
+        let hidden = json.get("hidden").and_then(Value::as_bool).unwrap_or(false);
         let owner_part_id = json
             .get("owner_part_id")
             .and_then(Value::as_i64)
@@ -1781,10 +1777,7 @@ impl McpServer {
             return None; // Need at least 2 points for a polyline
         }
 
-        let line_width = json
-            .get("line_width")
-            .and_then(Value::as_u64)
-            .unwrap_or(1) as u8;
+        let line_width = json.get("line_width").and_then(Value::as_u64).unwrap_or(1) as u8;
         let color = json
             .get("color")
             .and_then(Value::as_u64)
@@ -1818,10 +1811,7 @@ impl McpServer {
             .get("end_angle")
             .and_then(Value::as_f64)
             .unwrap_or(360.0);
-        let line_width = json
-            .get("line_width")
-            .and_then(Value::as_u64)
-            .unwrap_or(1) as u8;
+        let line_width = json.get("line_width").and_then(Value::as_u64).unwrap_or(1) as u8;
         let color = json
             .get("color")
             .and_then(Value::as_u64)
@@ -1853,10 +1843,7 @@ impl McpServer {
         let radius_x = json.get("radius_x").and_then(Value::as_i64)? as i32;
         let radius_y = json.get("radius_y").and_then(Value::as_i64)? as i32;
 
-        let line_width = json
-            .get("line_width")
-            .and_then(Value::as_u64)
-            .unwrap_or(1) as u8;
+        let line_width = json.get("line_width").and_then(Value::as_u64).unwrap_or(1) as u8;
         let line_color = json
             .get("line_color")
             .and_then(Value::as_u64)

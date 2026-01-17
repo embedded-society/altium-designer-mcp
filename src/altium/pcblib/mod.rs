@@ -222,12 +222,13 @@ impl PcbLib {
         // Read Data stream (contains primitives)
         let data_path = storage_path.join("Data");
         if cfb.is_stream(&data_path) {
-            let mut stream = cfb
-                .open_stream(&data_path)
-                .map_err(|e| AltiumError::invalid_ole(format!("Failed to open Data stream: {e}")))?;
+            let mut stream = cfb.open_stream(&data_path).map_err(|e| {
+                AltiumError::invalid_ole(format!("Failed to open Data stream: {e}"))
+            })?;
             let mut data = Vec::new();
-            std::io::Read::read_to_end(&mut stream, &mut data)
-                .map_err(|e| AltiumError::invalid_ole(format!("Failed to read Data stream: {e}")))?;
+            std::io::Read::read_to_end(&mut stream, &mut data).map_err(|e| {
+                AltiumError::invalid_ole(format!("Failed to read Data stream: {e}"))
+            })?;
 
             Self::parse_primitives(&mut footprint, &data);
         }

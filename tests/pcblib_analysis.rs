@@ -88,7 +88,13 @@ fn analyze_pcblib(path: &Path) {
 /// Analyzes the binary Data stream to understand the record format.
 fn analyze_data_stream(data: &[u8]) {
     println!("\nFirst 256 bytes (hex dump):");
-    for (i, chunk) in data.iter().take(256).collect::<Vec<_>>().chunks(16).enumerate() {
+    for (i, chunk) in data
+        .iter()
+        .take(256)
+        .collect::<Vec<_>>()
+        .chunks(16)
+        .enumerate()
+    {
         print!("  {:04x}: ", i * 16);
         for byte in chunk {
             print!("{byte:02x} ");

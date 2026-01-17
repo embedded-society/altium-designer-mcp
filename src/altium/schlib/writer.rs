@@ -428,8 +428,8 @@ pub fn encode_file_header(symbols: &[&Symbol]) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::primitives::PinOrientation;
+    use super::*;
 
     #[test]
     fn test_write_text_record() {

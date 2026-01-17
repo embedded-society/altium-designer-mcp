@@ -72,7 +72,9 @@ pub fn parse_data_stream(symbol: &mut Symbol, data: &[u8]) {
 
 /// Parses a text record (pipe-delimited key=value pairs).
 fn parse_text_record(symbol: &mut Symbol, data: &[u8]) {
-    let text = if let Ok(s) = std::str::from_utf8(data) { s.trim_end_matches('\0') } else {
+    let text = if let Ok(s) = std::str::from_utf8(data) {
+        s.trim_end_matches('\0')
+    } else {
         // Try Windows-1252 encoding
         let decoded: String = data
             .iter()

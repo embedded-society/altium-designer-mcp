@@ -493,8 +493,14 @@ mod tests {
 
     #[test]
     fn pin_orientation_flags() {
-        assert_eq!(PinOrientation::from_flags(false, false), PinOrientation::Right);
-        assert_eq!(PinOrientation::from_flags(false, true), PinOrientation::Left);
+        assert_eq!(
+            PinOrientation::from_flags(false, false),
+            PinOrientation::Right
+        );
+        assert_eq!(
+            PinOrientation::from_flags(false, true),
+            PinOrientation::Left
+        );
         assert_eq!(PinOrientation::from_flags(true, false), PinOrientation::Up);
         assert_eq!(PinOrientation::from_flags(true, true), PinOrientation::Down);
 

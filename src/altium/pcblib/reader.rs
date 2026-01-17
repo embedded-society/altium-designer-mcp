@@ -86,7 +86,10 @@ fn read_block(data: &[u8], offset: usize) -> Option<(&[u8], usize)> {
     if block_len > 100_000 || offset + 4 + block_len > data.len() {
         return None;
     }
-    Some((&data[offset + 4..offset + 4 + block_len], offset + 4 + block_len))
+    Some((
+        &data[offset + 4..offset + 4 + block_len],
+        offset + 4 + block_len,
+    ))
 }
 
 /// Reads a length-prefixed string from block data.

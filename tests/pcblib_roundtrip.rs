@@ -74,10 +74,10 @@ fn test_footprint_with_tracks() {
     let layer = Layer::TopOverlay;
     let width = 0.15;
 
-    fp.add_track(Track::new(-1.0, -0.5, 1.0, -0.5, width, layer));  // Bottom
-    fp.add_track(Track::new(1.0, -0.5, 1.0, 0.5, width, layer));    // Right
-    fp.add_track(Track::new(1.0, 0.5, -1.0, 0.5, width, layer));    // Top
-    fp.add_track(Track::new(-1.0, 0.5, -1.0, -0.5, width, layer));  // Left
+    fp.add_track(Track::new(-1.0, -0.5, 1.0, -0.5, width, layer)); // Bottom
+    fp.add_track(Track::new(1.0, -0.5, 1.0, 0.5, width, layer)); // Right
+    fp.add_track(Track::new(1.0, 0.5, -1.0, 0.5, width, layer)); // Top
+    fp.add_track(Track::new(-1.0, 0.5, -1.0, -0.5, width, layer)); // Left
 
     let result = roundtrip_footprint(&fp);
 
@@ -172,10 +172,10 @@ fn test_coordinate_precision() {
     let mut fp = Footprint::new("PRECISION_TEST");
 
     // Test various coordinate values
-    fp.add_pad(Pad::smd("1", 0.125, 0.0, 0.3, 0.4));      // Typical SMD
-    fp.add_pad(Pad::smd("2", 1.27, 0.0, 0.5, 0.5));       // 50mil pitch
-    fp.add_pad(Pad::smd("3", 0.5, 0.0, 0.25, 0.25));      // Fine pitch
-    fp.add_pad(Pad::smd("4", 2.54, 0.0, 1.0, 1.0));       // 100mil pitch
+    fp.add_pad(Pad::smd("1", 0.125, 0.0, 0.3, 0.4)); // Typical SMD
+    fp.add_pad(Pad::smd("2", 1.27, 0.0, 0.5, 0.5)); // 50mil pitch
+    fp.add_pad(Pad::smd("3", 0.5, 0.0, 0.25, 0.25)); // Fine pitch
+    fp.add_pad(Pad::smd("4", 2.54, 0.0, 1.0, 1.0)); // 100mil pitch
 
     let result = roundtrip_footprint(&fp);
 

@@ -159,8 +159,7 @@ impl SchLib {
     /// Returns an error if the file cannot be written.
     pub fn save(&self, path: impl AsRef<Path>) -> AltiumResult<()> {
         let path = path.as_ref();
-        let file =
-            std::fs::File::create(path).map_err(|e| AltiumError::file_write(path, e))?;
+        let file = std::fs::File::create(path).map_err(|e| AltiumError::file_write(path, e))?;
         self.write(file)
     }
 
@@ -192,17 +191,18 @@ impl SchLib {
 
             // Create the component directory first
             let dir_path = format!("/{}", symbol.name);
-            cfb.create_storage(&dir_path)
-                .map_err(|e| AltiumError::invalid_ole(format!("Failed to create storage {dir_path}: {e}")))?;
+            cfb.create_storage(&dir_path).map_err(|e| {
+                AltiumError::invalid_ole(format!("Failed to create storage {dir_path}: {e}"))
+            })?;
 
             // Create and write the Data stream
             let data = writer::encode_data_stream(symbol);
-            let mut stream = cfb
-                .create_stream(&stream_path)
-                .map_err(|e| AltiumError::invalid_ole(format!("Failed to create stream {stream_path}: {e}")))?;
-            stream
-                .write_all(&data)
-                .map_err(|e| AltiumError::invalid_ole(format!("Failed to write stream {stream_path}: {e}")))?;
+            let mut stream = cfb.create_stream(&stream_path).map_err(|e| {
+                AltiumError::invalid_ole(format!("Failed to create stream {stream_path}: {e}"))
+            })?;
+            stream.write_all(&data).map_err(|e| {
+                AltiumError::invalid_ole(format!("Failed to write stream {stream_path}: {e}"))
+            })?;
         }
 
         cfb.flush()

@@ -67,25 +67,39 @@ fn schlib_basic_parsing() {
     assert_eq!(symbol.pins.len(), 2, "Expected 2 pins");
 
     // Check pin 1
-    let pin1 = symbol.pins.iter().find(|p| p.designator == "1").expect("Pin 1 not found");
+    let pin1 = symbol
+        .pins
+        .iter()
+        .find(|p| p.designator == "1")
+        .expect("Pin 1 not found");
     assert_eq!(pin1.name, "1");
     assert_eq!(pin1.x, -10);
     assert_eq!(pin1.y, 0);
 
     // Check pin 2
-    let pin2 = symbol.pins.iter().find(|p| p.designator == "2").expect("Pin 2 not found");
+    let pin2 = symbol
+        .pins
+        .iter()
+        .find(|p| p.designator == "2")
+        .expect("Pin 2 not found");
     assert_eq!(pin2.name, "2");
     assert_eq!(pin2.x, 10);
     assert_eq!(pin2.y, 0);
 
     // Should have at least 1 rectangle (the body)
-    assert!(!symbol.rectangles.is_empty(), "Expected at least one rectangle");
+    assert!(
+        !symbol.rectangles.is_empty(),
+        "Expected at least one rectangle"
+    );
 
     // Should have parameters (Value, Part Number, Manufacturer)
     assert!(!symbol.parameters.is_empty(), "Expected parameters");
 
     // Should have footprint references
-    assert!(!symbol.footprints.is_empty(), "Expected footprint references");
+    assert!(
+        !symbol.footprints.is_empty(),
+        "Expected footprint references"
+    );
 
     // Check that we have multiple footprint options
     let footprint_names: Vec<_> = symbol.footprints.iter().map(|f| &f.name).collect();
