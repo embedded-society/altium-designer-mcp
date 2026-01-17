@@ -7,7 +7,7 @@
 //!
 //! The MCP server enables AI assistants to:
 //!
-//! - Read existing Altium libraries (.PcbLib, .SchLib)
+//! - Read existing Altium libraries (`.PcbLib`, `.SchLib`)
 //! - Calculate IPC-7351B compliant footprints
 //! - Generate complete components (footprint + symbol + parameters)
 //! - Write native Altium files

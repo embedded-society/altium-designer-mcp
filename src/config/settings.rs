@@ -56,8 +56,7 @@ impl Config {
             if !valid_densities.contains(&density.as_str()) {
                 return Err(ConfigError::ValidationError {
                     message: format!(
-                        "Invalid IPC density level '{}'. Must be one of: M, N, L",
-                        density
+                        "Invalid IPC density level '{density}'. Must be one of: M, N, L"
                     ),
                 });
             }
@@ -94,11 +93,13 @@ impl Default for IpcConfig {
     }
 }
 
+// Returns Option to match field type for serde default
+#[allow(clippy::unnecessary_wraps)]
 fn default_density() -> Option<String> {
-    Some("N".to_string())
+    Some(String::from("N"))
 }
 
-fn default_courtyard_margin() -> f64 {
+const fn default_courtyard_margin() -> f64 {
     0.25
 }
 
@@ -138,11 +139,11 @@ impl Default for StyleConfig {
     }
 }
 
-fn default_silkscreen_width() -> f64 {
+const fn default_silkscreen_width() -> f64 {
     0.15
 }
 
-fn default_assembly_width() -> f64 {
+const fn default_assembly_width() -> f64 {
     0.10
 }
 

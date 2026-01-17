@@ -111,7 +111,7 @@ fn main() -> ExitCode {
     // Resolve library path
     let library_path = args
         .library_path
-        .or(cfg.library_path.clone())
+        .or(cfg.library_path)
         .unwrap_or_else(|| PathBuf::from("."));
 
     info!(

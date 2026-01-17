@@ -440,6 +440,7 @@ impl McpServer {
     }
 
     /// Returns the list of available tools.
+    #[allow(clippy::too_many_lines)]
     fn get_tool_definitions() -> Vec<ToolDefinition> {
         vec![
             // IPC-7351B Tools
@@ -550,6 +551,7 @@ impl McpServer {
     // ==================== Tool Handlers ====================
 
     /// Lists supported IPC-7351B package types.
+    #[allow(clippy::unused_self)]
     fn call_list_package_types(&self) -> ToolCallResult {
         let package_types = json!({
             "package_types": [
@@ -646,6 +648,7 @@ impl McpServer {
     }
 
     /// Generates IPC-7351B compliant name (placeholder).
+    #[allow(clippy::unused_self)]
     fn call_get_ipc_name(&self, arguments: &Value) -> ToolCallResult {
         // TODO: Implement actual IPC naming convention
         let package_type = arguments
@@ -674,6 +677,9 @@ impl McpServer {
             .unwrap_or("N");
 
         // Generate placeholder IPC name
+        // IPC naming uses dimensions in 0.01mm units (e.g., 1.6mm = 160)
+        // Values are always positive and small for PCB components
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let ipc_name = format!(
             "{}{}X{}X{}-{}{}",
             package_type.to_uppercase(),

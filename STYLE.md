@@ -1,63 +1,220 @@
 # Style Guide
 
-Code style guidelines for altium-designer-mcp contributors.
+Code style conventions for altium-designer-mcp.
 
-## Rust Code Style
+---
+
+## General Rules
+
+| Rule | Setting |
+|------|--------|
+| Indentation | 4 spaces (no tabs) |
+| Max line length | 170 characters |
+| Charset | UTF-8 |
+| Final newline | Always |
+| Trailing whitespace | Trim (except Markdown) |
+
+These rules are enforced by `.editorconfig`. Install the EditorConfig plugin for your editor:
+
+- **VS Code:** [EditorConfig for VS Code](https://marketplace.visualstudio.com/items?itemName=EditorConfig.EditorConfig)
+
+VS Code also displays a ruler at 170 characters (configured in `.vscode/settings.json`).
+
+---
+
+## Single Source of Truth
+
+Avoid duplicating information across files. Each piece of information should have one canonical location.
+
+| Information | Canonical Source |
+|-------------|------------------|
+| Build commands | `CONTRIBUTING.md` § Development Setup |
+| Coding standards | `CONTRIBUTING.md` § Coding Standards |
+| Commit conventions | `CONTRIBUTING.md` § Commit Messages |
+| PR requirements | `CONTRIBUTING.md` § Pull Requests |
+| Security policy | `SECURITY.md` |
+| Formatting rules | `.editorconfig` |
+
+**Guidelines:**
+
+- Reference the canonical source instead of duplicating content
+- If information must appear in multiple places (e.g., PR template checklists), keep it minimal
+- When updating information, update the canonical source first
+- Cross-reference using `filename` § Section Name format
+
+---
+
+## Rust
 
 ### Formatting
 
-- Run `cargo fmt` before committing
-- Use 4 spaces for indentation (rustfmt default)
-- Maximum line length: 100 characters
+Use `rustfmt` with default settings. CI enforces this.
+
+```bash
+cargo fmt --all         # Format all code
+cargo fmt --all --check # Check without modifying
+```
 
 ### Linting
 
-- All code must pass `cargo clippy -- -D warnings`
-- No `unsafe` code allowed (enforced via `Cargo.toml` lints)
+Use `clippy` with warnings as errors. CI enforces this.
+
+```bash
+cargo clippy --all-targets --all-features -- -D warnings
+```
 
 ### Naming Conventions
 
-| Item            | Convention      | Example                    |
-|-----------------|-----------------|----------------------------|
-| Modules         | `snake_case`    | `ipc_calculator`           |
-| Types/Structs   | `PascalCase`    | `PackageDimensions`        |
-| Functions       | `snake_case`    | `calculate_footprint`      |
-| Constants       | `SCREAMING_CASE`| `DEFAULT_COURTYARD_MARGIN` |
-| Variables       | `snake_case`    | `pad_width`                |
+| Item | Convention | Example |
+|------|------------|--------|
+| Crates | snake_case | `altium_designer_mcp` |
+| Modules | snake_case | `ipc_calculator` |
+| Types | PascalCase | `PackageDimensions` |
+| Functions | snake_case | `calculate_footprint` |
+| Constants | SCREAMING_SNAKE_CASE | `DEFAULT_COURTYARD_MARGIN` |
+| Variables | snake_case | `pad_width` |
 
 ### Documentation
 
-- Add rustdoc comments (`///`) to all public items
-- Include examples in documentation where helpful
-- Document panic conditions with `# Panics` section
-- Document errors with `# Errors` section
+- All public items must have doc comments (`///`)
+- CI checks documentation builds without warnings
 
-### Error Handling
+---
 
-- Use `thiserror` for custom error types
-- Prefer `Result` over `Option` when failure should be communicated
-- Provide meaningful error messages
+## YAML (GitHub Actions)
 
-### Testing
+### Indentation
 
-- Write unit tests for new functionality
-- Place unit tests in the same file, in a `#[cfg(test)]` module
-- Use descriptive test names: `test_<function>_<scenario>_<expected>`
-- Test both success and failure cases
+**4 spaces** for structure levels — aligned with project-wide convention.
+
+```yaml
+jobs:
+    build:
+        name: Build
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Build
+              run: cargo build
+```
+
+### List Item Indentation
+
+List items use **2-space continuation** from the `-` character (standard YAML behaviour):
+
+```yaml
+updates:
+    - package-ecosystem: "github-actions"
+      directory: "/"
+      schedule:
+        interval: "daily"
+```
+
+### Multi-line Scripts (`run: |`)
+
+Shell script content inside `run: |` blocks uses **4-space indentation** for shell constructs (if/else, loops):
+
+```yaml
+            - name: Example step
+              shell: bash
+              run: |
+                if [[ -n "$VAR" ]]; then
+                    echo "Variable is set"
+                else
+                    echo "Variable is not set"
+                fi
+```
+
+### Formatter
+
+**Format-on-save is disabled** for YAML files in VS Code (configured in `.vscode/settings.json`).
+
+---
+
+## JSON
+
+### Indentation
+
+**4 spaces**.
+
+```json
+{
+    "key": "value",
+    "nested": {
+        "item": 123
+    }
+}
+```
+
+### Formatter
+
+VS Code uses the built-in JSON formatter (`vscode.json-language-features`).
+
+---
+
+## TOML
+
+### Indentation
+
+**4 spaces**.
+
+```toml
+[package]
+name = "altium-designer-mcp"
+version = "0.1.0"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+```
+
+### Formatter
+
+Use [Even Better TOML](https://marketplace.visualstudio.com/items?itemName=tamasfe.even-better-toml) for VS Code. Column width is set to 170 characters (configured in `.vscode/settings.json`).
+
+---
+
+## Markdown
+
+### Headings
+
+Use ATX-style headings with blank lines before and after:
+
+```markdown
+## Section Title
+
+Content here.
+```
+
+### Lists
+
+Use `-` for unordered lists, `1.` for ordered lists.
+
+### Code Blocks
+
+Always specify the language:
+
+````markdown
+```rust
+fn main() {
+    println!("Hello!");
+}
+```
+````
+
+### Trailing Whitespace
+
+Markdown files are exempt from trailing whitespace trimming (needed for line breaks).
+
+---
 
 ## Commit Messages
 
-Follow [Conventional Commits](https://www.conventionalcommits.org/):
+See `CONTRIBUTING.md` § Commit Messages for conventions and allowed types.
 
-```text
-<type>(<scope>): <description>
-
-[optional body]
-
-[optional footer(s)]
-```
-
-Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`, `ci`
+---
 
 ## IPC-7351B Specific
 
@@ -65,3 +222,7 @@ Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`, `ci`
 - Use `f64` for dimensional values
 - Document units in variable names or comments when not obvious
 - Follow IPC naming conventions for package types
+
+---
+
+*Last updated: 2025-01-17*
