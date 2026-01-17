@@ -174,24 +174,14 @@ This project builds on the work of:
 - [pyAltiumLib](https://github.com/ChrisHoyer/pyAltiumLib) - Python Altium library
 - [python-altium](https://github.com/vadmium/python-altium) - Altium format documentation
 
-## License
-
-GPL-3.0-or-later
-
-This ensures the tool remains free for all engineers. You can use it commercially, but derivative works must also be open source.
-
 ## Contributing
 
 Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-Areas needing help:
-- IPC-7351B calculation implementation
-- Altium binary file format parsing
-- Testing with real Altium libraries
-- Documentation
+- Security issues: see [SECURITY.md](SECURITY.md)
 
-## Links
+## Licence
 
-- [MCP Specification](https://modelcontextprotocol.io/)
-- [IPC-7351B Standard](https://www.ipc.org/)
-- [Report an Issue](https://github.com/embedded-society/altium-designer-mcp/issues)
+Copyright (C) 2025 The Embedded Society <https://github.com/embedded-society/altium-designer-mcp>.
+
+GNU General Public License v3.0 — see [LICENCE](LICENCE).
