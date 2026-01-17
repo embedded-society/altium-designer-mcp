@@ -112,11 +112,13 @@ Create `~/.altium-designer-mcp/config.json`:
 
 ### Step 3: Configure Claude Code
 
-Add the MCP server to your Claude Code configuration.
+Claude Code uses a `.mcp.json` file in your project root to configure MCP servers.
+
+#### Option A: Project-Level Configuration (Recommended)
+
+Create a `.mcp.json` file in your Altium project's root directory:
 
 #### Windows
-
-Edit `%APPDATA%\Claude\claude_desktop_config.json` (or your Claude Code settings):
 
 ```json
 {
@@ -129,22 +131,7 @@ Edit `%APPDATA%\Claude\claude_desktop_config.json` (or your Claude Code settings
 }
 ```
 
-Alternatively, using a relative path from your project:
-
-```json
-{
-    "mcpServers": {
-        "altium": {
-            "command": "./altium-designer-mcp/target/release/altium-designer-mcp.exe",
-            "args": []
-        }
-    }
-}
-```
-
 #### Linux
-
-Edit `~/.config/claude-code/config.json` (or your Claude Code settings):
 
 ```json
 {
@@ -159,8 +146,6 @@ Edit `~/.config/claude-code/config.json` (or your Claude Code settings):
 
 #### macOS
 
-Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
-
 ```json
 {
     "mcpServers": {
@@ -172,19 +157,44 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 }
 ```
 
+#### Option B: Global Configuration via CLI
+
+You can also add the MCP server globally using the Claude Code CLI:
+
+**Windows (PowerShell):**
+
+```powershell
+claude mcp add altium C:\path\to\altium-designer-mcp\target\release\altium-designer-mcp.exe
+```
+
+**Linux / macOS:**
+
+```bash
+claude mcp add altium /path/to/altium-designer-mcp/target/release/altium-designer-mcp
+```
+
+To verify it was added:
+
+```bash
+claude mcp list
+```
+
 ---
 
 ## Using with Claude Code CLI
 
-### Starting Claude Code with the MCP
+### Starting Claude Code
 
-Simply run Claude Code in your project directory:
+Navigate to your Altium project directory and run:
 
 ```bash
 claude
 ```
 
-Claude Code will automatically load the MCP server from your configuration.
+Claude Code will automatically detect and load the MCP server from:
+
+1. The `.mcp.json` file in the current directory (if present)
+2. Your global MCP configuration
 
 ### Verify MCP is Loaded
 
@@ -192,6 +202,12 @@ Ask Claude Code:
 
 ```
 What MCP tools do you have available?
+```
+
+Or use the CLI command:
+
+```bash
+claude mcp list
 ```
 
 You should see the Altium tools listed:
