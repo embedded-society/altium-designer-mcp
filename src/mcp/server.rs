@@ -1270,6 +1270,11 @@ impl McpServer {
                 }
             }
 
+            // Validate coordinates before adding
+            if let Err(e) = Self::validate_symbol_coordinates(&symbol) {
+                return ToolCallResult::error(e);
+            }
+
             library.add_symbol(symbol);
         }
 
@@ -1731,6 +1736,87 @@ impl McpServer {
             Self::validate_coordinate(text.x, &format!("Footprint '{name}' text {i} x"))?;
             Self::validate_coordinate(text.y, &format!("Footprint '{name}' text {i} y"))?;
             Self::validate_coordinate(text.height, &format!("Footprint '{name}' text {i} height"))?;
+        }
+
+        Ok(())
+    }
+
+    /// Maximum coordinate value for `SchLib` (uses i16 internally).
+    /// `i16::MAX` = 32767, but we use 32000 as a conservative limit.
+    const MAX_SCHLIB_COORDINATE: i32 = 32000;
+
+    /// Validates that a `SchLib` coordinate is within the safe range for i16.
+    fn validate_schlib_coordinate(value: i32, field_name: &str) -> Result<(), String> {
+        if value.abs() > Self::MAX_SCHLIB_COORDINATE {
+            return Err(format!(
+                "{field_name} value {value} exceeds the maximum safe range of ±{} units",
+                Self::MAX_SCHLIB_COORDINATE
+            ));
+        }
+        Ok(())
+    }
+
+    /// Validates all coordinates in a symbol before writing.
+    fn validate_symbol_coordinates(
+        symbol: &crate::altium::schlib::Symbol,
+    ) -> Result<(), String> {
+        let name = &symbol.name;
+
+        for (i, pin) in symbol.pins.iter().enumerate() {
+            Self::validate_schlib_coordinate(pin.x, &format!("Symbol '{name}' pin {i} x"))?;
+            Self::validate_schlib_coordinate(pin.y, &format!("Symbol '{name}' pin {i} y"))?;
+            Self::validate_schlib_coordinate(pin.length, &format!("Symbol '{name}' pin {i} length"))?;
+        }
+
+        for (i, rect) in symbol.rectangles.iter().enumerate() {
+            Self::validate_schlib_coordinate(rect.x1, &format!("Symbol '{name}' rectangle {i} x1"))?;
+            Self::validate_schlib_coordinate(rect.y1, &format!("Symbol '{name}' rectangle {i} y1"))?;
+            Self::validate_schlib_coordinate(rect.x2, &format!("Symbol '{name}' rectangle {i} x2"))?;
+            Self::validate_schlib_coordinate(rect.y2, &format!("Symbol '{name}' rectangle {i} y2"))?;
+        }
+
+        for (i, line) in symbol.lines.iter().enumerate() {
+            Self::validate_schlib_coordinate(line.x1, &format!("Symbol '{name}' line {i} x1"))?;
+            Self::validate_schlib_coordinate(line.y1, &format!("Symbol '{name}' line {i} y1"))?;
+            Self::validate_schlib_coordinate(line.x2, &format!("Symbol '{name}' line {i} x2"))?;
+            Self::validate_schlib_coordinate(line.y2, &format!("Symbol '{name}' line {i} y2"))?;
+        }
+
+        for (i, polyline) in symbol.polylines.iter().enumerate() {
+            for (j, &(x, y)) in polyline.points.iter().enumerate() {
+                Self::validate_schlib_coordinate(
+                    x,
+                    &format!("Symbol '{name}' polyline {i} point {j} x"),
+                )?;
+                Self::validate_schlib_coordinate(
+                    y,
+                    &format!("Symbol '{name}' polyline {i} point {j} y"),
+                )?;
+            }
+        }
+
+        for (i, arc) in symbol.arcs.iter().enumerate() {
+            Self::validate_schlib_coordinate(arc.x, &format!("Symbol '{name}' arc {i} x"))?;
+            Self::validate_schlib_coordinate(arc.y, &format!("Symbol '{name}' arc {i} y"))?;
+            Self::validate_schlib_coordinate(arc.radius, &format!("Symbol '{name}' arc {i} radius"))?;
+        }
+
+        for (i, ellipse) in symbol.ellipses.iter().enumerate() {
+            Self::validate_schlib_coordinate(ellipse.x, &format!("Symbol '{name}' ellipse {i} x"))?;
+            Self::validate_schlib_coordinate(ellipse.y, &format!("Symbol '{name}' ellipse {i} y"))?;
+            Self::validate_schlib_coordinate(
+                ellipse.radius_x,
+                &format!("Symbol '{name}' ellipse {i} radius_x"),
+            )?;
+            Self::validate_schlib_coordinate(
+                ellipse.radius_y,
+                &format!("Symbol '{name}' ellipse {i} radius_y"),
+            )?;
+        }
+
+        for (i, label) in symbol.labels.iter().enumerate() {
+            Self::validate_schlib_coordinate(label.x, &format!("Symbol '{name}' label {i} x"))?;
+            Self::validate_schlib_coordinate(label.y, &format!("Symbol '{name}' label {i} y"))?;
         }
 
         Ok(())
