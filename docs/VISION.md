@@ -6,7 +6,7 @@ This document describes the architectural vision for altium-designer-mcp.
 
 **The AI handles the intelligence. The tool handles file I/O.**
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  RESPONSIBILITY SPLIT                                                    │
 │                                                                         │
@@ -25,7 +25,7 @@ This document describes the architectural vision for altium-designer-mcp.
 
 ## How It Works
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  AI-ASSISTED COMPONENT CREATION                                         │
 │                                                                         │

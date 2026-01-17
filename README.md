@@ -28,7 +28,7 @@ This means the AI can create **any footprint** — not just pre-programmed packa
 
 ## How It Works
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  AI-ASSISTED COMPONENT CREATION                                             │
 │                                                                             │
@@ -319,6 +319,8 @@ GNU General Public License v3.0 — see [LICENCE](LICENCE).
 
 - [MCP Specification](https://modelcontextprotocol.io/)
 - [Report an Issue](https://github.com/embedded-society/altium-designer-mcp/issues)
+
+---
 
 ## Sample Files
 
