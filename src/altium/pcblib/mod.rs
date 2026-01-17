@@ -258,13 +258,28 @@ impl PcbLib {
     }
 
     /// Parses parameters from the Parameters stream.
+    ///
+    /// The Parameters stream contains key=value pairs separated by `|`.
+    /// Important fields:
+    /// - `PATTERN`: The full footprint name (may be longer than 31-char OLE storage limit)
+    /// - `DESCRIPTION`: Footprint description
     fn parse_parameters(footprint: &mut Footprint, data: &[u8]) {
         // Parameters are typically ASCII key=value pairs separated by |
         if let Ok(text) = String::from_utf8(data.to_vec()) {
             for pair in text.split('|') {
                 if let Some((key, value)) = pair.split_once('=') {
-                    if key.to_uppercase() == "DESCRIPTION" {
-                        footprint.description = value.to_string();
+                    match key.to_uppercase().as_str() {
+                        "PATTERN" => {
+                            // Use PATTERN as the canonical name since OLE storage names
+                            // are limited to 31 characters
+                            if !value.is_empty() {
+                                footprint.name = value.to_string();
+                            }
+                        }
+                        "DESCRIPTION" => {
+                            footprint.description = value.to_string();
+                        }
+                        _ => {}
                     }
                 }
             }
