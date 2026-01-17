@@ -40,17 +40,19 @@ This means the AI can create **any footprint** — not just pre-programmed packa
 │    │                         │  AI reasons about:           │               │
 │    │                         │  • IPC-7351B pad sizes       │               │
 │    │                         │  • Courtyard margins         │               │
-│    │                         │  • Silkscreen style          │               │
+│    │                         │  • Silkscreen/symbol style   │               │
 │    │                         │                              │               │
 │    │                         │  write_pcblib(primitives)    │               │
 │    │                         ├─────────────────────────────►│               │
 │    │                         │                              │ Writes        │
-│    │                         │                              │ .PcbLib file  │
+│    │                         │                              │ .PcbLib +     │
+│    │                         │  write_schlib(symbol)        │ .SchLib files │
+│    │                         ├─────────────────────────────►│               │
 │    │                         │◄─────────────────────────────┤               │
 │    │                         │  { success: true }           │               │
 │    │                         │                              │               │
 │    │  "Done! Footprint       │                              │               │
-│    │   RESC1608X55N created" │                              │               │
+│    │   and symbol created"   │                              │               │
 │    │◄────────────────────────┤                              │               │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -60,7 +62,7 @@ This means the AI can create **any footprint** — not just pre-programmed packa
 
 ## Current Status
 
-**In Development** — MCP infrastructure functional, PcbLib reader/writer implemented.
+**In Development** — MCP infrastructure functional, PcbLib and SchLib reader/writer implemented.
 
 | Feature | Status |
 |---------|--------|
@@ -70,7 +72,8 @@ This means the AI can create **any footprint** — not just pre-programmed packa
 | Primitive types (Pad, Track, Arc, etc.) | Working |
 | PcbLib binary format parsing | Working |
 | PcbLib binary format encoding | Working |
-| SchLib support | Not yet implemented |
+| SchLib binary format parsing | Working |
+| SchLib binary format encoding | Not yet implemented |
 
 ---
 
@@ -117,6 +120,19 @@ Write footprints to an Altium `.PcbLib` file. The AI provides primitive definiti
 }
 ```
 
+### `read_schlib`
+
+Read symbols from an Altium `.SchLib` file.
+
+```json
+{
+  "name": "read_schlib",
+  "arguments": {
+    "filepath": "./MySymbols.SchLib"
+  }
+}
+```
+
 ### `list_components`
 
 List component names in an Altium library file.
@@ -134,7 +150,7 @@ List component names in an Altium library file.
 
 ## Primitive Types
 
-### Footprint Primitives
+### Footprint Primitives (PcbLib)
 
 | Primitive | Description |
 |-----------|-------------|
@@ -143,6 +159,19 @@ List component names in an Altium library file.
 | **Arc** | Arc or circle on any layer |
 | **Region** | Filled polygon (courtyard, copper pour) |
 | **Text** | Text string with font, size, position, layer |
+
+### Symbol Primitives (SchLib)
+
+| Primitive | Description |
+|-----------|-------------|
+| **Pin** | Component pin with name, designator, electrical type, orientation |
+| **Rectangle** | Filled or unfilled rectangle (component body) |
+| **Line** | Single line segment |
+| **Polyline** | Multiple connected line segments |
+| **Arc** | Arc or circle |
+| **Label** | Text label |
+| **Parameter** | Component parameter (Value, Part Number, etc.) |
+| **FootprintModel** | Reference to a footprint in a PcbLib |
 
 ### Standard Altium Layers
 
@@ -264,12 +293,14 @@ Sample Altium library files are included in the `scripts/` folder for testing an
 These files can be used with the analysis scripts:
 
 ```bash
-# Python analysis (requires pyaltiumlib)
+# Python analysis (requires pyaltiumlib and olefile)
 cd scripts
 python analyze_pcblib.py sample.PcbLib
+python analyze_schlib.py sample.SchLib
 
 # Rust analysis
 cargo test --test pcblib_analysis -- --ignored --nocapture
+cargo test --test schlib_analysis -- --ignored --nocapture
 ```
 
 ---

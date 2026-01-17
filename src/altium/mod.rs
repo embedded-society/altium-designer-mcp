@@ -3,7 +3,7 @@
 //! This module provides read/write capabilities for Altium Designer library files:
 //!
 //! - `.PcbLib` — PCB footprint libraries
-//! - `.SchLib` — Schematic symbol libraries (TODO)
+//! - `.SchLib` — Schematic symbol libraries
 //!
 //! # File Format
 //!
@@ -14,6 +14,8 @@
 //!   - `Data` stream with primitives (pads, tracks, arcs, etc.)
 //!   - `Parameters` stream with component properties
 //!
+//! See `docs/PCBLIB_FORMAT.md` and `docs/SCHLIB_FORMAT.md` for detailed format documentation.
+//!
 //! # Architecture
 //!
 //! This module provides low-level file I/O. The AI handles:
@@ -23,6 +25,8 @@
 
 pub mod error;
 pub mod pcblib;
+pub mod schlib;
 
 pub use error::{AltiumError, AltiumResult};
 pub use pcblib::{Footprint, PcbLib};
+pub use schlib::{SchLib, Symbol};
