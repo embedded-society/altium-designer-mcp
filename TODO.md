@@ -114,7 +114,7 @@ altium-designer-mcp/
 │   │
 │   ├── style/                   # Style extraction & application
 │   │   ├── mod.rs
-│   │   ├── extractor.rs         # Analyze existing libraries
+│   │   ├── extractor.rs         # Analyse existing libraries
 │   │   ├── guide.rs             # StyleGuide struct definition
 │   │   └── applicator.rs        # Apply style to new components
 │   │
@@ -179,7 +179,7 @@ async fn get_component(filepath: String, component_name: String) -> ComponentDet
 ### Category 2: Style Management
 
 ```rust
-/// Analyze an existing library and extract style preferences
+/// Analyse an existing library and extract style preferences
 #[tool(name = "extract_style_guide")]
 async fn extract_style_guide(filepath: String) -> StyleGuide;
 
