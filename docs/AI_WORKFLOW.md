@@ -4,16 +4,9 @@ This document explains how an AI assistant uses altium-designer-mcp to create Al
 
 ## Core Principle
 
-**The AI handles the intelligence. The tool handles the file I/O.**
+**The AI handles the intelligence. The tool handles file I/O.**
 
-| Responsibility | Owner |
-|---------------|-------|
-| IPC-7351B calculations | AI |
-| Package layout decisions | AI |
-| Style choices | AI |
-| Datasheet interpretation | AI |
-| Reading/writing Altium files | This tool |
-| Primitive placement | This tool |
+See [VISION.md](VISION.md) for the full responsibility split and architectural rationale.
 
 ---
 
@@ -70,10 +63,10 @@ IPC-7351B Calculations (Nominal density):
 - Heel extension: 0.35mm
 - Side extension: 0.05mm
 
-Pad dimensions:
-- Width: 0.3 + 0.35 + 0.35 = 1.0mm (but typically 0.9mm)
-- Height: 0.8 + 2×0.05 = 0.9mm (but typically 0.95mm)
-- Span: 1.6 - 0.3 + 0.9 = 2.2mm (centre-to-centre: 1.5mm)
+Pad dimensions (using manufacturer-recommended values):
+- Width: 0.9mm (terminal + extensions, adjusted for process)
+- Height: 0.95mm (body height + side extensions, adjusted)
+- Centre-to-centre span: 1.5mm
 
 IPC Name: RESC1608X55N
 ```

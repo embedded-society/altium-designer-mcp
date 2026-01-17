@@ -78,7 +78,7 @@ The AI provides complete primitive definitions. The tool just writes them.
 
 - **Pad**: Position, size, shape, designator, layer
 - **Track**: Start/end points, width, layer
-- **Arc**: Center, radius, angles, width, layer
+- **Arc**: Centre, radius, angles, width, layer
 - **Region**: Vertices, layer
 - **Text**: Position, content, size, layer
 
