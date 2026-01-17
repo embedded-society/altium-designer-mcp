@@ -935,27 +935,42 @@ impl McpServer {
 
             // Parse pads
             if let Some(pads) = fp_json.get("pads").and_then(Value::as_array) {
-                for pad_json in pads {
-                    if let Some(pad) = Self::parse_pad(pad_json) {
-                        footprint.add_pad(pad);
+                for (i, pad_json) in pads.iter().enumerate() {
+                    match Self::parse_pad(pad_json) {
+                        Ok(pad) => footprint.add_pad(pad),
+                        Err(e) => {
+                            return ToolCallResult::error(format!(
+                                "Footprint '{name}' pad {i}: {e}"
+                            ))
+                        }
                     }
                 }
             }
 
             // Parse tracks
             if let Some(tracks) = fp_json.get("tracks").and_then(Value::as_array) {
-                for track_json in tracks {
-                    if let Some(track) = Self::parse_track(track_json) {
-                        footprint.add_track(track);
+                for (i, track_json) in tracks.iter().enumerate() {
+                    match Self::parse_track(track_json) {
+                        Ok(track) => footprint.add_track(track),
+                        Err(e) => {
+                            return ToolCallResult::error(format!(
+                                "Footprint '{name}' track {i}: {e}"
+                            ))
+                        }
                     }
                 }
             }
 
             // Parse arcs
             if let Some(arcs) = fp_json.get("arcs").and_then(Value::as_array) {
-                for arc_json in arcs {
-                    if let Some(arc) = Self::parse_arc(arc_json) {
-                        footprint.add_arc(arc);
+                for (i, arc_json) in arcs.iter().enumerate() {
+                    match Self::parse_arc(arc_json) {
+                        Ok(arc) => footprint.add_arc(arc),
+                        Err(e) => {
+                            return ToolCallResult::error(format!(
+                                "Footprint '{name}' arc {i}: {e}"
+                            ))
+                        }
                     }
                 }
             }
@@ -1843,35 +1858,62 @@ impl McpServer {
     // ==================== Primitive Parsing Helpers ====================
 
     /// Parses a pad from JSON.
-    fn parse_pad(json: &Value) -> Option<crate::altium::pcblib::Pad> {
+    fn parse_pad(json: &Value) -> Result<crate::altium::pcblib::Pad, String> {
         use crate::altium::pcblib::{Layer, Pad, PadShape};
 
-        let designator = json.get("designator").and_then(Value::as_str)?;
-        let x = json.get("x").and_then(Value::as_f64)?;
-        let y = json.get("y").and_then(Value::as_f64)?;
-        let width = json.get("width").and_then(Value::as_f64)?;
-        let height = json.get("height").and_then(Value::as_f64)?;
-
-        let shape = json.get("shape").and_then(Value::as_str).map_or(
-            PadShape::RoundedRectangle,
-            |s| match s {
-                "rectangle" => PadShape::Rectangle,
-                "round" | "circle" => PadShape::Round,
-                "oval" => PadShape::Oval,
-                _ => PadShape::RoundedRectangle, // includes "rounded_rectangle"
-            },
-        );
-
-        let layer = json
-            .get("layer")
+        let designator = json
+            .get("designator")
             .and_then(Value::as_str)
-            .and_then(Layer::parse)
-            .unwrap_or(Layer::MultiLayer);
+            .ok_or("Pad missing required field 'designator'")?;
+        let x = json
+            .get("x")
+            .and_then(Value::as_f64)
+            .ok_or("Pad missing required field 'x'")?;
+        let y = json
+            .get("y")
+            .and_then(Value::as_f64)
+            .ok_or("Pad missing required field 'y'")?;
+        let width = json
+            .get("width")
+            .and_then(Value::as_f64)
+            .ok_or("Pad missing required field 'width'")?;
+        let height = json
+            .get("height")
+            .and_then(Value::as_f64)
+            .ok_or("Pad missing required field 'height'")?;
+
+        let shape_str = json
+            .get("shape")
+            .and_then(Value::as_str)
+            .unwrap_or("rounded_rectangle");
+        let shape = match shape_str {
+            "rectangle" => PadShape::Rectangle,
+            "round" | "circle" => PadShape::Round,
+            "oval" => PadShape::Oval,
+            "rounded_rectangle" => PadShape::RoundedRectangle,
+            _ => {
+                return Err(format!(
+                    "Pad '{designator}' has invalid shape '{shape_str}'. \
+                     Valid shapes are: rectangle, round, circle, oval, rounded_rectangle"
+                ))
+            }
+        };
+
+        let layer_str = json.get("layer").and_then(Value::as_str);
+        let layer = match layer_str {
+            Some(s) => Layer::parse(s).ok_or_else(|| {
+                format!(
+                    "Pad '{designator}' has invalid layer '{s}'. \
+                     Valid layers include: Top Layer, Bottom Layer, Multi-Layer, Top Overlay, etc."
+                )
+            })?,
+            None => Layer::MultiLayer, // Default for pads is Multi-Layer
+        };
 
         let hole_size = json.get("hole_size").and_then(Value::as_f64);
         let rotation = json.get("rotation").and_then(Value::as_f64).unwrap_or(0.0);
 
-        Some(Pad {
+        Ok(Pad {
             designator: designator.to_string(),
             x,
             y,
@@ -1885,40 +1927,85 @@ impl McpServer {
     }
 
     /// Parses a track from JSON.
-    fn parse_track(json: &Value) -> Option<crate::altium::pcblib::Track> {
+    fn parse_track(json: &Value) -> Result<crate::altium::pcblib::Track, String> {
         use crate::altium::pcblib::{Layer, Track};
 
-        let x1 = json.get("x1").and_then(Value::as_f64)?;
-        let y1 = json.get("y1").and_then(Value::as_f64)?;
-        let x2 = json.get("x2").and_then(Value::as_f64)?;
-        let y2 = json.get("y2").and_then(Value::as_f64)?;
-        let width = json.get("width").and_then(Value::as_f64)?;
-        let layer = json
-            .get("layer")
-            .and_then(Value::as_str)
-            .and_then(Layer::parse)
-            .unwrap_or(Layer::TopOverlay);
+        let x1 = json
+            .get("x1")
+            .and_then(Value::as_f64)
+            .ok_or("Track missing required field 'x1'")?;
+        let y1 = json
+            .get("y1")
+            .and_then(Value::as_f64)
+            .ok_or("Track missing required field 'y1'")?;
+        let x2 = json
+            .get("x2")
+            .and_then(Value::as_f64)
+            .ok_or("Track missing required field 'x2'")?;
+        let y2 = json
+            .get("y2")
+            .and_then(Value::as_f64)
+            .ok_or("Track missing required field 'y2'")?;
+        let width = json
+            .get("width")
+            .and_then(Value::as_f64)
+            .ok_or("Track missing required field 'width'")?;
 
-        Some(Track::new(x1, y1, x2, y2, width, layer))
+        let layer_str = json.get("layer").and_then(Value::as_str);
+        let layer = match layer_str {
+            Some(s) => Layer::parse(s).ok_or_else(|| {
+                format!(
+                    "Track has invalid layer '{s}'. \
+                     Valid layers include: Top Layer, Bottom Layer, Top Overlay, Top Assembly, etc."
+                )
+            })?,
+            None => Layer::TopOverlay, // Default for tracks is Top Overlay
+        };
+
+        Ok(Track::new(x1, y1, x2, y2, width, layer))
     }
 
     /// Parses an arc from JSON.
-    fn parse_arc(json: &Value) -> Option<crate::altium::pcblib::Arc> {
+    fn parse_arc(json: &Value) -> Result<crate::altium::pcblib::Arc, String> {
         use crate::altium::pcblib::{Arc, Layer};
 
-        let x = json.get("x").and_then(Value::as_f64)?;
-        let y = json.get("y").and_then(Value::as_f64)?;
-        let radius = json.get("radius").and_then(Value::as_f64)?;
-        let start_angle = json.get("start_angle").and_then(Value::as_f64)?;
-        let end_angle = json.get("end_angle").and_then(Value::as_f64)?;
-        let width = json.get("width").and_then(Value::as_f64)?;
-        let layer = json
-            .get("layer")
-            .and_then(Value::as_str)
-            .and_then(Layer::parse)
-            .unwrap_or(Layer::TopOverlay);
+        let x = json
+            .get("x")
+            .and_then(Value::as_f64)
+            .ok_or("Arc missing required field 'x'")?;
+        let y = json
+            .get("y")
+            .and_then(Value::as_f64)
+            .ok_or("Arc missing required field 'y'")?;
+        let radius = json
+            .get("radius")
+            .and_then(Value::as_f64)
+            .ok_or("Arc missing required field 'radius'")?;
+        let start_angle = json
+            .get("start_angle")
+            .and_then(Value::as_f64)
+            .ok_or("Arc missing required field 'start_angle'")?;
+        let end_angle = json
+            .get("end_angle")
+            .and_then(Value::as_f64)
+            .ok_or("Arc missing required field 'end_angle'")?;
+        let width = json
+            .get("width")
+            .and_then(Value::as_f64)
+            .ok_or("Arc missing required field 'width'")?;
 
-        Some(Arc {
+        let layer_str = json.get("layer").and_then(Value::as_str);
+        let layer = match layer_str {
+            Some(s) => Layer::parse(s).ok_or_else(|| {
+                format!(
+                    "Arc has invalid layer '{s}'. \
+                     Valid layers include: Top Layer, Bottom Layer, Top Overlay, Top Assembly, etc."
+                )
+            })?,
+            None => Layer::TopOverlay, // Default for arcs is Top Overlay
+        };
+
+        Ok(Arc {
             x,
             y,
             radius,
