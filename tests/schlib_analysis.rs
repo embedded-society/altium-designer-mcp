@@ -1,4 +1,4 @@
-//! SchLib analysis test - run manually to inspect sample file contents.
+//! `SchLib` analysis test - run manually to inspect sample file contents.
 
 use altium_designer_mcp::altium::SchLib;
 
@@ -11,7 +11,7 @@ fn analyze_sample_schlib() {
     println!("Symbols: {}", lib.len());
 
     for (name, symbol) in lib.iter() {
-        println!("\n--- Symbol: {} ---", name);
+        println!("\n--- Symbol: {name} ---");
         println!("  Description: {}", symbol.description);
         println!("  Designator: {}", symbol.designator);
         println!("  Part count: {}", symbol.part_count);

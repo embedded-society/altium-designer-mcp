@@ -73,7 +73,7 @@ This means the AI can create **any footprint** — not just pre-programmed packa
 | PcbLib binary format parsing | Working |
 | PcbLib binary format encoding | Working |
 | SchLib binary format parsing | Working |
-| SchLib binary format encoding | Not yet implemented |
+| SchLib binary format encoding | Working |
 
 ---
 

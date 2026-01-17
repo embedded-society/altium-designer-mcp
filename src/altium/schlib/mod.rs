@@ -43,11 +43,12 @@
 
 pub mod primitives;
 pub mod reader;
+pub mod writer;
 
 use cfb::CompoundFile;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::io::{Read, Seek};
+use std::io::{Read, Seek, Write};
 use std::path::Path;
 
 use super::{AltiumError, AltiumResult};
@@ -144,6 +145,70 @@ impl SchLib {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.symbols.is_empty()
+    }
+
+    /// Adds a symbol to the library.
+    pub fn add_symbol(&mut self, symbol: Symbol) {
+        self.symbols.insert(symbol.name.clone(), symbol);
+    }
+
+    /// Saves the library to a file.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be written.
+    pub fn save(&self, path: impl AsRef<Path>) -> AltiumResult<()> {
+        let path = path.as_ref();
+        let file =
+            std::fs::File::create(path).map_err(|e| AltiumError::file_write(path, e))?;
+        self.write(file)
+    }
+
+    /// Writes the library to any writer implementing `Read + Write + Seek`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the library cannot be written.
+    pub fn write<W: Read + Write + Seek>(&self, writer: W) -> AltiumResult<()> {
+        let mut cfb = CompoundFile::create(writer)
+            .map_err(|e| AltiumError::invalid_ole(format!("Failed to create OLE file: {e}")))?;
+
+        // Collect symbols for header
+        let symbols: Vec<&Symbol> = self.symbols.values().collect();
+
+        // Write FileHeader stream
+        let header_data = writer::encode_file_header(&symbols);
+        let mut header_stream = cfb
+            .create_stream("/FileHeader")
+            .map_err(|e| AltiumError::invalid_ole(format!("Failed to create FileHeader: {e}")))?;
+        header_stream
+            .write_all(&header_data)
+            .map_err(|e| AltiumError::invalid_ole(format!("Failed to write FileHeader: {e}")))?;
+        drop(header_stream);
+
+        // Write each symbol's Data stream
+        for symbol in &symbols {
+            let stream_path = format!("/{}/Data", symbol.name);
+
+            // Create the component directory first
+            let dir_path = format!("/{}", symbol.name);
+            cfb.create_storage(&dir_path)
+                .map_err(|e| AltiumError::invalid_ole(format!("Failed to create storage {dir_path}: {e}")))?;
+
+            // Create and write the Data stream
+            let data = writer::encode_data_stream(symbol);
+            let mut stream = cfb
+                .create_stream(&stream_path)
+                .map_err(|e| AltiumError::invalid_ole(format!("Failed to create stream {stream_path}: {e}")))?;
+            stream
+                .write_all(&data)
+                .map_err(|e| AltiumError::invalid_ole(format!("Failed to write stream {stream_path}: {e}")))?;
+        }
+
+        cfb.flush()
+            .map_err(|e| AltiumError::invalid_ole(format!("Failed to flush OLE file: {e}")))?;
+
+        Ok(())
     }
 }
 
@@ -291,6 +356,7 @@ fn read_file_header<R: Read + Seek>(cfb: &mut CompoundFile<R>) -> AltiumResult<F
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
 
     #[test]
     fn symbol_creation() {
@@ -312,5 +378,134 @@ mod tests {
         let symbol = lib.get("SMD Chip Resistor").expect("Symbol not found");
         assert_eq!(symbol.pins.len(), 2);
         assert!(!symbol.rectangles.is_empty());
+    }
+
+    #[test]
+    fn roundtrip_simple_symbol() {
+        // Create a simple symbol
+        let mut symbol = Symbol::new("RESISTOR");
+        symbol.description = "Test resistor".to_string();
+        symbol.designator = "R?".to_string();
+
+        // Add two pins
+        symbol.add_pin(Pin::new("1", "1", -20, 0, 10, PinOrientation::Right));
+        symbol.add_pin(Pin::new("2", "2", 20, 0, 10, PinOrientation::Left));
+
+        // Add rectangle body
+        symbol.add_rectangle(Rectangle::new(-10, -5, 10, 5));
+
+        // Add a parameter
+        symbol.add_parameter(Parameter::new("Value", "*"));
+
+        // Add a footprint reference
+        symbol.add_footprint(FootprintModel::new("0603"));
+
+        // Create library and add symbol
+        let mut lib = SchLib::new();
+        lib.add_symbol(symbol);
+
+        // Write to memory
+        let mut buffer = Cursor::new(Vec::new());
+        lib.write(&mut buffer).expect("Failed to write SchLib");
+
+        // Read back
+        buffer.set_position(0);
+        let read_lib = SchLib::read(buffer).expect("Failed to read SchLib");
+
+        // Verify
+        assert_eq!(read_lib.len(), 1);
+        let read_symbol = read_lib.get("RESISTOR").expect("Symbol not found");
+        assert_eq!(read_symbol.name, "RESISTOR");
+        assert_eq!(read_symbol.pins.len(), 2);
+        assert_eq!(read_symbol.rectangles.len(), 1);
+        assert_eq!(read_symbol.parameters.len(), 1);
+        assert_eq!(read_symbol.footprints.len(), 1);
+
+        // Verify pin details
+        let pin1 = &read_symbol.pins[0];
+        assert_eq!(pin1.designator, "1");
+        assert_eq!(pin1.x, -20);
+        assert_eq!(pin1.y, 0);
+        assert_eq!(pin1.length, 10);
+    }
+
+    #[test]
+    fn roundtrip_multi_part_symbol() {
+        // Create a multi-part symbol (like a dual op-amp)
+        let mut symbol = Symbol::new("OPAMP_DUAL");
+        symbol.description = "Dual operational amplifier".to_string();
+        symbol.designator = "U?".to_string();
+        symbol.part_count = 2;
+
+        // Part 1 pins
+        let mut pin1 = Pin::new("IN+", "3", -30, 10, 15, PinOrientation::Right);
+        pin1.owner_part_id = 1;
+        pin1.electrical_type = PinElectricalType::Input;
+        symbol.add_pin(pin1);
+
+        let mut pin2 = Pin::new("IN-", "2", -30, -10, 15, PinOrientation::Right);
+        pin2.owner_part_id = 1;
+        pin2.electrical_type = PinElectricalType::Input;
+        symbol.add_pin(pin2);
+
+        let mut pin3 = Pin::new("OUT", "1", 30, 0, 15, PinOrientation::Left);
+        pin3.owner_part_id = 1;
+        pin3.electrical_type = PinElectricalType::Output;
+        symbol.add_pin(pin3);
+
+        // Part 2 pins
+        let mut pin4 = Pin::new("IN+", "5", -30, 10, 15, PinOrientation::Right);
+        pin4.owner_part_id = 2;
+        pin4.electrical_type = PinElectricalType::Input;
+        symbol.add_pin(pin4);
+
+        let mut pin5 = Pin::new("IN-", "6", -30, -10, 15, PinOrientation::Right);
+        pin5.owner_part_id = 2;
+        pin5.electrical_type = PinElectricalType::Input;
+        symbol.add_pin(pin5);
+
+        let mut pin6 = Pin::new("OUT", "7", 30, 0, 15, PinOrientation::Left);
+        pin6.owner_part_id = 2;
+        pin6.electrical_type = PinElectricalType::Output;
+        symbol.add_pin(pin6);
+
+        // Rectangle bodies for both parts
+        let mut rect1 = Rectangle::new(-15, -20, 15, 20);
+        rect1.owner_part_id = 1;
+        symbol.add_rectangle(rect1);
+
+        let mut rect2 = Rectangle::new(-15, -20, 15, 20);
+        rect2.owner_part_id = 2;
+        symbol.add_rectangle(rect2);
+
+        // Create library and write
+        let mut lib = SchLib::new();
+        lib.add_symbol(symbol);
+
+        let mut buffer = Cursor::new(Vec::new());
+        lib.write(&mut buffer).expect("Failed to write SchLib");
+
+        // Read back and verify
+        buffer.set_position(0);
+        let read_lib = SchLib::read(buffer).expect("Failed to read SchLib");
+
+        let read_symbol = read_lib.get("OPAMP_DUAL").expect("Symbol not found");
+        assert_eq!(read_symbol.pins.len(), 6);
+        assert_eq!(read_symbol.rectangles.len(), 2);
+
+        // Verify electrical types preserved
+        let input_pin_count = read_symbol
+            .pins
+            .iter()
+            .filter(|p| p.electrical_type == PinElectricalType::Input)
+            .count();
+        assert_eq!(input_pin_count, 4);
+
+        let output_pin_count = read_symbol
+            .pins
+            .iter()
+            .filter(|p| p.electrical_type == PinElectricalType::Output)
+            .count();
+        assert_eq!(output_pin_count, 2);
     }
 }
