@@ -84,10 +84,10 @@ cargo clippy --all-targets --all-features -- -D warnings
 | Item | Convention | Example |
 |------|------------|--------|
 | Crates | snake_case | `altium_designer_mcp` |
-| Modules | snake_case | `ipc_calculator` |
-| Types | PascalCase | `PackageDimensions` |
-| Functions | snake_case | `calculate_footprint` |
-| Constants | SCREAMING_SNAKE_CASE | `DEFAULT_COURTYARD_MARGIN` |
+| Modules | snake_case | `pcblib` |
+| Types | PascalCase | `Footprint` |
+| Functions | snake_case | `write_pcblib` |
+| Constants | SCREAMING_SNAKE_CASE | `DEFAULT_LINE_WIDTH` |
 | Variables | snake_case | `pad_width` |
 
 ### Documentation
@@ -232,12 +232,12 @@ See `CONTRIBUTING.md` § Commit Messages for conventions and allowed types.
 
 ---
 
-## IPC-7351B Specific
+## Primitives & Dimensions
 
 - All dimensions in millimetres (mm)
 - Use `f64` for dimensional values
 - Document units in variable names or comments when not obvious
-- Follow IPC naming conventions for package types
+- Primitive types: Pad, Track, Arc, Region, Text
 
 ---
 
