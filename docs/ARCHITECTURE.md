@@ -2,15 +2,29 @@
 
 This document describes the architecture of the MCP server.
 
-## Core Principle: IPC-7351B Compliance
+## Core Principle
 
-**All footprints are generated using IPC-7351B land pattern calculations.**
+**The AI handles the intelligence. The tool handles the file I/O.**
 
-This ensures:
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  RESPONSIBILITY SPLIT                                                    │
+│                                                                         │
+│  AI (Claude, etc.)                    MCP Server (this tool)            │
+│  ─────────────────                    ──────────────────────            │
+│  • IPC-7351B calculations             • Read .PcbLib/.SchLib files      │
+│  • Package layout decisions           • Write .PcbLib/.SchLib files     │
+│  • Style choices                      • Primitive placement             │
+│  • Datasheet interpretation           • STEP model attachment           │
+│  • Design rule knowledge              • OLE document handling           │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
 
-- Consistent, manufacturable designs
-- Proper solder joint formation
-- Compatibility with standard assembly processes
+This architecture means the AI can create **any footprint** — not just pre-programmed
+package types. The tool is package-agnostic.
+
+---
 
 ## Component Overview
 
@@ -24,119 +38,91 @@ src/
 │   ├── mod.rs                   # Module exports
 │   └── settings.rs              # Config file parsing + defaults
 │
-├── ipc7351/                     # IPC-7351B calculations (planned)
+├── altium/                      # Altium file I/O
 │   ├── mod.rs                   # Module exports
-│   ├── chip.rs                  # Chip resistor/capacitor patterns
-│   ├── soic.rs                  # SOIC/SOP patterns
-│   ├── qfn.rs                   # QFN/DFN patterns
-│   ├── qfp.rs                   # QFP/TQFP patterns
-│   ├── bga.rs                   # BGA patterns
-│   └── naming.rs                # IPC naming conventions
-│
-├── altium/                      # Altium file I/O (planned)
-│   ├── mod.rs                   # Module exports
-│   ├── cfb.rs                   # OLE compound file handling
-│   ├── pcblib.rs                # .PcbLib reading/writing
-│   ├── schlib.rs                # .SchLib reading/writing
-│   └── records.rs               # Altium record types
-│
-├── style/                       # Style management (planned)
-│   ├── mod.rs                   # Module exports
-│   ├── extract.rs               # Extract style from existing lib
-│   └── apply.rs                 # Apply style to components
-│
-├── symbols/                     # Symbol generation (planned)
-│   ├── mod.rs                   # Module exports
-│   └── generator.rs             # Schematic symbol creation
-│
-├── database/                    # CSV database (planned)
-│   ├── mod.rs                   # Module exports
-│   ├── schema.rs                # Database schema
-│   └── csv_io.rs                # CSV reading/writing
+│   ├── error.rs                 # Altium-specific errors
+│   └── pcblib/
+│       ├── mod.rs               # PcbLib read/write
+│       └── primitives.rs        # Pad, Track, Arc, Region, Text, Layer
 │
 └── mcp/                         # MCP server implementation
     ├── mod.rs                   # Module exports
-    ├── server.rs                # JSON-RPC server + tool dispatch
+    ├── server.rs                # JSON-RPC server + tool handlers
     ├── protocol.rs              # MCP protocol types
     └── transport.rs             # stdio transport
 ```
+
+---
 
 ## Data Flow: Component Creation
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ CREATE COMPONENT: From dimensions to Altium library                         │
+│ CREATE FOOTPRINT: AI calculates dimensions, tool writes file                 │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  AI Assistant             MCP Server                       Altium File      │
-│    │                         │                                │             │
-│    │  calculate_footprint    │                                │             │
-│    │  { type: "CHIP",        │                                │             │
-│    │    body_length: 1.6,    │                                │             │
-│    │    body_width: 0.8,     │                                │             │
-│    │    terminal_length: 0.3 │                                │             │
-│    │    density: "N" }       │                                │             │
-│    ├────────────────────────►│                                │             │
-│    │                         │                                │             │
-│    │                         │  IPC-7351B calculation:        │             │
-│    │                         │  - Pad dimensions              │             │
-│    │                         │  - Pad positions               │             │
-│    │                         │  - Courtyard                   │             │
-│    │                         │  - Silkscreen                  │             │
-│    │                         │                                │             │
-│    │◄────────────────────────┤  { pads: [...],                │             │
-│    │                         │    courtyard: {...},           │             │
-│    │                         │    silkscreen: {...} }         │             │
-│    │                         │                                │             │
-│    │  create_component       │                                │             │
-│    │  { footprint: {...},    │                                │             │
-│    │    symbol: {...},       │                                │             │
-│    │    parameters: {...} }  │                                │             │
-│    ├────────────────────────►│                                │             │
-│    │                         │                                │             │
-│    │                         │  Write to library              │             │
-│    │                         ├───────────────────────────────►│             │
-│    │                         │                                │             │
-│    │◄────────────────────────┤  { success: true,              │             │
-│    │                         │    component_name: "..." }     │             │
-│    │                         │                                │             │
+│  Engineer              AI                            MCP Server             │
+│    │                    │                                │                  │
+│    │  "Create 0603"     │                                │                  │
+│    ├───────────────────►│                                │                  │
+│    │                    │                                │                  │
+│    │                    │  AI reasons about:             │                  │
+│    │                    │  • IPC-7351B formulas          │                  │
+│    │                    │  • Pad size calculation        │                  │
+│    │                    │  • Courtyard margins           │                  │
+│    │                    │  • Silkscreen placement        │                  │
+│    │                    │                                │                  │
+│    │                    │  write_pcblib                  │                  │
+│    │                    │  { filepath, footprints: [{    │                  │
+│    │                    │      name, pads, tracks,       │                  │
+│    │                    │      arcs, regions, text }]}   │                  │
+│    │                    ├───────────────────────────────►│                  │
+│    │                    │                                │                  │
+│    │                    │                                │  Write OLE file  │
+│    │                    │                                │  with primitives │
+│    │                    │                                │                  │
+│    │                    │◄───────────────────────────────┤                  │
+│    │                    │  { success: true }             │                  │
+│    │                    │                                │                  │
+│    │◄───────────────────┤                                │                  │
+│    │  "Footprint        │                                │                  │
+│    │   RESC1608X55N     │                                │                  │
+│    │   created!"        │                                │                  │
+│                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## IPC-7351B Calculation Flow
+---
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ IPC-7351B: Package dimensions to land pattern                               │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  Input Dimensions                                                           │
-│  ─────────────────                                                          │
-│  Body Length (L)     ─┐                                                     │
-│  Body Width (W)       ├──► Fabrication     ──► Pad Width                    │
-│  Terminal Length (T) ─┤    Tolerance            Pad Height                  │
-│  Terminal Width (t)  ─┘                         Pad Gap                     │
-│                                                                             │
-│  Density Level (M/N/L) ──► Solder Goals   ──► Toe Extension                 │
-│                                               Heel Extension                │
-│                                               Side Extension                │
-│                                                                             │
-│  Output Pattern                                                             │
-│  ──────────────                                                             │
-│  ┌─────────────────────────────────────────┐                                │
-│  │              Courtyard                  │                                │
-│  │  ┌───────────────────────────────────┐  │                                │
-│  │  │         Silkscreen                │  │                                │
-│  │  │  ┌─────┐           ┌─────┐       │  │                                │
-│  │  │  │ PAD │           │ PAD │       │  │                                │
-│  │  │  │  1  │           │  2  │       │  │                                │
-│  │  │  └─────┘           └─────┘       │  │                                │
-│  │  │                                   │  │                                │
-│  │  └───────────────────────────────────┘  │                                │
-│  └─────────────────────────────────────────┘                                │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+## Primitive Types
+
+The AI provides complete primitive definitions. The tool writes them.
+
+### Footprint Primitives
+
+| Primitive | Properties |
+|-----------|------------|
+| **Pad** | designator, x, y, width, height, shape, layer, hole_size, rotation |
+| **Track** | x1, y1, x2, y2, width, layer |
+| **Arc** | x, y, radius, start_angle, end_angle, width, layer |
+| **Region** | vertices[], layer |
+| **Text** | x, y, text, height, layer, rotation |
+| **Model3D** | filepath, x_offset, y_offset, z_offset, rotation |
+
+### Standard Altium Layers
+
+| Layer | Typical Usage |
+|-------|---------------|
+| Top Layer | Copper pads |
+| Multi-Layer | Through-hole pads (all layers) |
+| Top Overlay | Silkscreen |
+| Top Paste | Solder paste |
+| Top Solder | Solder mask |
+| Mechanical 1 | Assembly outline |
+| Mechanical 13 | 3D body outline |
+| Mechanical 15 | Courtyard |
+
+---
 
 ## Altium File Format
 
@@ -148,53 +134,35 @@ Altium libraries use OLE Compound File Binary (CFB) format:
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  OLE Compound File                                                          │
-│  ├── Root                                                                   │
-│  │   ├── FileHeader                                                         │
-│  │   ├── SectionKeys                                                        │
-│  │   └── Library                                                            │
-│  │       ├── ComponentParamsTOC                                             │
-│  │       ├── Components                                                     │
-│  │       │   ├── Component1/                                                │
-│  │       │   │   ├── Data                    # Binary pad/track data        │
-│  │       │   │   └── Parameters              # Component parameters         │
-│  │       │   ├── Component2/                                                │
-│  │       │   │   ├── Data                                                   │
-│  │       │   │   └── Parameters                                             │
-│  │       │   └── ...                                                        │
-│  │       └── ...                                                            │
-│  │                                                                          │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-## Style Extraction
-
-The MCP server can extract style from existing libraries:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ STYLE EXTRACTION: Learn from existing components                            │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  Existing Library              Extracted Style             New Components   │
-│       │                             │                           │           │
-│       │  Read components            │                           │           │
-│       ├────────────────────────────►│                           │           │
-│       │                             │                           │           │
-│       │  Analyse patterns:          │                           │           │
-│       │  - Silkscreen line width    │                           │           │
-│       │  - Pad corner radius        │                           │           │
-│       │  - Pin 1 marker style       │                           │           │
-│       │  - Layer usage              │                           │           │
-│       │  - Font settings            │                           │           │
-│       │                             │                           │           │
-│       │                             │  Apply to new             │           │
-│       │                             ├──────────────────────────►│           │
-│       │                             │                           │           │
-│       │                             │  Consistent style         │           │
-│       │                             │  across all components    │           │
+│  ├── /FileHeader                  # Library metadata (ASCII)                │
+│  ├── /Footprint1/                 # Storage for first footprint             │
+│  │   ├── Data                     # Binary primitive data                   │
+│  │   └── Parameters               # Component parameters (ASCII)            │
+│  ├── /Footprint2/                                                           │
+│  │   ├── Data                                                               │
+│  │   └── Parameters                                                         │
+│  └── ...                                                                    │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+The `Data` stream contains binary records for each primitive. The exact binary
+format is being reverse-engineered from existing libraries and prior art
+(AltiumSharp, python-altium).
+
+---
+
+## MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `read_pcblib` | Read footprints and primitives from .PcbLib |
+| `write_pcblib` | Write footprints (defined by primitives) to .PcbLib |
+| `list_components` | List component names in a library |
+| `read_schlib` | Read symbols from .SchLib (planned) |
+| `write_schlib` | Write symbols to .SchLib (planned) |
+
+---
 
 ## Security Considerations
 
@@ -206,7 +174,7 @@ The MCP server can extract style from existing libraries:
 
 ### Input Validation
 
-- All dimensions are validated against reasonable ranges
+- Primitive coordinates and dimensions are validated
 - Invalid inputs return clear error messages
 - No code execution from user input
 
@@ -216,14 +184,29 @@ The MCP server can extract style from existing libraries:
 - Sensitive paths are sanitised in error messages
 - Stack traces are only shown in debug mode
 
-## Supported Git Providers
+---
 
-This is a local tool — no network access required for core functionality.
+## Why This Architecture?
+
+Previous approach encoded IPC-7351B into calculators. This was over-engineered:
+
+| Old Approach | New Approach |
+|-------------|--------------|
+| Tool calculates pad sizes | AI calculates pad sizes |
+| Tool has package-specific code | Tool is package-agnostic |
+| Need to add code for each package | AI handles any package |
+| Complex codebase | Simple file I/O |
+
+The AI already knows IPC-7351B. We don't need to duplicate that knowledge.
+
+---
+
+## Network Requirements
+
+This is a local tool — no network access required.
 
 | Feature | Network Required |
 |---------|-----------------|
-| IPC calculations | No |
-| Footprint generation | No |
-| Library I/O | No |
-| Style extraction | No |
-| Distributor API | Yes (optional) |
+| Read/write libraries | No |
+| Primitive placement | No |
+| STEP model attachment | No |
