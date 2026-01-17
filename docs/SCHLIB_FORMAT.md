@@ -204,8 +204,8 @@ Some symbols have multiple parts (e.g., quad op-amp):
 
 - `PartCount` in component header indicates total parts
 - Each primitive has `OwnerPartId` field:
-  - `-1` = belongs to all parts
-  - `1+` = belongs to specific part
+    - `-1` = belongs to all parts
+    - `1+` = belongs to specific part
 
 ## References
 
