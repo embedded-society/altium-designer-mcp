@@ -125,7 +125,7 @@ Create a `.mcp.json` file in your Altium project's root directory:
     "mcpServers": {
         "altium": {
             "command": "C:\\path\\to\\altium-designer-mcp\\target\\release\\altium-designer-mcp.exe",
-            "args": []
+            "args": ["C:\\Users\\YourName\\.altium-designer-mcp\\config.json"]
         }
     }
 }
@@ -138,7 +138,7 @@ Create a `.mcp.json` file in your Altium project's root directory:
     "mcpServers": {
         "altium": {
             "command": "/path/to/altium-designer-mcp/target/release/altium-designer-mcp",
-            "args": []
+            "args": ["/home/yourname/.altium-designer-mcp/config.json"]
         }
     }
 }
@@ -151,7 +151,7 @@ Create a `.mcp.json` file in your Altium project's root directory:
     "mcpServers": {
         "altium": {
             "command": "/path/to/altium-designer-mcp/target/release/altium-designer-mcp",
-            "args": []
+            "args": ["/Users/yourname/.altium-designer-mcp/config.json"]
         }
     }
 }
@@ -164,13 +164,13 @@ You can also add the MCP server globally using the Claude Code CLI:
 **Windows (PowerShell):**
 
 ```powershell
-claude mcp add altium C:\path\to\altium-designer-mcp\target\release\altium-designer-mcp.exe
+claude mcp add altium C:\path\to\altium-designer-mcp\target\release\altium-designer-mcp.exe -- C:\Users\YourName\.altium-designer-mcp\config.json
 ```
 
 **Linux / macOS:**
 
 ```bash
-claude mcp add altium /path/to/altium-designer-mcp/target/release/altium-designer-mcp
+claude mcp add altium /path/to/altium-designer-mcp/target/release/altium-designer-mcp -- ~/.altium-designer-mcp/config.json
 ```
 
 To verify it was added:
