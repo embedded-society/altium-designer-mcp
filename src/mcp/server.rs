@@ -866,7 +866,10 @@ impl McpServer {
         }
 
         // Validate footprint names
+        // OLE storage names are limited to 31 characters and cannot contain certain chars
+        #[allow(clippy::items_after_statements)]
         const MAX_OLE_NAME_LEN: usize = 31;
+        #[allow(clippy::items_after_statements)]
         const INVALID_CHARS: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
         for name in &new_names {
             if name.is_empty() {
@@ -874,18 +877,15 @@ impl McpServer {
             }
             if name.len() > MAX_OLE_NAME_LEN {
                 return ToolCallResult::error(format!(
-                    "Footprint name '{}' is too long ({} characters). \
-                     Maximum length is {} characters due to OLE storage format limitations.",
-                    name,
+                    "Footprint name '{name}' is too long ({} characters). \
+                     Maximum length is {MAX_OLE_NAME_LEN} characters due to OLE storage format limitations.",
                     name.len(),
-                    MAX_OLE_NAME_LEN
                 ));
             }
             if let Some(c) = name.chars().find(|c| INVALID_CHARS.contains(c)) {
                 return ToolCallResult::error(format!(
-                    "Footprint name '{}' contains invalid character '{}'. \
+                    "Footprint name '{name}' contains invalid character '{c}'. \
                      Names cannot contain: / \\ : * ? \" < > |",
-                    name, c
                 ));
             }
         }
@@ -1120,7 +1120,10 @@ impl McpServer {
         }
 
         // Validate symbol names
+        // OLE storage names are limited to 31 characters and cannot contain certain chars
+        #[allow(clippy::items_after_statements)]
         const MAX_OLE_NAME_LEN: usize = 31;
+        #[allow(clippy::items_after_statements)]
         const INVALID_CHARS: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
         for name in &new_names {
             if name.is_empty() {
@@ -1128,18 +1131,15 @@ impl McpServer {
             }
             if name.len() > MAX_OLE_NAME_LEN {
                 return ToolCallResult::error(format!(
-                    "Symbol name '{}' is too long ({} characters). \
-                     Maximum length is {} characters due to OLE storage format limitations.",
-                    name,
+                    "Symbol name '{name}' is too long ({} characters). \
+                     Maximum length is {MAX_OLE_NAME_LEN} characters due to OLE storage format limitations.",
                     name.len(),
-                    MAX_OLE_NAME_LEN
                 ));
             }
             if let Some(c) = name.chars().find(|c| INVALID_CHARS.contains(c)) {
                 return ToolCallResult::error(format!(
-                    "Symbol name '{}' contains invalid character '{}'. \
+                    "Symbol name '{name}' contains invalid character '{c}'. \
                      Names cannot contain: / \\ : * ? \" < > |",
-                    name, c
                 ));
             }
         }
