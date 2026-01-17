@@ -23,9 +23,7 @@
 //! - [`mcp`] — MCP protocol implementation
 //! - `altium` — Altium file format handling (TODO)
 
+pub mod altium;
 pub mod config;
 pub mod error;
 pub mod mcp;
-
-// TODO: Implement these modules
-// pub mod altium;

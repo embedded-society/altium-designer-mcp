@@ -1,0 +1,129 @@
+//! Error types for Altium file operations.
+
+use std::io;
+use std::path::PathBuf;
+use thiserror::Error;
+
+/// Result type for Altium operations.
+pub type AltiumResult<T> = Result<T, AltiumError>;
+
+/// Errors that can occur during Altium file operations.
+#[derive(Debug, Error)]
+pub enum AltiumError {
+    /// Failed to open or read the file.
+    #[error("Failed to read file: {path}")]
+    FileRead {
+        /// Path to the file.
+        path: PathBuf,
+        /// Underlying I/O error.
+        #[source]
+        source: io::Error,
+    },
+
+    /// Failed to write the file.
+    #[error("Failed to write file: {path}")]
+    FileWrite {
+        /// Path to the file.
+        path: PathBuf,
+        /// Underlying I/O error.
+        #[source]
+        source: io::Error,
+    },
+
+    /// Invalid OLE compound document structure.
+    #[error("Invalid OLE structure: {message}")]
+    InvalidOle {
+        /// Description of what's wrong.
+        message: String,
+    },
+
+    /// Missing required stream in the OLE document.
+    #[error("Missing stream: {stream_name}")]
+    MissingStream {
+        /// Name of the missing stream.
+        stream_name: String,
+    },
+
+    /// Failed to parse binary data.
+    #[error("Parse error at offset {offset}: {message}")]
+    ParseError {
+        /// Byte offset where the error occurred.
+        offset: usize,
+        /// Description of what's wrong.
+        message: String,
+    },
+
+    /// Invalid parameter value.
+    #[error("Invalid parameter '{name}': {message}")]
+    InvalidParameter {
+        /// Parameter name.
+        name: String,
+        /// Description of what's wrong.
+        message: String,
+    },
+
+    /// Component not found in library.
+    #[error("Component not found: {name}")]
+    ComponentNotFound {
+        /// Component name that was not found.
+        name: String,
+    },
+
+    /// Unsupported file version.
+    #[error("Unsupported file version: {version}")]
+    UnsupportedVersion {
+        /// Version string from the file.
+        version: String,
+    },
+}
+
+impl AltiumError {
+    /// Creates a file read error.
+    pub fn file_read(path: impl Into<PathBuf>, source: io::Error) -> Self {
+        Self::FileRead {
+            path: path.into(),
+            source,
+        }
+    }
+
+    /// Creates a file write error.
+    pub fn file_write(path: impl Into<PathBuf>, source: io::Error) -> Self {
+        Self::FileWrite {
+            path: path.into(),
+            source,
+        }
+    }
+
+    /// Creates an invalid OLE error.
+    pub fn invalid_ole(message: impl Into<String>) -> Self {
+        Self::InvalidOle {
+            message: message.into(),
+        }
+    }
+
+    /// Creates a missing stream error.
+    pub fn missing_stream(stream_name: impl Into<String>) -> Self {
+        Self::MissingStream {
+            stream_name: stream_name.into(),
+        }
+    }
+
+    /// Creates a parse error.
+    pub fn parse_error(offset: usize, message: impl Into<String>) -> Self {
+        Self::ParseError {
+            offset,
+            message: message.into(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn error_display() {
+        let err = AltiumError::missing_stream("Data");
+        assert_eq!(err.to_string(), "Missing stream: Data");
+    }
+}

@@ -409,12 +409,12 @@ impl McpServer {
             })?;
 
         let result = match params.name.as_str() {
-            // Library I/O tools (not yet implemented)
-            "read_pcblib" => self.call_not_implemented("read_pcblib"),
-            "write_pcblib" => self.call_not_implemented("write_pcblib"),
+            // Library I/O tools
+            "read_pcblib" => self.call_read_pcblib(&params.arguments),
+            "write_pcblib" => self.call_write_pcblib(&params.arguments),
             "read_schlib" => self.call_not_implemented("read_schlib"),
             "write_schlib" => self.call_not_implemented("write_schlib"),
-            "list_components" => self.call_not_implemented("list_components"),
+            "list_components" => self.call_list_components(&params.arguments),
             // Unknown tool
             _ => ToolCallResult::error(format!("Unknown tool: {}", params.name)),
         };
@@ -725,6 +725,359 @@ impl McpServer {
         });
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Reads a `PcbLib` file and returns its contents.
+    #[allow(clippy::unused_self)]
+    fn call_read_pcblib(&self, arguments: &Value) -> ToolCallResult {
+        use crate::altium::PcbLib;
+
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        match PcbLib::read(filepath) {
+            Ok(library) => {
+                let footprints: Vec<_> = library
+                    .footprints()
+                    .map(|fp| {
+                        json!({
+                            "name": fp.name,
+                            "description": fp.description,
+                            "pads": fp.pads,
+                            "tracks": fp.tracks,
+                            "arcs": fp.arcs,
+                            "regions": fp.regions,
+                            "text": fp.text,
+                            "model_3d": fp.model_3d,
+                        })
+                    })
+                    .collect();
+
+                let result = json!({
+                    "status": "success",
+                    "filepath": filepath,
+                    "footprint_count": library.len(),
+                    "footprints": footprints,
+                });
+
+                ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+            }
+            Err(e) => {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": e.to_string(),
+                });
+                ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
+            }
+        }
+    }
+
+    /// Writes footprints to a `PcbLib` file.
+    #[allow(clippy::unused_self)]
+    fn call_write_pcblib(&self, arguments: &Value) -> ToolCallResult {
+        use crate::altium::pcblib::{Footprint, Model3D, PcbLib};
+
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        let Some(footprints_json) = arguments.get("footprints").and_then(Value::as_array) else {
+            return ToolCallResult::error("Missing required parameter: footprints");
+        };
+
+        let mut library = PcbLib::new();
+
+        for fp_json in footprints_json {
+            let name = fp_json
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("Unnamed");
+            let mut footprint = Footprint::new(name);
+
+            if let Some(desc) = fp_json.get("description").and_then(Value::as_str) {
+                footprint.description = desc.to_string();
+            }
+
+            // Parse pads
+            if let Some(pads) = fp_json.get("pads").and_then(Value::as_array) {
+                for pad_json in pads {
+                    if let Some(pad) = Self::parse_pad(pad_json) {
+                        footprint.add_pad(pad);
+                    }
+                }
+            }
+
+            // Parse tracks
+            if let Some(tracks) = fp_json.get("tracks").and_then(Value::as_array) {
+                for track_json in tracks {
+                    if let Some(track) = Self::parse_track(track_json) {
+                        footprint.add_track(track);
+                    }
+                }
+            }
+
+            // Parse arcs
+            if let Some(arcs) = fp_json.get("arcs").and_then(Value::as_array) {
+                for arc_json in arcs {
+                    if let Some(arc) = Self::parse_arc(arc_json) {
+                        footprint.add_arc(arc);
+                    }
+                }
+            }
+
+            // Parse regions
+            if let Some(regions) = fp_json.get("regions").and_then(Value::as_array) {
+                for region_json in regions {
+                    if let Some(region) = Self::parse_region(region_json) {
+                        footprint.add_region(region);
+                    }
+                }
+            }
+
+            // Parse text
+            if let Some(texts) = fp_json.get("text").and_then(Value::as_array) {
+                for text_json in texts {
+                    if let Some(text) = Self::parse_text(text_json) {
+                        footprint.add_text(text);
+                    }
+                }
+            }
+
+            // Parse 3D model
+            if let Some(model_json) = fp_json.get("step_model") {
+                if let Some(model_path) = model_json.get("filepath").and_then(Value::as_str) {
+                    footprint.model_3d = Some(Model3D {
+                        filepath: model_path.to_string(),
+                        x_offset: model_json.get("x_offset").and_then(Value::as_f64).unwrap_or(0.0),
+                        y_offset: model_json.get("y_offset").and_then(Value::as_f64).unwrap_or(0.0),
+                        z_offset: model_json.get("z_offset").and_then(Value::as_f64).unwrap_or(0.0),
+                        rotation: model_json.get("rotation").and_then(Value::as_f64).unwrap_or(0.0),
+                    });
+                }
+            }
+
+            library.add(footprint);
+        }
+
+        match library.write(filepath) {
+            Ok(()) => {
+                let result = json!({
+                    "status": "success",
+                    "filepath": filepath,
+                    "footprint_count": library.len(),
+                    "footprint_names": library.names(),
+                });
+                ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+            }
+            Err(e) => {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": e.to_string(),
+                });
+                ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
+            }
+        }
+    }
+
+    /// Lists component names in a library file.
+    #[allow(clippy::unused_self)]
+    fn call_list_components(&self, arguments: &Value) -> ToolCallResult {
+        use crate::altium::PcbLib;
+
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        // Try to determine file type from extension
+        let path = std::path::Path::new(filepath);
+        let extension = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_lowercase);
+
+        match extension.as_deref() {
+            Some("pcblib") => match PcbLib::read(filepath) {
+                Ok(library) => {
+                    let result = json!({
+                        "status": "success",
+                        "filepath": filepath,
+                        "file_type": "PcbLib",
+                        "component_count": library.len(),
+                        "components": library.names(),
+                    });
+                    ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+                }
+                Err(e) => {
+                    let result = json!({
+                        "status": "error",
+                        "filepath": filepath,
+                        "error": e.to_string(),
+                    });
+                    ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
+                }
+            },
+            Some("schlib") => {
+                let result = json!({
+                    "status": "not_implemented",
+                    "filepath": filepath,
+                    "file_type": "SchLib",
+                    "message": "SchLib reading is not yet implemented",
+                });
+                ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+            }
+            _ => {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": "Unknown file type. Expected .PcbLib or .SchLib extension.",
+                });
+                ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
+            }
+        }
+    }
+
+    // ==================== Primitive Parsing Helpers ====================
+
+    /// Parses a pad from JSON.
+    fn parse_pad(json: &Value) -> Option<crate::altium::pcblib::Pad> {
+        use crate::altium::pcblib::{Layer, Pad, PadShape};
+
+        let designator = json.get("designator").and_then(Value::as_str)?;
+        let x = json.get("x").and_then(Value::as_f64)?;
+        let y = json.get("y").and_then(Value::as_f64)?;
+        let width = json.get("width").and_then(Value::as_f64)?;
+        let height = json.get("height").and_then(Value::as_f64)?;
+
+        let shape = json
+            .get("shape")
+            .and_then(Value::as_str)
+            .map_or(PadShape::RoundedRectangle, |s| match s {
+                "rectangle" => PadShape::Rectangle,
+                "round" | "circle" => PadShape::Round,
+                "oval" => PadShape::Oval,
+                _ => PadShape::RoundedRectangle, // includes "rounded_rectangle"
+            });
+
+        let layer = json
+            .get("layer")
+            .and_then(Value::as_str)
+            .and_then(Layer::parse)
+            .unwrap_or(Layer::MultiLayer);
+
+        let hole_size = json.get("hole_size").and_then(Value::as_f64);
+        let rotation = json.get("rotation").and_then(Value::as_f64).unwrap_or(0.0);
+
+        Some(Pad {
+            designator: designator.to_string(),
+            x,
+            y,
+            width,
+            height,
+            shape,
+            layer,
+            hole_size,
+            rotation,
+        })
+    }
+
+    /// Parses a track from JSON.
+    fn parse_track(json: &Value) -> Option<crate::altium::pcblib::Track> {
+        use crate::altium::pcblib::{Layer, Track};
+
+        let x1 = json.get("x1").and_then(Value::as_f64)?;
+        let y1 = json.get("y1").and_then(Value::as_f64)?;
+        let x2 = json.get("x2").and_then(Value::as_f64)?;
+        let y2 = json.get("y2").and_then(Value::as_f64)?;
+        let width = json.get("width").and_then(Value::as_f64)?;
+        let layer = json
+            .get("layer")
+            .and_then(Value::as_str)
+            .and_then(Layer::parse)
+            .unwrap_or(Layer::TopOverlay);
+
+        Some(Track::new(x1, y1, x2, y2, width, layer))
+    }
+
+    /// Parses an arc from JSON.
+    fn parse_arc(json: &Value) -> Option<crate::altium::pcblib::Arc> {
+        use crate::altium::pcblib::{Arc, Layer};
+
+        let x = json.get("x").and_then(Value::as_f64)?;
+        let y = json.get("y").and_then(Value::as_f64)?;
+        let radius = json.get("radius").and_then(Value::as_f64)?;
+        let start_angle = json.get("start_angle").and_then(Value::as_f64)?;
+        let end_angle = json.get("end_angle").and_then(Value::as_f64)?;
+        let width = json.get("width").and_then(Value::as_f64)?;
+        let layer = json
+            .get("layer")
+            .and_then(Value::as_str)
+            .and_then(Layer::parse)
+            .unwrap_or(Layer::TopOverlay);
+
+        Some(Arc {
+            x,
+            y,
+            radius,
+            start_angle,
+            end_angle,
+            width,
+            layer,
+        })
+    }
+
+    /// Parses a region from JSON.
+    fn parse_region(json: &Value) -> Option<crate::altium::pcblib::Region> {
+        use crate::altium::pcblib::{Layer, Region, Vertex};
+
+        let vertices_json = json.get("vertices").and_then(Value::as_array)?;
+        let layer = json
+            .get("layer")
+            .and_then(Value::as_str)
+            .and_then(Layer::parse)
+            .unwrap_or(Layer::Mechanical15);
+
+        let vertices: Vec<Vertex> = vertices_json
+            .iter()
+            .filter_map(|v| {
+                let x = v.get("x").and_then(Value::as_f64)?;
+                let y = v.get("y").and_then(Value::as_f64)?;
+                Some(Vertex { x, y })
+            })
+            .collect();
+
+        if vertices.len() < 3 {
+            return None; // Need at least 3 vertices for a polygon
+        }
+
+        Some(Region { vertices, layer })
+    }
+
+    /// Parses text from JSON.
+    fn parse_text(json: &Value) -> Option<crate::altium::pcblib::Text> {
+        use crate::altium::pcblib::{Layer, Text};
+
+        let x = json.get("x").and_then(Value::as_f64)?;
+        let y = json.get("y").and_then(Value::as_f64)?;
+        let text = json.get("text").and_then(Value::as_str)?;
+        let height = json.get("height").and_then(Value::as_f64)?;
+        let layer = json
+            .get("layer")
+            .and_then(Value::as_str)
+            .and_then(Layer::parse)
+            .unwrap_or(Layer::TopOverlay);
+        let rotation = json.get("rotation").and_then(Value::as_f64).unwrap_or(0.0);
+
+        Some(Text {
+            x,
+            y,
+            text: text.to_string(),
+            height,
+            layer,
+            rotation,
+        })
     }
 }
 
