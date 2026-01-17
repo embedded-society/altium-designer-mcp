@@ -1,0 +1,1 @@
+# altium-designer-mcp
