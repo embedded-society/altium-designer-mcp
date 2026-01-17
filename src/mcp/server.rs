@@ -219,8 +219,12 @@ impl McpServer {
                 .map_err(|e| format!("Failed to resolve path: {e}"))?
         } else {
             // For new files, check the parent directory
-            let parent = path.parent().ok_or_else(|| "Invalid path: no parent directory".to_string())?;
-            let filename = path.file_name().ok_or_else(|| "Invalid path: no filename".to_string())?;
+            let parent = path
+                .parent()
+                .ok_or_else(|| "Invalid path: no parent directory".to_string())?;
+            let filename = path
+                .file_name()
+                .ok_or_else(|| "Invalid path: no filename".to_string())?;
             let canonical_parent = parent
                 .canonicalize()
                 .map_err(|e| format!("Failed to resolve parent directory: {e}"))?;
