@@ -4,13 +4,7 @@
 
 **The AI handles the intelligence. The tool handles file I/O.**
 
-| Responsibility | Owner |
-|---------------|-------|
-| IPC-7351B calculations | AI |
-| Package layout decisions | AI |
-| Style choices | AI |
-| Reading/writing Altium files | This tool |
-| Primitive placement | This tool |
+See `docs/VISION.md` for the full responsibility split.
 
 ## What Is This Project?
 

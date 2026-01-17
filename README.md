@@ -10,7 +10,7 @@ component libraries.
 
 ## The Core Idea
 
-**The AI handles the intelligence. The tool handles the file I/O.**
+**The AI handles the intelligence. The tool handles file I/O.**
 
 | Responsibility | Owner |
 |---------------|-------|
@@ -23,6 +23,14 @@ component libraries.
 | STEP model attachment | This tool |
 
 This means the AI can create **any footprint** — not just pre-programmed package types.
+See [docs/VISION.md](docs/VISION.md) for the full architectural rationale.
+
+---
+
+## Quick Start with Claude Code
+
+> **[Claude Code Setup Guide](docs/CLAUDE_CODE_GUIDE.md)** — Complete step-by-step instructions
+> for using this MCP server with Claude Code CLI on **Windows**, **Linux**, and **macOS**.
 
 ---
 

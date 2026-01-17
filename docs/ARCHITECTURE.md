@@ -4,22 +4,9 @@ This document describes the architecture of the MCP server.
 
 ## Core Principle
 
-**The AI handles the intelligence. The tool handles the file I/O.**
+**The AI handles the intelligence. The tool handles file I/O.**
 
-```text
-┌─────────────────────────────────────────────────────────────────────────┐
-│  RESPONSIBILITY SPLIT                                                    │
-│                                                                         │
-│  AI (Claude, etc.)                    MCP Server (this tool)            │
-│  ─────────────────                    ──────────────────────            │
-│  • IPC-7351B calculations             • Read .PcbLib/.SchLib files      │
-│  • Package layout decisions           • Write .PcbLib/.SchLib files     │
-│  • Style choices                      • Primitive placement             │
-│  • Datasheet interpretation           • STEP model attachment           │
-│  • Design rule knowledge              • OLE document handling           │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+See [VISION.md](VISION.md) for the full responsibility split and architectural rationale.
 
 This architecture means the AI can create **any footprint** — not just pre-programmed
 package types. The tool is package-agnostic.
