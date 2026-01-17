@@ -178,6 +178,7 @@ This project builds on the work of:
 
 Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
+- Follow the style guide in [STYLE.md](STYLE.md)
 - Security issues: see [SECURITY.md](SECURITY.md)
 
 ## Licence
@@ -185,3 +186,9 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 Copyright (C) 2025 The Embedded Society <https://github.com/embedded-society/altium-designer-mcp>.
 
 GNU General Public License v3.0 — see [LICENCE](LICENCE).
+
+## Links
+
+- [MCP Specification](https://modelcontextprotocol.io/)
+- [IPC-7351B Standard](https://www.ipc.org/)
+- [Report an Issue](https://github.com/embedded-society/altium-designer-mcp/issues)
