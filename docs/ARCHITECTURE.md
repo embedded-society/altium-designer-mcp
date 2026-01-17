@@ -123,9 +123,9 @@ The AI provides complete primitive definitions. The tool writes them.
 | Top Overlay | Silkscreen |
 | Top Paste | Solder paste |
 | Top Solder | Solder mask |
-| Mechanical 1 | Assembly outline |
-| Mechanical 13 | 3D body outline |
-| Mechanical 15 | Courtyard |
+| Top Assembly | Assembly outline |
+| Top 3D Body | 3D body outline |
+| Top Courtyard | Courtyard (IPC-7351) |
 
 ---
 

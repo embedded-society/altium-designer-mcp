@@ -113,7 +113,7 @@ Write footprints to an Altium `.PcbLib` file. The AI provides primitive definiti
         { "x1": -0.8, "y1": 0.425, "x2": 0.8, "y2": 0.425, "width": 0.12, "layer": "Top Overlay" }
       ],
       "regions": [
-        { "vertices": [{"x": -1.45, "y": -0.73}, {"x": 1.45, "y": -0.73}, {"x": 1.45, "y": 0.73}, {"x": -1.45, "y": 0.73}], "layer": "Mechanical 15" }
+        { "vertices": [{"x": -1.45, "y": -0.73}, {"x": 1.45, "y": -0.73}, {"x": 1.45, "y": 0.73}, {"x": -1.45, "y": 0.73}], "layer": "Top Courtyard" }
       ]
     }]
   }
@@ -182,9 +182,9 @@ List component names in an Altium library file.
 | Top Overlay | Silkscreen |
 | Top Paste | Solder paste |
 | Top Solder | Solder mask |
-| Mechanical 1 | Assembly outline |
-| Mechanical 13 | 3D body outline |
-| Mechanical 15 | Courtyard |
+| Top Assembly | Assembly outline |
+| Top 3D Body | 3D body outline |
+| Top Courtyard | Courtyard (IPC-7351) |
 
 ---
 
