@@ -32,8 +32,11 @@ use super::Footprint;
 const INTERNAL_UNITS_TO_MM: f64 = 0.0254 / 10000.0;
 
 /// Converts Altium internal units to millimetres.
+/// Rounds to 6 decimal places (1nm resolution) to avoid floating-point noise.
 fn to_mm(internal: i32) -> f64 {
-    f64::from(internal) * INTERNAL_UNITS_TO_MM
+    let raw = f64::from(internal) * INTERNAL_UNITS_TO_MM;
+    // Round to 6 decimal places (1nm = 0.000001mm) to avoid precision artifacts
+    (raw * 1_000_000.0).round() / 1_000_000.0
 }
 
 /// Reads a 4-byte little-endian unsigned integer.

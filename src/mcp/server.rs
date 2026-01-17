@@ -509,7 +509,8 @@ impl McpServer {
                 description: Some(
                     "Read an Altium .PcbLib file and return its contents including all footprints \
                      with their primitives (pads, tracks, arcs, regions, text). Returns structured \
-                     data that can be used to understand existing footprint styles."
+                     data that can be used to understand existing footprint styles. \
+                     All coordinates and dimensions are in millimeters (mm)."
                         .to_string(),
                 ),
                 input_schema: json!({
@@ -527,7 +528,8 @@ impl McpServer {
                 name: "read_schlib".to_string(),
                 description: Some(
                     "Read an Altium .SchLib file and return its contents including all symbols \
-                     with their primitives (pins, rectangles, lines, text)."
+                     with their primitives (pins, rectangles, lines, text). \
+                     Coordinates are in schematic units (10 units = 1 grid square, not mm)."
                         .to_string(),
                 ),
                 input_schema: json!({
@@ -586,7 +588,8 @@ impl McpServer {
                     "Write footprints to an Altium .PcbLib file. Each footprint is defined by \
                      its primitives: pads (with position, size, shape, layer), tracks, arcs, \
                      regions, and text. The AI is responsible for calculating correct positions \
-                     and sizes based on IPC-7351B or other standards."
+                     and sizes based on IPC-7351B or other standards. \
+                     All coordinates and dimensions must be in millimeters (mm)."
                         .to_string(),
                 ),
                 input_schema: json!({
@@ -621,7 +624,7 @@ impl McpServer {
                                                 "y": { "type": "number", "description": "Y position in mm" },
                                                 "width": { "type": "number", "description": "Pad width in mm" },
                                                 "height": { "type": "number", "description": "Pad height in mm" },
-                                                "shape": { "type": "string", "enum": ["rectangle", "rounded_rectangle", "circle"] },
+                                                "shape": { "type": "string", "enum": ["rectangle", "rounded_rectangle", "round", "oval"], "description": "Pad shape. Note: read_pcblib returns 'round', write accepts 'round' or 'circle'" },
                                                 "layer": { "type": "string", "description": "Layer name (default: multi-layer for SMD)" },
                                                 "hole_size": { "type": "number", "description": "Hole diameter for through-hole pads (mm)" }
                                             },
@@ -726,7 +729,8 @@ impl McpServer {
                 name: "write_schlib".to_string(),
                 description: Some(
                     "Write schematic symbols to an Altium .SchLib file. Each symbol is defined by \
-                     its primitives: pins, rectangles, lines, polylines, arcs, ellipses, and labels."
+                     its primitives: pins, rectangles, lines, polylines, arcs, ellipses, and labels. \
+                     Coordinates must be in schematic units (10 units = 1 grid square, not mm)."
                         .to_string(),
                 ),
                 input_schema: json!({
