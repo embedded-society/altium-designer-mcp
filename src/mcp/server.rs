@@ -877,8 +877,8 @@ impl McpServer {
             }
             if name.len() > MAX_OLE_NAME_LEN {
                 return ToolCallResult::error(format!(
-                    "Footprint name '{name}' is too long ({} characters). \
-                     Maximum length is {MAX_OLE_NAME_LEN} characters due to OLE storage format limitations.",
+                    "Footprint name '{name}' is too long ({} bytes). \
+                     Maximum length is {MAX_OLE_NAME_LEN} bytes due to OLE storage format limitations.",
                     name.len(),
                 ));
             }
@@ -1001,6 +1001,11 @@ impl McpServer {
                             .unwrap_or(0.0),
                     });
                 }
+            }
+
+            // Validate coordinates before adding
+            if let Err(e) = Self::validate_footprint_coordinates(&footprint) {
+                return ToolCallResult::error(e);
             }
 
             library.add(footprint);
@@ -1131,8 +1136,8 @@ impl McpServer {
             }
             if name.len() > MAX_OLE_NAME_LEN {
                 return ToolCallResult::error(format!(
-                    "Symbol name '{name}' is too long ({} characters). \
-                     Maximum length is {MAX_OLE_NAME_LEN} characters due to OLE storage format limitations.",
+                    "Symbol name '{name}' is too long ({} bytes). \
+                     Maximum length is {MAX_OLE_NAME_LEN} bytes due to OLE storage format limitations.",
                     name.len(),
                 ));
             }
@@ -1655,6 +1660,80 @@ impl McpServer {
             .into_iter()
             .max_by_key(|(_, count)| *count)
             .map_or(0, |(key, _)| key)
+    }
+
+    // ==================== Coordinate Validation ====================
+
+    /// Maximum coordinate value in mm that can be safely converted to Altium internal units.
+    /// Internal units use i32: max value ~5456 mm (`i32::MAX` / 393700.7874).
+    /// We use 5000 mm (~200 inches) as a conservative limit.
+    const MAX_COORDINATE_MM: f64 = 5000.0;
+
+    /// Validates that a coordinate is within the safe range for Altium internal units.
+    fn validate_coordinate(value: f64, field_name: &str) -> Result<(), String> {
+        if !value.is_finite() {
+            return Err(format!("{field_name} must be a finite number, got: {value}"));
+        }
+        if value.abs() > Self::MAX_COORDINATE_MM {
+            return Err(format!(
+                "{field_name} value {value} mm exceeds the maximum safe range of ±{} mm",
+                Self::MAX_COORDINATE_MM
+            ));
+        }
+        Ok(())
+    }
+
+    /// Validates all coordinates in a footprint before writing.
+    fn validate_footprint_coordinates(
+        footprint: &crate::altium::pcblib::Footprint,
+    ) -> Result<(), String> {
+        let name = &footprint.name;
+
+        for (i, pad) in footprint.pads.iter().enumerate() {
+            Self::validate_coordinate(pad.x, &format!("Footprint '{name}' pad {i} x"))?;
+            Self::validate_coordinate(pad.y, &format!("Footprint '{name}' pad {i} y"))?;
+            Self::validate_coordinate(pad.width, &format!("Footprint '{name}' pad {i} width"))?;
+            Self::validate_coordinate(pad.height, &format!("Footprint '{name}' pad {i} height"))?;
+            if let Some(hole) = pad.hole_size {
+                Self::validate_coordinate(hole, &format!("Footprint '{name}' pad {i} hole_size"))?;
+            }
+        }
+
+        for (i, track) in footprint.tracks.iter().enumerate() {
+            Self::validate_coordinate(track.x1, &format!("Footprint '{name}' track {i} x1"))?;
+            Self::validate_coordinate(track.y1, &format!("Footprint '{name}' track {i} y1"))?;
+            Self::validate_coordinate(track.x2, &format!("Footprint '{name}' track {i} x2"))?;
+            Self::validate_coordinate(track.y2, &format!("Footprint '{name}' track {i} y2"))?;
+            Self::validate_coordinate(track.width, &format!("Footprint '{name}' track {i} width"))?;
+        }
+
+        for (i, arc) in footprint.arcs.iter().enumerate() {
+            Self::validate_coordinate(arc.x, &format!("Footprint '{name}' arc {i} x"))?;
+            Self::validate_coordinate(arc.y, &format!("Footprint '{name}' arc {i} y"))?;
+            Self::validate_coordinate(arc.radius, &format!("Footprint '{name}' arc {i} radius"))?;
+            Self::validate_coordinate(arc.width, &format!("Footprint '{name}' arc {i} width"))?;
+        }
+
+        for (i, region) in footprint.regions.iter().enumerate() {
+            for (j, vertex) in region.vertices.iter().enumerate() {
+                Self::validate_coordinate(
+                    vertex.x,
+                    &format!("Footprint '{name}' region {i} vertex {j} x"),
+                )?;
+                Self::validate_coordinate(
+                    vertex.y,
+                    &format!("Footprint '{name}' region {i} vertex {j} y"),
+                )?;
+            }
+        }
+
+        for (i, text) in footprint.text.iter().enumerate() {
+            Self::validate_coordinate(text.x, &format!("Footprint '{name}' text {i} x"))?;
+            Self::validate_coordinate(text.y, &format!("Footprint '{name}' text {i} y"))?;
+            Self::validate_coordinate(text.height, &format!("Footprint '{name}' text {i} height"))?;
+        }
+
+        Ok(())
     }
 
     // ==================== Primitive Parsing Helpers ====================
