@@ -865,11 +865,13 @@ impl McpServer {
             }
         }
 
-        // Validate name lengths (OLE storage names are limited to 31 characters)
-        // While we store the full name in the Parameters stream, the storage name
-        // must still fit within this limit
+        // Validate footprint names
         const MAX_OLE_NAME_LEN: usize = 31;
+        const INVALID_CHARS: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
         for name in &new_names {
+            if name.is_empty() {
+                return ToolCallResult::error("Footprint name cannot be empty");
+            }
             if name.len() > MAX_OLE_NAME_LEN {
                 return ToolCallResult::error(format!(
                     "Footprint name '{}' is too long ({} characters). \
@@ -877,6 +879,13 @@ impl McpServer {
                     name,
                     name.len(),
                     MAX_OLE_NAME_LEN
+                ));
+            }
+            if let Some(c) = name.chars().find(|c| INVALID_CHARS.contains(c)) {
+                return ToolCallResult::error(format!(
+                    "Footprint name '{}' contains invalid character '{}'. \
+                     Names cannot contain: / \\ : * ? \" < > |",
+                    name, c
                 ));
             }
         }
@@ -1110,9 +1119,13 @@ impl McpServer {
             }
         }
 
-        // Validate name lengths (OLE storage names are limited to 31 characters)
+        // Validate symbol names
         const MAX_OLE_NAME_LEN: usize = 31;
+        const INVALID_CHARS: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
         for name in &new_names {
+            if name.is_empty() {
+                return ToolCallResult::error("Symbol name cannot be empty");
+            }
             if name.len() > MAX_OLE_NAME_LEN {
                 return ToolCallResult::error(format!(
                     "Symbol name '{}' is too long ({} characters). \
@@ -1120,6 +1133,13 @@ impl McpServer {
                     name,
                     name.len(),
                     MAX_OLE_NAME_LEN
+                ));
+            }
+            if let Some(c) = name.chars().find(|c| INVALID_CHARS.contains(c)) {
+                return ToolCallResult::error(format!(
+                    "Symbol name '{}' contains invalid character '{}'. \
+                     Names cannot contain: / \\ : * ? \" < > |",
+                    name, c
                 ));
             }
         }
