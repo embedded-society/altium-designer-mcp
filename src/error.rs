@@ -1,10 +1,4 @@
 //! Error types for altium-designer-mcp.
-//!
-//! # Security Note
-//!
-//! Error messages are carefully crafted to NEVER include credentials.
-//! All error variants that could potentially contain sensitive data
-//! use generic descriptions instead of including the actual values.
 
 use std::path::PathBuf;
 

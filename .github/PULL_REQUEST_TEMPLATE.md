@@ -16,15 +16,11 @@ Fixes #(issue number)
 - [ ] CI/CD changes
 - [ ] Security improvement
 
-## Security Checklist ⚠️
+## Standards Checklist
 
-Since this is a credential-handling project:
-
-- [ ] No credentials, tokens, or secrets are included in code, comments, or tests
-- [ ] No credentials appear in log messages or error messages
-- [ ] No credentials are exposed in MCP responses
-- [ ] If handling sensitive data, `secrecy` crate is used appropriately
-- [ ] Error messages don't leak sensitive information
+- [ ] Changes comply with IPC-7351B standards where applicable
+- [ ] Altium file format compatibility is maintained
+- [ ] No breaking changes to existing MCP tool interfaces
 
 ## Testing
 
@@ -42,7 +38,7 @@ Since this is a credential-handling project:
 
 ## Screenshots / Logs
 
-If applicable, add screenshots or relevant log output (with credentials redacted).
+If applicable, add screenshots or relevant log output.
 
 ## Additional Notes
 

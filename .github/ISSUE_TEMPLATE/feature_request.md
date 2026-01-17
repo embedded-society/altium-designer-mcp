@@ -16,15 +16,15 @@ Example: "I'm frustrated when [...]" or "It would be helpful to [...]"
 
 A clear and concise description of what you want to happen.
 
-## Security Considerations
+## Compatibility Considerations
 
-Since this is a credential-handling project, please consider:
+Please consider:
 
-- [ ] Does this feature handle any sensitive data?
-- [ ] Could this feature potentially expose credentials?
-- [ ] Are there any security implications to consider?
+- [ ] Does this feature affect existing Altium file formats?
+- [ ] Is this feature compatible with IPC-7351B standards?
+- [ ] Are there any backwards compatibility implications?
 
-If yes to any of these, please describe how security would be maintained.
+If yes to any of these, please describe how compatibility would be maintained.
 
 ## Alternatives Considered
 
@@ -37,5 +37,5 @@ Add any other context, mockups, or examples about the feature request here.
 ## Checklist
 
 - [ ] I have searched for similar feature requests
-- [ ] This feature aligns with the project's security-first philosophy
+- [ ] This feature aligns with the project's IPC-7351B compliance goals
 - [ ] I am willing to help implement this feature (optional)
