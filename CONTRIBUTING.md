@@ -180,9 +180,9 @@ We use [Conventional Commits](https://www.conventionalcommits.org/). Format:
 ### Examples
 
 ```
-feat(ipc): add SOIC package calculations
+feat(altium): implement pad primitive encoding
 
-fix(altium): correct pad position for QFN thermal pad
+fix(pcblib): correct binary format for track records
 
 docs: update README with installation instructions
 
@@ -250,9 +250,10 @@ cargo test module_name::
 
 ## Areas Needing Help
 
-- **IPC-7351B calculations**: Implement the full IPC-7351B land pattern algorithms
-- **Altium file I/O**: Parse and write .PcbLib, .SchLib files using the OLE/CFB format
-- **Package types**: Add support for more package families (BGA, QFP, etc.)
+- **Altium binary format**: Reverse-engineer primitive encoding for the Data stream
+- **PcbLib reading**: Parse existing footprints and extract all primitive types
+- **PcbLib writing**: Encode primitives in correct Altium binary format
+- **SchLib support**: Implement symbol reading and writing (similar to PcbLib)
 - **Testing**: Test with real Altium libraries across different versions
 - **Documentation**: Improve user guides and API documentation
 
