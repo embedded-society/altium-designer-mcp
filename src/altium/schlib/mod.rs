@@ -439,6 +439,11 @@ mod tests {
         assert_eq!(read_lib.len(), 1);
         let read_symbol = read_lib.get("RESISTOR").expect("Symbol not found");
         assert_eq!(read_symbol.name, "RESISTOR");
+        assert_eq!(
+            read_symbol.designator, "R?",
+            "Designator should be preserved"
+        );
+        assert_eq!(read_symbol.part_count, 1, "part_count should be 1");
         assert_eq!(read_symbol.pins.len(), 2);
         assert_eq!(read_symbol.rectangles.len(), 1);
         assert_eq!(read_symbol.parameters.len(), 1);
@@ -513,6 +518,11 @@ mod tests {
         let read_lib = SchLib::read(buffer).expect("Failed to read SchLib");
 
         let read_symbol = read_lib.get("OPAMP_DUAL").expect("Symbol not found");
+        assert_eq!(
+            read_symbol.designator, "U?",
+            "Designator should be preserved"
+        );
+        assert_eq!(read_symbol.part_count, 2, "part_count should be 2");
         assert_eq!(read_symbol.pins.len(), 6);
         assert_eq!(read_symbol.rectangles.len(), 2);
 
