@@ -1,0 +1,259 @@
+name: CI - Main Branch
+
+permissions:
+    contents: read
+    actions: write
+
+on:
+    push:
+        branches: [main]
+
+    workflow_dispatch:
+
+env:
+    CARGO_TERM_COLOR: always
+    RUSTFLAGS: "-Dwarnings"
+
+jobs:
+    quick-checks:
+        name: Quick Checks (fmt, docs, markdown)
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v6
+
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                components: rustfmt
+
+            - name: Setup Node.js
+              id: setup-node
+              uses: actions/setup-node@v6
+              with:
+                node-version: "lts/*"
+
+            - name: Get markdownlint-cli2 version
+              id: mdlint-version
+              run: echo "version=$(npm view markdownlint-cli2 version)" >> "$GITHUB_OUTPUT"
+
+            - name: Restore npm cache
+              id: npm-cache-restore
+              uses: actions/cache/restore@v5
+              with:
+                path: ~/.npm
+                key: npm-markdownlint-${{ runner.os }}-node-${{ steps.setup-node.outputs.node-version }}-mdlint-${{ steps.mdlint-version.outputs.version }}
+
+            - name: Install markdownlint-cli2
+              run: npm install -g markdownlint-cli2
+
+            - name: Check formatting
+              run: cargo fmt --all --check
+
+            - name: Lint markdown
+              run: markdownlint-cli2 "**/*.md"
+
+            - name: Save npm cache
+              if: steps.npm-cache-restore.outputs.cache-hit != 'true'
+              uses: actions/cache/save@v5
+              with:
+                path: ~/.npm
+                key: npm-markdownlint-${{ runner.os }}-node-${{ steps.setup-node.outputs.node-version }}-mdlint-${{ steps.mdlint-version.outputs.version }}
+
+            - name: Check documentation
+              run: cargo doc --no-deps --document-private-items
+              env:
+                RUSTDOCFLAGS: "-Dwarnings"
+
+    build:
+        name: Build (${{ matrix.os }})
+        needs: quick-checks
+        timeout-minutes: 20
+
+        strategy:
+            fail-fast: false
+            matrix:
+                os: [ubuntu-latest, macos-latest, windows-latest]
+
+        runs-on: ${{ matrix.os }}
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v6
+
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                components: clippy
+
+            - name: Get Rust version
+              id: rust-version
+              shell: bash
+              run: |
+                # Cross-platform: use shasum on macOS, sha256sum elsewhere
+                if command -v sha256sum &> /dev/null; then
+                    HASH_CMD="sha256sum"
+                else
+                    HASH_CMD="shasum -a 256"
+                fi
+                echo "version=$(rustc --version | $HASH_CMD | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+            - name: Restore Rust cache
+              id: cache-restore
+              uses: actions/cache/restore@v5
+              with:
+                path: |
+                    ~/.cargo/bin/
+                    ~/.cargo/registry/index/
+                    ~/.cargo/registry/cache/
+                    ~/.cargo/git/db/
+                    target/.rustc_info.json
+                    target/.cargo-lock
+                    target/debug/deps/
+                    target/debug/build/
+                    target/debug/.fingerprint/
+                    target/debug/incremental/
+                    target/release/deps/
+                    target/release/build/
+                    target/release/.fingerprint/
+                    target/release/incremental/
+                key: rust-${{ runner.os }}-${{ steps.rust-version.outputs.version }}-${{ hashFiles('**/Cargo.lock') }}
+                restore-keys: |
+                    rust-${{ runner.os }}-${{ steps.rust-version.outputs.version }}-
+
+            - name: Run Clippy
+              run: cargo clippy --all-targets --all-features -- -D warnings
+
+            - name: Build (debug)
+              run: cargo build --verbose
+
+            - name: Build (release)
+              run: cargo build --release --verbose
+
+            - name: Run tests
+              run: cargo test --verbose
+
+            # Save cache only on cache miss (tooling version changed)
+            # continue-on-error suppresses "unable to reserve cache" warnings
+            # when multiple jobs race to save (harmless, one will succeed)
+            - name: Save Rust cache
+              if: steps.cache-restore.outputs.cache-hit != 'true'
+              continue-on-error: true
+              uses: actions/cache/save@v5
+              with:
+                path: |
+                    ~/.cargo/bin/
+                    ~/.cargo/registry/index/
+                    ~/.cargo/registry/cache/
+                    ~/.cargo/git/db/
+                    target/.rustc_info.json
+                    target/.cargo-lock
+                    target/debug/deps/
+                    target/debug/build/
+                    target/debug/.fingerprint/
+                    target/debug/incremental/
+                    target/release/deps/
+                    target/release/build/
+                    target/release/.fingerprint/
+                    target/release/incremental/
+                key: rust-${{ runner.os }}-${{ steps.rust-version.outputs.version }}-${{ hashFiles('**/Cargo.lock') }}
+
+    ci-success:
+        name: CI Success
+        needs: [quick-checks, build]
+        runs-on: ubuntu-latest
+        if: always()
+
+        steps:
+            - name: Check if all jobs succeeded
+              id: check-results
+              run: |
+                if [[ "${{ needs.quick-checks.result }}" != "success" ]] || [[ "${{ needs.build.result }}" != "success" ]]; then
+                    echo "One or more jobs failed"
+                    exit 1
+                fi
+                echo "All jobs completed successfully"
+
+            - name: Checkout repository
+              if: success()
+              uses: actions/checkout@v6
+
+            - name: Cleanup stale caches
+              if: success()
+              uses: actions/github-script@v8
+              with:
+                script: |
+                    const owner = context.repo.owner;
+                    const repo = context.repo.repo;
+
+                    // Get current cache keys (just created by this workflow run)
+                    const response = await github.rest.actions.getActionsCacheList({
+                        owner,
+                        repo,
+                        per_page: 100,
+                        sort: 'last_accessed_at',
+                        direction: 'desc',
+                    });
+
+                    const caches = response.data.actions_caches;
+                    if (caches.length === 0) {
+                        core.info('No caches found');
+                        return;
+                    }
+
+                    // Group caches by type and OS
+                    // Rust caches: rust-{OS}-{rustc-hash}-{cargo-lock-hash}
+                    // npm caches: npm-markdownlint-{OS}-node-{version}-mdlint-{version}
+                    const cacheGroups = {};
+                    for (const cache of caches) {
+                        let prefix;
+                        if (cache.key.startsWith('rust-')) {
+                            // Group by rust-{OS} (e.g., rust-Linux, rust-Windows, rust-macOS)
+                            const parts = cache.key.split('-');
+                            prefix = `${parts[0]}-${parts[1]}`;
+                        } else if (cache.key.startsWith('npm-markdownlint-')) {
+                            // Group by npm-markdownlint-{OS} (e.g., npm-markdownlint-Linux)
+                            const parts = cache.key.split('-');
+                            prefix = `${parts[0]}-${parts[1]}-${parts[2]}`;
+                        } else {
+                            // Unknown cache type, use full key as prefix (won't group)
+                            prefix = cache.key;
+                        }
+
+                        if (!cacheGroups[prefix]) {
+                            cacheGroups[prefix] = [];
+                        }
+                        cacheGroups[prefix].push(cache);
+                    }
+
+                    // For each group, keep only the most recently accessed cache
+                    let deletedCount = 0;
+                    let freedBytes = 0;
+
+                    for (const [prefix, groupCaches] of Object.entries(cacheGroups)) {
+                        // Sort by last_accessed_at descending (most recent first)
+                        groupCaches.sort((a, b) =>
+                            new Date(b.last_accessed_at) - new Date(a.last_accessed_at)
+                        );
+
+                        // Delete all but the first (most recent) cache
+                        for (let i = 1; i < groupCaches.length; i++) {
+                            const cache = groupCaches[i];
+                            try {
+                                await github.rest.actions.deleteActionsCacheById({
+                                    owner,
+                                    repo,
+                                    cache_id: cache.id,
+                                });
+                                core.info(`Deleted stale cache: ${cache.key}`);
+                                deletedCount++;
+                                freedBytes += cache.size_in_bytes;
+                            } catch (error) {
+                                core.warning(`Failed to delete cache ${cache.key}: ${error.message}`);
+                            }
+                        }
+                    }
+
+                    const freedMB = (freedBytes / (1024 * 1024)).toFixed(2);
+                    core.info(`Cleanup complete: deleted ${deletedCount} stale cache(s), freed ${freedMB} MB`);

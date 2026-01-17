@@ -1,0 +1,21 @@
+{
+    "default": true,
+
+    "MD003": { "style": "atx" },
+    "MD004": { "style": "dash" },
+    "MD007": { "indent": 4 },
+    "MD009": false,
+    "MD012": true,
+    "MD013": { "line_length": 170, "tables": false, "code_blocks": false },
+    "MD024": { "siblings_only": true },
+    "MD029": { "style": "ordered" },
+    "MD032": true,
+    "MD033": false,
+    "MD036": false,
+    "MD040": false,
+    "MD041": false,
+    "MD046": { "style": "fenced" },
+    "MD047": true,
+    "MD048": { "style": "backtick" },
+    "MD060": false
+}

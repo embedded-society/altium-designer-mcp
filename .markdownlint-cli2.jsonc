@@ -1,0 +1,5 @@
+{
+    // Files owned by repository owner - do not modify
+    // GitHub issue templates have their own format requirements
+    "ignores": ["CODE_OF_CONDUCT.md", ".github/ISSUE_TEMPLATE/**"]
+}

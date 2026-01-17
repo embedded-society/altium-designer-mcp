@@ -1,0 +1,237 @@
+name: Release
+
+permissions:
+    contents: write
+    id-token: write
+    attestations: write
+
+on:
+    push:
+        tags:
+            - "v[0-9]+.[0-9]+.[0-9]+"
+            - "v[0-9]+.[0-9]+.[0-9]+-*"
+
+env:
+    CARGO_TERM_COLOR: always
+    RUSTFLAGS: "-Dwarnings"
+
+jobs:
+    validate:
+        name: Validate Release
+        runs-on: ubuntu-latest
+
+        outputs:
+            version: ${{ steps.version.outputs.version }}
+            tag: ${{ steps.version.outputs.tag }}
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v6
+
+            - name: Determine version
+              id: version
+              shell: bash
+              run: |
+                TAG="${GITHUB_REF#refs/tags/}"
+
+                # Validate tag format
+                if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-.*)?$ ]]; then
+                    echo "Error: Invalid tag format: $TAG"
+                    echo "Expected format: v0.0.0 or v0.0.0-suffix"
+                    exit 1
+                fi
+
+                VERSION="${TAG#v}"
+                echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+                echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+                echo "Release version: $VERSION (tag: $TAG)"
+
+            - name: Verify Cargo.toml version matches tag
+              shell: bash
+              run: |
+                CARGO_VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+                TAG_VERSION="${{ steps.version.outputs.version }}"
+
+                # For pre-release tags like v0.1.0-rc1, compare base version
+                BASE_TAG_VERSION="${TAG_VERSION%%-*}"
+
+                if [[ "$CARGO_VERSION" != "$BASE_TAG_VERSION" ]]; then
+                    echo "Error: Version mismatch!"
+                    echo "  Cargo.toml: $CARGO_VERSION"
+                    echo "  Tag:        $BASE_TAG_VERSION"
+                    echo ""
+                    echo "Update Cargo.toml version before tagging."
+                    exit 1
+                fi
+
+                echo "Version verified: $CARGO_VERSION"
+
+    build:
+        name: Build (${{ matrix.target }})
+        needs: validate
+        timeout-minutes: 30
+
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - os: ubuntu-latest
+                      target: x86_64-unknown-linux-gnu
+                      artifact: git-proxy-mcp-linux-x86_64
+                      binary: git-proxy-mcp
+
+                    - os: macos-latest
+                      target: aarch64-apple-darwin
+                      artifact: git-proxy-mcp-macos-aarch64
+                      binary: git-proxy-mcp
+
+                    - os: windows-latest
+                      target: x86_64-pc-windows-msvc
+                      artifact: git-proxy-mcp-windows-x86_64
+                      binary: git-proxy-mcp.exe
+
+        runs-on: ${{ matrix.os }}
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v6
+
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                targets: ${{ matrix.target }}
+
+            # No caching for release builds - they're one-off events triggered by
+            # version tags, so caches would never be reused and just waste storage
+
+            - name: Build release binary
+              shell: bash
+              run: cargo build --release --target ${{ matrix.target }} --verbose
+
+            - name: Run tests
+              shell: bash
+              run: cargo test --release --target ${{ matrix.target }} --verbose
+
+            - name: Prepare artifact (Unix)
+              if: runner.os != 'Windows'
+              shell: bash
+              run: |
+                mkdir -p dist
+                cp target/${{ matrix.target }}/release/${{ matrix.binary }} dist/
+                cp README.md LICENCE CHANGELOG.md dist/
+                cp config/example-config.json dist/
+                cd dist
+                tar -czvf ../${{ matrix.artifact }}.tar.gz *
+
+            - name: Prepare artifact (Windows)
+              if: runner.os == 'Windows'
+              shell: bash
+              run: |
+                mkdir -p dist
+                cp target/${{ matrix.target }}/release/${{ matrix.binary }} dist/
+                cp README.md LICENCE CHANGELOG.md dist/
+                cp config/example-config.json dist/
+                cd dist
+                7z a -tzip ../${{ matrix.artifact }}.zip *
+
+            - name: Upload artifact (Unix)
+              if: runner.os != 'Windows'
+              uses: actions/upload-artifact@v6
+              with:
+                name: ${{ matrix.artifact }}
+                path: ${{ matrix.artifact }}.tar.gz
+                retention-days: 1
+
+            - name: Upload artifact (Windows)
+              if: runner.os == 'Windows'
+              uses: actions/upload-artifact@v6
+              with:
+                name: ${{ matrix.artifact }}
+                path: ${{ matrix.artifact }}.zip
+                retention-days: 1
+
+    release:
+        name: Create Release
+        needs: [validate, build]
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v6
+
+            - name: Download all artifacts
+              uses: actions/download-artifact@v7
+              with:
+                path: artifacts
+
+            - name: List artifacts
+              run: find artifacts -type f
+
+            - name: Generate checksums
+              shell: bash
+              run: |
+                cd artifacts
+                find . -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec mv {} . \;
+                sha256sum *.tar.gz *.zip > SHA256SUMS.txt
+                cat SHA256SUMS.txt
+
+            - name: Attest build provenance
+              uses: actions/attest-build-provenance@v3
+              with:
+                subject-path: |
+                    artifacts/*.tar.gz
+                    artifacts/*.zip
+
+            - name: Extract release notes from CHANGELOG
+              id: release-notes
+              shell: bash
+              run: |
+                VERSION="${{ needs.validate.outputs.version }}"
+
+                # Extract release notes for this version from CHANGELOG.md
+                # Uses awk with index() for literal string matching (avoids regex escaping issues)
+                awk -v ver="## [${VERSION}]" '
+                    index($0, ver) == 1 { found=1; next }
+                    found && /^## \[/ { exit }
+                    found { print }
+                ' CHANGELOG.md > release_notes.md
+
+                # Trim leading/trailing blank lines
+                sed -i '/./,$!d' release_notes.md
+                sed -i ':a;/^[[:space:]]*$/{$d;N;ba}' release_notes.md
+
+                if [[ -s release_notes.md ]]; then
+                    echo "Found release notes in CHANGELOG.md:"
+                else
+                    echo "No CHANGELOG entry for ${VERSION}, using default"
+                    echo "Release ${VERSION}" > release_notes.md
+                fi
+
+                echo "--- Release Notes ---"
+                cat release_notes.md
+
+            - name: Create GitHub Release
+              shell: bash
+              env:
+                GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                TAG="${{ needs.validate.outputs.tag }}"
+                VERSION="${{ needs.validate.outputs.version }}"
+
+                # Determine if this is a prerelease
+                PRERELEASE_FLAG=""
+                if [[ "$VERSION" == *-* ]]; then
+                    PRERELEASE_FLAG="--prerelease"
+                fi
+
+                # Create the release with gh CLI (more reliable than third-party actions)
+                gh release create "$TAG" \
+                    --title "$TAG" \
+                    --notes-file release_notes.md \
+                    --latest \
+                    $PRERELEASE_FLAG \
+                    artifacts/*.tar.gz \
+                    artifacts/*.zip \
+                    artifacts/SHA256SUMS.txt
+
+                echo "Release created: $TAG"

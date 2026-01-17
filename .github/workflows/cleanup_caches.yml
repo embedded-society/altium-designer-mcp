@@ -1,0 +1,33 @@
+name: Cleanup GitHub Actions Caches
+
+# Manual trigger only - use when you want to proactively clean up
+on:
+    workflow_dispatch:
+        inputs:
+            dry_run:
+                description: 'Log actions without deleting (for testing)'
+                required: false
+                type: boolean
+                default: false
+
+jobs:
+    cleanup:
+        name: Cleanup Caches
+        runs-on: ubuntu-latest
+
+        permissions:
+            actions: write
+            contents: read
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v6
+
+            - name: Run cleanup script
+              uses: actions/github-script@v8
+              env:
+                INPUT_DRY_RUN: ${{ inputs.dry_run || false }}
+              with:
+                script: |
+                    const cleanupScript = require('./.github/scripts/cleanup-caches.js');
+                    await cleanupScript({ github, context, core });

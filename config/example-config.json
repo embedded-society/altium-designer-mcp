@@ -1,0 +1,20 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "_comment": "Example configuration for altium-designer-mcp. Copy to ~/.altium-designer-mcp/config.json and customise.",
+    "library_path": "/path/to/your/altium/libraries",
+    "style_guide_path": null,
+    "ipc": {
+        "default_density": "N",
+        "thermal_vias": true,
+        "courtyard_margin": 0.25
+    },
+    "style": {
+        "silkscreen_line_width": 0.15,
+        "assembly_line_width": 0.10,
+        "pad_corner_radius_percent": 0,
+        "pin1_marker_style": "dot"
+    },
+    "logging": {
+        "level": "warn"
+    }
+}

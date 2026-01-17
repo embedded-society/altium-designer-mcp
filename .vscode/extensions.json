@@ -1,0 +1,19 @@
+{
+    "recommendations": [
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml",
+        "fill-labs.dependi",
+        "vadimcn.vscode-lldb",
+        "usernamehw.errorlens",
+        "editorconfig.editorconfig",
+        "davidanson.vscode-markdownlint",
+        "bierner.markdown-mermaid",
+        "donjayamanne.githistory",
+        "github.vscode-github-actions",
+        "gruntfuggly.todo-tree",
+        "redhat.vscode-yaml",
+        "ms-vscode.hexeditor",
+        "github.copilot",
+        "github.vscode-pull-request-github"
+    ]
+}
