@@ -85,10 +85,10 @@ Read footprints from an Altium `.PcbLib` file.
 
 ```json
 {
-  "name": "read_pcblib",
-  "arguments": {
-    "filepath": "./MyLibrary.PcbLib"
-  }
+    "name": "read_pcblib",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib"
+    }
 }
 ```
 
@@ -98,25 +98,25 @@ Write footprints to an Altium `.PcbLib` file. The AI provides primitive definiti
 
 ```json
 {
-  "name": "write_pcblib",
-  "arguments": {
-    "filepath": "./Passives.PcbLib",
-    "footprints": [{
-      "name": "RESC1608X55N",
-      "description": "Chip resistor, 0603 (1608 metric)",
-      "pads": [
-        { "designator": "1", "x": -0.75, "y": 0, "width": 0.9, "height": 0.95 },
-        { "designator": "2", "x": 0.75, "y": 0, "width": 0.9, "height": 0.95 }
-      ],
-      "tracks": [
-        { "x1": -0.8, "y1": -0.425, "x2": 0.8, "y2": -0.425, "width": 0.12, "layer": "Top Overlay" },
-        { "x1": -0.8, "y1": 0.425, "x2": 0.8, "y2": 0.425, "width": 0.12, "layer": "Top Overlay" }
-      ],
-      "regions": [
-        { "vertices": [{"x": -1.45, "y": -0.73}, {"x": 1.45, "y": -0.73}, {"x": 1.45, "y": 0.73}, {"x": -1.45, "y": 0.73}], "layer": "Top Courtyard" }
-      ]
-    }]
-  }
+    "name": "write_pcblib",
+    "arguments": {
+        "filepath": "./Passives.PcbLib",
+        "footprints": [{
+            "name": "RESC1608X55N",
+            "description": "Chip resistor, 0603 (1608 metric)",
+            "pads": [
+                { "designator": "1", "x": -0.75, "y": 0, "width": 0.9, "height": 0.95 },
+                { "designator": "2", "x": 0.75, "y": 0, "width": 0.9, "height": 0.95 }
+            ],
+            "tracks": [
+                { "x1": -0.8, "y1": -0.425, "x2": 0.8, "y2": -0.425, "width": 0.12, "layer": "Top Overlay" },
+                { "x1": -0.8, "y1": 0.425, "x2": 0.8, "y2": 0.425, "width": 0.12, "layer": "Top Overlay" }
+            ],
+            "regions": [
+                { "vertices": [{"x": -1.45, "y": -0.73}, {"x": 1.45, "y": -0.73}, {"x": 1.45, "y": 0.73}, {"x": -1.45, "y": 0.73}], "layer": "Top Courtyard" }
+            ]
+        }]
+    }
 }
 ```
 
@@ -126,10 +126,24 @@ Read symbols from an Altium `.SchLib` file.
 
 ```json
 {
-  "name": "read_schlib",
-  "arguments": {
-    "filepath": "./MySymbols.SchLib"
-  }
+    "name": "read_schlib",
+    "arguments": {
+        "filepath": "./MySymbols.SchLib"
+    }
+}
+```
+
+### `write_schlib`
+
+Write symbols to an Altium `.SchLib` file. The AI provides primitive definitions.
+
+```json
+{
+    "name": "write_schlib",
+    "arguments": {
+        "filepath": "./MySymbols.SchLib",
+        "symbols": [...]
+    }
 }
 ```
 
@@ -139,12 +153,27 @@ List component names in an Altium library file.
 
 ```json
 {
-  "name": "list_components",
-  "arguments": {
-    "filepath": "./MyLibrary.PcbLib"
-  }
+    "name": "list_components",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib"
+    }
 }
 ```
+
+### `extract_style`
+
+Extract styling information from an existing library.
+
+```json
+{
+    "name": "extract_style",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib"
+    }
+}
+```
+
+Returns statistics about track widths, pad shapes, pin lengths, colours, and layer usage.
 
 ---
 
@@ -255,13 +284,13 @@ STEP models are **attached**, not generated. The tool links existing STEP files 
 
 ```json
 {
-  "step_model": {
-    "filepath": "./3d-models/0603.step",
-    "x_offset": 0,
-    "y_offset": 0,
-    "z_offset": 0,
-    "rotation": 0
-  }
+    "step_model": {
+        "filepath": "./3d-models/0603.step",
+        "x_offset": 0,
+        "y_offset": 0,
+        "z_offset": 0,
+        "rotation": 0
+    }
 }
 ```
 
