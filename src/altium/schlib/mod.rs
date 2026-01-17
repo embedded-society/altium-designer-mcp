@@ -241,6 +241,9 @@ pub struct Symbol {
     /// Arcs.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub arcs: Vec<Arc>,
+    /// Ellipses.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ellipses: Vec<Ellipse>,
     /// Labels.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub labels: Vec<Label>,
@@ -290,6 +293,26 @@ impl Symbol {
     /// Adds a footprint model reference.
     pub fn add_footprint(&mut self, footprint: FootprintModel) {
         self.footprints.push(footprint);
+    }
+
+    /// Adds a polyline to the symbol.
+    pub fn add_polyline(&mut self, polyline: Polyline) {
+        self.polylines.push(polyline);
+    }
+
+    /// Adds an arc to the symbol.
+    pub fn add_arc(&mut self, arc: Arc) {
+        self.arcs.push(arc);
+    }
+
+    /// Adds an ellipse to the symbol.
+    pub fn add_ellipse(&mut self, ellipse: Ellipse) {
+        self.ellipses.push(ellipse);
+    }
+
+    /// Adds a label to the symbol.
+    pub fn add_label(&mut self, label: Label) {
+        self.labels.push(label);
     }
 }
 

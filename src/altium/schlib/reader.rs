@@ -16,7 +16,10 @@
 //! - `0x0000`: Text record (pipe-delimited key=value)
 //! - `0x0001`: Binary pin record
 
-use super::primitives::{FootprintModel, Pin, PinOrientation, PinElectricalType, Rectangle, Line, Parameter};
+use super::primitives::{
+    Arc, Ellipse, FootprintModel, Line, Parameter, Pin, PinElectricalType, PinOrientation,
+    Polyline, Rectangle,
+};
 use super::Symbol;
 use std::collections::HashMap;
 
@@ -135,10 +138,28 @@ fn parse_text_record_from_string(symbol: &mut Symbol, text: &str) {
                 symbol.add_footprint(fp);
             }
         }
-        2 | 4 | 5 | 6 | 7 | 8 | 10 | 11 | 12 | 44 | 46 | 47 | 48 => {
+        6 => {
+            // Polyline
+            if let Some(polyline) = parse_polyline(&props) {
+                symbol.add_polyline(polyline);
+            }
+        }
+        8 => {
+            // Ellipse
+            if let Some(ellipse) = parse_ellipse(&props) {
+                symbol.add_ellipse(ellipse);
+            }
+        }
+        12 => {
+            // Arc
+            if let Some(arc) = parse_arc(&props) {
+                symbol.add_arc(arc);
+            }
+        }
+        2 | 4 | 5 | 7 | 10 | 11 | 44 | 46 | 47 | 48 => {
             // Known but not yet implemented:
-            // 2=Pin(text), 4=Label, 5=Bezier, 6=Polyline, 7=Polygon,
-            // 8=Ellipse, 10=RoundRect, 11=EllipticalArc, 12=Arc,
+            // 2=Pin(text), 4=Label, 5=Bezier, 7=Polygon,
+            // 10=RoundRect, 11=EllipticalArc,
             // 44=ImplementationList, 46/47/48=Model data
             tracing::trace!("Skipping record type {record_id}");
         }
@@ -361,6 +382,130 @@ fn parse_parameter(props: &HashMap<String, String>) -> Option<Parameter> {
         font_id,
         color,
         hidden,
+        owner_part_id,
+    })
+}
+
+/// Parses a polyline from properties.
+fn parse_polyline(props: &HashMap<String, String>) -> Option<Polyline> {
+    // Polylines have LocationCount and Location{n}.X/Location{n}.Y properties
+    let location_count: usize = props
+        .get("locationcount")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+
+    if location_count < 2 {
+        return None;
+    }
+
+    let mut points = Vec::with_capacity(location_count);
+    for i in 1..=location_count {
+        let x_key = format!("x{i}");
+        let y_key = format!("y{i}");
+        let x = props.get(&x_key).and_then(|s| s.parse().ok())?;
+        let y = props.get(&y_key).and_then(|s| s.parse().ok())?;
+        points.push((x, y));
+    }
+
+    let line_width = props
+        .get("linewidth")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+    let color = props
+        .get("color")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0x00_00_80);
+    let owner_part_id = props
+        .get("ownerpartid")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+
+    Some(Polyline {
+        points,
+        line_width,
+        color,
+        owner_part_id,
+    })
+}
+
+/// Parses an ellipse from properties.
+fn parse_ellipse(props: &HashMap<String, String>) -> Option<Ellipse> {
+    let x = props.get("location.x")?.parse().ok()?;
+    let y = props.get("location.y")?.parse().ok()?;
+    let radius_x = props.get("radius")?.parse().ok()?;
+    // Secondary radius, defaults to radius for circles
+    let radius_y = props
+        .get("secondaryradius")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(radius_x);
+
+    let line_width = props
+        .get("linewidth")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+    let line_color = props
+        .get("color")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0x00_00_80);
+    let fill_color = props
+        .get("areacolor")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0xFF_FF_B0);
+    let filled = !props.get("issolid").is_some_and(|s| s == "F");
+    let owner_part_id = props
+        .get("ownerpartid")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+
+    Some(Ellipse {
+        x,
+        y,
+        radius_x,
+        radius_y,
+        line_width,
+        line_color,
+        fill_color,
+        filled,
+        owner_part_id,
+    })
+}
+
+/// Parses an arc from properties.
+fn parse_arc(props: &HashMap<String, String>) -> Option<Arc> {
+    let x = props.get("location.x")?.parse().ok()?;
+    let y = props.get("location.y")?.parse().ok()?;
+    let radius = props.get("radius")?.parse().ok()?;
+
+    let start_angle = props
+        .get("startangle")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0.0);
+    let end_angle = props
+        .get("endangle")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(360.0);
+
+    let line_width = props
+        .get("linewidth")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+    let color = props
+        .get("color")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0x00_00_80);
+    let owner_part_id = props
+        .get("ownerpartid")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+
+    Some(Arc {
+        x,
+        y,
+        radius,
+        start_angle,
+        end_angle,
+        line_width,
+        color,
         owner_part_id,
     })
 }

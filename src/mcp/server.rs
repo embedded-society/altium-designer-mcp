@@ -415,6 +415,7 @@ impl McpServer {
             "read_schlib" => self.call_read_schlib(&params.arguments),
             "write_schlib" => self.call_write_schlib(&params.arguments),
             "list_components" => self.call_list_components(&params.arguments),
+            "extract_style" => self.call_extract_style(&params.arguments),
             // Unknown tool
             _ => ToolCallResult::error(format!("Unknown tool: {}", params.name)),
         };
@@ -506,6 +507,27 @@ impl McpServer {
                         "filepath": {
                             "type": "string",
                             "description": "Path to the library file"
+                        }
+                    },
+                    "required": ["filepath"]
+                }),
+            },
+            // === Style Extraction ===
+            ToolDefinition {
+                name: "extract_style".to_string(),
+                description: Some(
+                    "Extract style information from an existing Altium library file. Returns \
+                     statistics about track widths, colors, pin lengths, layer usage, and other \
+                     styling parameters. Use this to learn from existing libraries and create \
+                     consistent new components."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepath": {
+                            "type": "string",
+                            "description": "Path to the .PcbLib or .SchLib file"
                         }
                     },
                     "required": ["filepath"]
@@ -658,7 +680,7 @@ impl McpServer {
                 name: "write_schlib".to_string(),
                 description: Some(
                     "Write schematic symbols to an Altium .SchLib file. Each symbol is defined by \
-                     its primitives: pins, rectangles, lines, arcs, and text."
+                     its primitives: pins, rectangles, lines, polylines, arcs, ellipses, and labels."
                         .to_string(),
                 ),
                 input_schema: json!({
@@ -887,6 +909,10 @@ impl McpServer {
                             "pins": symbol.pins,
                             "rectangles": symbol.rectangles,
                             "lines": symbol.lines,
+                            "polylines": symbol.polylines,
+                            "arcs": symbol.arcs,
+                            "ellipses": symbol.ellipses,
+                            "labels": symbol.labels,
                             "parameters": symbol.parameters,
                             "footprints": symbol.footprints,
                         })
@@ -914,7 +940,7 @@ impl McpServer {
     }
 
     /// Writes symbols to a `SchLib` file.
-    #[allow(clippy::unused_self)]
+    #[allow(clippy::unused_self, clippy::too_many_lines)]
     fn call_write_schlib(&self, arguments: &Value) -> ToolCallResult {
         use crate::altium::schlib::{FootprintModel, SchLib, Symbol};
 
@@ -966,6 +992,33 @@ impl McpServer {
                 for line_json in lines {
                     if let Some(line) = Self::parse_schlib_line(line_json) {
                         symbol.add_line(line);
+                    }
+                }
+            }
+
+            // Parse polylines
+            if let Some(polylines) = sym_json.get("polylines").and_then(Value::as_array) {
+                for polyline_json in polylines {
+                    if let Some(polyline) = Self::parse_schlib_polyline(polyline_json) {
+                        symbol.add_polyline(polyline);
+                    }
+                }
+            }
+
+            // Parse arcs
+            if let Some(arcs) = sym_json.get("arcs").and_then(Value::as_array) {
+                for arc_json in arcs {
+                    if let Some(arc) = Self::parse_schlib_arc(arc_json) {
+                        symbol.add_arc(arc);
+                    }
+                }
+            }
+
+            // Parse ellipses
+            if let Some(ellipses) = sym_json.get("ellipses").and_then(Value::as_array) {
+                for ellipse_json in ellipses {
+                    if let Some(ellipse) = Self::parse_schlib_ellipse(ellipse_json) {
+                        symbol.add_ellipse(ellipse);
                     }
                 }
             }
@@ -1084,6 +1137,295 @@ impl McpServer {
                 ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
             }
         }
+    }
+
+    /// Extracts style information from a library file.
+    #[allow(clippy::unused_self)]
+    fn call_extract_style(&self, arguments: &Value) -> ToolCallResult {
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        let path = std::path::Path::new(filepath);
+        let extension = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_lowercase);
+
+        match extension.as_deref() {
+            Some("pcblib") => Self::extract_pcblib_style(filepath),
+            Some("schlib") => Self::extract_schlib_style(filepath),
+            _ => {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": "Unknown file type. Expected .PcbLib or .SchLib extension.",
+                });
+                ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
+            }
+        }
+    }
+
+    /// Extracts style from a `PcbLib` file.
+    fn extract_pcblib_style(filepath: &str) -> ToolCallResult {
+        use crate::altium::PcbLib;
+        use std::collections::HashMap;
+
+        match PcbLib::read(filepath) {
+            Ok(library) => {
+                // Track widths by layer
+                let mut track_widths: HashMap<String, Vec<f64>> = HashMap::new();
+                // Pad shapes count
+                let mut pad_shapes: HashMap<String, usize> = HashMap::new();
+                // Text heights
+                let mut text_heights: Vec<f64> = Vec::new();
+                // Layers used
+                let mut layers_used: HashMap<String, usize> = HashMap::new();
+
+                for fp in library.footprints() {
+                    // Analyze tracks
+                    for track in &fp.tracks {
+                        let layer_name = track.layer.as_str().to_string();
+                        track_widths
+                            .entry(layer_name.clone())
+                            .or_default()
+                            .push(track.width);
+                        *layers_used.entry(layer_name).or_insert(0) += 1;
+                    }
+
+                    // Analyze pads
+                    for pad in &fp.pads {
+                        let shape_name = format!("{:?}", pad.shape);
+                        *pad_shapes.entry(shape_name).or_insert(0) += 1;
+                        let layer_name = pad.layer.as_str().to_string();
+                        *layers_used.entry(layer_name).or_insert(0) += 1;
+                    }
+
+                    // Analyze text
+                    for text in &fp.text {
+                        text_heights.push(text.height);
+                        let layer_name = text.layer.as_str().to_string();
+                        *layers_used.entry(layer_name).or_insert(0) += 1;
+                    }
+
+                    // Analyze regions
+                    for region in &fp.regions {
+                        let layer_name = region.layer.as_str().to_string();
+                        *layers_used.entry(layer_name).or_insert(0) += 1;
+                    }
+                }
+
+                // Calculate statistics for track widths
+                #[allow(clippy::cast_precision_loss)]
+                let track_width_stats: HashMap<String, Value> = track_widths
+                    .into_iter()
+                    .map(|(layer, widths)| {
+                        let min = widths.iter().copied().fold(f64::INFINITY, f64::min);
+                        let max = widths.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                        let avg = widths.iter().sum::<f64>() / widths.len() as f64;
+                        let most_common = Self::most_common_f64(&widths);
+                        (
+                            layer,
+                            json!({
+                                "min_mm": min,
+                                "max_mm": max,
+                                "avg_mm": avg,
+                                "most_common_mm": most_common,
+                                "count": widths.len()
+                            }),
+                        )
+                    })
+                    .collect();
+
+                // Calculate text height stats
+                let text_height_stats = if text_heights.is_empty() {
+                    json!(null)
+                } else {
+                    let min = text_heights.iter().copied().fold(f64::INFINITY, f64::min);
+                    let max = text_heights
+                        .iter()
+                        .copied()
+                        .fold(f64::NEG_INFINITY, f64::max);
+                    let most_common = Self::most_common_f64(&text_heights);
+                    json!({
+                        "min_mm": min,
+                        "max_mm": max,
+                        "most_common_mm": most_common,
+                        "count": text_heights.len()
+                    })
+                };
+
+                let result = json!({
+                    "status": "success",
+                    "filepath": filepath,
+                    "file_type": "PcbLib",
+                    "footprint_count": library.len(),
+                    "style": {
+                        "track_widths_by_layer": track_width_stats,
+                        "pad_shapes": pad_shapes,
+                        "text_heights": text_height_stats,
+                        "layers_used": layers_used
+                    }
+                });
+
+                ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+            }
+            Err(e) => {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": e.to_string(),
+                });
+                ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
+            }
+        }
+    }
+
+    /// Extracts style from a `SchLib` file.
+    fn extract_schlib_style(filepath: &str) -> ToolCallResult {
+        use crate::altium::SchLib;
+        use std::collections::HashMap;
+
+        match SchLib::open(filepath) {
+            Ok(library) => {
+                // Line widths
+                let mut line_widths: Vec<u8> = Vec::new();
+                // Pin lengths
+                let mut pin_lengths: Vec<i32> = Vec::new();
+                // Colors used
+                let mut line_colors: HashMap<String, usize> = HashMap::new();
+                let mut fill_colors: HashMap<String, usize> = HashMap::new();
+                // Rectangle stats
+                let mut rect_filled_count = 0usize;
+                let mut rect_unfilled_count = 0usize;
+
+                for (_name, symbol) in library.iter() {
+                    // Analyze pins
+                    for pin in &symbol.pins {
+                        pin_lengths.push(pin.length);
+                    }
+
+                    // Analyze rectangles
+                    for rect in &symbol.rectangles {
+                        line_widths.push(rect.line_width);
+                        let line_color = format!("#{:06X}", rect.line_color);
+                        let fill_color = format!("#{:06X}", rect.fill_color);
+                        *line_colors.entry(line_color).or_insert(0) += 1;
+                        *fill_colors.entry(fill_color).or_insert(0) += 1;
+                        if rect.filled {
+                            rect_filled_count += 1;
+                        } else {
+                            rect_unfilled_count += 1;
+                        }
+                    }
+
+                    // Analyze lines
+                    for line in &symbol.lines {
+                        line_widths.push(line.line_width);
+                        let color = format!("#{:06X}", line.color);
+                        *line_colors.entry(color).or_insert(0) += 1;
+                    }
+                }
+
+                // Calculate stats
+                let pin_length_stats = if pin_lengths.is_empty() {
+                    json!(null)
+                } else {
+                    let min = *pin_lengths.iter().min().unwrap();
+                    let max = *pin_lengths.iter().max().unwrap();
+                    let most_common = Self::most_common_i32(&pin_lengths);
+                    json!({
+                        "min_units": min,
+                        "max_units": max,
+                        "most_common_units": most_common,
+                        "count": pin_lengths.len()
+                    })
+                };
+
+                let line_width_stats = if line_widths.is_empty() {
+                    json!(null)
+                } else {
+                    let min = *line_widths.iter().min().unwrap();
+                    let max = *line_widths.iter().max().unwrap();
+                    let most_common = Self::most_common_u8(&line_widths);
+                    json!({
+                        "min": min,
+                        "max": max,
+                        "most_common": most_common,
+                        "count": line_widths.len()
+                    })
+                };
+
+                let result = json!({
+                    "status": "success",
+                    "filepath": filepath,
+                    "file_type": "SchLib",
+                    "symbol_count": library.len(),
+                    "style": {
+                        "pin_lengths": pin_length_stats,
+                        "line_widths": line_width_stats,
+                        "line_colors": line_colors,
+                        "fill_colors": fill_colors,
+                        "rectangles": {
+                            "filled_count": rect_filled_count,
+                            "unfilled_count": rect_unfilled_count
+                        }
+                    }
+                });
+
+                ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+            }
+            Err(e) => {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": e.to_string(),
+                });
+                ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
+            }
+        }
+    }
+
+    /// Finds the most common value in a slice of f64, rounded to 2 decimal places.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+    fn most_common_f64(values: &[f64]) -> f64 {
+        use std::collections::HashMap;
+        let mut counts: HashMap<i64, usize> = HashMap::new();
+        for &v in values {
+            // Round to 2 decimal places for grouping
+            let key = (v * 100.0).round() as i64;
+            *counts.entry(key).or_insert(0) += 1;
+        }
+        counts
+            .into_iter()
+            .max_by_key(|(_, count)| *count)
+            .map_or(0.0, |(key, _)| key as f64 / 100.0)
+    }
+
+    /// Finds the most common value in a slice of i32.
+    fn most_common_i32(values: &[i32]) -> i32 {
+        use std::collections::HashMap;
+        let mut counts: HashMap<i32, usize> = HashMap::new();
+        for &v in values {
+            *counts.entry(v).or_insert(0) += 1;
+        }
+        counts
+            .into_iter()
+            .max_by_key(|(_, count)| *count)
+            .map_or(0, |(key, _)| key)
+    }
+
+    /// Finds the most common value in a slice of u8.
+    fn most_common_u8(values: &[u8]) -> u8 {
+        use std::collections::HashMap;
+        let mut counts: HashMap<u8, usize> = HashMap::new();
+        for &v in values {
+            *counts.entry(v).or_insert(0) += 1;
+        }
+        counts
+            .into_iter()
+            .max_by_key(|(_, count)| *count)
+            .map_or(0, |(key, _)| key)
     }
 
     // ==================== Primitive Parsing Helpers ====================
@@ -1416,6 +1758,128 @@ impl McpServer {
             font_id,
             color,
             hidden,
+            owner_part_id,
+        })
+    }
+
+    /// Parses a schematic polyline from JSON.
+    #[allow(clippy::cast_possible_truncation)]
+    fn parse_schlib_polyline(json: &Value) -> Option<crate::altium::schlib::Polyline> {
+        use crate::altium::schlib::Polyline;
+
+        let points_json = json.get("points").and_then(Value::as_array)?;
+        let points: Vec<(i32, i32)> = points_json
+            .iter()
+            .filter_map(|p| {
+                let x = p.get("x").and_then(Value::as_i64)? as i32;
+                let y = p.get("y").and_then(Value::as_i64)? as i32;
+                Some((x, y))
+            })
+            .collect();
+
+        if points.len() < 2 {
+            return None; // Need at least 2 points for a polyline
+        }
+
+        let line_width = json
+            .get("line_width")
+            .and_then(Value::as_u64)
+            .unwrap_or(1) as u8;
+        let color = json
+            .get("color")
+            .and_then(Value::as_u64)
+            .unwrap_or(0x00_00_80) as u32;
+        let owner_part_id = json
+            .get("owner_part_id")
+            .and_then(Value::as_i64)
+            .unwrap_or(1) as i32;
+
+        Some(Polyline {
+            points,
+            line_width,
+            color,
+            owner_part_id,
+        })
+    }
+
+    /// Parses a schematic arc from JSON.
+    #[allow(clippy::cast_possible_truncation)]
+    fn parse_schlib_arc(json: &Value) -> Option<crate::altium::schlib::Arc> {
+        use crate::altium::schlib::Arc;
+
+        let x = json.get("x").and_then(Value::as_i64)? as i32;
+        let y = json.get("y").and_then(Value::as_i64)? as i32;
+        let radius = json.get("radius").and_then(Value::as_i64)? as i32;
+        let start_angle = json
+            .get("start_angle")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0);
+        let end_angle = json
+            .get("end_angle")
+            .and_then(Value::as_f64)
+            .unwrap_or(360.0);
+        let line_width = json
+            .get("line_width")
+            .and_then(Value::as_u64)
+            .unwrap_or(1) as u8;
+        let color = json
+            .get("color")
+            .and_then(Value::as_u64)
+            .unwrap_or(0x00_00_80) as u32;
+        let owner_part_id = json
+            .get("owner_part_id")
+            .and_then(Value::as_i64)
+            .unwrap_or(1) as i32;
+
+        Some(Arc {
+            x,
+            y,
+            radius,
+            start_angle,
+            end_angle,
+            line_width,
+            color,
+            owner_part_id,
+        })
+    }
+
+    /// Parses a schematic ellipse from JSON.
+    #[allow(clippy::cast_possible_truncation)]
+    fn parse_schlib_ellipse(json: &Value) -> Option<crate::altium::schlib::Ellipse> {
+        use crate::altium::schlib::Ellipse;
+
+        let x = json.get("x").and_then(Value::as_i64)? as i32;
+        let y = json.get("y").and_then(Value::as_i64)? as i32;
+        let radius_x = json.get("radius_x").and_then(Value::as_i64)? as i32;
+        let radius_y = json.get("radius_y").and_then(Value::as_i64)? as i32;
+
+        let line_width = json
+            .get("line_width")
+            .and_then(Value::as_u64)
+            .unwrap_or(1) as u8;
+        let line_color = json
+            .get("line_color")
+            .and_then(Value::as_u64)
+            .unwrap_or(0x00_00_80) as u32;
+        let fill_color = json
+            .get("fill_color")
+            .and_then(Value::as_u64)
+            .unwrap_or(0xFF_FF_B0) as u32;
+        let filled = json.get("filled").and_then(Value::as_bool).unwrap_or(true);
+        let owner_part_id = json
+            .get("owner_part_id")
+            .and_then(Value::as_i64)
+            .unwrap_or(1) as i32;
+
+        Some(Ellipse {
+            x,
+            y,
+            radius_x,
+            radius_y,
+            line_width,
+            line_color,
+            fill_color,
+            filled,
             owner_part_id,
         })
     }

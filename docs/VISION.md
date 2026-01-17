@@ -63,9 +63,10 @@ This document describes the architectural vision for altium-designer-mcp.
 |------|-------------|
 | `read_pcblib` | Read footprints and primitives from .PcbLib |
 | `read_schlib` | Read symbols and primitives from .SchLib |
-| `list_components` | List component names in a library |
 | `write_pcblib` | Write footprints (defined by primitives) to .PcbLib |
 | `write_schlib` | Write symbols (defined by primitives) to .SchLib |
+| `list_components` | List component names in a library |
+| `extract_style` | Extract styling information from existing libraries |
 
 ---
 
@@ -84,10 +85,12 @@ The AI provides complete primitive definitions. The tool just writes them.
 ### Symbol Primitives
 
 - **Pin**: Position, designator, name, orientation, electrical type
-- **Rectangle**: Position, size
+- **Rectangle**: Position, size, fill
 - **Line**: Start/end points
-- **Arc**: Center, radius, angles
-- **Text**: Position, content, size
+- **Polyline**: Multiple connected line segments
+- **Arc**: Centre, radius, angles
+- **Ellipse**: Centre, radii, fill
+- **Label**: Position, content, font
 
 ---
 
@@ -112,3 +115,16 @@ Previous approach encoded IPC-7351B into calculators. This was over-engineered:
 | Complex codebase | Simple file I/O |
 
 The AI already knows IPC-7351B. We don't need to duplicate that knowledge.
+
+---
+
+## IPC Standards
+
+The AI applies industry standards when calculating footprints:
+
+| Standard | Purpose |
+|----------|---------|
+| [IPC-7351B](https://shop.ipc.org/) | Surface mount land pattern design |
+| [IPC-2221](https://shop.ipc.org/) | Printed board design (through-hole) |
+
+See [AI_WORKFLOW.md](AI_WORKFLOW.md#ipc-standards-reference) for detailed IPC reference.

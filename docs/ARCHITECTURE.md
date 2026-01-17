@@ -41,9 +41,14 @@ src/
 ├── altium/                      # Altium file I/O
 │   ├── mod.rs                   # Module exports
 │   ├── error.rs                 # Altium-specific errors
-│   └── pcblib/
-│       ├── mod.rs               # PcbLib read/write
-│       └── primitives.rs        # Pad, Track, Arc, Region, Text, Layer
+│   ├── pcblib/
+│   │   ├── mod.rs               # PcbLib read/write
+│   │   └── primitives.rs        # Pad, Track, Arc, Region, Text, Layer
+│   └── schlib/
+│       ├── mod.rs               # SchLib read/write
+│       ├── primitives.rs        # Pin, Rectangle, Line, Arc, Ellipse, etc.
+│       ├── reader.rs            # Binary parsing
+│       └── writer.rs            # Binary encoding
 │
 └── mcp/                         # MCP server implementation
     ├── mod.rs                   # Module exports
@@ -158,9 +163,10 @@ format is being reverse-engineered from existing libraries and prior art
 |------|-------------|
 | `read_pcblib` | Read footprints and primitives from .PcbLib |
 | `write_pcblib` | Write footprints (defined by primitives) to .PcbLib |
+| `read_schlib` | Read symbols and primitives from .SchLib |
+| `write_schlib` | Write symbols to .SchLib |
 | `list_components` | List component names in a library |
-| `read_schlib` | Read symbols from .SchLib (planned) |
-| `write_schlib` | Write symbols to .SchLib (planned) |
+| `extract_style` | Extract styling information from existing libraries |
 
 ---
 

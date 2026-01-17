@@ -15,7 +15,7 @@
 //! - `0x0000`: Text record (pipe-delimited key=value pairs)
 //! - `0x0001`: Binary pin record
 
-use super::primitives::{FootprintModel, Line, Parameter, Pin, Rectangle};
+use super::primitives::{Arc, Ellipse, FootprintModel, Line, Parameter, Pin, Polyline, Rectangle};
 use super::Symbol;
 
 /// Writes a text record (type 0) to the output.
@@ -202,6 +202,63 @@ fn encode_designator(designator: &str) -> String {
     )
 }
 
+/// Encodes a polyline record.
+fn encode_polyline(polyline: &Polyline, index: usize) -> String {
+    let mut parts = vec![
+        "RECORD=6".to_string(),
+        format!("IndexInSheet={index}"),
+        format!("OwnerPartId={}", polyline.owner_part_id),
+        format!("LineWidth={}", polyline.line_width),
+        format!("Color={}", polyline.color),
+        format!("LocationCount={}", polyline.points.len()),
+    ];
+
+    for (i, (x, y)) in polyline.points.iter().enumerate() {
+        parts.push(format!("X{}={}", i + 1, x));
+        parts.push(format!("Y{}={}", i + 1, y));
+    }
+
+    parts.push(format!("UniqueID={}", generate_unique_id()));
+
+    format!("|{}|", parts.join("|"))
+}
+
+/// Encodes an arc record.
+fn encode_arc(arc: &Arc, index: usize) -> String {
+    format!(
+        "|RECORD=12|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Radius={}|StartAngle={}|EndAngle={}|LineWidth={}|Color={}|UniqueID={}|",
+        index,
+        arc.owner_part_id,
+        arc.x,
+        arc.y,
+        arc.radius,
+        arc.start_angle,
+        arc.end_angle,
+        arc.line_width,
+        arc.color,
+        generate_unique_id()
+    )
+}
+
+/// Encodes an ellipse record.
+fn encode_ellipse(ellipse: &Ellipse, index: usize) -> String {
+    let is_solid = if ellipse.filled { "T" } else { "F" };
+    format!(
+        "|RECORD=8|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Radius={}|SecondaryRadius={}|LineWidth={}|Color={}|AreaColor={}|IsSolid={}|UniqueID={}|",
+        index,
+        ellipse.owner_part_id,
+        ellipse.x,
+        ellipse.y,
+        ellipse.radius_x,
+        ellipse.radius_y,
+        ellipse.line_width,
+        ellipse.line_color,
+        ellipse.fill_color,
+        is_solid,
+        generate_unique_id()
+    )
+}
+
 /// Encodes an implementation list record (start of model list).
 fn encode_implementation_list() -> String {
     "|RECORD=44|OwnerIndex=0|".to_string()
@@ -275,18 +332,39 @@ pub fn encode_data_stream(symbol: &Symbol) -> Vec<u8> {
         index_counter += 1;
     }
 
-    // 6. Designator
+    // 6. Polylines
+    for polyline in &symbol.polylines {
+        let record = encode_polyline(polyline, index_counter);
+        write_text_record(&mut data, &record);
+        index_counter += 1;
+    }
+
+    // 7. Arcs
+    for arc in &symbol.arcs {
+        let record = encode_arc(arc, index_counter);
+        write_text_record(&mut data, &record);
+        index_counter += 1;
+    }
+
+    // 8. Ellipses
+    for ellipse in &symbol.ellipses {
+        let record = encode_ellipse(ellipse, index_counter);
+        write_text_record(&mut data, &record);
+        index_counter += 1;
+    }
+
+    // 9. Designator
     if !symbol.designator.is_empty() {
         let record = encode_designator(&symbol.designator);
         write_text_record(&mut data, &record);
     }
 
-    // 7. Implementation list (if we have footprints)
+    // 10. Implementation list (if we have footprints)
     if !symbol.footprints.is_empty() {
         let impl_list = encode_implementation_list();
         write_text_record(&mut data, &impl_list);
 
-        // 8. Footprint models
+        // 11. Footprint models
         for (i, model) in symbol.footprints.iter().enumerate() {
             let record = encode_footprint_model(model, i);
             write_text_record(&mut data, &record);

@@ -154,21 +154,21 @@ Derived from Rotated and Flipped flags:
 - Standard grid is 10 units
 - Pins are typically 10-30 units long
 
-## Color Format
+## Colour Format
 
-Colors are stored as 32-bit BGR values:
+Colours are stored as 32-bit BGR values:
 
 ```text
 0x00BBGGRR
 ```
 
-Common colors:
+Common colours:
 
-| Value | Color | Usage |
+| Value | Colour | Usage |
 |-------|-------|-------|
 | `0x000080` | Dark Red | Lines, outlines |
 | `0x800000` | Dark Blue | Text, parameters |
-| `0xB0FFFF` | Light Yellow | Fill color |
+| `0xB0FFFF` | Light Yellow | Fill colour |
 | `0xFF0000` | Blue | Component body |
 | `0x000000` | Black | Pins |
 

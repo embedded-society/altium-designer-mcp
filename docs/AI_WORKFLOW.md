@@ -82,43 +82,43 @@ IPC Name: RESC1608X55N
 
 ```json
 {
-  "name": "RESC1608X55N",
-  "description": "Chip resistor, 0603 (1608 metric), IPC-7351B Nominal",
-  "pads": [
-    {
-      "designator": "1",
-      "x": -0.75,
-      "y": 0,
-      "width": 0.9,
-      "height": 0.95,
-      "shape": "rounded_rectangle",
-      "layer": "Top Layer"
-    },
-    {
-      "designator": "2",
-      "x": 0.75,
-      "y": 0,
-      "width": 0.9,
-      "height": 0.95,
-      "shape": "rounded_rectangle",
-      "layer": "Top Layer"
-    }
-  ],
-  "tracks": [
-    { "x1": -0.8, "y1": -0.55, "x2": 0.8, "y2": -0.55, "width": 0.12, "layer": "Top Overlay" },
-    { "x1": -0.8, "y1": 0.55, "x2": 0.8, "y2": 0.55, "width": 0.12, "layer": "Top Overlay" }
-  ],
-  "regions": [
-    {
-      "vertices": [
-        { "x": -1.45, "y": -0.73 },
-        { "x": 1.45, "y": -0.73 },
-        { "x": 1.45, "y": 0.73 },
-        { "x": -1.45, "y": 0.73 }
-      ],
-      "layer": "Mechanical 15"
-    }
-  ]
+    "name": "RESC1608X55N",
+    "description": "Chip resistor, 0603 (1608 metric), IPC-7351B Nominal",
+    "pads": [
+        {
+            "designator": "1",
+            "x": -0.75,
+            "y": 0,
+            "width": 0.9,
+            "height": 0.95,
+            "shape": "rounded_rectangle",
+            "layer": "Top Layer"
+        },
+        {
+            "designator": "2",
+            "x": 0.75,
+            "y": 0,
+            "width": 0.9,
+            "height": 0.95,
+            "shape": "rounded_rectangle",
+            "layer": "Top Layer"
+        }
+    ],
+    "tracks": [
+        { "x1": -0.8, "y1": -0.55, "x2": 0.8, "y2": -0.55, "width": 0.12, "layer": "Top Overlay" },
+        { "x1": -0.8, "y1": 0.55, "x2": 0.8, "y2": 0.55, "width": 0.12, "layer": "Top Overlay" }
+    ],
+    "regions": [
+        {
+            "vertices": [
+                { "x": -1.45, "y": -0.73 },
+                { "x": 1.45, "y": -0.73 },
+                { "x": 1.45, "y": 0.73 },
+                { "x": -1.45, "y": 0.73 }
+            ],
+            "layer": "Mechanical 15"
+        }
+    ]
 }
 ```
 
@@ -128,19 +128,19 @@ IPC Name: RESC1608X55N
 
 ```json
 {
-  "name": "write_pcblib",
-  "arguments": {
-    "filepath": "./Passives.PcbLib",
-    "footprints": [
-      {
-        "name": "RESC1608X55N",
-        "description": "Chip resistor, 0603 (1608 metric)",
-        "pads": [...],
-        "tracks": [...],
-        "regions": [...]
-      }
-    ]
-  }
+    "name": "write_pcblib",
+    "arguments": {
+        "filepath": "./Passives.PcbLib",
+        "footprints": [
+            {
+                "name": "RESC1608X55N",
+                "description": "Chip resistor, 0603 (1608 metric)",
+                "pads": [...],
+                "tracks": [...],
+                "regions": [...]
+            }
+        ]
+    }
 }
 ```
 
@@ -148,8 +148,8 @@ IPC Name: RESC1608X55N
 
 ```json
 {
-  "success": true,
-  "footprints_written": 1
+    "success": true,
+    "footprints_written": 1
 }
 ```
 
@@ -159,10 +159,10 @@ IPC Name: RESC1608X55N
 
 ```json
 {
-  "name": "read_pcblib",
-  "arguments": {
-    "filepath": "./Passives.PcbLib"
-  }
+    "name": "read_pcblib",
+    "arguments": {
+        "filepath": "./Passives.PcbLib"
+    }
 }
 ```
 
@@ -176,10 +176,10 @@ Read footprints from an existing library.
 
 ```json
 {
-  "name": "read_pcblib",
-  "arguments": {
-    "filepath": "./MyLibrary.PcbLib"
-  }
+    "name": "read_pcblib",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib"
+    }
 }
 ```
 
@@ -189,11 +189,38 @@ Write footprints with complete primitive definitions.
 
 ```json
 {
-  "name": "write_pcblib",
-  "arguments": {
-    "filepath": "./MyLibrary.PcbLib",
-    "footprints": [...]
-  }
+    "name": "write_pcblib",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib",
+        "footprints": [...]
+    }
+}
+```
+
+### read_schlib
+
+Read symbols from an existing schematic library.
+
+```json
+{
+    "name": "read_schlib",
+    "arguments": {
+        "filepath": "./MyLibrary.SchLib"
+    }
+}
+```
+
+### write_schlib
+
+Write symbols with complete primitive definitions.
+
+```json
+{
+    "name": "write_schlib",
+    "arguments": {
+        "filepath": "./MyLibrary.SchLib",
+        "symbols": [...]
+    }
 }
 ```
 
@@ -203,12 +230,27 @@ List component names in a library.
 
 ```json
 {
-  "name": "list_components",
-  "arguments": {
-    "filepath": "./MyLibrary.PcbLib"
-  }
+    "name": "list_components",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib"
+    }
 }
 ```
+
+### extract_style
+
+Extract styling information from an existing library.
+
+```json
+{
+    "name": "extract_style",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib"
+    }
+}
+```
+
+Returns statistics about track widths, pad shapes, pin lengths, colours, and layer usage.
 
 ---
 
@@ -220,15 +262,15 @@ The AI provides complete primitive definitions. The tool writes them.
 
 ```json
 {
-  "designator": "1",
-  "x": 0,
-  "y": 0,
-  "width": 1.0,
-  "height": 0.8,
-  "shape": "rounded_rectangle",
-  "layer": "Top Layer",
-  "hole_size": null,
-  "rotation": 0
+    "designator": "1",
+    "x": 0,
+    "y": 0,
+    "width": 1.0,
+    "height": 0.8,
+    "shape": "rounded_rectangle",
+    "layer": "Top Layer",
+    "hole_size": null,
+    "rotation": 0
 }
 ```
 
@@ -236,12 +278,12 @@ The AI provides complete primitive definitions. The tool writes them.
 
 ```json
 {
-  "x1": -1.0,
-  "y1": 0.5,
-  "x2": 1.0,
-  "y2": 0.5,
-  "width": 0.12,
-  "layer": "Top Overlay"
+    "x1": -1.0,
+    "y1": 0.5,
+    "x2": 1.0,
+    "y2": 0.5,
+    "width": 0.12,
+    "layer": "Top Overlay"
 }
 ```
 
@@ -249,13 +291,13 @@ The AI provides complete primitive definitions. The tool writes them.
 
 ```json
 {
-  "x": 0,
-  "y": 0,
-  "radius": 0.5,
-  "start_angle": 0,
-  "end_angle": 360,
-  "width": 0.12,
-  "layer": "Top Overlay"
+    "x": 0,
+    "y": 0,
+    "radius": 0.5,
+    "start_angle": 0,
+    "end_angle": 360,
+    "width": 0.12,
+    "layer": "Top Overlay"
 }
 ```
 
@@ -263,13 +305,13 @@ The AI provides complete primitive definitions. The tool writes them.
 
 ```json
 {
-  "vertices": [
-    { "x": -1, "y": -1 },
-    { "x": 1, "y": -1 },
-    { "x": 1, "y": 1 },
-    { "x": -1, "y": 1 }
-  ],
-  "layer": "Mechanical 15"
+    "vertices": [
+        { "x": -1, "y": -1 },
+        { "x": 1, "y": -1 },
+        { "x": 1, "y": 1 },
+        { "x": -1, "y": 1 }
+    ],
+    "layer": "Mechanical 15"
 }
 ```
 
@@ -277,12 +319,12 @@ The AI provides complete primitive definitions. The tool writes them.
 
 ```json
 {
-  "x": 0,
-  "y": 1.5,
-  "text": ".Designator",
-  "height": 0.8,
-  "layer": "Top Overlay",
-  "rotation": 0
+    "x": 0,
+    "y": 1.5,
+    "text": ".Designator",
+    "height": 0.8,
+    "layer": "Top Overlay",
+    "rotation": 0
 }
 ```
 
@@ -375,7 +417,7 @@ For through-hole pads:
 
 ```json
 {
-  "error": "Failed to read file: ./Missing.PcbLib"
+    "error": "Failed to read file: ./Missing.PcbLib"
 }
 ```
 
@@ -383,7 +425,7 @@ For through-hole pads:
 
 ```json
 {
-  "error": "Invalid parameter 'width': must be positive"
+    "error": "Invalid parameter 'width': must be positive"
 }
 ```
 
@@ -391,7 +433,7 @@ For through-hole pads:
 
 ```json
 {
-  "error": "Failed to write file: ./Library.PcbLib"
+    "error": "Failed to write file: ./Library.PcbLib"
 }
 ```
 
@@ -407,3 +449,63 @@ This design lets the AI create **any footprint** — not just pre-programmed pac
 | Primitive-based | AI can create any footprint |
 
 The AI already knows IPC-7351B. The tool doesn't need to duplicate that knowledge.
+
+---
+
+## IPC Standards Reference
+
+When calculating footprints, the AI should apply these IPC standards:
+
+### Primary Standards
+
+| Standard | Description | Key Content |
+|----------|-------------|-------------|
+| **IPC-7351B** | Generic Requirements for Surface Mount Design and Land Pattern Standard | Pad dimensions, courtyard, naming conventions |
+| **IPC-2221** | Generic Standard on Printed Board Design | Through-hole annular rings, via sizing |
+| **IPC-2222** | Sectional Design Standard for Rigid Organic Printed Boards | Layer stackup, design rules |
+
+### IPC-7351B Quick Reference
+
+**Density Levels:**
+
+| Level | Code | Application |
+|-------|------|-------------|
+| Most (M) | N/A | High-density designs, fine-pitch |
+| Nominal (N) | N | Standard manufacturing |
+| Least (L) | N/A | Wave soldering, hand assembly |
+
+**Naming Convention:**
+
+```
+RESC1608X55N
+│   │    │ └── Density: N=Nominal, M=Most, L=Least
+│   │    └──── Height in 0.01mm (55 = 0.55mm)
+│   └───────── Body size in 0.01mm (1608 = 1.6mm x 0.8mm)
+└───────────── Package type (RESC = Chip Resistor)
+```
+
+**Common Package Codes:**
+
+| Code | Package Type |
+|------|-------------|
+| RESC | Chip Resistor |
+| CAPC | Chip Capacitor |
+| INDC | Chip Inductor |
+| DIOM | Molded Diode |
+| LEDC | Chip LED |
+| SOIC | Small Outline IC |
+| QFP | Quad Flat Package |
+| QFN | Quad Flat No-Lead |
+| BGA | Ball Grid Array |
+| SOT | Small Outline Transistor |
+
+### Official IPC Resources
+
+- **IPC Standards Store**: [shop.ipc.org](https://shop.ipc.org/)
+- **IPC-7351B LP Calculator**: [PCB Libraries Calculator](https://www.pcblibraries.com/Products/FPL_702-IPC7351LandPatternCalculator.asp)
+- **IPC-7351B Naming and Land Pattern Tool**: [PCB Libraries](https://www.pcblibraries.com/)
+
+### Additional References
+
+- **JEDEC Package Outlines**: [jedec.org/standards-documents](https://www.jedec.org/standards-documents)
+- **EIA/JEDEC Component Sizes**: Standard chip sizes (0201, 0402, 0603, etc.)

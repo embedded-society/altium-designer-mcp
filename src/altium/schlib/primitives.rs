@@ -317,6 +317,58 @@ const fn default_end_angle() -> f64 {
     360.0
 }
 
+/// An ellipse.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Ellipse {
+    /// Center X coordinate.
+    pub x: i32,
+    /// Center Y coordinate.
+    pub y: i32,
+    /// X radius (horizontal).
+    pub radius_x: i32,
+    /// Y radius (vertical).
+    pub radius_y: i32,
+    /// Line width.
+    #[serde(default = "default_line_width")]
+    pub line_width: u8,
+    /// Line color (BGR format).
+    #[serde(default)]
+    pub line_color: u32,
+    /// Fill color (BGR format).
+    #[serde(default)]
+    pub fill_color: u32,
+    /// Whether the ellipse is filled.
+    #[serde(default = "default_true")]
+    pub filled: bool,
+    /// Owner part ID.
+    #[serde(default = "default_owner_part")]
+    pub owner_part_id: i32,
+}
+
+impl Ellipse {
+    /// Creates a new ellipse.
+    #[must_use]
+    pub const fn new(x: i32, y: i32, radius_x: i32, radius_y: i32) -> Self {
+        Self {
+            x,
+            y,
+            radius_x,
+            radius_y,
+            line_width: 1,
+            line_color: 0x00_00_80, // Dark red (BGR)
+            fill_color: 0xFF_FF_B0, // Light yellow (BGR)
+            filled: true,
+            owner_part_id: 1,
+        }
+    }
+
+    /// Creates a new circle (equal radii).
+    #[must_use]
+    pub const fn circle(x: i32, y: i32, radius: i32) -> Self {
+        Self::new(x, y, radius, radius)
+    }
+}
+
 /// A text label.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Label {
