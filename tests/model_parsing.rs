@@ -5,7 +5,8 @@ use altium_designer_mcp::altium::pcblib::PcbLib;
 #[test]
 #[ignore = "Requires sample.PcbLib with embedded 3D models"]
 fn test_model_parsing() {
-    let lib_path = std::env::var("ALTIUM_TEST_PCBLIB").unwrap_or_else(|_| "scripts/sample.PcbLib".to_string());
+    let lib_path =
+        std::env::var("ALTIUM_TEST_PCBLIB").unwrap_or_else(|_| "scripts/sample.PcbLib".to_string());
     let lib = PcbLib::read(&lib_path).expect("Failed to read sample.PcbLib");
 
     println!("\n=== Testing 3D Model Parsing ===\n");
