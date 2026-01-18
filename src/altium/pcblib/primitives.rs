@@ -131,9 +131,9 @@ impl Track {
 /// An arc or circle on a layer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Arc {
-    /// Center X position in mm.
+    /// Centre X position in mm.
     pub x: f64,
-    /// Center Y position in mm.
+    /// Centre Y position in mm.
     pub y: f64,
     /// Radius in mm.
     pub radius: f64,
@@ -247,7 +247,7 @@ impl Fill {
         }
     }
 
-    /// Creates a Fill from center position and dimensions.
+    /// Creates a Fill from centre position and dimensions.
     #[must_use]
     pub fn from_center(x: f64, y: f64, width: f64, height: f64, layer: Layer) -> Self {
         let half_w = width / 2.0;

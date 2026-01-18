@@ -194,39 +194,95 @@ All primitives start with a common header:
 | 2 | 1 | More flags |
 | 3-12 | 10 | Padding (0xFF) |
 
-## Not Yet Implemented
-
-The following primitives are recognized but not yet parsed:
-
 ### Text (0x05)
 
-Text strings (designator, comment, free text). Format details unknown.
+Text has 2 blocks:
 
-- Uses 1 block
-- Contains layer, position, font info, and string content
+**Block 0 (Geometry):**
+
+| Offset | Size | Field |
+|--------|------|-------|
+| 0 | 1 | Layer ID |
+| 1-12 | 12 | Flags and padding |
+| 13-16 | 4 | X position (internal units) |
+| 17-20 | 4 | Y position |
+| 21-24 | 4 | Height |
+| 25-26 | 2 | Font style flags |
+| 27-34 | 8 | Rotation (double, degrees) |
+| 35+ | var | Font name and additional data |
+
+**Block 1 (Content):**
+
+Length-prefixed string with text content, or reference to `WideStrings` stream.
+
+Special text values:
+
+| Value | Meaning |
+|-------|---------|
+| `.Designator` | Pad/component designator |
+| `.Comment` | Component comment |
 
 ### Fill (0x06)
 
-Filled rectangles. Format details unknown.
+Filled rectangle, single block:
 
-- Uses 1 block
-- Contains layer and corner coordinates
+| Offset | Size | Field |
+|--------|------|-------|
+| 0 | 1 | Layer ID |
+| 1-12 | 12 | Flags and padding |
+| 13-16 | 4 | X1 (first corner) |
+| 17-20 | 4 | Y1 |
+| 21-24 | 4 | X2 (second corner) |
+| 25-28 | 4 | Y2 |
+| 29-36 | 8 | Rotation (double, degrees) |
 
 ### Region (0x0B)
 
-Filled polygons (courtyard, copper pour). Format details unknown.
+Filled polygon with 2 blocks:
 
-- Uses 2 blocks
-- Contains layer and vertex list
-- Used for complex outlines
+**Block 0 (Properties):**
+
+| Offset | Size | Field |
+|--------|------|-------|
+| 0 | 1 | Layer ID |
+| 1-12 | 12 | Flags and padding |
+| 13-17 | 5 | Unknown |
+| 18-21 | 4 | Parameter string length |
+| 22+ | var | Parameter string (ASCII key=value) |
+| 22+len | 4 | Vertex count |
+| 26+len | 16×N | Vertices (N pairs of doubles) |
+
+**Block 1:** Usually empty.
+
+**Vertex format:**
+
+| Offset | Size | Field |
+|--------|------|-------|
+| 0-7 | 8 | X coordinate (double, internal units) |
+| 8-15 | 8 | Y coordinate (double, internal units) |
 
 ### ComponentBody (0x0C)
 
-3D model reference. Links to embedded STEP models.
+3D model reference with 3 blocks:
 
-- Uses 3 blocks
-- References model data in `/Library/Models/N` streams
-- Model metadata in `/Library/Models/Data` stream
+**Block 0 (Properties):**
+
+Contains pipe-delimited key=value parameters:
+
+| Key | Description |
+|-----|-------------|
+| `V7_LAYER` | Layer (e.g., "MECHANICAL6") |
+| `MODELID` | Model GUID |
+| `MODEL.NAME` | Model filename |
+| `MODEL.EMBED` | TRUE if embedded |
+| `MODEL.3D.ROTX` | X rotation (degrees) |
+| `MODEL.3D.ROTY` | Y rotation (degrees) |
+| `MODEL.3D.ROTZ` | Z rotation (degrees) |
+| `MODEL.3D.DZ` | Z offset (e.g., "15.748mil") |
+| `STANDOFFHEIGHT` | Standoff height |
+| `OVERALLHEIGHT` | Overall height |
+
+**Block 1 and 2:** Usually empty.
 
 ### 3D Model Storage
 

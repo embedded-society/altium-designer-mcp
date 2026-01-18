@@ -1642,7 +1642,7 @@ impl McpServer {
                 let mut line_widths: Vec<u8> = Vec::new();
                 // Pin lengths
                 let mut pin_lengths: Vec<i32> = Vec::new();
-                // Colors used
+                // Colours used
                 let mut line_colors: HashMap<String, usize> = HashMap::new();
                 let mut fill_colors: HashMap<String, usize> = HashMap::new();
                 // Rectangle stats

@@ -88,8 +88,8 @@ src/
 
 The AI provides primitive definitions. The tool writes them.
 
-**Footprint**: Pads, tracks, arcs, regions, text
-**Symbol**: Pins, rectangles, lines, arcs, text
+**Footprint**: Pads, tracks, arcs, regions, text, fills, component bodies (3D models)
+**Symbol**: Pins, rectangles, lines, polylines, arcs, ellipses, labels
 
 ## Off Limits
 

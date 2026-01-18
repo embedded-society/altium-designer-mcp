@@ -97,7 +97,7 @@ fn write_binary_pin(data: &mut Vec<u8>, pin: &Pin) {
     record.extend_from_slice(&x.to_le_bytes());
     record.extend_from_slice(&y.to_le_bytes());
 
-    // Color (4 bytes) - default black
+    // Colour (4 bytes) - default black
     record.extend_from_slice(&0u32.to_le_bytes());
 
     // Name: [length:1][string]

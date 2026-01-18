@@ -197,10 +197,10 @@ pub struct Rectangle {
     /// Line width.
     #[serde(default = "default_line_width")]
     pub line_width: u8,
-    /// Line color (BGR format).
+    /// Line colour (BGR format).
     #[serde(default)]
     pub line_color: u32,
-    /// Fill color (BGR format).
+    /// Fill colour (BGR format).
     #[serde(default)]
     pub fill_color: u32,
     /// Whether the rectangle is filled.
@@ -247,7 +247,7 @@ pub struct Line {
     /// Line width.
     #[serde(default = "default_line_width")]
     pub line_width: u8,
-    /// Line color (BGR format).
+    /// Line colour (BGR format).
     #[serde(default)]
     pub color: u32,
     /// Owner part ID.
@@ -279,7 +279,7 @@ pub struct Polyline {
     /// Line width.
     #[serde(default = "default_line_width")]
     pub line_width: u8,
-    /// Line color (BGR format).
+    /// Line colour (BGR format).
     #[serde(default)]
     pub color: u32,
     /// Owner part ID.
@@ -290,9 +290,9 @@ pub struct Polyline {
 /// An arc or circle.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Arc {
-    /// Center X coordinate.
+    /// Centre X coordinate.
     pub x: i32,
-    /// Center Y coordinate.
+    /// Centre Y coordinate.
     pub y: i32,
     /// Radius.
     pub radius: i32,
@@ -305,7 +305,7 @@ pub struct Arc {
     /// Line width.
     #[serde(default = "default_line_width")]
     pub line_width: u8,
-    /// Line color (BGR format).
+    /// Line colour (BGR format).
     #[serde(default)]
     pub color: u32,
     /// Owner part ID.
@@ -320,9 +320,9 @@ const fn default_end_angle() -> f64 {
 /// An ellipse.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Ellipse {
-    /// Center X coordinate.
+    /// Centre X coordinate.
     pub x: i32,
-    /// Center Y coordinate.
+    /// Centre Y coordinate.
     pub y: i32,
     /// X radius (horizontal).
     pub radius_x: i32,
@@ -331,10 +331,10 @@ pub struct Ellipse {
     /// Line width.
     #[serde(default = "default_line_width")]
     pub line_width: u8,
-    /// Line color (BGR format).
+    /// Line colour (BGR format).
     #[serde(default)]
     pub line_color: u32,
-    /// Fill color (BGR format).
+    /// Fill colour (BGR format).
     #[serde(default)]
     pub fill_color: u32,
     /// Whether the ellipse is filled.
@@ -381,7 +381,7 @@ pub struct Label {
     /// Font ID (1-based index into library fonts).
     #[serde(default = "default_font_id")]
     pub font_id: u8,
-    /// Text color (BGR format).
+    /// Text colour (BGR format).
     #[serde(default)]
     pub color: u32,
     /// Text justification.
@@ -406,19 +406,19 @@ pub enum TextJustification {
     /// Bottom-left aligned.
     #[default]
     BottomLeft,
-    /// Bottom-center aligned.
+    /// Bottom-centre aligned.
     BottomCenter,
     /// Bottom-right aligned.
     BottomRight,
     /// Middle-left aligned.
     MiddleLeft,
-    /// Middle-center aligned.
+    /// Middle-centre aligned.
     MiddleCenter,
     /// Middle-right aligned.
     MiddleRight,
     /// Top-left aligned.
     TopLeft,
-    /// Top-center aligned.
+    /// Top-centre aligned.
     TopCenter,
     /// Top-right aligned.
     TopRight,
@@ -438,7 +438,7 @@ pub struct Parameter {
     /// Font ID.
     #[serde(default = "default_font_id")]
     pub font_id: u8,
-    /// Text color (BGR format).
+    /// Text colour (BGR format).
     #[serde(default)]
     pub color: u32,
     /// Whether the parameter is hidden.

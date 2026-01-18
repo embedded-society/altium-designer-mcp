@@ -245,7 +245,7 @@ fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
     let y = i32::from(read_i16_signed(data, offset).unwrap_or(0));
     offset += 2;
 
-    // color (4 bytes)
+    // colour (4 bytes)
     offset += 4;
 
     // name: [length:1][string]

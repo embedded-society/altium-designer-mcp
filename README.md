@@ -230,6 +230,8 @@ Returns statistics about track widths, pad shapes, pin lengths, colours, and lay
 | **Arc** | Arc or circle on any layer |
 | **Region** | Filled polygon (courtyard, copper pour) |
 | **Text** | Text string with font, size, position, layer |
+| **Fill** | Filled rectangle on any layer |
+| **ComponentBody** | 3D model reference (embedded STEP models) |
 
 ### Symbol Primitives (SchLib)
 

@@ -417,7 +417,7 @@ fn parse_arc(data: &[u8], offset: usize) -> Option<(Arc, usize)> {
     let layer_id = block[0];
     let layer = layer_from_id(layer_id);
 
-    // Center coordinates (X, Y) - offsets 13-20
+    // Centre coordinates (X, Y) - offsets 13-20
     let x = to_mm(read_i32(block, 13)?);
     let y = to_mm(read_i32(block, 17)?);
 
