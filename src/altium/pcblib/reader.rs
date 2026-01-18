@@ -27,8 +27,8 @@
 use std::collections::HashMap;
 
 use super::primitives::{
-    Arc, ComponentBody, Fill, HoleShape, Layer, Pad, PadShape, PadStackMode, Region, Text,
-    TextKind, Track, Vertex, Via, ViaStackMode,
+    Arc, ComponentBody, Fill, HoleShape, Layer, Pad, PadShape, PadStackMode, Region, StrokeFont,
+    Text, TextKind, Track, Vertex, Via, ViaStackMode,
 };
 use super::Footprint;
 
@@ -259,6 +259,20 @@ const fn text_kind_from_id(id: u8) -> TextKind {
         1 => TextKind::TrueType,
         2 => TextKind::BarCode,
         _ => TextKind::Stroke, // Default and ID 0
+    }
+}
+
+/// Converts Altium stroke font ID to our `StrokeFont` enum.
+///
+/// Stroke font IDs (from geometry block bytes 25-26 as u16):
+/// - 0: Default
+/// - 1: Sans-Serif
+/// - 2: Serif
+const fn stroke_font_from_id(id: u16) -> StrokeFont {
+    match id {
+        1 => StrokeFont::SansSerif,
+        2 => StrokeFont::Serif,
+        _ => StrokeFont::Default, // Default and ID 0
     }
 }
 
@@ -980,6 +994,19 @@ fn parse_text(
     // Height - offset 21
     let height = to_mm(read_i32(geometry_block, 21)?);
 
+    // Stroke font ID - offset 25-26 (u16)
+    // Only meaningful when kind is Stroke
+    let stroke_font = if geometry_block.len() > 26 && kind == TextKind::Stroke {
+        let font_id = read_u16(geometry_block, 25).unwrap_or(0);
+        if font_id > 0 {
+            Some(stroke_font_from_id(font_id))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     // Rotation - offset 27 (8-byte double)
     // Altium stores rotation in degrees (0-360)
     let rotation = if geometry_block.len() > 35 {
@@ -1013,6 +1040,7 @@ fn parse_text(
         layer,
         rotation,
         kind,
+        stroke_font,
     };
 
     Some((text, current))

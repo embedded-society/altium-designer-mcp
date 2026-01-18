@@ -2212,6 +2212,7 @@ impl McpServer {
             layer,
             rotation,
             kind: TextKind::Stroke,
+            stroke_font: None,
         })
     }
 

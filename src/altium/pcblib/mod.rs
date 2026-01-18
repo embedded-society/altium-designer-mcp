@@ -877,6 +877,7 @@ mod tests {
             layer: Layer::TopOverlay,
             rotation: 0.0,
             kind: TextKind::Stroke,
+            stroke_font: None,
         });
         original.add_text(Text {
             x: 1.5,
@@ -886,6 +887,7 @@ mod tests {
             layer: Layer::TopOverlay,
             rotation: 90.0,
             kind: TextKind::Stroke,
+            stroke_font: None,
         });
 
         let data = writer::encode_data_stream(&original);

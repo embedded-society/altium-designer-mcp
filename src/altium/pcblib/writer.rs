@@ -14,8 +14,8 @@
 //! ```
 
 use super::primitives::{
-    Arc, ComponentBody, Fill, HoleShape, Layer, Pad, PadShape, PadStackMode, Region, Text,
-    TextKind, Track, Via, ViaStackMode,
+    Arc, ComponentBody, Fill, HoleShape, Layer, Pad, PadShape, PadStackMode, Region, StrokeFont,
+    Text, TextKind, Track, Via, ViaStackMode,
 };
 use super::Footprint;
 
@@ -602,6 +602,15 @@ const fn text_kind_to_id(kind: TextKind) -> u8 {
     }
 }
 
+/// Converts a `StrokeFont` to its binary ID.
+const fn stroke_font_to_id(font: StrokeFont) -> u16 {
+    match font {
+        StrokeFont::Default => 0,
+        StrokeFont::SansSerif => 1,
+        StrokeFont::Serif => 2,
+    }
+}
+
 /// Encodes a Track primitive.
 fn encode_track(data: &mut Vec<u8>, track: &Track) {
     let mut block = Vec::with_capacity(64);
@@ -697,9 +706,10 @@ fn encode_text_geometry(text: &Text) -> Vec<u8> {
     // Height - offset 21-24
     write_i32(&mut block, from_mm(text.height));
 
-    // Unknown bytes before rotation - offsets 25-26
-    block.push(0x01); // Flag: visible?
-    block.push(0x00);
+    // Stroke font ID - offset 25-26 (u16)
+    // Only meaningful when kind is Stroke
+    let font_id = text.stroke_font.map_or(0, stroke_font_to_id);
+    block.extend_from_slice(&font_id.to_le_bytes());
 
     // Rotation - offset 27-34 (8-byte double)
     write_f64(&mut block, text.rotation);
@@ -1156,6 +1166,7 @@ mod tests {
             layer: Layer::TopOverlay,
             rotation: 0.0,
             kind: TextKind::Stroke,
+            stroke_font: None,
         });
         fp.add_text(Text {
             x: 1.0,
@@ -1165,6 +1176,7 @@ mod tests {
             layer: Layer::TopOverlay,
             rotation: 0.0,
             kind: TextKind::Stroke,
+            stroke_font: None,
         });
 
         let texts = collect_wide_strings_content(&[fp]);
