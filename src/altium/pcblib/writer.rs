@@ -297,7 +297,7 @@ fn encode_arc(data: &mut Vec<u8>, arc: &Arc) {
     // Common header (13 bytes)
     write_common_header(&mut block, arc.layer);
 
-    // Center coordinates (X, Y) - offsets 13-20
+    // Centre coordinates (X, Y) - offsets 13-20
     write_i32(&mut block, from_mm(arc.x));
     write_i32(&mut block, from_mm(arc.y));
 

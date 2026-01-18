@@ -341,6 +341,36 @@ The AI provides complete primitive definitions. The tool writes them.
 }
 ```
 
+### Fill
+
+```json
+{
+    "x1": -0.8,
+    "y1": -0.4,
+    "x2": 0.8,
+    "y2": 0.4,
+    "layer": "Top Assembly",
+    "rotation": 0
+}
+```
+
+### ComponentBody
+
+```json
+{
+    "model_id": "GUID-HERE",
+    "model_name": "RESC1608X55.step",
+    "embedded": true,
+    "rotation_x": 0,
+    "rotation_y": 0,
+    "rotation_z": 0,
+    "z_offset": 0,
+    "overall_height": 0.55,
+    "standoff_height": 0,
+    "layer": "Top 3D Body"
+}
+```
+
 ---
 
 ## Standard Altium Layers

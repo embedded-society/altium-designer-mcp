@@ -99,6 +99,8 @@ The AI provides complete primitive definitions. The tool writes them.
 | **Arc** | x, y, radius, start_angle, end_angle, width, layer |
 | **Region** | vertices[], layer |
 | **Text** | x, y, text, height, layer, rotation |
+| **Fill** | x1, y1, x2, y2, layer, rotation |
+| **ComponentBody** | model_id, model_name, embedded, rotation_x/y/z, z_offset, overall_height, standoff_height, layer |
 | **Model3D** | filepath, x_offset, y_offset, z_offset, rotation |
 
 ### Standard Altium Layers

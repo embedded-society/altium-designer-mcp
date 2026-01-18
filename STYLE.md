@@ -237,8 +237,9 @@ See `CONTRIBUTING.md` § Commit Messages for conventions and allowed types.
 - All dimensions in millimetres (mm)
 - Use `f64` for dimensional values
 - Document units in variable names or comments when not obvious
-- Primitive types: Pad, Track, Arc, Region, Text
+- Footprint primitives: Pad, Track, Arc, Region, Text, Fill, ComponentBody
+- Symbol primitives: Pin, Rectangle, Line, Polyline, Arc, Ellipse, Label
 
 ---
 
-*Last updated: 2026-01-17*
+*Last updated: 2026-01-18*
