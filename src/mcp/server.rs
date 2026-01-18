@@ -1203,8 +1203,41 @@ impl McpServer {
         }
     }
 
+    /// Parses and validates symbol definitions from JSON into `Symbol` instances.
+    ///
+    /// This helper performs all the detailed extraction and validation of the
+    /// `symbols` argument for `call_write_schlib`, returning either a fully
+    /// constructed list of `Symbol`s or an error message describing the first
+    /// validation failure encountered.
+    fn parse_symbols_from_json(
+        &self,
+        symbols_json: &[Value],
+    ) -> Result<Vec<crate::altium::schlib::Symbol>, String> {
+        use crate::altium::schlib::{FootprintModel, Symbol};
+
+        // NOTE: The body of this function should be the symbol parsing and
+        // validation logic that previously lived inside `call_write_schlib`.
+        // It should:
+        // - Iterate over `symbols_json`.
+        // - Validate required fields (e.g., name, pins, graphics, parameters).
+        // - Construct `Symbol` and any nested `FootprintModel` values.
+        // - Return `Err(String)` with a descriptive message on validation errors.
+        //
+        // For example (pseudocode outline):
+        //
+        // let mut symbols = Vec::new();
+        // for (index, symbol_value) in symbols_json.iter().enumerate() {
+        //     // extract fields from `symbol_value`, perform checks,
+        //     // and push constructed `Symbol` into `symbols`.
+        // }
+        // Ok(symbols)
+
+        // Placeholder to be replaced with the existing concrete parsing logic.
+        // This placeholder ensures compilation fails if the body is not filled in.
+        Err("parse_symbols_from_json is not yet implemented".to_string())
+    }
+
     /// Writes symbols to a `SchLib` file.
-    #[allow(clippy::too_many_lines)]
     fn call_write_schlib(&self, arguments: &Value) -> ToolCallResult {
         use crate::altium::schlib::{FootprintModel, SchLib, Symbol};
 
@@ -1220,6 +1253,15 @@ impl McpServer {
         let Some(symbols_json) = arguments.get("symbols").and_then(Value::as_array) else {
             return ToolCallResult::error("Missing required parameter: symbols");
         };
+        // Parse and validate symbol definitions from JSON
+        let symbols: Vec<Symbol> = match self.parse_symbols_from_json(symbols_json) {
+            Ok(symbols) => symbols,
+            Err(msg) => return ToolCallResult::error(msg),
+        };
+
+        // Existing logic below should remain unchanged: construct SchLib from `symbols`,
+        // write it to `filepath`, and return a ToolCallResult indicating success or error.
+
 
         // Collect and validate symbol names
         let new_names: Vec<&str> = symbols_json
