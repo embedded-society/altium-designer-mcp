@@ -27,8 +27,8 @@
 use std::collections::HashMap;
 
 use super::primitives::{
-    Arc, ComponentBody, Fill, HoleShape, Layer, Pad, PadShape, Region, Text, Track, Vertex, Via,
-    ViaStackMode,
+    Arc, ComponentBody, Fill, HoleShape, Layer, Pad, PadShape, PadStackMode, Region, Text, Track,
+    Vertex, Via, ViaStackMode,
 };
 use super::Footprint;
 
@@ -488,6 +488,13 @@ fn parse_pad(data: &[u8], offset: usize) -> Option<(Pad, usize)> {
         HoleShape::Round
     };
 
+    // Stack mode - offset 62
+    let stack_mode = if geometry.len() > 62 {
+        pad_stack_mode_from_id(geometry[62])
+    } else {
+        PadStackMode::Simple
+    };
+
     // Paste mask expansion - offset 86-89
     let paste_mask_expansion = if geometry.len() > 89 {
         let expansion = to_mm(read_i32(geometry, 86)?);
@@ -552,9 +559,19 @@ fn parse_pad(data: &[u8], offset: usize) -> Option<(Pad, usize)> {
         paste_mask_expansion_manual,
         solder_mask_expansion_manual,
         corner_radius_percent,
+        stack_mode,
     };
 
     Some((pad, current))
+}
+
+/// Converts a pad stack mode ID to `PadStackMode`.
+const fn pad_stack_mode_from_id(id: u8) -> PadStackMode {
+    match id {
+        1 => PadStackMode::TopMiddleBottom,
+        2 => PadStackMode::FullStack,
+        _ => PadStackMode::Simple, // 0 and any unknown value default to Simple
+    }
 }
 
 /// Parses a Via primitive.

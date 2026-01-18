@@ -63,6 +63,10 @@ pub struct Pad {
     /// Only applies to `RoundedRectangle` shape.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub corner_radius_percent: Option<u8>,
+
+    /// Stack mode for per-layer pad geometry.
+    #[serde(default)]
+    pub stack_mode: PadStackMode,
 }
 
 /// Helper for serde to skip default hole shape in serialization.
@@ -91,6 +95,7 @@ impl Pad {
             paste_mask_expansion_manual: false,
             solder_mask_expansion_manual: false,
             corner_radius_percent: None,
+            stack_mode: PadStackMode::Simple,
         }
     }
 
@@ -120,6 +125,7 @@ impl Pad {
             paste_mask_expansion_manual: false,
             solder_mask_expansion_manual: false,
             corner_radius_percent: None,
+            stack_mode: PadStackMode::Simple,
         }
     }
 }
@@ -153,6 +159,21 @@ pub enum HoleShape {
     Square,
     /// Slot (oblong) hole.
     Slot,
+}
+
+/// Pad stack mode for per-layer pad geometry.
+///
+/// Controls whether pad size/shape varies per layer or uses uniform values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PadStackMode {
+    /// All layers use the same size and shape (most common).
+    #[default]
+    Simple,
+    /// Top, middle, and bottom layers can have different sizes/shapes.
+    TopMiddleBottom,
+    /// Each of the 32 layers can have independent size/shape/corner radius.
+    FullStack,
 }
 
 /// Via diameter stack mode.

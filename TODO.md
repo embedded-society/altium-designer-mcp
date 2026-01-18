@@ -62,12 +62,13 @@ This document tracks implementation gaps between the documented PcbLib format (`
 - [x] Set stack mode to FullStack (2) when corner radius is specified
 - Note: Percentage of smaller pad dimension, not absolute value
 
-### Stack Modes - Not Implemented
+### Stack Modes - Implemented ✓
 
-- [ ] Add `stack_mode: PadStackMode` field to `Pad` struct
-- [ ] Create `PadStackMode` enum: `Simple`, `TopMiddleBottom`, `FullStack`
-- [ ] Parse stack mode byte at geometry offset 62 in `parse_pad()` (reader.rs)
-- [ ] Write stack mode in `encode_pad_geometry()` (writer.rs, currently hardcoded to 0)
+- [x] Add `stack_mode: PadStackMode` field to `Pad` struct
+- [x] Create `PadStackMode` enum: `Simple`, `TopMiddleBottom`, `FullStack`
+- [x] Parse stack mode byte at geometry offset 62 in `parse_pad()` (reader.rs)
+- [x] Write stack mode in `encode_pad_geometry()` (writer.rs)
+- [x] Auto-upgrade to FullStack when corner_radius_percent is set
 
 ### Per-Layer Pad Data - Not Implemented
 
