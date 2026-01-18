@@ -1964,7 +1964,7 @@ impl McpServer {
 
     /// Parses a pad from JSON.
     fn parse_pad(json: &Value) -> Result<crate::altium::pcblib::Pad, String> {
-        use crate::altium::pcblib::{Layer, Pad, PadShape};
+        use crate::altium::pcblib::{Layer, Pad, PadShape, PadStackMode};
 
         let designator = json
             .get("designator")
@@ -2064,6 +2064,7 @@ impl McpServer {
             paste_mask_expansion_manual,
             solder_mask_expansion_manual,
             corner_radius_percent,
+            stack_mode: PadStackMode::Simple,
         })
     }
 
