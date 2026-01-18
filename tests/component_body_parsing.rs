@@ -1,4 +1,4 @@
-//! Test for ComponentBody primitive parsing.
+//! Test for `ComponentBody` primitive parsing.
 
 use altium_designer_mcp::altium::pcblib::PcbLib;
 

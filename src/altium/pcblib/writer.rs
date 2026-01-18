@@ -530,6 +530,7 @@ fn encode_component_body(data: &mut Vec<u8>, body: &ComponentBody) {
 /// [vertex_count:4]             // Outline vertex count (usually 0 or 4)
 /// [vertices...]                // Optional outline vertices
 /// ```
+#[allow(clippy::cast_possible_truncation)] // Parameter strings are always small
 fn encode_component_body_block(body: &ComponentBody) -> Vec<u8> {
     let mut block = Vec::with_capacity(128);
 
@@ -567,9 +568,8 @@ fn encode_component_body_block(body: &ComponentBody) -> Vec<u8> {
 fn build_component_body_params(body: &ComponentBody) -> String {
     let mut params = Vec::new();
 
-    // V7_LAYER
+    // V7_LAYER (Top3DBody is MECHANICAL6, Bottom3DBody is MECHANICAL7)
     let layer_name = match body.layer {
-        Layer::Top3DBody => "MECHANICAL6",
         Layer::Bottom3DBody => "MECHANICAL7",
         _ => "MECHANICAL6",
     };

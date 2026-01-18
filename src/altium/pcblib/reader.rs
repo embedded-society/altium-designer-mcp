@@ -829,9 +829,8 @@ fn parse_component_body_params(s: &str) -> std::collections::HashMap<String, Str
 
 /// Parses a value in mils (e.g., "15.748mil") to mm.
 fn parse_mil_value(s: Option<&str>) -> f64 {
-    let s = match s {
-        Some(s) => s,
-        None => return 0.0,
+    let Some(s) = s else {
+        return 0.0;
     };
 
     // Remove "mil" suffix if present
