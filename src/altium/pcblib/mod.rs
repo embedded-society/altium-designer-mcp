@@ -643,4 +643,49 @@ mod tests {
         assert!(approx_eq(decoded.text[1].height, 0.5, 0.001));
         assert!(approx_eq(decoded.text[1].rotation, 90.0, 0.001));
     }
+
+    #[test]
+    fn binary_roundtrip_region() {
+        let mut original = Footprint::new("ROUNDTRIP_REGION");
+
+        // Add a triangular region (similar to user's sample)
+        original.add_region(Region {
+            vertices: vec![
+                Vertex {
+                    x: -2.286,
+                    y: 1.778,
+                },
+                Vertex {
+                    x: -0.762,
+                    y: 1.778,
+                },
+                Vertex {
+                    x: -1.524,
+                    y: 1.016,
+                },
+            ],
+            layer: Layer::TopAssembly,
+        });
+
+        // Add a rectangular region
+        original.add_region(Region::rectangle(-1.0, -1.0, 1.0, 1.0, Layer::TopCourtyard));
+
+        let data = writer::encode_data_stream(&original);
+        let mut decoded = Footprint::new("ROUNDTRIP_REGION");
+        reader::parse_data_stream(&mut decoded, &data);
+
+        assert_eq!(decoded.regions.len(), 2);
+
+        // Triangle
+        assert_eq!(decoded.regions[0].vertices.len(), 3);
+        assert!(approx_eq(decoded.regions[0].vertices[0].x, -2.286, 0.001));
+        assert!(approx_eq(decoded.regions[0].vertices[0].y, 1.778, 0.001));
+        assert!(approx_eq(decoded.regions[0].vertices[1].x, -0.762, 0.001));
+        assert!(approx_eq(decoded.regions[0].vertices[2].x, -1.524, 0.001));
+        assert_eq!(decoded.regions[0].layer, Layer::TopAssembly);
+
+        // Rectangle
+        assert_eq!(decoded.regions[1].vertices.len(), 4);
+        assert_eq!(decoded.regions[1].layer, Layer::TopCourtyard);
+    }
 }

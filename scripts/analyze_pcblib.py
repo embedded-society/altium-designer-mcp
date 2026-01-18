@@ -129,6 +129,12 @@ def parse_footprint_data(name: str, data: bytes):
             offset = parse_track_blocks(data, offset)
         elif record_type == 0x01:  # Arc
             offset = parse_arc_blocks(data, offset)
+        elif record_type == 0x05:  # Text
+            offset = parse_text_blocks(data, offset)
+        elif record_type == 0x0B:  # Region
+            offset = parse_region_blocks(data, offset)
+        elif record_type == 0x0C:  # ComponentBody
+            offset = parse_component_body_blocks(data, offset)
         else:
             # Skip unknown primitive - try to find next record type
             print(f"    Skipping unknown primitive, raw bytes:")
@@ -330,6 +336,82 @@ def parse_arc_blocks(data: bytes, offset: int) -> int:
     return offset
 
 
+def parse_text_blocks(data: bytes, offset: int) -> int:
+    """Parse text primitive blocks (2 blocks)."""
+    # Block 0: Geometry
+    block0, offset = read_block(data, offset)
+    print(f"    Text geometry block: {len(block0)} bytes")
+
+    if len(block0) >= 25:
+        layer = block0[0]
+        print(f"      Layer: {layer}")
+
+        def to_mm(val):
+            return val / 10000.0 * 0.0254
+
+        x = struct.unpack_from("<i", block0, 13)[0]
+        y = struct.unpack_from("<i", block0, 17)[0]
+        height = struct.unpack_from("<i", block0, 21)[0]
+        print(f"      Position: ({to_mm(x):.4f}, {to_mm(y):.4f}) mm")
+        print(f"      Height: {to_mm(height):.4f} mm")
+
+        if len(block0) > 35:
+            rotation = struct.unpack_from("<d", block0, 27)[0]
+            print(f"      Rotation: {rotation:.2f} deg")
+
+    # Block 1: Text content
+    block1, offset = read_block(data, offset)
+    content = read_string_from_block(block1)
+    print(f"    Text content block: {len(block1)} bytes, content: '{content}'")
+
+    return offset
+
+
+def parse_region_blocks(data: bytes, offset: int) -> int:
+    """Parse region primitive blocks (2 blocks)."""
+    # Block 0: Properties
+    block0, offset = read_block(data, offset)
+    print(f"    Region properties block: {len(block0)} bytes")
+    print(f"      Raw hex: {' '.join(f'{b:02x}' for b in block0[:min(64, len(block0))])}")
+
+    if len(block0) >= 13:
+        layer = block0[0]
+        print(f"      Layer: {layer}")
+
+    # Block 1: Vertices
+    block1, offset = read_block(data, offset)
+    print(f"    Region vertices block: {len(block1)} bytes")
+    print(f"      Raw hex: {' '.join(f'{b:02x}' for b in block1[:min(128, len(block1))])}")
+
+    if len(block1) >= 4:
+        vertex_count = struct.unpack_from("<I", block1, 0)[0]
+        print(f"      Vertex count: {vertex_count}")
+
+        def to_mm(val):
+            return val / 10000.0 * 0.0254
+
+        # Each vertex is 2 doubles (16 bytes)
+        for i in range(vertex_count):
+            base = 4 + i * 16
+            if base + 16 <= len(block1):
+                x = struct.unpack_from("<d", block1, base)[0]
+                y = struct.unpack_from("<d", block1, base + 8)[0]
+                print(f"      Vertex[{i}]: ({to_mm(int(x)):.4f}, {to_mm(int(y)):.4f}) mm  [raw: x={x}, y={y}]")
+
+    return offset
+
+
+def parse_component_body_blocks(data: bytes, offset: int) -> int:
+    """Parse component body primitive blocks (3 blocks)."""
+    for i in range(3):
+        block, offset = read_block(data, offset)
+        print(f"    ComponentBody block {i}: {len(block)} bytes")
+        if len(block) > 0:
+            preview = " ".join(f"{b:02x}" for b in block[:min(32, len(block))])
+            print(f"      Raw: {preview}")
+    return offset
+
+
 def analyze_pcblib(filepath: Path):
     """Analyze a PcbLib file."""
     print(f"\n{'#'*70}")
@@ -378,7 +460,7 @@ def analyze_pcblib(filepath: Path):
                 footprint_count += 1
 
                 # Only analyze first few footprints
-                if footprint_count >= 2:
+                if footprint_count >= 5:
                     print("\n... (more footprints exist)")
                     break
 
