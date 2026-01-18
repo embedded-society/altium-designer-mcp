@@ -96,6 +96,82 @@ pub enum PadShape {
     Oval,
 }
 
+/// A PCB via (vertical interconnect access).
+///
+/// Vias connect traces between different copper layers. They have a drill hole
+/// and copper annular rings on the connected layers.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Via {
+    /// X position in mm (from footprint origin).
+    pub x: f64,
+
+    /// Y position in mm (from footprint origin).
+    pub y: f64,
+
+    /// Via diameter (annular ring outer diameter) in mm.
+    pub diameter: f64,
+
+    /// Hole diameter in mm.
+    pub hole_size: f64,
+
+    /// Starting layer for the via.
+    #[serde(default)]
+    pub from_layer: Layer,
+
+    /// Ending layer for the via.
+    #[serde(default)]
+    pub to_layer: Layer,
+
+    /// Solder mask expansion in mm (negative = tented).
+    #[serde(default)]
+    pub solder_mask_expansion: f64,
+
+    /// Whether solder mask expansion is manually set.
+    #[serde(default)]
+    pub solder_mask_expansion_manual: bool,
+}
+
+impl Via {
+    /// Creates a new via with default settings.
+    ///
+    /// By default, vias span from top to bottom layer.
+    #[must_use]
+    pub const fn new(x: f64, y: f64, diameter: f64, hole_size: f64) -> Self {
+        Self {
+            x,
+            y,
+            diameter,
+            hole_size,
+            from_layer: Layer::TopLayer,
+            to_layer: Layer::BottomLayer,
+            solder_mask_expansion: 0.0,
+            solder_mask_expansion_manual: false,
+        }
+    }
+
+    /// Creates a blind via (connects outer layer to inner layer).
+    #[must_use]
+    pub const fn blind(
+        x: f64,
+        y: f64,
+        diameter: f64,
+        hole_size: f64,
+        from: Layer,
+        to: Layer,
+    ) -> Self {
+        Self {
+            x,
+            y,
+            diameter,
+            hole_size,
+            from_layer: from,
+            to_layer: to,
+            solder_mask_expansion: 0.0,
+            solder_mask_expansion_manual: false,
+        }
+    }
+}
+
 /// A track (line segment) on a layer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Track {

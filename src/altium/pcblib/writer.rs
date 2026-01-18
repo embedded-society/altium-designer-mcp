@@ -13,8 +13,71 @@
 //! [0x00]                                       // End marker
 //! ```
 
-use super::primitives::{Arc, ComponentBody, Fill, Layer, Pad, PadShape, Region, Text, Track};
+use super::primitives::{Arc, ComponentBody, Fill, Layer, Pad, PadShape, Region, Text, Track, Via};
 use super::Footprint;
+
+/// Encodes text content for the `WideStrings` stream.
+///
+/// # Format
+///
+/// ```text
+/// |ENCODEDTEXT0=84,69,83,84|ENCODEDTEXT1=72,69,76,76,79|
+/// ```
+///
+/// Where values are comma-separated ASCII codes.
+///
+/// # Arguments
+///
+/// * `texts` - Slice of text strings to encode
+///
+/// # Returns
+///
+/// Encoded `WideStrings` stream content as bytes.
+pub fn encode_wide_strings(texts: &[&str]) -> Vec<u8> {
+    use std::fmt::Write;
+
+    let mut output = String::new();
+
+    for (index, text) in texts.iter().enumerate() {
+        // Skip special text like .Designator and .Comment
+        if text.starts_with('.') {
+            continue;
+        }
+
+        // Encode text as comma-separated ASCII codes
+        let encoded: String = text
+            .bytes()
+            .map(|b| b.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+
+        let _ = write!(output, "|ENCODEDTEXT{index}={encoded}");
+    }
+
+    if !output.is_empty() {
+        output.push('|');
+    }
+
+    output.into_bytes()
+}
+
+/// Collects all text content from footprints that needs to be stored in `WideStrings`.
+///
+/// Returns a vector of unique text strings (excluding special values like `.Designator`).
+pub fn collect_wide_strings_content(footprints: &[Footprint]) -> Vec<String> {
+    let mut texts = Vec::new();
+
+    for footprint in footprints {
+        for text in &footprint.text {
+            // Skip special text values
+            if !text.text.starts_with('.') && !text.text.is_empty() && !texts.contains(&text.text) {
+                texts.push(text.text.clone());
+            }
+        }
+    }
+
+    texts
+}
 
 /// Conversion factor from millimetres to Altium internal units.
 /// Internal units: 10000 = 1 mil = 0.0254 mm
@@ -134,6 +197,11 @@ pub fn encode_data_stream(footprint: &Footprint) -> Vec<u8> {
     for pad in &footprint.pads {
         data.push(0x02); // Pad record type
         encode_pad(&mut data, pad);
+    }
+
+    for via in &footprint.vias {
+        data.push(0x03); // Via record type
+        encode_via(&mut data, via);
     }
 
     for track in &footprint.tracks {
@@ -265,6 +333,102 @@ fn encode_pad_geometry(pad: &Pad) -> Vec<u8> {
 
     // Jumper ID
     block.extend_from_slice(&[0u8; 2]);
+
+    block
+}
+
+/// Encodes a Via primitive.
+///
+/// Via has 6 blocks (similar to Pad):
+/// - Block 0: Name/designator (empty for vias)
+/// - Block 1: Layer stack data (empty)
+/// - Block 2: Marker string ("|&|0")
+/// - Block 3: Net/connectivity data (empty)
+/// - Block 4: Geometry data
+/// - Block 5: Per-layer data (empty for simple vias)
+fn encode_via(data: &mut Vec<u8>, via: &Via) {
+    // Block 0: Name/designator (empty for vias)
+    write_block(data, &[0u8; 1]); // Single null byte for empty string
+
+    // Block 1: Layer stack data (empty)
+    write_block(data, &[]);
+
+    // Block 2: "|&|0" marker string
+    write_string_block(data, "|&|0");
+
+    // Block 3: Net/connectivity data (empty for library vias)
+    write_block(data, &[]);
+
+    // Block 4: Geometry data
+    let geometry = encode_via_geometry(via);
+    write_block(data, &geometry);
+
+    // Block 5: Per-layer data (empty for simple vias)
+    write_block(data, &[]);
+}
+
+/// Encodes the geometry block for a via.
+///
+/// # Format
+///
+/// ```text
+/// [layer:1]                 // Layer ID (typically MultiLayer = 74)
+/// [flags:12]                // Flags and padding
+/// [x:4 i32]                 // X position
+/// [y:4 i32]                 // Y position
+/// [diameter:4 i32]          // Via diameter
+/// [hole_size:4 i32]         // Hole diameter
+/// [from_layer:1]            // Starting layer ID
+/// [to_layer:1]              // Ending layer ID
+/// [thermal_gap:4 i32]       // Thermal relief air gap width
+/// [thermal_count:1]         // Thermal relief conductors count
+/// [thermal_width:4 i32]     // Thermal relief conductors width
+/// [solder_expansion:4 i32]  // Solder mask expansion
+/// [solder_manual:1]         // Solder mask expansion manual flag
+/// [stack_mode:1]            // Diameter stack mode (0 = Simple)
+/// ```
+fn encode_via_geometry(via: &Via) -> Vec<u8> {
+    let mut block = Vec::with_capacity(64);
+
+    // Common header (13 bytes) - use MultiLayer for vias
+    write_common_header(&mut block, Layer::MultiLayer);
+
+    // Location (X, Y) - offsets 13-20
+    write_i32(&mut block, from_mm(via.x));
+    write_i32(&mut block, from_mm(via.y));
+
+    // Diameter - offset 21
+    write_i32(&mut block, from_mm(via.diameter));
+
+    // Hole size - offset 25
+    write_i32(&mut block, from_mm(via.hole_size));
+
+    // From/To layers - offsets 29-30
+    block.push(layer_to_id(via.from_layer));
+    block.push(layer_to_id(via.to_layer));
+
+    // Thermal relief air gap width - offset 31 (default: 10 mils = 0.254mm)
+    write_i32(&mut block, from_mm(0.254));
+
+    // Thermal relief conductors count - offset 35 (default: 4)
+    block.push(4);
+
+    // Thermal relief conductors width - offset 36 (default: 10 mils = 0.254mm)
+    write_i32(&mut block, from_mm(0.254));
+
+    // Solder mask expansion - offset 40
+    write_i32(&mut block, from_mm(via.solder_mask_expansion));
+
+    // Solder mask expansion manual flag - offset 44
+    block.push(u8::from(via.solder_mask_expansion_manual));
+
+    // Diameter stack mode - offset 45 (0 = Simple)
+    block.push(0x00);
+
+    // Pad to minimum expected size
+    while block.len() < 46 {
+        block.push(0x00);
+    }
 
     block
 }
@@ -686,5 +850,66 @@ mod tests {
 
         // Should end with 0x00
         assert_eq!(*data.last().unwrap(), 0x00);
+    }
+
+    #[test]
+    fn test_encode_wide_strings() {
+        let texts = ["TEST", "HELLO"];
+        let data = encode_wide_strings(&texts);
+        let output = String::from_utf8(data).unwrap();
+
+        // Should contain ENCODEDTEXT entries with ASCII codes
+        assert!(output.contains("|ENCODEDTEXT0=84,69,83,84")); // TEST
+        assert!(output.contains("|ENCODEDTEXT1=72,69,76,76,79")); // HELLO
+    }
+
+    #[test]
+    fn test_encode_wide_strings_empty() {
+        let texts: [&str; 0] = [];
+        let data = encode_wide_strings(&texts);
+        assert!(data.is_empty());
+    }
+
+    #[test]
+    fn test_encode_wide_strings_skips_special() {
+        let texts = [".Designator", ".Comment", "ACTUAL"];
+        let data = encode_wide_strings(&texts);
+        let output = String::from_utf8(data).unwrap();
+
+        // Should only contain ACTUAL, not special text
+        assert!(!output.contains("Designator"));
+        assert!(!output.contains("Comment"));
+        // Index is 2 because .Designator (0) and .Comment (1) are skipped but preserve index
+        assert!(output.contains("|ENCODEDTEXT2=65,67,84,85,65,76")); // ACTUAL
+    }
+
+    #[test]
+    fn test_collect_wide_strings_content() {
+        use super::{Layer, Text};
+
+        let mut fp = Footprint::new("TEST");
+        fp.add_text(Text {
+            x: 0.0,
+            y: 0.0,
+            text: ".Designator".to_string(),
+            height: 1.0,
+            layer: Layer::TopOverlay,
+            rotation: 0.0,
+        });
+        fp.add_text(Text {
+            x: 1.0,
+            y: 0.0,
+            text: "CUSTOM_TEXT".to_string(),
+            height: 1.0,
+            layer: Layer::TopOverlay,
+            rotation: 0.0,
+        });
+
+        let texts = collect_wide_strings_content(&[fp]);
+
+        // Should only contain non-special text
+        assert_eq!(texts.len(), 1);
+        assert!(texts.contains(&"CUSTOM_TEXT".to_string()));
+        assert!(!texts.iter().any(|t| t.starts_with('.')));
     }
 }

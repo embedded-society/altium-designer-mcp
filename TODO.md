@@ -1,0 +1,184 @@
+# TODO
+
+This document tracks implementation gaps between the documented PcbLib format (`docs/PCBLIB_FORMAT.md`) and the Rust codebase.
+
+## Primitives
+
+### Via (0x03) - Implemented ✓
+
+- [x] Add `Via` struct to `src/altium/pcblib/primitives.rs`
+- [x] Implement `parse_via()` in `src/altium/pcblib/reader.rs`
+- [x] Implement `encode_via()` in `src/altium/pcblib/writer.rs`
+- [x] Add `vias: Vec<Via>` field to `Footprint` struct in `src/altium/pcblib/mod.rs`
+- [x] Core fields: x, y, diameter, hole_size, from_layer, to_layer, solder_mask_expansion
+- [ ] Advanced fields TODO: thermal relief settings, diameter stack mode (per-layer diameters)
+
+### WideStrings Stream - Implemented ✓
+
+- [x] Parse `/WideStrings` stream during library read in `src/altium/pcblib/mod.rs`
+- [x] Decode `ENCODEDTEXT{N}=...` format (comma-separated ASCII codes)
+- [x] Store decoded strings in a lookup table (`WideStrings` type in reader.rs)
+- [x] Update `parse_text()` in `src/altium/pcblib/reader.rs` to use WideStrings lookup
+- [x] Write WideStrings stream when saving libraries
+- [ ] TODO: Verify WideStringsIndex offset in geometry block (currently tries offsets 95-97)
+
+### 3D Model Embedding - Not Implemented
+
+- [ ] Parse `/Library/Models/Header` stream for model count
+- [ ] Parse `/Library/Models/Data` stream for GUID-to-index mapping
+- [ ] Extract zlib-compressed STEP files from `/Library/Models/{N}` streams
+- [ ] Add model embedding support when writing libraries
+- [ ] Link `ComponentBody.model_id` to actual embedded model data
+
+## Pad Advanced Features
+
+### Hole Shapes - Incomplete
+
+- [ ] Add `Square` and `Slot` variants to `PadShape` enum in `src/altium/pcblib/primitives.rs`
+- [ ] Update `pad_shape_from_id()` in `src/altium/pcblib/reader.rs` to handle IDs 0 (Round), 1 (Square), 2 (Slot)
+- [ ] Update `pad_shape_to_id()` in `src/altium/pcblib/writer.rs`
+- [ ] Note: These are hole shapes, separate from pad shapes
+
+### Stack Modes - Not Implemented
+
+- [ ] Add `stack_mode: PadStackMode` field to `Pad` struct
+- [ ] Create `PadStackMode` enum: `Simple`, `TopMiddleBottom`, `FullStack`
+- [ ] Parse stack mode byte at geometry offset 62 in `parse_pad()` (reader.rs)
+- [ ] Write stack mode in `encode_pad_geometry()` (writer.rs, currently hardcoded to 0)
+
+### Per-Layer Pad Data - Not Implemented
+
+- [ ] Add per-layer size arrays to `Pad` struct (32 CoordPoints)
+- [ ] Add per-layer shape arrays (32 bytes)
+- [ ] Add per-layer corner radius percentages (32 bytes, 0-100)
+- [ ] Add per-layer offset-from-hole-center arrays (32 CoordPoints)
+- [ ] Parse Block 6 in `parse_pad()` when stack mode != Simple
+- [ ] Write Block 6 in `encode_pad()` when stack mode != Simple
+
+### Corner Radius - Not Exposed
+
+- [ ] Add `corner_radius_percent: Option<u8>` field to `Pad` struct (0-100%)
+- [ ] Parse corner radius from per-layer data
+- [ ] Write corner radius to per-layer data
+- [ ] Note: Percentage of smaller pad dimension, not absolute value
+
+### Paste/Solder Mask Expansion - Not Exposed
+
+- [ ] Add `paste_mask_expansion: Option<f64>` field to `Pad`
+- [ ] Add `solder_mask_expansion: Option<f64>` field to `Pad`
+- [ ] Add `paste_mask_expansion_manual: bool` field
+- [ ] Add `solder_mask_expansion_manual: bool` field
+- [ ] Parse from geometry block (currently ignored)
+- [ ] Write to geometry block (currently hardcoded to 0 in writer.rs line 253-261)
+
+## Text Advanced Features
+
+### Text Kinds - Not Differentiated
+
+- [ ] Add `TextKind` enum: `Stroke`, `TrueType`, `BarCode`
+- [ ] Add `kind: TextKind` field to `Text` struct
+- [ ] Parse text kind from geometry block
+- [ ] Write text kind to geometry block
+
+### Stroke Font IDs - Not Exposed
+
+- [ ] Add `StrokeFont` enum: `Default`, `SansSerif`, `Serif`
+- [ ] Add `stroke_font: Option<StrokeFont>` field to `Text`
+- [ ] Parse stroke font ID (bytes 25-26 in geometry block)
+- [ ] Write stroke font ID
+
+### Text Justification - Not Exposed
+
+- [ ] Add `TextJustification` enum with 9 positions (BottomRight, BottomCenter, etc.)
+- [ ] Add `justification: TextJustification` field to `Text`
+- [ ] Parse justification from geometry block
+- [ ] Write justification (currently hardcoded to 4 in writer.rs line 391)
+
+## Layers - Incomplete Coverage
+
+### Missing Layer Variants
+
+Add to `Layer` enum in `src/altium/pcblib/primitives.rs`:
+
+- [ ] Mid layers: `MidLayer1` through `MidLayer30` (IDs 2-31)
+- [ ] Internal planes: `InternalPlane1` through `InternalPlane16` (IDs 39-54)
+- [ ] `DrillGuide` (ID 55)
+- [ ] `DrillDrawing` (ID 73)
+- [ ] Mechanical 3-12, 14, 16 (IDs 59-68, 70, 72) - currently some are aliased incorrectly
+
+### Missing Special Layers
+
+- [ ] `ConnectLayer` (ID 75)
+- [ ] `BackgroundLayer` (ID 76)
+- [ ] `DRCErrorLayer` (ID 77)
+- [ ] `HighlightLayer` (ID 78)
+- [ ] `GridColor1` (ID 79)
+- [ ] `GridColor10` (ID 80)
+- [ ] `PadHoleLayer` (ID 81)
+- [ ] `ViaHoleLayer` (ID 82)
+- [ ] `TopPadMaster` (ID 83)
+- [ ] `BottomPadMaster` (ID 84)
+- [ ] `DRCDetailLayer` (ID 85)
+
+### Layer Mapping Fixes
+
+- [ ] Fix `layer_from_id()` in reader.rs (line 130-156) - many IDs incorrectly default to MultiLayer
+- [ ] Fix `layer_to_id()` in writer.rs (line 70-94) - incomplete mapping
+
+## PcbFlags - Not Exposed
+
+- [ ] Add `PcbFlags` struct or bitflags to primitives
+- [ ] Add flags field to all primitives (Pad, Track, Arc, Region, Fill, Text)
+- [ ] Parse flags from common header bytes 1-2 (reader.rs)
+- [ ] Write flags to common header (writer.rs, currently hardcoded to 0x00)
+
+Flag bits to support:
+
+- [ ] `Locked` (0x0001)
+- [ ] `Polygon` (0x0002)
+- [ ] `KeepOut` (0x0004)
+- [ ] `TentingTop` (0x0008)
+- [ ] `TentingBottom` (0x0010)
+
+## OLE Streams - Partial Implementation
+
+### Storage Stream
+
+- [ ] Parse `UniqueIdPrimitiveInformation` mappings from `/Storage` stream
+- [ ] Use mappings to link primitives to unique IDs
+
+### FileHeader Improvements
+
+- [ ] Parse `CompCount` field (number of components)
+- [ ] Parse `LibRef{N}` fields (component names by index)
+- [ ] Parse `CompDescr{N}` fields (component descriptions)
+- [ ] Write complete FileHeader with all fields (currently minimal in mod.rs line 364-367)
+
+## Code Quality
+
+### Error Handling
+
+- [ ] Return `Result` from `parse_pad()`, `parse_track()`, etc. instead of `Option`
+- [ ] Add specific error types for parse failures
+- [ ] Improve error messages with offset information
+
+### Testing
+
+- [ ] Add roundtrip tests for Via primitive (once implemented)
+- [ ] Add tests for WideStrings parsing
+- [ ] Add tests for advanced pad features (stack modes, per-layer data)
+- [ ] Add tests for all layer ID mappings
+- [ ] Add integration tests with real Altium library files
+
+### Documentation
+
+- [ ] Add doc comments to all public types in primitives.rs
+- [ ] Document coordinate system in primitives.rs module docs
+- [ ] Add examples to Pad, Track, Arc struct docs
+
+## Low Priority / Future
+
+- [ ] Support reading/writing SchLib files (separate module exists but may need similar review)
+- [ ] Support component variants (board-level feature, not library)
+- [ ] Support net information (board-level feature, not library)
+- [ ] Optimize binary parsing with zero-copy where possible

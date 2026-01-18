@@ -39,7 +39,7 @@ mod writer;
 use serde::{Deserialize, Serialize};
 
 pub use primitives::{
-    Arc, ComponentBody, Fill, Layer, Model3D, Pad, PadShape, Region, Text, Track, Vertex,
+    Arc, ComponentBody, Fill, Layer, Model3D, Pad, PadShape, Region, Text, Track, Vertex, Via,
 };
 
 use crate::altium::error::{AltiumError, AltiumResult};
@@ -73,6 +73,10 @@ pub struct Footprint {
     /// Pads in the footprint.
     #[serde(default)]
     pub pads: Vec<Pad>,
+
+    /// Vias in the footprint.
+    #[serde(default)]
+    pub vias: Vec<Via>,
 
     /// Tracks (lines) in the footprint.
     #[serde(default)]
@@ -111,6 +115,7 @@ impl Footprint {
             name: name.into(),
             description: String::new(),
             pads: Vec::new(),
+            vias: Vec::new(),
             tracks: Vec::new(),
             arcs: Vec::new(),
             regions: Vec::new(),
@@ -124,6 +129,11 @@ impl Footprint {
     /// Adds a pad to the footprint.
     pub fn add_pad(&mut self, pad: Pad) {
         self.pads.push(pad);
+    }
+
+    /// Adds a via to the footprint.
+    pub fn add_via(&mut self, via: Via) {
+        self.vias.push(via);
     }
 
     /// Adds a track to the footprint.
@@ -195,6 +205,9 @@ impl PcbLib {
 
         let mut library = Self::new();
 
+        // Read WideStrings stream if present (contains text content for Text primitives)
+        let wide_strings = Self::read_wide_strings(&mut cfb);
+
         // List all entries to find footprint storages
         let entries: Vec<_> = cfb.walk().map(|e| e.path().to_path_buf()).collect();
 
@@ -220,7 +233,12 @@ impl PcbLib {
 
                 if !component_name.is_empty() && !is_internal {
                     // Read the component data
-                    match Self::read_footprint(&mut cfb, &entry_path, &component_name) {
+                    match Self::read_footprint(
+                        &mut cfb,
+                        &entry_path,
+                        &component_name,
+                        &wide_strings,
+                    ) {
                         Ok(footprint) => library.footprints.push(footprint),
                         Err(e) => {
                             tracing::warn!(
@@ -243,11 +261,28 @@ impl PcbLib {
         Ok(library)
     }
 
+    /// Reads the `WideStrings` stream if present.
+    fn read_wide_strings<F: std::io::Read + std::io::Seek>(
+        cfb: &mut cfb::CompoundFile<F>,
+    ) -> reader::WideStrings {
+        let wide_strings_path = std::path::Path::new("/WideStrings");
+        if cfb.is_stream(wide_strings_path) {
+            if let Ok(mut stream) = cfb.open_stream(wide_strings_path) {
+                let mut data = Vec::new();
+                if std::io::Read::read_to_end(&mut stream, &mut data).is_ok() {
+                    return reader::parse_wide_strings(&data);
+                }
+            }
+        }
+        reader::WideStrings::new()
+    }
+
     /// Reads a single footprint from the OLE document.
     fn read_footprint<F: std::io::Read + std::io::Seek>(
         cfb: &mut cfb::CompoundFile<F>,
         storage_path: &std::path::Path,
         name: &str,
+        wide_strings: &reader::WideStrings,
     ) -> AltiumResult<Footprint> {
         let mut footprint = Footprint::new(name);
 
@@ -273,7 +308,7 @@ impl PcbLib {
                 AltiumError::invalid_ole(format!("Failed to read Data stream: {e}"))
             })?;
 
-            Self::parse_primitives(&mut footprint, &data);
+            Self::parse_primitives(&mut footprint, &data, wide_strings);
         }
 
         Ok(footprint)
@@ -312,8 +347,12 @@ impl PcbLib {
     ///
     /// The Data stream contains binary records for each primitive (pads, tracks, arcs, etc.).
     /// See the [`reader`] module for format details.
-    fn parse_primitives(footprint: &mut Footprint, data: &[u8]) {
-        reader::parse_data_stream(footprint, data);
+    fn parse_primitives(
+        footprint: &mut Footprint,
+        data: &[u8],
+        wide_strings: &reader::WideStrings,
+    ) {
+        reader::parse_data_stream(footprint, data, Some(wide_strings));
     }
 
     /// Writes the library to a file.
@@ -342,6 +381,9 @@ impl PcbLib {
         // Write FileHeader
         self.write_file_header(&mut cfb)?;
 
+        // Write WideStrings stream if there's text content
+        self.write_wide_strings(&mut cfb)?;
+
         // Write each footprint
         for footprint in &self.footprints {
             self.write_footprint(&mut cfb, footprint)?;
@@ -353,6 +395,32 @@ impl PcbLib {
             "Wrote PcbLib"
         );
 
+        Ok(())
+    }
+
+    /// Writes the `WideStrings` stream if there's text content to store.
+    fn write_wide_strings<F: std::io::Read + std::io::Write + std::io::Seek>(
+        &self,
+        cfb: &mut cfb::CompoundFile<F>,
+    ) -> AltiumResult<()> {
+        // Collect text content from all footprints
+        let texts = writer::collect_wide_strings_content(&self.footprints);
+
+        if texts.is_empty() {
+            return Ok(());
+        }
+
+        // Convert to references for encoding
+        let text_refs: Vec<&str> = texts.iter().map(String::as_str).collect();
+        let data = writer::encode_wide_strings(&text_refs);
+
+        let mut stream = cfb
+            .create_stream("/WideStrings")
+            .map_err(|e| AltiumError::invalid_ole(format!("Failed to create WideStrings: {e}")))?;
+        std::io::Write::write_all(&mut stream, &data)
+            .map_err(|e| AltiumError::invalid_ole(format!("Failed to write WideStrings: {e}")))?;
+
+        tracing::debug!(count = texts.len(), "Wrote WideStrings stream");
         Ok(())
     }
 
@@ -500,7 +568,7 @@ mod tests {
 
         // Decode from binary
         let mut decoded = Footprint::new("ROUNDTRIP_PAD");
-        reader::parse_data_stream(&mut decoded, &data);
+        reader::parse_data_stream(&mut decoded, &data, None);
 
         // Verify
         assert_eq!(decoded.pads.len(), 2);
@@ -520,7 +588,7 @@ mod tests {
 
         let data = writer::encode_data_stream(&original);
         let mut decoded = Footprint::new("ROUNDTRIP_TRACK");
-        reader::parse_data_stream(&mut decoded, &data);
+        reader::parse_data_stream(&mut decoded, &data, None);
 
         assert_eq!(decoded.tracks.len(), 2);
         assert!(approx_eq(decoded.tracks[0].x1, -1.0, 0.001));
@@ -536,7 +604,7 @@ mod tests {
 
         let data = writer::encode_data_stream(&original);
         let mut decoded = Footprint::new("ROUNDTRIP_ARC");
-        reader::parse_data_stream(&mut decoded, &data);
+        reader::parse_data_stream(&mut decoded, &data, None);
 
         assert_eq!(decoded.arcs.len(), 1);
         assert!(approx_eq(decoded.arcs[0].x, 0.0, 0.001));
@@ -562,7 +630,7 @@ mod tests {
 
         let data = writer::encode_data_stream(&original);
         let mut decoded = Footprint::new("ROUNDTRIP_MIXED");
-        reader::parse_data_stream(&mut decoded, &data);
+        reader::parse_data_stream(&mut decoded, &data, None);
 
         assert_eq!(decoded.arcs.len(), 1);
         assert_eq!(decoded.pads.len(), 2);
@@ -580,7 +648,7 @@ mod tests {
 
         let data = writer::encode_data_stream(&original);
         let mut decoded = Footprint::new("ROUNDTRIP_PRECISION");
-        reader::parse_data_stream(&mut decoded, &data);
+        reader::parse_data_stream(&mut decoded, &data, None);
 
         // Altium internal units give ~2.54nm resolution
         assert!(approx_eq(decoded.pads[0].x, 0.125, 0.0001));
@@ -595,7 +663,7 @@ mod tests {
 
         let data = writer::encode_data_stream(&original);
         let mut decoded = Footprint::new("ROUNDTRIP_TH");
-        reader::parse_data_stream(&mut decoded, &data);
+        reader::parse_data_stream(&mut decoded, &data, None);
 
         assert_eq!(decoded.pads.len(), 1);
         assert!(decoded.pads[0].hole_size.is_some());
@@ -614,7 +682,7 @@ mod tests {
 
         let data = writer::encode_data_stream(&original);
         let mut decoded = Footprint::new("ROUNDTRIP_LAYERS");
-        reader::parse_data_stream(&mut decoded, &data);
+        reader::parse_data_stream(&mut decoded, &data, None);
 
         assert_eq!(decoded.tracks.len(), 3);
         assert_eq!(decoded.tracks[0].layer, Layer::TopAssembly);
@@ -646,7 +714,7 @@ mod tests {
 
         let data = writer::encode_data_stream(&original);
         let mut decoded = Footprint::new("ROUNDTRIP_TEXT");
-        reader::parse_data_stream(&mut decoded, &data);
+        reader::parse_data_stream(&mut decoded, &data, None);
 
         assert_eq!(decoded.text.len(), 2);
 
@@ -694,7 +762,7 @@ mod tests {
 
         let data = writer::encode_data_stream(&original);
         let mut decoded = Footprint::new("ROUNDTRIP_REGION");
-        reader::parse_data_stream(&mut decoded, &data);
+        reader::parse_data_stream(&mut decoded, &data, None);
 
         assert_eq!(decoded.regions.len(), 2);
 
@@ -732,7 +800,7 @@ mod tests {
 
         let data = writer::encode_data_stream(&original);
         let mut decoded = Footprint::new("ROUNDTRIP_FILL");
-        reader::parse_data_stream(&mut decoded, &data);
+        reader::parse_data_stream(&mut decoded, &data, None);
 
         assert_eq!(decoded.fills.len(), 2);
 
@@ -776,7 +844,7 @@ mod tests {
 
         let data = writer::encode_data_stream(&original);
         let mut decoded = Footprint::new("ROUNDTRIP_COMPONENT_BODY");
-        reader::parse_data_stream(&mut decoded, &data);
+        reader::parse_data_stream(&mut decoded, &data, None);
 
         assert_eq!(decoded.component_bodies.len(), 1);
 
@@ -792,5 +860,76 @@ mod tests {
         assert!(approx_eq(body.overall_height, 1.0, 0.01));
         assert!(approx_eq(body.standoff_height, 0.1, 0.01));
         assert_eq!(body.layer, Layer::Top3DBody);
+    }
+
+    #[test]
+    fn binary_roundtrip_via() {
+        let mut original = Footprint::new("ROUNDTRIP_VIA");
+
+        // Add a simple through via (top to bottom)
+        original.add_via(Via::new(0.0, 0.0, 0.6, 0.3));
+
+        // Add a via at different position
+        original.add_via(Via::new(2.54, 1.27, 0.8, 0.4));
+
+        // Add a blind via (top to mid layer) - though layers may map differently
+        original.add_via(Via::blind(
+            -1.0,
+            -1.0,
+            0.5,
+            0.25,
+            Layer::TopLayer,
+            Layer::BottomLayer,
+        ));
+
+        let data = writer::encode_data_stream(&original);
+        let mut decoded = Footprint::new("ROUNDTRIP_VIA");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        assert_eq!(decoded.vias.len(), 3);
+
+        // First via
+        assert!(approx_eq(decoded.vias[0].x, 0.0, 0.001));
+        assert!(approx_eq(decoded.vias[0].y, 0.0, 0.001));
+        assert!(approx_eq(decoded.vias[0].diameter, 0.6, 0.001));
+        assert!(approx_eq(decoded.vias[0].hole_size, 0.3, 0.001));
+
+        // Second via
+        assert!(approx_eq(decoded.vias[1].x, 2.54, 0.001));
+        assert!(approx_eq(decoded.vias[1].y, 1.27, 0.001));
+        assert!(approx_eq(decoded.vias[1].diameter, 0.8, 0.001));
+        assert!(approx_eq(decoded.vias[1].hole_size, 0.4, 0.001));
+
+        // Third via (blind via)
+        assert!(approx_eq(decoded.vias[2].x, -1.0, 0.001));
+        assert!(approx_eq(decoded.vias[2].y, -1.0, 0.001));
+        assert!(approx_eq(decoded.vias[2].diameter, 0.5, 0.001));
+        assert!(approx_eq(decoded.vias[2].hole_size, 0.25, 0.001));
+        assert_eq!(decoded.vias[2].from_layer, Layer::TopLayer);
+        assert_eq!(decoded.vias[2].to_layer, Layer::BottomLayer);
+    }
+
+    #[test]
+    fn binary_roundtrip_mixed_with_vias() {
+        let mut original = Footprint::new("ROUNDTRIP_MIXED_VIA");
+
+        // Add various primitives including vias
+        original.add_pad(Pad::smd("1", -1.0, 0.0, 0.6, 0.5));
+        original.add_pad(Pad::smd("2", 1.0, 0.0, 0.6, 0.5));
+        original.add_via(Via::new(0.0, 0.0, 0.5, 0.25));
+        original.add_track(Track::new(-1.5, -0.3, 1.5, -0.3, 0.12, Layer::TopOverlay));
+
+        let data = writer::encode_data_stream(&original);
+        let mut decoded = Footprint::new("ROUNDTRIP_MIXED_VIA");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        assert_eq!(decoded.pads.len(), 2);
+        assert_eq!(decoded.vias.len(), 1);
+        assert_eq!(decoded.tracks.len(), 1);
+
+        // Verify via data
+        assert!(approx_eq(decoded.vias[0].x, 0.0, 0.001));
+        assert!(approx_eq(decoded.vias[0].diameter, 0.5, 0.001));
+        assert!(approx_eq(decoded.vias[0].hole_size, 0.25, 0.001));
     }
 }

@@ -24,10 +24,78 @@
 //! - `0x0B`: Region
 //! - `0x0C`: `ComponentBody`
 
+use std::collections::HashMap;
+
 use super::primitives::{
-    Arc, ComponentBody, Fill, Layer, Pad, PadShape, Region, Text, Track, Vertex,
+    Arc, ComponentBody, Fill, Layer, Pad, PadShape, Region, Text, Track, Vertex, Via,
 };
 use super::Footprint;
+
+/// A lookup table for `WideStrings` text content.
+///
+/// Maps index (e.g., 0, 1, 2) to decoded text content.
+/// The `/WideStrings` stream stores text as `|ENCODEDTEXT{N}=c1,c2,c3,...|`
+/// where c1,c2,c3 are ASCII character codes.
+pub type WideStrings = HashMap<usize, String>;
+
+/// Parses the `/WideStrings` stream content.
+///
+/// # Format
+///
+/// ```text
+/// |ENCODEDTEXT0=84,69,83,84|ENCODEDTEXT1=72,69,76,76,79|
+/// ```
+///
+/// Where `84,69,83,84` = "TEST" (ASCII codes: T=84, E=69, S=83, T=84).
+///
+/// # Returns
+///
+/// A `HashMap` mapping index to decoded text content.
+pub fn parse_wide_strings(data: &[u8]) -> WideStrings {
+    let mut strings = WideStrings::new();
+
+    // WideStrings is pipe-delimited key=value pairs
+    let Ok(text) = String::from_utf8(data.to_vec()) else {
+        tracing::debug!("WideStrings stream is not valid UTF-8");
+        return strings;
+    };
+
+    for pair in text.split('|') {
+        if pair.is_empty() {
+            continue;
+        }
+
+        // Look for ENCODEDTEXT{N}=...
+        if let Some(rest) = pair.strip_prefix("ENCODEDTEXT") {
+            if let Some((index_str, encoded)) = rest.split_once('=') {
+                if let Ok(index) = index_str.parse::<usize>() {
+                    // Decode comma-separated ASCII codes
+                    let decoded = decode_ascii_codes(encoded);
+                    if !decoded.is_empty() {
+                        tracing::trace!(index, text = %decoded, "Decoded WideStrings entry");
+                        strings.insert(index, decoded);
+                    }
+                }
+            }
+        }
+    }
+
+    tracing::debug!(count = strings.len(), "Parsed WideStrings stream");
+    strings
+}
+
+/// Decodes comma-separated ASCII codes to a string.
+///
+/// # Example
+///
+/// `"84,69,83,84"` → `"TEST"`
+fn decode_ascii_codes(encoded: &str) -> String {
+    encoded
+        .split(',')
+        .filter_map(|s| s.trim().parse::<u8>().ok())
+        .map(|c| c as char)
+        .collect()
+}
 
 /// Conversion factor from Altium internal units to millimetres.
 /// Internal units: 10000 = 1 mil = 0.0254 mm
@@ -166,7 +234,17 @@ const fn pad_shape_from_id(id: u8) -> PadShape {
 }
 
 /// Parses primitives from a `PcbLib` Data stream.
-pub fn parse_data_stream(footprint: &mut Footprint, data: &[u8]) {
+///
+/// # Arguments
+///
+/// * `footprint` - The footprint to populate with parsed primitives
+/// * `data` - The raw Data stream bytes
+/// * `wide_strings` - Optional `WideStrings` lookup for text content
+pub fn parse_data_stream(
+    footprint: &mut Footprint,
+    data: &[u8],
+    wide_strings: Option<&WideStrings>,
+) {
     if data.len() < 5 {
         tracing::warn!("Data stream too short");
         return;
@@ -224,7 +302,7 @@ pub fn parse_data_stream(footprint: &mut Footprint, data: &[u8]) {
             }
             0x05 => {
                 // Text
-                if let Some((text, new_offset)) = parse_text(data, offset) {
+                if let Some((text, new_offset)) = parse_text(data, offset, wide_strings) {
                     footprint.add_text(text);
                     offset = new_offset;
                 } else {
@@ -263,12 +341,12 @@ pub fn parse_data_stream(footprint: &mut Footprint, data: &[u8]) {
                 }
             }
             0x03 => {
-                // Via - not yet implemented, skip
-                tracing::trace!("Skipping Via primitive (0x03) - not yet implemented");
-                if let Some(new_offset) = skip_primitive(data, offset, record_type) {
+                // Via
+                if let Some((via, new_offset)) = parse_via(data, offset) {
+                    footprint.add_via(via);
                     offset = new_offset;
                 } else {
-                    tracing::debug!("Failed to skip Via at offset {offset:#x}");
+                    tracing::debug!("Failed to parse Via at offset {offset:#x}");
                     break;
                 }
             }
@@ -373,6 +451,101 @@ fn parse_pad(data: &[u8], offset: usize) -> Option<(Pad, usize)> {
     Some((pad, current))
 }
 
+/// Parses a Via primitive.
+/// Returns the parsed `Via` and the new offset on success.
+///
+/// Via has 6 blocks (similar to Pad):
+/// - Block 0: Name/designator (typically empty)
+/// - Block 1: Layer stack data
+/// - Block 2: Marker string ("|&|0")
+/// - Block 3: Net/connectivity data
+/// - Block 4: Geometry data
+/// - Block 5: Per-layer data
+fn parse_via(data: &[u8], offset: usize) -> Option<(Via, usize)> {
+    let mut current = offset;
+
+    // Block 0: Name/designator (typically empty for vias)
+    let (_, next) = read_block(data, current)?;
+    current = next;
+
+    // Block 1: Layer stack data (skip)
+    let (_, next) = read_block(data, current)?;
+    current = next;
+
+    // Block 2: Marker string ("|&|0")
+    let (_, next) = read_block(data, current)?;
+    current = next;
+
+    // Block 3: Net/connectivity data (skip)
+    let (_, next) = read_block(data, current)?;
+    current = next;
+
+    // Block 4: Geometry data
+    let (geometry, next) = read_block(data, current)?;
+    current = next;
+
+    // Block 5: Per-layer data (optional)
+    if let Some((_, next)) = read_block(data, current) {
+        current = next;
+    }
+
+    // Parse geometry block
+    // Minimum size: 13 (header) + 4 (x) + 4 (y) + 4 (diameter) + 4 (hole) + 2 (layers) = 31 bytes
+    if geometry.len() < 31 {
+        tracing::trace!("Via geometry block too short: {} bytes", geometry.len());
+        return None;
+    }
+
+    // Common header (13 bytes) - layer ID at offset 0
+    // Note: Via layer is typically MultiLayer (74), but we read from/to layers separately
+
+    // Location (X, Y) - offsets 13-20
+    let x = to_mm(read_i32(geometry, 13)?);
+    let y = to_mm(read_i32(geometry, 17)?);
+
+    // Diameter - offset 21
+    let diameter = to_mm(read_i32(geometry, 21)?);
+
+    // Hole size - offset 25
+    let hole_size = to_mm(read_i32(geometry, 25)?);
+
+    // From/To layers - offsets 29-30
+    let from_layer = if geometry.len() > 29 {
+        layer_from_id(geometry[29])
+    } else {
+        Layer::TopLayer
+    };
+
+    let to_layer = if geometry.len() > 30 {
+        layer_from_id(geometry[30])
+    } else {
+        Layer::BottomLayer
+    };
+
+    // Solder mask expansion - offset 40
+    let solder_mask_expansion = if geometry.len() > 43 {
+        to_mm(read_i32(geometry, 40).unwrap_or(0))
+    } else {
+        0.0
+    };
+
+    // Solder mask expansion manual flag - offset 44
+    let solder_mask_expansion_manual = geometry.len() > 44 && geometry[44] != 0;
+
+    let via = Via {
+        x,
+        y,
+        diameter,
+        hole_size,
+        from_layer,
+        to_layer,
+        solder_mask_expansion,
+        solder_mask_expansion_manual,
+    };
+
+    Some((via, current))
+}
+
 /// Parses a Track primitive.
 /// Returns the parsed `Track` and the new offset on success.
 fn parse_track(data: &[u8], offset: usize) -> Option<(Track, usize)> {
@@ -462,7 +635,11 @@ fn parse_arc(data: &[u8], offset: usize) -> Option<(Arc, usize)> {
 /// [font_name:varies]            // Font name in UTF-16 (null-terminated)
 /// [text_content:varies]         // Text content in UTF-16 or reference
 /// ```
-fn parse_text(data: &[u8], offset: usize) -> Option<(Text, usize)> {
+fn parse_text(
+    data: &[u8],
+    offset: usize,
+    wide_strings: Option<&WideStrings>,
+) -> Option<(Text, usize)> {
     // Text has 2 blocks:
     // - Block 0: Geometry/metadata (layer, position, height, rotation, font, etc.)
     // - Block 1: Text content (length-prefixed string, or reference to WideStrings)
@@ -504,13 +681,14 @@ fn parse_text(data: &[u8], offset: usize) -> Option<(Text, usize)> {
         let content = read_string_from_block(text_block);
         if content.is_empty() {
             // Check for special designator/comment text in geometry block
-            extract_text_from_block(geometry_block)
+            extract_text_from_block(geometry_block, wide_strings)
         } else {
-            content
+            // Check if content is a WideStrings index reference
+            resolve_text_content(&content, wide_strings)
         }
     } else {
         // Fallback: check geometry block
-        extract_text_from_block(geometry_block)
+        extract_text_from_block(geometry_block, wide_strings)
     };
 
     let text = Text {
@@ -525,39 +703,80 @@ fn parse_text(data: &[u8], offset: usize) -> Option<(Text, usize)> {
     Some((text, current))
 }
 
-/// Extracts the text index from a Text block.
+/// Resolves text content, looking up `WideStrings` if needed.
 ///
-/// Text content is stored in the `WideStrings` stream as `ENCODEDTEXT{n}=...`
-/// where `n` is the index. The actual text content is comma-separated ASCII codes.
+/// If the content looks like a `WideStrings` index (numeric), attempts to look it up.
+/// Otherwise returns the content as-is.
+fn resolve_text_content(content: &str, wide_strings: Option<&WideStrings>) -> String {
+    // Special text values are returned as-is
+    if content.starts_with('.') {
+        return content.to_string();
+    }
+
+    // Try to parse as a WideStrings index
+    if let Some(ws) = wide_strings {
+        if let Ok(index) = content.parse::<usize>() {
+            if let Some(resolved) = ws.get(&index) {
+                tracing::trace!(index, resolved = %resolved, "Resolved WideStrings text");
+                return resolved.clone();
+            }
+        }
+    }
+
+    // Return content as-is if not a WideStrings reference
+    content.to_string()
+}
+
+/// Extracts the text content from a Text geometry block.
 ///
-/// For now, this returns the index as a placeholder. Full `WideStrings` integration
-/// would require reading the `WideStrings` stream during footprint parsing.
+/// Text content may be:
+/// - Special inline text like `.Designator` or `.Comment`
+/// - A `WideStrings` index that needs to be looked up
+///
+/// # Arguments
+///
+/// * `block` - The geometry block data
+/// * `wide_strings` - Optional `WideStrings` lookup table
 ///
 /// # Returns
 ///
-/// Returns the text index (e.g., "0", "1") which references the `WideStrings` entry.
-/// Returns empty string if no index can be determined.
-fn extract_text_from_block(block: &[u8]) -> String {
-    // Text content is stored in WideStrings stream, not inline in the block.
-    // The block may contain an index referencing ENCODEDTEXT{n} in WideStrings.
-    //
-    // WideStrings format example:
-    //   |ENCODEDTEXT0=84,69,83,84|ENCODEDTEXT1=84,69,83,84|
-    //   where 84,69,83,84 = ASCII for "TEST"
-    //
-    // For now, try to find ".Designator" or ".Comment" special text inline,
-    // otherwise return empty. Full WideStrings support is TODO.
-
-    // Check for special designator/comment text
+/// The resolved text content, or empty string if not found.
+fn extract_text_from_block(block: &[u8], wide_strings: Option<&WideStrings>) -> String {
+    // Check for special designator/comment text inline
     for pattern in [".Designator", ".Comment"] {
         if find_ascii_in_block(block, pattern).is_some() {
             return pattern.to_string();
         }
     }
 
-    // Text content is in WideStrings - return empty for now
-    // TODO: Implement WideStrings stream parsing to decode ENCODEDTEXT entries
+    // Try to find a WideStrings index in the block
+    // The index is typically stored as a small integer near the end of the block
+    if let Some(ws) = wide_strings {
+        // Try extracting a potential index from the block
+        // The WideStringsIndex is typically a u16 or u32 near offset 95+
+        if block.len() > 97 {
+            // Try reading as u16 at common offsets
+            for offset in [95, 96, 97] {
+                if let Some(index) = read_u16(block, offset) {
+                    if let Some(resolved) = ws.get(&(index as usize)) {
+                        tracing::trace!(offset, index, resolved = %resolved, "Resolved WideStrings from block");
+                        return resolved.clone();
+                    }
+                }
+            }
+        }
+    }
+
+    // No text content found
     String::new()
+}
+
+/// Reads a 2-byte little-endian unsigned integer.
+fn read_u16(data: &[u8], offset: usize) -> Option<u16> {
+    if offset + 2 > data.len() {
+        return None;
+    }
+    Some(u16::from_le_bytes([data[offset], data[offset + 1]]))
 }
 
 /// Finds an ASCII pattern within a block (for special text like ".Designator").
@@ -854,27 +1073,6 @@ fn parse_v7_layer(s: &str) -> Option<Layer> {
     }
 }
 
-/// Skips a primitive by reading its blocks.
-/// Returns the new offset on success.
-fn skip_primitive(data: &[u8], offset: usize, record_type: u8) -> Option<usize> {
-    let mut current = offset;
-
-    // Different primitives have different numbers of blocks
-    let block_count: u8 = match record_type {
-        0x03 => 6, // Via (similar to Pad)
-        0x05 => 2, // Text (geometry + content)
-        0x0C => 3, // ComponentBody
-        _ => 1,    // Fill (0x06) and others default to 1 block
-    };
-
-    for _ in 0..block_count {
-        let (_, next) = read_block(data, current)?;
-        current = next;
-    }
-
-    Some(current)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -910,5 +1108,40 @@ mod tests {
         assert_eq!(layer_from_id(1), Layer::TopLayer);
         assert_eq!(layer_from_id(32), Layer::BottomLayer);
         assert_eq!(layer_from_id(74), Layer::MultiLayer);
+    }
+
+    #[test]
+    fn test_parse_wide_strings() {
+        // Test basic WideStrings parsing
+        let data = b"|ENCODEDTEXT0=84,69,83,84|ENCODEDTEXT1=72,69,76,76,79|";
+        let strings = parse_wide_strings(data);
+
+        assert_eq!(strings.len(), 2);
+        assert_eq!(strings.get(&0), Some(&"TEST".to_string()));
+        assert_eq!(strings.get(&1), Some(&"HELLO".to_string()));
+    }
+
+    #[test]
+    fn test_parse_wide_strings_empty() {
+        let data = b"";
+        let strings = parse_wide_strings(data);
+        assert!(strings.is_empty());
+    }
+
+    #[test]
+    fn test_parse_wide_strings_single() {
+        let data = b"|ENCODEDTEXT0=65,66,67|";
+        let strings = parse_wide_strings(data);
+
+        assert_eq!(strings.len(), 1);
+        assert_eq!(strings.get(&0), Some(&"ABC".to_string()));
+    }
+
+    #[test]
+    fn test_decode_ascii_codes() {
+        assert_eq!(decode_ascii_codes("84,69,83,84"), "TEST");
+        assert_eq!(decode_ascii_codes("72,69,76,76,79"), "HELLO");
+        assert_eq!(decode_ascii_codes("65"), "A");
+        assert_eq!(decode_ascii_codes(""), "");
     }
 }
