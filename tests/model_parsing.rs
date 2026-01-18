@@ -47,3 +47,15 @@ fn test_model_parsing() {
         }
     }
 }
+
+#[test]
+fn test_model_parsing_missing_file() {
+    // This test ensures that the PcbLib::read API behaves sensibly when the
+    // requested file is not present. It does not rely on any external files
+    // and therefore can run in CI/CD environments.
+    let result = PcbLib::read("nonexistent_sample.PcbLib");
+    assert!(
+        result.is_err(),
+        "PcbLib::read should fail when the input file does not exist"
+    );
+}
