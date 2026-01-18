@@ -67,6 +67,27 @@ pub struct Pad {
     /// Stack mode for per-layer pad geometry.
     #[serde(default)]
     pub stack_mode: PadStackMode,
+
+    /// Per-layer pad sizes in mm (width, height) for 32 layers.
+    /// Only used when `stack_mode` != `Simple`.
+    /// Index 0 = Top Layer, Index 1 = Bottom Layer, Index 2-31 = Mid Layers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub per_layer_sizes: Option<Vec<(f64, f64)>>,
+
+    /// Per-layer pad shapes for 32 layers.
+    /// Only used when `stack_mode` != `Simple`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub per_layer_shapes: Option<Vec<PadShape>>,
+
+    /// Per-layer corner radius percentages (0-100) for 32 layers.
+    /// Only used when `stack_mode` != `Simple`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub per_layer_corner_radii: Option<Vec<u8>>,
+
+    /// Per-layer offset from hole center in mm (x, y) for 32 layers.
+    /// Only used when `stack_mode` != `Simple`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub per_layer_offsets: Option<Vec<(f64, f64)>>,
 }
 
 /// Helper for serde to skip default hole shape in serialization.
@@ -96,6 +117,10 @@ impl Pad {
             solder_mask_expansion_manual: false,
             corner_radius_percent: None,
             stack_mode: PadStackMode::Simple,
+            per_layer_sizes: None,
+            per_layer_shapes: None,
+            per_layer_corner_radii: None,
+            per_layer_offsets: None,
         }
     }
 
@@ -126,6 +151,10 @@ impl Pad {
             solder_mask_expansion_manual: false,
             corner_radius_percent: None,
             stack_mode: PadStackMode::Simple,
+            per_layer_sizes: None,
+            per_layer_shapes: None,
+            per_layer_corner_radii: None,
+            per_layer_offsets: None,
         }
     }
 }

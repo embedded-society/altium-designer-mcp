@@ -2065,6 +2065,10 @@ impl McpServer {
             solder_mask_expansion_manual,
             corner_radius_percent,
             stack_mode: PadStackMode::Simple,
+            per_layer_sizes: None,
+            per_layer_shapes: None,
+            per_layer_corner_radii: None,
+            per_layer_offsets: None,
         })
     }
 

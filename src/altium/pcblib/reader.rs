@@ -525,23 +525,32 @@ fn parse_pad(data: &[u8], offset: usize) -> Option<(Pad, usize)> {
     // Solder mask expansion manual flag - offset 102
     let solder_mask_expansion_manual = geometry.len() > 102 && geometry[102] != 0;
 
-    // Corner radius percent - from per-layer data
-    // In per-layer data, corner radius is stored as a percentage (0-100)
-    // at offset 32*8 (after sizes) + 32 (after shapes) = 288
-    let corner_radius_percent = per_layer_data.and_then(|data| {
-        // Per-layer data: 32 sizes (256 bytes) + 32 shapes (32 bytes) + 32 corner radii (32 bytes)
-        // First corner radius (top layer) is at offset 256 + 32 = 288
-        if data.len() > 288 {
-            let radius = data[288];
-            if radius > 0 && radius <= 100 {
-                Some(radius)
-            } else {
-                None
-            }
+    // Parse per-layer data when stack mode is not Simple
+    // Per-layer data format:
+    // - 32 size entries (width, height as i32 pairs) = 256 bytes
+    // - 32 shape entries (1 byte each) = 32 bytes
+    // - 32 corner radius percentages (1 byte each) = 32 bytes
+    // - 32 offset entries (x, y as i32 pairs) = 256 bytes (optional)
+    // Total: 320 bytes minimum, 576 bytes with offsets
+    let (corner_radius_percent, per_layer_sizes, per_layer_shapes, per_layer_corner_radii, per_layer_offsets) =
+        if stack_mode == PadStackMode::Simple {
+            // For Simple mode, extract corner radius if available (backwards compatibility)
+            let corner_radius = per_layer_data.and_then(|data| {
+                if data.len() > 288 {
+                    let radius = data[288];
+                    if radius > 0 && radius <= 100 {
+                        Some(radius)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            });
+            (corner_radius, None, None, None, None)
         } else {
-            None
-        }
-    });
+            parse_per_layer_data(per_layer_data)
+        };
 
     let pad = Pad {
         designator,
@@ -560,9 +569,107 @@ fn parse_pad(data: &[u8], offset: usize) -> Option<(Pad, usize)> {
         solder_mask_expansion_manual,
         corner_radius_percent,
         stack_mode,
+        per_layer_sizes,
+        per_layer_shapes,
+        per_layer_corner_radii,
+        per_layer_offsets,
     };
 
     Some((pad, current))
+}
+
+/// Parses per-layer pad data from Block 5.
+///
+/// # Format
+///
+/// ```text
+/// [sizes: 32 × 8 bytes]         // 32 width/height pairs as i32
+/// [shapes: 32 × 1 byte]         // 32 shape IDs
+/// [corner_radii: 32 × 1 byte]   // 32 corner radius percentages (0-100)
+/// [offsets: 32 × 8 bytes]       // 32 x/y offset pairs as i32 (optional)
+/// ```
+///
+/// # Returns
+///
+/// Tuple of (`corner_radius_percent`, sizes, shapes, `corner_radii`, offsets).
+#[allow(clippy::type_complexity)]
+fn parse_per_layer_data(
+    data: Option<&[u8]>,
+) -> (
+    Option<u8>,
+    Option<Vec<(f64, f64)>>,
+    Option<Vec<PadShape>>,
+    Option<Vec<u8>>,
+    Option<Vec<(f64, f64)>>,
+) {
+    let Some(data) = data else {
+        return (None, None, None, None, None);
+    };
+
+    // Minimum size: 256 (sizes) + 32 (shapes) + 32 (corner radii) = 320 bytes
+    if data.len() < 320 {
+        tracing::trace!(
+            "Per-layer data block too short: {} bytes (expected >= 320)",
+            data.len()
+        );
+        return (None, None, None, None, None);
+    }
+
+    // Parse 32 size entries (256 bytes)
+    let mut sizes = Vec::with_capacity(32);
+    for i in 0..32 {
+        let offset = i * 8;
+        if let (Some(width), Some(height)) = (read_i32(data, offset), read_i32(data, offset + 4)) {
+            sizes.push((to_mm(width), to_mm(height)));
+        } else {
+            sizes.push((0.0, 0.0));
+        }
+    }
+
+    // Parse 32 shape entries (32 bytes, starting at offset 256)
+    let mut shapes = Vec::with_capacity(32);
+    for i in 0..32 {
+        let shape_id = data[256 + i];
+        shapes.push(pad_shape_from_id(shape_id));
+    }
+
+    // Parse 32 corner radius entries (32 bytes, starting at offset 288)
+    let mut corner_radii = Vec::with_capacity(32);
+    for i in 0..32 {
+        let radius = data[288 + i];
+        corner_radii.push(radius.min(100)); // Clamp to 0-100
+    }
+
+    // Extract corner radius percent from first layer (top layer, index 0)
+    let corner_radius_percent = if corner_radii[0] > 0 && corner_radii[0] <= 100 {
+        Some(corner_radii[0])
+    } else {
+        None
+    };
+
+    // Parse 32 offset entries (256 bytes, starting at offset 320) if available
+    let offsets = if data.len() >= 576 {
+        let mut offs = Vec::with_capacity(32);
+        for i in 0..32 {
+            let offset = 320 + i * 8;
+            if let (Some(x), Some(y)) = (read_i32(data, offset), read_i32(data, offset + 4)) {
+                offs.push((to_mm(x), to_mm(y)));
+            } else {
+                offs.push((0.0, 0.0));
+            }
+        }
+        Some(offs)
+    } else {
+        None
+    };
+
+    (
+        corner_radius_percent,
+        Some(sizes),
+        Some(shapes),
+        Some(corner_radii),
+        offsets,
+    )
 }
 
 /// Converts a pad stack mode ID to `PadStackMode`.
