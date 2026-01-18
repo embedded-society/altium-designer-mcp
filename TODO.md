@@ -34,12 +34,32 @@ This document tracks implementation gaps between the documented PcbLib format (`
 
 ## Pad Advanced Features
 
-### Hole Shapes - Incomplete
+### Hole Shapes - Implemented ✓
 
-- [ ] Add `Square` and `Slot` variants to `PadShape` enum in `src/altium/pcblib/primitives.rs`
-- [ ] Update `pad_shape_from_id()` in `src/altium/pcblib/reader.rs` to handle IDs 0 (Round), 1 (Square), 2 (Slot)
-- [ ] Update `pad_shape_to_id()` in `src/altium/pcblib/writer.rs`
-- [ ] Note: These are hole shapes, separate from pad shapes
+- [x] Add `HoleShape` enum with `Round`, `Square`, `Slot` variants to `src/altium/pcblib/primitives.rs`
+- [x] Add `hole_shape: HoleShape` field to `Pad` struct
+- [x] Add `hole_shape_from_id()` in `src/altium/pcblib/reader.rs` to handle IDs 0 (Round), 1 (Square), 2 (Slot)
+- [x] Add `hole_shape_to_id()` in `src/altium/pcblib/writer.rs`
+- [x] Parse hole shape from geometry offset 61 in `parse_pad()`
+- [x] Write hole shape in `encode_pad_geometry()`
+- Note: Hole shapes are separate from pad shapes (copper outline)
+
+### Paste/Solder Mask Expansion - Implemented ✓
+
+- [x] Add `paste_mask_expansion: Option<f64>` field to `Pad`
+- [x] Add `solder_mask_expansion: Option<f64>` field to `Pad`
+- [x] Add `paste_mask_expansion_manual: bool` field
+- [x] Add `solder_mask_expansion_manual: bool` field
+- [x] Parse from geometry block offsets 86-93 and 101-102
+- [x] Write to geometry block in `encode_pad_geometry()`
+- [x] Add roundtrip tests for mask expansion
+
+### Corner Radius - Partial Implementation
+
+- [x] Add `corner_radius_percent: Option<u8>` field to `Pad` struct (0-100%)
+- [x] Parse corner radius from per-layer data (Block 5)
+- [ ] Write corner radius to per-layer data (not yet implemented)
+- Note: Percentage of smaller pad dimension, not absolute value
 
 ### Stack Modes - Not Implemented
 
@@ -56,22 +76,6 @@ This document tracks implementation gaps between the documented PcbLib format (`
 - [ ] Add per-layer offset-from-hole-center arrays (32 CoordPoints)
 - [ ] Parse Block 6 in `parse_pad()` when stack mode != Simple
 - [ ] Write Block 6 in `encode_pad()` when stack mode != Simple
-
-### Corner Radius - Not Exposed
-
-- [ ] Add `corner_radius_percent: Option<u8>` field to `Pad` struct (0-100%)
-- [ ] Parse corner radius from per-layer data
-- [ ] Write corner radius to per-layer data
-- [ ] Note: Percentage of smaller pad dimension, not absolute value
-
-### Paste/Solder Mask Expansion - Not Exposed
-
-- [ ] Add `paste_mask_expansion: Option<f64>` field to `Pad`
-- [ ] Add `solder_mask_expansion: Option<f64>` field to `Pad`
-- [ ] Add `paste_mask_expansion_manual: bool` field
-- [ ] Add `solder_mask_expansion_manual: bool` field
-- [ ] Parse from geometry block (currently ignored)
-- [ ] Write to geometry block (currently hardcoded to 0 in writer.rs line 253-261)
 
 ## Text Advanced Features
 
@@ -169,6 +173,7 @@ Flag bits to support:
 - [x] Add roundtrip tests for Via primitive
 - [x] Add tests for WideStrings parsing
 - [x] Add tests for 3D model parsing and embedding
+- [x] Add tests for pad hole shapes, mask expansion (basic features)
 - [ ] Add tests for advanced pad features (stack modes, per-layer data)
 - [ ] Add tests for all layer ID mappings
 - [ ] Add integration tests with real Altium library files

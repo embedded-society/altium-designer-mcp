@@ -27,7 +27,7 @@
 use std::collections::HashMap;
 
 use super::primitives::{
-    Arc, ComponentBody, Fill, Layer, Pad, PadShape, Region, Text, Track, Vertex, Via,
+    Arc, ComponentBody, Fill, HoleShape, Layer, Pad, PadShape, Region, Text, Track, Vertex, Via,
 };
 use super::Footprint;
 
@@ -233,6 +233,20 @@ const fn pad_shape_from_id(id: u8) -> PadShape {
     }
 }
 
+/// Converts Altium hole shape ID to our `HoleShape` enum.
+///
+/// Hole shape IDs:
+/// - 0: Round
+/// - 1: Square
+/// - 2: Slot
+const fn hole_shape_from_id(id: u8) -> HoleShape {
+    match id {
+        1 => HoleShape::Square,
+        2 => HoleShape::Slot,
+        _ => HoleShape::Round, // Default and ID 0
+    }
+}
+
 /// Parses primitives from a `PcbLib` Data stream.
 ///
 /// # Arguments
@@ -360,6 +374,33 @@ pub fn parse_data_stream(
 
 /// Parses a Pad primitive.
 /// Returns the parsed `Pad` and the new offset on success.
+///
+/// # Geometry Block Offsets
+///
+/// | Offset | Size | Field |
+/// |--------|------|-------|
+/// | 0-12 | 13 | Common header (layer, flags, padding) |
+/// | 13-16 | 4 | X position |
+/// | 17-20 | 4 | Y position |
+/// | 21-24 | 4 | Width (top) |
+/// | 25-28 | 4 | Height (top) |
+/// | 29-32 | 4 | Width (mid) |
+/// | 33-36 | 4 | Height (mid) |
+/// | 37-40 | 4 | Width (bottom) |
+/// | 41-44 | 4 | Height (bottom) |
+/// | 45-48 | 4 | Hole size |
+/// | 49 | 1 | Shape (top) |
+/// | 50 | 1 | Shape (mid) |
+/// | 51 | 1 | Shape (bottom) |
+/// | 52-59 | 8 | Rotation (double) |
+/// | 60 | 1 | Is plated |
+/// | 61 | 1 | Hole shape |
+/// | 62 | 1 | Stack mode |
+/// | 86-89 | 4 | Paste mask expansion |
+/// | 90-93 | 4 | Solder mask expansion |
+/// | 101 | 1 | Paste mask expansion manual |
+/// | 102 | 1 | Solder mask expansion manual |
+#[allow(clippy::too_many_lines)] // Complex binary format requires detailed parsing
 fn parse_pad(data: &[u8], offset: usize) -> Option<(Pad, usize)> {
     let mut current = offset;
 
@@ -384,10 +425,13 @@ fn parse_pad(data: &[u8], offset: usize) -> Option<(Pad, usize)> {
     let (geometry, next) = read_block(data, current)?;
     current = next;
 
-    // Block 5: Per-layer data (optional)
-    if let Some((_, next)) = read_block(data, current) {
+    // Block 5: Per-layer data (optional, may contain corner radius)
+    let per_layer_data = if let Some((block, next)) = read_block(data, current) {
         current = next;
-    }
+        Some(block)
+    } else {
+        None
+    };
 
     // Parse geometry block
     if geometry.len() < 52 {
@@ -436,6 +480,61 @@ fn parse_pad(data: &[u8], offset: usize) -> Option<(Pad, usize)> {
         0.0
     };
 
+    // Hole shape - offset 61
+    let hole_shape = if geometry.len() > 61 {
+        hole_shape_from_id(geometry[61])
+    } else {
+        HoleShape::Round
+    };
+
+    // Paste mask expansion - offset 86-89
+    let paste_mask_expansion = if geometry.len() > 89 {
+        let expansion = to_mm(read_i32(geometry, 86)?);
+        if expansion.abs() > 0.0001 {
+            Some(expansion)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Solder mask expansion - offset 90-93
+    let solder_mask_expansion = if geometry.len() > 93 {
+        let expansion = to_mm(read_i32(geometry, 90)?);
+        if expansion.abs() > 0.0001 {
+            Some(expansion)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Paste mask expansion manual flag - offset 101
+    let paste_mask_expansion_manual = geometry.len() > 101 && geometry[101] != 0;
+
+    // Solder mask expansion manual flag - offset 102
+    let solder_mask_expansion_manual = geometry.len() > 102 && geometry[102] != 0;
+
+    // Corner radius percent - from per-layer data
+    // In per-layer data, corner radius is stored as a percentage (0-100)
+    // at offset 32*8 (after sizes) + 32 (after shapes) = 288
+    let corner_radius_percent = per_layer_data.and_then(|data| {
+        // Per-layer data: 32 sizes (256 bytes) + 32 shapes (32 bytes) + 32 corner radii (32 bytes)
+        // First corner radius (top layer) is at offset 256 + 32 = 288
+        if data.len() > 288 {
+            let radius = data[288];
+            if radius > 0 && radius <= 100 {
+                Some(radius)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    });
+
     let pad = Pad {
         designator,
         x,
@@ -445,7 +544,13 @@ fn parse_pad(data: &[u8], offset: usize) -> Option<(Pad, usize)> {
         shape,
         layer,
         hole_size,
+        hole_shape,
         rotation,
+        paste_mask_expansion,
+        solder_mask_expansion,
+        paste_mask_expansion_manual,
+        solder_mask_expansion_manual,
+        corner_radius_percent,
     };
 
     Some((pad, current))
@@ -1304,6 +1409,15 @@ mod tests {
         assert_eq!(layer_from_id(1), Layer::TopLayer);
         assert_eq!(layer_from_id(32), Layer::BottomLayer);
         assert_eq!(layer_from_id(74), Layer::MultiLayer);
+    }
+
+    #[test]
+    fn test_hole_shape_from_id() {
+        assert_eq!(hole_shape_from_id(0), HoleShape::Round);
+        assert_eq!(hole_shape_from_id(1), HoleShape::Square);
+        assert_eq!(hole_shape_from_id(2), HoleShape::Slot);
+        // Unknown IDs should default to Round
+        assert_eq!(hole_shape_from_id(255), HoleShape::Round);
     }
 
     #[test]
