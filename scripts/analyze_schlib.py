@@ -21,9 +21,10 @@ def parse_properties(data: bytes) -> dict:
             if '=' in part:
                 key, value = part.split('=', 1)
                 props[key] = value
+        return props
     except Exception:
-        pass
-    return props
+        # Invalid or unexpectedly formatted property data is ignored; return any props parsed so far.
+        return props
 
 
 def parse_binary_pin(data: bytes) -> dict:
