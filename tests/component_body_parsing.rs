@@ -16,8 +16,8 @@ fn test_component_body_parsing() {
             println!("  ComponentBodies: {}", fp.component_bodies.len());
             total_bodies += fp.component_bodies.len();
 
-            for (i, body) in fp.component_bodies.iter().enumerate() {
-                println!("    Body[{i}]:");
+            for (body_index, body) in fp.component_bodies.iter().enumerate() {
+                println!("    Body[{body_index}]:");
                 println!("      model_id: {}", body.model_id);
                 println!("      model_name: {}", body.model_name);
                 println!("      embedded: {}", body.embedded);
