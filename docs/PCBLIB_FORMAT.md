@@ -194,6 +194,53 @@ All primitives start with a common header:
 | 2 | 1 | More flags |
 | 3-12 | 10 | Padding (0xFF) |
 
+## Not Yet Implemented
+
+The following primitives are recognized but not yet parsed:
+
+### Text (0x05)
+
+Text strings (designator, comment, free text). Format details unknown.
+
+- Uses 1 block
+- Contains layer, position, font info, and string content
+
+### Fill (0x06)
+
+Filled rectangles. Format details unknown.
+
+- Uses 1 block
+- Contains layer and corner coordinates
+
+### Region (0x0B)
+
+Filled polygons (courtyard, copper pour). Format details unknown.
+
+- Uses 2 blocks
+- Contains layer and vertex list
+- Used for complex outlines
+
+### ComponentBody (0x0C)
+
+3D model reference. Links to embedded STEP models.
+
+- Uses 3 blocks
+- References model data in `/Library/Models/N` streams
+- Model metadata in `/Library/Models/Data` stream
+
+### 3D Model Storage
+
+Altium embeds 3D models in the library file:
+
+```text
+/Library/Models/
+├── Header          # 4 bytes
+├── Data            # Model references/metadata
+├── 0               # First embedded model (STEP data)
+├── 1               # Second embedded model
+└── ...
+```
+
 ## References
 
 - [pyAltiumLib](https://github.com/ChrisHoyer/pyAltiumLib) - Python library for reading Altium files

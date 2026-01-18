@@ -13,7 +13,7 @@
 //! [0x00]                                       // End marker
 //! ```
 
-use super::primitives::{Arc, Layer, Pad, PadShape, Track};
+use super::primitives::{Arc, Layer, Pad, PadShape, Text, Track};
 use super::Footprint;
 
 /// Conversion factor from millimetres to Altium internal units.
@@ -139,6 +139,11 @@ pub fn encode_data_stream(footprint: &Footprint) -> Vec<u8> {
     for track in &footprint.tracks {
         data.push(0x04); // Track record type
         encode_track(&mut data, track);
+    }
+
+    for text in &footprint.text {
+        data.push(0x05); // Text record type
+        encode_text(&mut data, text);
     }
 
     // End marker
@@ -292,6 +297,93 @@ fn encode_arc(data: &mut Vec<u8>, arc: &Arc) {
     write_i32(&mut block, from_mm(arc.width));
 
     write_block(data, &block);
+}
+
+/// Encodes a Text primitive.
+///
+/// Text has 2 blocks:
+/// - Block 0: Geometry/metadata (layer, position, height, rotation, font info)
+/// - Block 1: Text content (length-prefixed string)
+fn encode_text(data: &mut Vec<u8>, text: &Text) {
+    // Block 0: Geometry
+    let geometry = encode_text_geometry(text);
+    write_block(data, &geometry);
+
+    // Block 1: Text content
+    write_string_block(data, &text.text);
+}
+
+/// Encodes the geometry block for text.
+///
+/// # Format
+///
+/// ```text
+/// [layer:1][flags:12]           // 13-byte common header
+/// [x:4 i32]                     // X position
+/// [y:4 i32]                     // Y position
+/// [height:4 i32]                // Text height
+/// [unknown:2]                   // Unknown bytes
+/// [rotation:8 f64]              // Rotation angle
+/// [font_size:4 i32]             // Font size (same as height)
+/// [unknown:4]                   // Unknown
+/// [font_name:varies]            // Font name in UTF-16 (null-terminated)
+/// [padding...]                  // Padding to standard size
+/// ```
+fn encode_text_geometry(text: &Text) -> Vec<u8> {
+    let mut block = Vec::with_capacity(128);
+
+    // Common header (13 bytes)
+    write_common_header(&mut block, text.layer);
+
+    // Position (X, Y) - offsets 13-20
+    write_i32(&mut block, from_mm(text.x));
+    write_i32(&mut block, from_mm(text.y));
+
+    // Height - offset 21-24
+    write_i32(&mut block, from_mm(text.height));
+
+    // Unknown bytes before rotation - offsets 25-26
+    block.push(0x01); // Flag: visible?
+    block.push(0x00);
+
+    // Rotation - offset 27-34 (8-byte double)
+    write_f64(&mut block, text.rotation);
+
+    // Font size (same as height) - offset 35-38
+    write_i32(&mut block, from_mm(text.height));
+
+    // Unknown bytes
+    block.extend_from_slice(&[0x00; 4]);
+
+    // Font name in UTF-16LE (null-terminated)
+    // Default font: "Arial"
+    let font_name = "Arial";
+    for c in font_name.encode_utf16() {
+        block.extend_from_slice(&c.to_le_bytes());
+    }
+    // Null terminator (2 bytes for UTF-16)
+    block.extend_from_slice(&[0x00, 0x00]);
+
+    // Additional font/style settings
+    // These are typical defaults based on sample analysis
+    block.push(0x56); // Font style byte 1
+    block.push(0x40); // Font style byte 2
+    block.push(0x01); // Bold flag
+    block.extend_from_slice(&[0x00; 5]); // Padding
+
+    // More font/text settings (defaults)
+    write_i32(&mut block, from_mm(text.height)); // line_spacing
+    block.push(0x04); // justification
+    block.push(0x00);
+    write_i32(&mut block, from_mm(text.height)); // glyph_width
+
+    // Additional padding to approximate typical size
+    // Total block should be around 80-100 bytes minimum
+    while block.len() < 80 {
+        block.push(0x00);
+    }
+
+    block
 }
 
 #[cfg(test)]

@@ -507,9 +507,12 @@ impl McpServer {
             ToolDefinition {
                 name: "read_pcblib".to_string(),
                 description: Some(
-                    "Read an Altium .PcbLib file and return its contents including all footprints \
+                    "Read an Altium .PcbLib file and return its contents including footprints \
                      with their primitives (pads, tracks, arcs, regions, text). Returns structured \
-                     data that can be used to understand existing footprint styles."
+                     data that can be used to understand existing footprint styles. \
+                     All coordinates and dimensions are in millimetres (mm). \
+                     For large libraries, use component_name to fetch specific footprints, \
+                     or use limit/offset for pagination."
                         .to_string(),
                 ),
                 input_schema: json!({
@@ -518,6 +521,18 @@ impl McpServer {
                         "filepath": {
                             "type": "string",
                             "description": "Path to the .PcbLib file"
+                        },
+                        "component_name": {
+                            "type": "string",
+                            "description": "Optional: fetch only this specific footprint by name"
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Optional: maximum number of footprints to return (default: all)"
+                        },
+                        "offset": {
+                            "type": "integer",
+                            "description": "Optional: skip first N footprints (default: 0)"
                         }
                     },
                     "required": ["filepath"]
@@ -526,8 +541,11 @@ impl McpServer {
             ToolDefinition {
                 name: "read_schlib".to_string(),
                 description: Some(
-                    "Read an Altium .SchLib file and return its contents including all symbols \
-                     with their primitives (pins, rectangles, lines, text)."
+                    "Read an Altium .SchLib file and return its contents including symbols \
+                     with their primitives (pins, rectangles, lines, text). \
+                     Coordinates are in schematic units (10 units = 1 grid square, not mm). \
+                     For large libraries, use component_name to fetch specific symbols, \
+                     or use limit/offset for pagination."
                         .to_string(),
                 ),
                 input_schema: json!({
@@ -536,6 +554,18 @@ impl McpServer {
                         "filepath": {
                             "type": "string",
                             "description": "Path to the .SchLib file"
+                        },
+                        "component_name": {
+                            "type": "string",
+                            "description": "Optional: fetch only this specific symbol by name"
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Optional: maximum number of symbols to return (default: all)"
+                        },
+                        "offset": {
+                            "type": "integer",
+                            "description": "Optional: skip first N symbols (default: 0)"
                         }
                     },
                     "required": ["filepath"]
@@ -586,7 +616,8 @@ impl McpServer {
                     "Write footprints to an Altium .PcbLib file. Each footprint is defined by \
                      its primitives: pads (with position, size, shape, layer), tracks, arcs, \
                      regions, and text. The AI is responsible for calculating correct positions \
-                     and sizes based on IPC-7351B or other standards."
+                     and sizes based on IPC-7351B or other standards. \
+                     All coordinates and dimensions must be in millimetres (mm)."
                         .to_string(),
                 ),
                 input_schema: json!({
@@ -621,7 +652,7 @@ impl McpServer {
                                                 "y": { "type": "number", "description": "Y position in mm" },
                                                 "width": { "type": "number", "description": "Pad width in mm" },
                                                 "height": { "type": "number", "description": "Pad height in mm" },
-                                                "shape": { "type": "string", "enum": ["rectangle", "rounded_rectangle", "circle"] },
+                                                "shape": { "type": "string", "enum": ["rectangle", "rounded_rectangle", "round", "oval"], "description": "Pad shape. Note: read_pcblib returns 'round', write accepts 'round' or 'circle'" },
                                                 "layer": { "type": "string", "description": "Layer name (default: multi-layer for SMD)" },
                                                 "hole_size": { "type": "number", "description": "Hole diameter for through-hole pads (mm)" }
                                             },
@@ -726,7 +757,8 @@ impl McpServer {
                 name: "write_schlib".to_string(),
                 description: Some(
                     "Write schematic symbols to an Altium .SchLib file. Each symbol is defined by \
-                     its primitives: pins, rectangles, lines, polylines, arcs, ellipses, and labels."
+                     its primitives: pins, rectangles, lines, polylines, arcs, ellipses, and labels. \
+                     Coordinates must be in schematic units (10 units = 1 grid square, not mm)."
                         .to_string(),
                 ),
                 input_schema: json!({
@@ -779,6 +811,8 @@ impl McpServer {
     // ==================== Tool Handlers ====================
 
     /// Reads a `PcbLib` file and returns its contents.
+    /// Supports pagination via limit/offset and filtering by `component_name`.
+    #[allow(clippy::cast_possible_truncation)]
     fn call_read_pcblib(&self, arguments: &Value) -> ToolCallResult {
         use crate::altium::PcbLib;
 
@@ -791,10 +825,30 @@ impl McpServer {
             return ToolCallResult::error(e);
         }
 
+        // Parse optional pagination/filter parameters
+        let component_name = arguments.get("component_name").and_then(Value::as_str);
+        let limit = arguments
+            .get("limit")
+            .and_then(Value::as_u64)
+            .map(|v| v as usize);
+        let offset = arguments
+            .get("offset")
+            .and_then(Value::as_u64)
+            .map_or(0, |v| v as usize);
+
         match PcbLib::read(filepath) {
             Ok(library) => {
+                let total_count = library.len();
+
+                // Apply filtering and pagination
                 let footprints: Vec<_> = library
                     .footprints()
+                    .filter(|fp| {
+                        // If component_name specified, only include matching
+                        component_name.map_or(true, |name| fp.name == name)
+                    })
+                    .skip(offset)
+                    .take(limit.unwrap_or(usize::MAX))
                     .map(|fp| {
                         json!({
                             "name": fp.name,
@@ -809,10 +863,20 @@ impl McpServer {
                     })
                     .collect();
 
+                let returned_count = footprints.len();
+                let has_more = if component_name.is_some() {
+                    false // Single component fetch, no pagination
+                } else {
+                    offset + returned_count < total_count
+                };
+
                 let result = json!({
                     "status": "success",
                     "filepath": filepath,
-                    "footprint_count": library.len(),
+                    "total_count": total_count,
+                    "returned_count": returned_count,
+                    "offset": offset,
+                    "has_more": has_more,
                     "footprints": footprints,
                 });
 
@@ -1048,6 +1112,8 @@ impl McpServer {
     }
 
     /// Reads a `SchLib` file and returns its contents.
+    /// Supports pagination via limit/offset and filtering by `component_name`.
+    #[allow(clippy::cast_possible_truncation)]
     fn call_read_schlib(&self, arguments: &Value) -> ToolCallResult {
         use crate::altium::SchLib;
 
@@ -1060,10 +1126,30 @@ impl McpServer {
             return ToolCallResult::error(e);
         }
 
+        // Parse optional pagination/filter parameters
+        let component_name = arguments.get("component_name").and_then(Value::as_str);
+        let limit = arguments
+            .get("limit")
+            .and_then(Value::as_u64)
+            .map(|v| v as usize);
+        let offset = arguments
+            .get("offset")
+            .and_then(Value::as_u64)
+            .map_or(0, |v| v as usize);
+
         match SchLib::open(filepath) {
             Ok(library) => {
+                let total_count = library.len();
+
+                // Apply filtering and pagination
                 let symbols: Vec<_> = library
                     .iter()
+                    .filter(|(name, _)| {
+                        // If component_name specified, only include matching
+                        component_name.map_or(true, |filter| *name == filter)
+                    })
+                    .skip(offset)
+                    .take(limit.unwrap_or(usize::MAX))
                     .map(|(name, symbol)| {
                         json!({
                             "name": name,
@@ -1083,10 +1169,20 @@ impl McpServer {
                     })
                     .collect();
 
+                let returned_count = symbols.len();
+                let has_more = if component_name.is_some() {
+                    false // Single component fetch, no pagination
+                } else {
+                    offset + returned_count < total_count
+                };
+
                 let result = json!({
                     "status": "success",
                     "filepath": filepath,
-                    "symbol_count": library.len(),
+                    "total_count": total_count,
+                    "returned_count": returned_count,
+                    "offset": offset,
+                    "has_more": has_more,
                     "symbols": symbols,
                 });
 
