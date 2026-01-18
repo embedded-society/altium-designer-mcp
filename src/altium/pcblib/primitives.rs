@@ -151,7 +151,14 @@ impl Via {
 
     /// Creates a blind via (connects outer layer to inner layer).
     #[must_use]
-    pub const fn blind(x: f64, y: f64, diameter: f64, hole_size: f64, from: Layer, to: Layer) -> Self {
+    pub const fn blind(
+        x: f64,
+        y: f64,
+        diameter: f64,
+        hole_size: f64,
+        from: Layer,
+        to: Layer,
+    ) -> Self {
         Self {
             x,
             y,
