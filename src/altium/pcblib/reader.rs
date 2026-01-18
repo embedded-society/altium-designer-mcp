@@ -24,7 +24,7 @@
 //! - `0x0B`: Region
 //! - `0x0C`: `ComponentBody`
 
-use super::primitives::{Arc, Layer, Pad, PadShape, Track};
+use super::primitives::{Arc, Layer, Pad, PadShape, Text, Track};
 use super::Footprint;
 
 /// Conversion factor from Altium internal units to millimetres.
@@ -220,10 +220,19 @@ pub fn parse_data_stream(footprint: &mut Footprint, data: &[u8]) {
                     break;
                 }
             }
-            0x03 | 0x05 | 0x06 | 0x0B | 0x0C => {
+            0x05 => {
+                // Text
+                if let Some((text, new_offset)) = parse_text(data, offset) {
+                    footprint.add_text(text);
+                    offset = new_offset;
+                } else {
+                    tracing::debug!("Failed to parse Text at offset {offset:#x}");
+                    break;
+                }
+            }
+            0x03 | 0x06 | 0x0B | 0x0C => {
                 // These primitives are recognized but not yet fully implemented:
                 // - 0x03: Via (similar to pad but for vias)
-                // - 0x05: Text (designator/comment strings - format undocumented)
                 // - 0x06: Fill (filled rectangle)
                 // - 0x0B: Region (filled polygon with vertices - format undocumented)
                 // - 0x0C: ComponentBody (3D model reference - stored in /Library/Models)
@@ -232,13 +241,14 @@ pub fn parse_data_stream(footprint: &mut Footprint, data: &[u8]) {
                 // 3D models are embedded in /Library/Models/N streams, referenced here.
                 let type_name = match record_type {
                     0x03 => "Via",
-                    0x05 => "Text",
                     0x06 => "Fill",
                     0x0B => "Region",
                     0x0C => "ComponentBody",
                     _ => "Unknown",
                 };
-                tracing::trace!("Skipping {type_name} primitive (0x{record_type:02x}) - not yet implemented");
+                tracing::trace!(
+                    "Skipping {type_name} primitive (0x{record_type:02x}) - not yet implemented"
+                );
                 if let Some(new_offset) = skip_primitive(data, offset, record_type) {
                     offset = new_offset;
                 } else {
@@ -420,6 +430,133 @@ fn parse_arc(data: &[u8], offset: usize) -> Option<(Arc, usize)> {
     Some((arc, next))
 }
 
+/// Parses a Text primitive.
+/// Returns the parsed `Text` and the new offset on success.
+///
+/// # Text Block Format (observed from sample files)
+///
+/// ```text
+/// [block_len:4][block_data:block_len]
+///
+/// Block data:
+/// [layer:1][flags:12]           // 13-byte common header
+/// [x:4 i32]                     // X position
+/// [y:4 i32]                     // Y position
+/// [height:4 i32]                // Text height
+/// ...                           // Additional fields (font, style)
+/// [rotation:8 f64]              // Rotation angle (at offset 37)
+/// [font_name:varies]            // Font name in UTF-16 (null-terminated)
+/// [text_content:varies]         // Text content in UTF-16 or reference
+/// ```
+fn parse_text(data: &[u8], offset: usize) -> Option<(Text, usize)> {
+    // Text has 2 blocks:
+    // - Block 0: Geometry/metadata (layer, position, height, rotation, font, etc.)
+    // - Block 1: Text content (length-prefixed string, or reference to WideStrings)
+
+    // Block 0: Geometry
+    let (geometry_block, mut current) = read_block(data, offset)?;
+
+    if geometry_block.len() < 25 {
+        tracing::trace!(
+            "Text geometry block too short: {} bytes",
+            geometry_block.len()
+        );
+        return None;
+    }
+
+    // Common header (13 bytes)
+    let layer_id = geometry_block[0];
+    let layer = layer_from_id(layer_id);
+
+    // Position (X, Y) - offsets 13-20
+    let x = to_mm(read_i32(geometry_block, 13)?);
+    let y = to_mm(read_i32(geometry_block, 17)?);
+
+    // Height - offset 21
+    let height = to_mm(read_i32(geometry_block, 21)?);
+
+    // Rotation - offset 27 (8-byte double)
+    // Altium stores rotation in degrees (0-360)
+    let rotation = if geometry_block.len() > 35 {
+        read_f64(geometry_block, 27).unwrap_or(0.0)
+    } else {
+        0.0
+    };
+
+    // Block 1: Text content
+    let text_content = if let Some((text_block, next)) = read_block(data, current) {
+        current = next;
+        // Text block is a length-prefixed string
+        let content = read_string_from_block(text_block);
+        if content.is_empty() {
+            // Check for special designator/comment text in geometry block
+            extract_text_from_block(geometry_block)
+        } else {
+            content
+        }
+    } else {
+        // Fallback: check geometry block
+        extract_text_from_block(geometry_block)
+    };
+
+    let text = Text {
+        x,
+        y,
+        text: text_content,
+        height,
+        layer,
+        rotation,
+    };
+
+    Some((text, current))
+}
+
+/// Extracts the text index from a Text block.
+///
+/// Text content is stored in the `WideStrings` stream as `ENCODEDTEXT{n}=...`
+/// where `n` is the index. The actual text content is comma-separated ASCII codes.
+///
+/// For now, this returns the index as a placeholder. Full `WideStrings` integration
+/// would require reading the `WideStrings` stream during footprint parsing.
+///
+/// # Returns
+///
+/// Returns the text index (e.g., "0", "1") which references the `WideStrings` entry.
+/// Returns empty string if no index can be determined.
+fn extract_text_from_block(block: &[u8]) -> String {
+    // Text content is stored in WideStrings stream, not inline in the block.
+    // The block may contain an index referencing ENCODEDTEXT{n} in WideStrings.
+    //
+    // WideStrings format example:
+    //   |ENCODEDTEXT0=84,69,83,84|ENCODEDTEXT1=84,69,83,84|
+    //   where 84,69,83,84 = ASCII for "TEST"
+    //
+    // For now, try to find ".Designator" or ".Comment" special text inline,
+    // otherwise return empty. Full WideStrings support is TODO.
+
+    // Check for special designator/comment text
+    for pattern in [".Designator", ".Comment"] {
+        if find_ascii_in_block(block, pattern).is_some() {
+            return pattern.to_string();
+        }
+    }
+
+    // Text content is in WideStrings - return empty for now
+    // TODO: Implement WideStrings stream parsing to decode ENCODEDTEXT entries
+    String::new()
+}
+
+/// Finds an ASCII pattern within a block (for special text like ".Designator").
+fn find_ascii_in_block(block: &[u8], pattern: &str) -> Option<usize> {
+    let pattern_bytes = pattern.as_bytes();
+    if pattern_bytes.len() > block.len() {
+        return None;
+    }
+
+    (0..=(block.len() - pattern_bytes.len()))
+        .find(|&i| &block[i..i + pattern_bytes.len()] == pattern_bytes)
+}
+
 /// Skips a primitive by reading its blocks.
 /// Returns the new offset on success.
 fn skip_primitive(data: &[u8], offset: usize, record_type: u8) -> Option<usize> {
@@ -427,11 +564,10 @@ fn skip_primitive(data: &[u8], offset: usize, record_type: u8) -> Option<usize> 
 
     // Different primitives have different numbers of blocks
     let block_count: u8 = match record_type {
-        0x03 => 6, // Via (similar to Pad)
-        0x0B => 2, // Region (has outline vertices)
-        0x0C => 3, // ComponentBody
-        // Text (0x05), Fill (0x06), and others default to 1 block
-        _ => 1,
+        0x03 => 6,        // Via (similar to Pad)
+        0x05 | 0x0B => 2, // Text (geometry + content), Region (properties + vertices)
+        0x0C => 3,        // ComponentBody
+        _ => 1,           // Fill (0x06) and others default to 1 block
     };
 
     for _ in 0..block_count {

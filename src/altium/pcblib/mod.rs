@@ -599,4 +599,48 @@ mod tests {
         assert_eq!(decoded.tracks[1].layer, Layer::TopCourtyard);
         assert_eq!(decoded.tracks[2].layer, Layer::Top3DBody);
     }
+
+    #[test]
+    fn binary_roundtrip_text() {
+        let mut original = Footprint::new("ROUNDTRIP_TEXT");
+
+        // Add text with different rotations
+        original.add_text(Text {
+            x: 0.0,
+            y: 1.0,
+            text: ".Designator".to_string(),
+            height: 0.8,
+            layer: Layer::TopOverlay,
+            rotation: 0.0,
+        });
+        original.add_text(Text {
+            x: 1.5,
+            y: 0.5,
+            text: "TEST".to_string(),
+            height: 0.5,
+            layer: Layer::TopOverlay,
+            rotation: 90.0,
+        });
+
+        let data = writer::encode_data_stream(&original);
+        let mut decoded = Footprint::new("ROUNDTRIP_TEXT");
+        reader::parse_data_stream(&mut decoded, &data);
+
+        assert_eq!(decoded.text.len(), 2);
+
+        // First text
+        assert_eq!(decoded.text[0].text, ".Designator");
+        assert!(approx_eq(decoded.text[0].x, 0.0, 0.001));
+        assert!(approx_eq(decoded.text[0].y, 1.0, 0.001));
+        assert!(approx_eq(decoded.text[0].height, 0.8, 0.001));
+        assert!(approx_eq(decoded.text[0].rotation, 0.0, 0.001));
+        assert_eq!(decoded.text[0].layer, Layer::TopOverlay);
+
+        // Second text (rotated)
+        assert_eq!(decoded.text[1].text, "TEST");
+        assert!(approx_eq(decoded.text[1].x, 1.5, 0.001));
+        assert!(approx_eq(decoded.text[1].y, 0.5, 0.001));
+        assert!(approx_eq(decoded.text[1].height, 0.5, 0.001));
+        assert!(approx_eq(decoded.text[1].rotation, 90.0, 0.001));
+    }
 }
