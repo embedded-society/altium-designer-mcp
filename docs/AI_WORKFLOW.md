@@ -163,6 +163,10 @@ IPC Name: RESC1608X55N
 
 ## Available MCP Tools
 
+See [README.md § MCP Tools](../README.md#mcp-tools) for the complete tool reference.
+
+The examples below show workflow-specific usage patterns.
+
 ### read_pcblib
 
 Read footprints from an existing library. Coordinates are in millimetres.
@@ -375,16 +379,7 @@ The AI provides complete primitive definitions. The tool writes them.
 
 ## Standard Altium Layers
 
-| Layer | Usage |
-|-------|-------|
-| Top Layer | SMD copper pads |
-| Multi-Layer | Through-hole pads (all copper layers) |
-| Top Overlay | Silkscreen |
-| Top Paste | Solder paste stencil |
-| Top Solder | Solder mask openings |
-| Top Assembly | Assembly outline |
-| Top 3D Body | 3D body outline |
-| Top Courtyard | Courtyard (IPC-7351) |
+See [README.md § Standard Altium Layers](../README.md#standard-altium-layers) for the layer reference.
 
 ---
 

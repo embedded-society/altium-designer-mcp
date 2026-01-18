@@ -29,85 +29,34 @@ platform to generate library files that can then be opened in Altium Designer on
 
 ### Step 1: Clone and Build
 
-#### Windows (PowerShell)
+See [CONTRIBUTING.md § Development Setup](../CONTRIBUTING.md#development-setup) for build instructions.
 
-```powershell
-git clone https://github.com/embedded-society/altium-designer-mcp.git
-cd altium-designer-mcp
-cargo build --release
-```
+**Binary location after build:**
 
-The binary will be at `target\release\altium-designer-mcp.exe`.
-
-#### Linux / macOS
-
-```bash
-git clone https://github.com/embedded-society/altium-designer-mcp.git
-cd altium-designer-mcp
-cargo build --release
-```
-
-The binary will be at `target/release/altium-designer-mcp`.
+- **Windows:** `target\release\altium-designer-mcp.exe`
+- **Linux/macOS:** `target/release/altium-designer-mcp`
 
 ### Step 2: Create Configuration File
 
-Create the configuration directory and file.
+See [README.md § Configuration](../README.md#configuration) for configuration options.
 
-#### Windows (PowerShell)
+**Config file location:**
+
+- **Windows:** `%USERPROFILE%\.altium-designer-mcp\config.json`
+- **Linux/macOS:** `~/.altium-designer-mcp/config.json`
+
+Create the directory and config file for your platform:
+
+**Windows (PowerShell):**
 
 ```powershell
 mkdir $env:USERPROFILE\.altium-designer-mcp -ErrorAction SilentlyContinue
 ```
 
-Create `%USERPROFILE%\.altium-designer-mcp\config.json`:
-
-```json
-{
-    "allowed_paths": [
-        "C:\\Users\\YourName\\Documents\\Altium\\Libraries"
-    ],
-    "logging": {
-        "level": "warn"
-    }
-}
-```
-
-#### Linux
+**Linux/macOS:**
 
 ```bash
 mkdir -p ~/.altium-designer-mcp
-```
-
-Create `~/.altium-designer-mcp/config.json`:
-
-```json
-{
-    "allowed_paths": [
-        "/home/yourname/altium-libraries"
-    ],
-    "logging": {
-        "level": "warn"
-    }
-}
-```
-
-#### macOS
-
-```bash
-mkdir -p ~/.altium-designer-mcp
-```
-
-Create `~/.altium-designer-mcp/config.json`:
-
-```json
-{
-    "allowed_paths": [
-        "/Users/yourname/Documents/Altium/Libraries"
-    ],
-    "logging": {
-        "level": "warn"
-    }
-}
 ```
 
 ### Step 3: Configure Claude Code

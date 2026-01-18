@@ -263,19 +263,9 @@ Returns statistics about track widths, pad shapes, pin lengths, colours, and lay
 
 ## Installation
 
-### Prerequisites
+See [CONTRIBUTING.md § Development Setup](CONTRIBUTING.md#development-setup) for build instructions.
 
-- Rust 1.75+ (for building from source)
-
-### From Source
-
-```bash
-git clone https://github.com/embedded-society/altium-designer-mcp.git
-cd altium-designer-mcp
-cargo build --release
-```
-
-The binary will be at `target/release/altium-designer-mcp`.
+The release binary will be at `target/release/altium-designer-mcp`.
 
 ### Usage with Claude Desktop
 
@@ -368,25 +358,9 @@ GNU General Public License v3.0 — see [LICENCE](LICENCE).
 
 ## Sample Files
 
-Sample Altium library files are included in the `scripts/` folder for testing and development:
+Sample Altium library files are included in the `scripts/` folder for testing and development.
 
-| File | Description |
-|------|-------------|
-| `scripts/sample.PcbLib` | Sample PCB footprint library (chip resistors) |
-| `scripts/sample.SchLib` | Corresponding schematic symbol library |
-
-These files can be used with the analysis scripts:
-
-```bash
-# Python analysis (requires pyaltiumlib and olefile)
-cd scripts
-python analyze_pcblib.py sample.PcbLib
-python analyze_schlib.py sample.SchLib
-
-# Rust analysis
-cargo test --test pcblib_analysis -- --ignored --nocapture
-cargo test --test schlib_analysis -- --ignored --nocapture
-```
+See [scripts/README.md](scripts/README.md) for details on available sample files and analysis scripts.
 
 ---
 

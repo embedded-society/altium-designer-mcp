@@ -59,14 +59,7 @@ This document describes the architectural vision for altium-designer-mcp.
 
 ## MCP Tools
 
-| Tool | Description |
-|------|-------------|
-| `read_pcblib` | Read footprints and primitives from .PcbLib |
-| `read_schlib` | Read symbols and primitives from .SchLib |
-| `write_pcblib` | Write footprints (defined by primitives) to .PcbLib |
-| `write_schlib` | Write symbols (defined by primitives) to .SchLib |
-| `list_components` | List component names in a library |
-| `extract_style` | Extract styling information from existing libraries |
+See [README.md § MCP Tools](../README.md#mcp-tools) for the complete tool reference with examples.
 
 ---
 
@@ -74,23 +67,7 @@ This document describes the architectural vision for altium-designer-mcp.
 
 The AI provides complete primitive definitions. The tool just writes them.
 
-### Footprint Primitives
-
-- **Pad**: Position, size, shape, designator, layer
-- **Track**: Start/end points, width, layer
-- **Arc**: Centre, radius, angles, width, layer
-- **Region**: Vertices, layer
-- **Text**: Position, content, size, layer
-
-### Symbol Primitives
-
-- **Pin**: Position, designator, name, orientation, electrical type
-- **Rectangle**: Position, size, fill
-- **Line**: Start/end points
-- **Polyline**: Multiple connected line segments
-- **Arc**: Centre, radius, angles
-- **Ellipse**: Centre, radii, fill
-- **Label**: Position, content, font
+See [README.md § Primitive Types](../README.md#primitive-types) for the complete primitive reference.
 
 ---
 
