@@ -59,7 +59,7 @@ pub struct ToolCapabilities {
     pub list_changed: bool,
 }
 
-fn is_false(b: &amp;bool) -> bool {
+fn is_false(b: &bool) -> bool {
     !*b
 }
 
@@ -89,7 +89,7 @@ pub struct ClientInfo {
     pub name: String,
     /// Client version.
     #[serde(default)]
-    pub version: Option&lt;String>,
+    pub version: Option<String>,
 }
 
 /// Parameters for the initialize request.
@@ -103,7 +103,7 @@ pub struct InitializeParams {
     pub capabilities: Value,
     /// Client information.
     #[serde(default)]
-    pub client_info: Option&lt;ClientInfo>,
+    pub client_info: Option<ClientInfo>,
 }
 
 /// A tool definition for tools/list response.
@@ -114,7 +114,7 @@ pub struct ToolDefinition {
     pub name: String,
     /// Human-readable description.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option&lt;String>,
+    pub description: Option<String>,
     /// JSON Schema for the tool's input parameters.
     pub input_schema: Value,
 }
@@ -145,16 +145,16 @@ pub enum ToolContent {
 #[serde(rename_all = "camelCase")]
 pub struct ToolCallResult {
     /// Content returned by the tool.
-    pub content: Vec&lt;ToolContent>,
+    pub content: Vec<ToolContent>,
     /// Whether the tool call resulted in an error.
-    #[serde(skip_serializing_if = "|b| !b")]
+    #[serde(skip_serializing_if = "is_false")]
     pub is_error: bool,
 }
 
 impl ToolCallResult {
     /// Creates a successful text result.
     #[must_use]
-    pub fn text(text: impl Into&lt;String>) -> Self {
+    pub fn text(text: impl Into<String>) -> Self {
         Self {
             content: vec![ToolContent::Text { text: text.into() }],
             is_error: false,
@@ -163,7 +163,7 @@ impl ToolCallResult {
 
     /// Creates an error text result.
     #[must_use]
-    pub fn error(message: impl Into&lt;String>) -> Self {
+    pub fn error(message: impl Into<String>) -> Self {
         Self {
             content: vec![ToolContent::Text {
                 text: message.into(),
@@ -180,15 +180,15 @@ pub struct McpServer {
     /// The transport layer.
     transport: StdioTransport,
     /// Negotiated protocol version (set after initialisation).
-    protocol_version: Option&lt;String>,
+    protocol_version: Option<String>,
     /// Allowed paths for library operations.
-    allowed_paths: Vec&lt;PathBuf>,
+    allowed_paths: Vec<PathBuf>,
 }
 
 impl McpServer {
     /// Creates a new MCP server with the given allowed paths.
     #[must_use]
-    pub fn new(allowed_paths: Vec&lt;PathBuf>) -> Self {
+    pub fn new(allowed_paths: Vec<PathBuf>) -> Self {
         Self {
             state: ServerState::AwaitingInit,
             transport: StdioTransport::new(),
@@ -199,14 +199,14 @@ impl McpServer {
 
     /// Returns the current server state.
     #[must_use]
-    pub const fn state(&amp;self) -> ServerState {
+    pub const fn state(&self) -> ServerState {
         self.state
     }
 
     /// Validates that a path is within one of the allowed paths.
     ///
     /// Returns `Ok(())` if the path is allowed, or an error message if not.
-    fn validate_path(&amp;self, filepath: &amp;str) -> Result&lt;(), String> {
+    fn validate_path(&self, filepath: &str) -> Result<(), String> {
         use std::path::Path;
 
         // If no allowed paths are configured, allow all paths (backwards compatibility)
@@ -236,12 +236,12 @@ impl McpServer {
         };
 
         // Check if the path is within any of the allowed paths
-        for allowed in &amp;self.allowed_paths {
+        for allowed in &self.allowed_paths {
             let Ok(canonical_allowed) = allowed.canonicalize() else {
                 continue; // Skip non-existent allowed paths
             };
 
-            if canonical_path.starts_with(&amp;canonical_allowed) {
+            if canonical_path.starts_with(&canonical_allowed) {
                 return Ok(());
             }
         }
@@ -255,13 +255,13 @@ impl McpServer {
     /// # Errors
     ///
     /// Returns an error if transport I/O fails.
-    pub async fn run(&amp;mut self) -> std::io::Result&lt;()> {
+    pub async fn run(&mut self) -> std::io::Result<()> {
         self.run_with_shutdown().await
     }
 
     /// Runs the main loop and handles shutdown.
     #[cfg(unix)]
-    async fn run_with_shutdown(&amp;mut self) -> std::io::Result&lt;()> {
+    async fn run_with_shutdown(&mut self) -> std::io::Result<()> {
         use tokio::signal::unix::{signal, SignalKind};
 
         let mut sigint = signal(SignalKind::interrupt()).map_err(std::io::Error::other)?;
@@ -292,13 +292,13 @@ impl McpServer {
 
     /// Runs the main loop and handles shutdown.
     #[cfg(windows)]
-    async fn run_with_shutdown(&amp;mut self) -> std::io::Result&lt;()> {
+    async fn run_with_shutdown(&mut self) -> std::io::Result<()> {
         let ctrl_c = tokio::signal::ctrl_c();
         tokio::pin!(ctrl_c);
 
         loop {
             tokio::select! {
-                _ = &amp;mut ctrl_c => {
+                _ = &mut ctrl_c => {
                     tracing::info!("Received Ctrl+C, initiating graceful shutdown");
                     self.state = ServerState::ShuttingDown;
                     return Ok(());
@@ -317,9 +317,9 @@ impl McpServer {
     ///
     /// Returns `true` if the server should shut down.
     async fn handle_transport_result(
-        &amp;mut self,
-        line_result: std::io::Result&lt;Option&lt;String>>,
-    ) -> std::io::Result&lt;bool> {
+        &mut self,
+        line_result: std::io::Result<Option<String>>,
+    ) -> std::io::Result<bool> {
         let Some(line) = line_result? else {
             self.state = ServerState::ShuttingDown;
             return Ok(true);
@@ -329,7 +329,7 @@ impl McpServer {
             return Ok(false);
         }
 
-        self.handle_line(&amp;line).await?;
+        self.handle_line(&line).await?;
 
         if self.state == ServerState::ShuttingDown {
             return Ok(true);
@@ -339,20 +339,20 @@ impl McpServer {
     }
 
     /// Handles a single line of input.
-    async fn handle_line(&amp;mut self, line: &amp;str) -> std::io::Result&lt;()> {
+    async fn handle_line(&mut self, line: &str) -> std::io::Result<()> {
         use crate::mcp::protocol::parse_message;
 
         match parse_message(line) {
             Ok(msg) => self.handle_message(msg).await,
             Err(error) => {
-                self.transport.write_error(&amp;error).await?;
+                self.transport.write_error(&error).await?;
                 Ok(())
             }
         }
     }
 
     /// Handles a parsed incoming message.
-    async fn handle_message(&amp;mut self, msg: IncomingMessage) -> std::io::Result&lt;()> {
+    async fn handle_message(&mut self, msg: IncomingMessage) -> std::io::Result<()> {
         match msg {
             IncomingMessage::Request(req) => self.handle_request(req).await,
             IncomingMessage::Notification(ref notif) => {
@@ -363,30 +363,30 @@ impl McpServer {
     }
 
     /// Handles an incoming request.
-    async fn handle_request(&amp;mut self, req: JsonRpcRequest) -> std::io::Result&lt;()> {
+    async fn handle_request(&mut self, req: JsonRpcRequest) -> std::io::Result<()> {
         let response = match req.method.as_str() {
-            "initialize" => self.handle_initialize(&amp;req),
-            "tools/list" => self.handle_tools_list(&amp;req),
-            "tools/call" => self.handle_tools_call(&amp;req),
-            "ping" => Ok(Self::handle_ping(&amp;req)),
-            _ => Err(JsonRpcError::method_not_found(req.id.clone(), &amp;req.method)),
+            "initialize" => self.handle_initialize(&req),
+            "tools/list" => self.handle_tools_list(&req),
+            "tools/call" => self.handle_tools_call(&req),
+            "ping" => Ok(Self::handle_ping(&req)),
+            _ => Err(JsonRpcError::method_not_found(req.id.clone(), &req.method)),
         };
 
         match response {
-            Ok(resp) => self.transport.write_response(&amp;resp).await,
-            Err(error) => self.transport.write_error(&amp;error).await,
+            Ok(resp) => self.transport.write_response(&resp).await,
+            Err(error) => self.transport.write_error(&error).await,
         }
     }
 
     /// Handles an incoming notification.
-    fn handle_notification(&amp;mut self, notif: &amp;JsonRpcNotification) {
-        if notif.method == "notifications/initialized" &amp;&amp; self.state == ServerState::Initialising {
+    fn handle_notification(&mut self, notif: &JsonRpcNotification) {
+        if notif.method == "notifications/initialized" && self.state == ServerState::Initialising {
             self.state = ServerState::Running;
         }
     }
 
     /// Handles the initialize request.
-    fn handle_initialize(&amp;mut self, req: &amp;JsonRpcRequest) -> Result&lt;JsonRpcResponse, JsonRpcError> {
+    fn handle_initialize(&mut self, req: &JsonRpcRequest) -> Result<JsonRpcResponse, JsonRpcError> {
         if self.state != ServerState::AwaitingInit {
             return Err(JsonRpcError::new(
                 Some(req.id.clone()),
@@ -427,8 +427,8 @@ impl McpServer {
     }
 
     /// Handles the tools/list request.
-    fn handle_tools_list(&amp;self, req: &amp;JsonRpcRequest) -> Result&lt;JsonRpcResponse, JsonRpcError> {
-        self.require_running(&amp;req.id)?;
+    fn handle_tools_list(&self, req: &JsonRpcRequest) -> Result<JsonRpcResponse, JsonRpcError> {
+        self.require_running(&req.id)?;
 
         let tools = Self::get_tool_definitions();
 
@@ -440,8 +440,8 @@ impl McpServer {
     }
 
     /// Handles the tools/call request.
-    fn handle_tools_call(&amp;self, req: &amp;JsonRpcRequest) -> Result&lt;JsonRpcResponse, JsonRpcError> {
-        self.require_running(&amp;req.id)?;
+    fn handle_tools_call(&self, req: &JsonRpcRequest) -> Result<JsonRpcResponse, JsonRpcError> {
+        self.require_running(&req.id)?;
 
         let params: ToolCallParams = req
             .params
@@ -460,17 +460,17 @@ impl McpServer {
 
         let result = match params.name.as_str() {
             // Library I/O tools
-            "read_pcblib" => self.call_read_pcblib(&amp;params.arguments),
-            "write_pcblib" => self.call_write_pcblib(&amp;params.arguments),
-            "read_schlib" => self.call_read_schlib(&amp;params.arguments),
-            "write_schlib" => self.call_write_schlib(&amp;params.arguments),
-            "list_components" => self.call_list_components(&amp;params.arguments),
-            "extract_style" => self.call_extract_style(&amp;params.arguments),
+            "read_pcblib" => self.call_read_pcblib(&params.arguments),
+            "write_pcblib" => self.call_write_pcblib(&params.arguments),
+            "read_schlib" => self.call_read_schlib(&params.arguments),
+            "write_schlib" => self.call_write_schlib(&params.arguments),
+            "list_components" => self.call_list_components(&params.arguments),
+            "extract_style" => self.call_extract_style(&params.arguments),
             // Unknown tool
             _ => ToolCallResult::error(format!("Unknown tool: {}", params.name)),
         };
 
-        let result_value = serde_json::to_value(&amp;result).map_err(|e| {
+        let result_value = serde_json::to_value(&result).map_err(|e| {
             tracing::error!(error = %e, "Failed to serialise tool call result");
             JsonRpcError::new(
                 Some(req.id.clone()),
@@ -485,12 +485,12 @@ impl McpServer {
     }
 
     /// Handles the ping request.
-    fn handle_ping(req: &amp;JsonRpcRequest) -> JsonRpcResponse {
+    fn handle_ping(req: &JsonRpcRequest) -> JsonRpcResponse {
         JsonRpcResponse::success(req.id.clone(), json!({}))
     }
 
     /// Ensures the server is in the Running state.
-    fn require_running(&amp;self, id: &amp;RequestId) -> Result&lt;(), JsonRpcError> {
+    fn require_running(&self, id: &RequestId) -> Result<(), JsonRpcError> {
         if self.state != ServerState::Running {
             return Err(JsonRpcError::new(
                 Some(id.clone()),
@@ -505,7 +505,7 @@ impl McpServer {
     /// These are low-level file I/O and primitive placement tools.
     /// The AI handles IPC calculations and design decisions.
     #[allow(clippy::too_many_lines)]
-    fn get_tool_definitions() -> Vec&lt;ToolDefinition> {
+    fn get_tool_definitions() -> Vec<ToolDefinition> {
         vec![
             // === Library Reading ===
             ToolDefinition {
@@ -821,7 +821,7 @@ impl McpServer {
     /// Reads a `PcbLib` file and returns its contents.
     /// Supports pagination via limit/offset and filtering by `component_name`.
     #[allow(clippy::cast_possible_truncation)]
-    fn call_read_pcblib(&amp;self, arguments: &amp;Value) -> ToolCallResult {
+    fn call_read_pcblib(&self, arguments: &Value) -> ToolCallResult {
         use crate::altium::PcbLib;
 
         let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
@@ -849,7 +849,7 @@ impl McpServer {
                 let total_count = library.len();
 
                 // Apply filtering and pagination
-                let footprints: Vec&lt;_> = library
+                let footprints: Vec<_> = library
                     .footprints()
                     .filter(|fp| {
                         // If component_name specified, only include matching
@@ -875,7 +875,7 @@ impl McpServer {
                 let has_more = if component_name.is_some() {
                     false // Single component fetch, no pagination
                 } else {
-                    offset + returned_count &lt; total_count
+                    offset + returned_count < total_count
                 };
 
                 let result = json!({
@@ -888,7 +888,7 @@ impl McpServer {
                     "footprints": footprints,
                 });
 
-                ToolCallResult::text(serde_json::to_string_pretty(&amp;result).unwrap())
+                ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
             }
             Err(e) => {
                 let result = json!({
@@ -896,14 +896,14 @@ impl McpServer {
                     "filepath": filepath,
                     "error": e.to_string(),
                 });
-                ToolCallResult::error(serde_json::to_string_pretty(&amp;result).unwrap())
+                ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
             }
         }
     }
 
     /// Writes footprints to a `PcbLib` file.
     #[allow(clippy::too_many_lines)]
-    fn call_write_pcblib(&amp;self, arguments: &amp;Value) -> ToolCallResult {
+    fn call_write_pcblib(&self, arguments: &Value) -> ToolCallResult {
         use crate::altium::pcblib::{Footprint, Model3D, PcbLib};
 
         let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
@@ -920,7 +920,7 @@ impl McpServer {
         };
 
         // Collect and validate footprint names for duplicates
-        let new_names: Vec&lt;&amp;str> = footprints_json
+        let new_names: Vec<&str> = footprints_json
             .iter()
             .filter_map(|fp| fp.get("name").and_then(Value::as_str))
             .collect();
@@ -928,7 +928,7 @@ impl McpServer {
         // Check for duplicates within the new footprints
         {
             let mut seen = std::collections::HashSet::new();
-            for name in &amp;new_names {
+            for name in &new_names {
                 if !seen.insert(*name) {
                     return ToolCallResult::error(format!(
                         "Duplicate footprint name in request: '{name}'"
@@ -942,8 +942,8 @@ impl McpServer {
         #[allow(clippy::items_after_statements)]
         const MAX_OLE_NAME_LEN: usize = 31;
         #[allow(clippy::items_after_statements)]
-        const INVALID_CHARS: &amp;[char] = &amp;['/', '\\', ':', '*', '?', '"', '&lt;', '>', '|'];
-        for name in &amp;new_names {
+        const INVALID_CHARS: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
+        for name in &new_names {
             if name.is_empty() {
                 return ToolCallResult::error("Footprint name cannot be empty");
             }
@@ -957,7 +957,7 @@ impl McpServer {
             if let Some(c) = name.chars().find(|c| INVALID_CHARS.contains(c)) {
                 return ToolCallResult::error(format!(
                     "Footprint name '{name}' contains invalid character '{c}'. \
-                     Names cannot contain: / \\ : * ? \" &lt; > |",
+                     Names cannot contain: / \\ : * ? \" < > |",
                 ));
             }
         }
@@ -968,7 +968,7 @@ impl McpServer {
             .unwrap_or(false);
 
         // If append mode and file exists, read existing library; otherwise create new
-        let mut library = if append &amp;&amp; std::path::Path::new(filepath).exists() {
+        let mut library = if append && std::path::Path::new(filepath).exists() {
             match PcbLib::read(filepath) {
                 Ok(lib) => lib,
                 Err(e) => {
@@ -983,9 +983,9 @@ impl McpServer {
 
         // Check for duplicates with existing footprints in append mode
         if append {
-            let existing_names: std::collections::HashSet&lt;_> =
+            let existing_names: std::collections::HashSet<_> =
                 library.names().into_iter().collect();
-            for name in &amp;new_names {
+            for name in &new_names {
                 if existing_names.contains(*name) {
                     return ToolCallResult::error(format!(
                         "Footprint '{name}' already exists in the library"
@@ -1091,7 +1091,7 @@ impl McpServer {
             }
 
             // Validate coordinates before adding
-            if let Err(e) = Self::validate_footprint_coordinates(&amp;footprint) {
+            if let Err(e) = Self::validate_footprint_coordinates(&footprint) {
                 return ToolCallResult::error(e);
             }
 
@@ -1106,7 +1106,7 @@ impl McpServer {
                     "footprint_count": library.len(),
                     "footprint_names": library.names(),
                 });
-                ToolCallResult::text(serde_json::to_string_pretty(&amp;result).unwrap())
+                ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
             }
             Err(e) => {
                 let result = json!({
@@ -1114,7 +1114,7 @@ impl McpServer {
                     "filepath": filepath,
                     "error": e.to_string(),
                 });
-                ToolCallResult::error(serde_json::to_string_pretty(&amp;result).unwrap())
+                ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
             }
         }
     }
@@ -1122,7 +1122,7 @@ impl McpServer {
     /// Reads a `SchLib` file and returns its contents.
     /// Supports pagination via limit/offset and filtering by `component_name`.
     #[allow(clippy::cast_possible_truncation)]
-    fn call_read_schlib(&amp;self, arguments: &amp;Value) -> ToolCallResult {
+    fn call_read_schlib(&self, arguments: &Value) -> ToolCallResult {
         use crate::altium::SchLib;
 
         let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
@@ -1150,7 +1150,7 @@ impl McpServer {
                 let total_count = library.len();
 
                 // Apply filtering and pagination
-                let symbols: Vec&lt;_> = library
+                let symbols: Vec<_> = library
                     .iter()
                     .filter(|(name, _)| {
                         // If component_name specified, only include matching
@@ -1181,7 +1181,7 @@ impl McpServer {
                 let has_more = if component_name.is_some() {
                     false // Single component fetch, no pagination
                 } else {
-                    offset + returned_count &lt; total_count
+                    offset + returned_count < total_count
                 };
 
                 let result = json!({
@@ -1194,7 +1194,7 @@ impl McpServer {
                     "symbols": symbols,
                 });
 
-                ToolCallResult::text(serde_json::to_string_pretty(&amp;result).unwrap())
+                ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
             }
             Err(e) => {
                 let result = json!({
@@ -1202,14 +1202,14 @@ impl McpServer {
                     "filepath": filepath,
                     "error": e.to_string(),
                 });
-                ToolCallResult::error(serde_json::to_string_pretty(&amp;result).unwrap())
+                ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
             }
         }
     }
 
     /// Writes symbols to a `SchLib` file.
     #[allow(clippy::too_many_lines)]
-    fn call_write_schlib(&amp;self, arguments: &amp;Value) -> ToolCallResult {
+    fn call_write_schlib(&self, arguments: &Value) -> ToolCallResult {
         use crate::altium::schlib::{FootprintModel, SchLib, Symbol};
 
         let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
@@ -1226,7 +1226,7 @@ impl McpServer {
         };
 
         // Collect and validate symbol names
-        let new_names: Vec&lt;&amp;str> = symbols_json
+        let new_names: Vec<&str> = symbols_json
             .iter()
             .filter_map(|sym| sym.get("name").and_then(Value::as_str))
             .collect();
@@ -1234,7 +1234,7 @@ impl McpServer {
         // Check for duplicates within the new symbols
         {
             let mut seen = std::collections::HashSet::new();
-            for name in &amp;new_names {
+            for name in &new_names {
                 if !seen.insert(*name) {
                     return ToolCallResult::error(format!(
                         "Duplicate symbol name in request: '{name}'"
@@ -1248,8 +1248,8 @@ impl McpServer {
         #[allow(clippy::items_after_statements)]
         const MAX_OLE_NAME_LEN: usize = 31;
         #[allow(clippy::items_after_statements)]
-        const INVALID_CHARS: &amp;[char] = &amp;['/', '\\', ':', '*', '?', '"', '&lt;', '>', '|'];
-        for name in &amp;new_names {
+        const INVALID_CHARS: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
+        for name in &new_names {
             if name.is_empty() {
                 return ToolCallResult::error("Symbol name cannot be empty");
             }
@@ -1263,7 +1263,7 @@ impl McpServer {
             if let Some(c) = name.chars().find(|c| INVALID_CHARS.contains(c)) {
                 return ToolCallResult::error(format!(
                     "Symbol name '{name}' contains invalid character '{c}'. \
-                     Names cannot contain: / \\ : * ? \" &lt; > |",
+                     Names cannot contain: / \\ : * ? \" < > |",
                 ));
             }
         }
@@ -1274,7 +1274,7 @@ impl McpServer {
             .unwrap_or(false);
 
         // If append mode and file exists, read existing library; otherwise create new
-        let mut library = if append &amp;&amp; std::path::Path::new(filepath).exists() {
+        let mut library = if append && std::path::Path::new(filepath).exists() {
             match SchLib::open(filepath) {
                 Ok(lib) => lib,
                 Err(e) => {
@@ -1289,7 +1289,7 @@ impl McpServer {
 
         // Check for duplicates with existing symbols in append mode
         if append {
-            for name in &amp;new_names {
+            for name in &new_names {
                 if library.get(name).is_some() {
                     return ToolCallResult::error(format!(
                         "Symbol '{name}' already exists in the library"
@@ -1390,7 +1390,7 @@ impl McpServer {
             }
 
             // Validate coordinates before adding
-            if let Err(e) = Self::validate_symbol_coordinates(&amp;symbol) {
+            if let Err(e) = Self::validate_symbol_coordinates(&symbol) {
                 return ToolCallResult::error(e);
             }
 
@@ -1399,14 +1399,14 @@ impl McpServer {
 
         match library.save(filepath) {
             Ok(()) => {
-                let symbol_names: Vec&lt;_> = library.iter().map(|(name, _)| name.clone()).collect();
+                let symbol_names: Vec<_> = library.iter().map(|(name, _)| name.clone()).collect();
                 let result = json!({
                     "status": "success",
                     "filepath": filepath,
                     "symbol_count": library.len(),
                     "symbol_names": symbol_names,
                 });
-                ToolCallResult::text(serde_json::to_string_pretty(&amp;result).unwrap())
+                ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
             }
             Err(e) => {
                 let result = json!({
@@ -1414,13 +1414,13 @@ impl McpServer {
                     "filepath": filepath,
                     "error": e.to_string(),
                 });
-                ToolCallResult::error(serde_json::to_string_pretty(&amp;result).unwrap())
+                ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
             }
         }
     }
 
     /// Lists component names in a library file.
-    fn call_list_components(&amp;self, arguments: &amp;Value) -> ToolCallResult {
+    fn call_list_components(&self, arguments: &Value) -> ToolCallResult {
         use crate::altium::{PcbLib, SchLib};
 
         let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
@@ -1449,7 +1449,7 @@ impl McpServer {
                         "component_count": library.len(),
                         "components": library.names(),
                     });
-                    ToolCallResult::text(serde_json::to_string_pretty(&amp;result).unwrap())
+                    ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
                 }
                 Err(e) => {
                     let result = json!({
@@ -1457,12 +1457,12 @@ impl McpServer {
                         "filepath": filepath,
                         "error": e.to_string(),
                     });
-                    ToolCallResult::error(serde_json::to_string_pretty(&amp;result).unwrap())
+                    ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
                 }
             },
             Some("schlib") => match SchLib::open(filepath) {
                 Ok(library) => {
-                    let symbol_names: Vec&lt;_> =
+                    let symbol_names: Vec<_> =
                         library.iter().map(|(name, _)| name.clone()).collect();
                     let result = json!({
                         "status": "success",
@@ -1471,7 +1471,7 @@ impl McpServer {
                         "component_count": library.len(),
                         "components": symbol_names,
                     });
-                    ToolCallResult::text(serde_json::to_string_pretty(&amp;result).unwrap())
+                    ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
                 }
                 Err(e) => {
                     let result = json!({
@@ -1479,7 +1479,7 @@ impl McpServer {
                         "filepath": filepath,
                         "error": e.to_string(),
                     });
-                    ToolCallResult::error(serde_json::to_string_pretty(&amp;result).unwrap())
+                    ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
                 }
             },
             _ => {
@@ -1488,13 +1488,13 @@ impl McpServer {
                     "filepath": filepath,
                     "error": "Unknown file type. Expected .PcbLib or .SchLib extension.",
                 });
-                ToolCallResult::error(serde_json::to_string_pretty(&amp;result).unwrap())
+                ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
             }
         }
     }
 
     /// Extracts style information from a library file.
-    fn call_extract_style(&amp;self, arguments: &amp;Value) -> ToolCallResult {
+    fn call_extract_style(&self, arguments: &Value) -> ToolCallResult {
         let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
             return ToolCallResult::error("Missing required parameter: filepath");
         };
@@ -1519,30 +1519,30 @@ impl McpServer {
                     "filepath": filepath,
                     "error": "Unknown file type. Expected .PcbLib or .SchLib extension.",
                 });
-                ToolCallResult::error(serde_json::to_string_pretty(&amp;result).unwrap())
+                ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
             }
         }
     }
 
     /// Extracts style from a `PcbLib` file.
-    fn extract_pcblib_style(filepath: &amp;str) -> ToolCallResult {
+    fn extract_pcblib_style(filepath: &str) -> ToolCallResult {
         use crate::altium::PcbLib;
         use std::collections::HashMap;
 
         match PcbLib::read(filepath) {
             Ok(library) => {
                 // Track widths by layer
-                let mut track_widths: HashMap&lt;String, Vec&lt;f64>> = HashMap::new();
+                let mut track_widths: HashMap<String, Vec<f64>> = HashMap::new();
                 // Pad shapes count
-                let mut pad_shapes: HashMap&lt;String, usize> = HashMap::new();
+                let mut pad_shapes: HashMap<String, usize> = HashMap::new();
                 // Text heights
-                let mut text_heights: Vec&lt;f64> = Vec::new();
+                let mut text_heights: Vec<f64> = Vec::new();
                 // Layers used
-                let mut layers_used: HashMap&lt;String, usize> = HashMap::new();
+                let mut layers_used: HashMap<String, usize> = HashMap::new();
 
                 for fp in library.footprints() {
                     // Analyze tracks
-                    for track in &amp;fp.tracks {
+                    for track in &fp.tracks {
                         let layer_name = track.layer.as_str().to_string();
                         track_widths
                             .entry(layer_name.clone())
@@ -1552,7 +1552,7 @@ impl McpServer {
                     }
 
                     // Analyze pads
-                    for pad in &amp;fp.pads {
+                    for pad in &fp.pads {
                         let shape_name = format!("{:?}", pad.shape);
                         *pad_shapes.entry(shape_name).or_insert(0) += 1;
                         let layer_name = pad.layer.as_str().to_string();
@@ -1560,14 +1560,14 @@ impl McpServer {
                     }
 
                     // Analyze text
-                    for text in &amp;fp.text {
+                    for text in &fp.text {
                         text_heights.push(text.height);
                         let layer_name = text.layer.as_str().to_string();
                         *layers_used.entry(layer_name).or_insert(0) += 1;
                     }
 
                     // Analyze regions
-                    for region in &amp;fp.regions {
+                    for region in &fp.regions {
                         let layer_name = region.layer.as_str().to_string();
                         *layers_used.entry(layer_name).or_insert(0) += 1;
                     }
@@ -1575,13 +1575,13 @@ impl McpServer {
 
                 // Calculate statistics for track widths
                 #[allow(clippy::cast_precision_loss)]
-                let track_width_stats: HashMap&lt;String, Value> = track_widths
+                let track_width_stats: HashMap<String, Value> = track_widths
                     .into_iter()
                     .map(|(layer, widths)| {
                         let min = widths.iter().copied().fold(f64::INFINITY, f64::min);
                         let max = widths.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-                        let avg = widths.iter().sum::&lt;f64>() / widths.len() as f64;
-                        let most_common = Self::most_common_f64(&amp;widths);
+                        let avg = widths.iter().sum::<f64>() / widths.len() as f64;
+                        let most_common = Self::most_common_f64(&widths);
                         (
                             layer,
                             json!({
@@ -1604,7 +1604,7 @@ impl McpServer {
                         .iter()
                         .copied()
                         .fold(f64::NEG_INFINITY, f64::max);
-                    let most_common = Self::most_common_f64(&amp;text_heights);
+                    let most_common = Self::most_common_f64(&text_heights);
                     json!({
                         "min_mm": min,
                         "max_mm": max,
@@ -1626,7 +1626,7 @@ impl McpServer {
                     }
                 });
 
-                ToolCallResult::text(serde_json::to_string_pretty(&amp;result).unwrap())
+                ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
             }
             Err(e) => {
                 let result = json!({
@@ -1634,37 +1634,37 @@ impl McpServer {
                     "filepath": filepath,
                     "error": e.to_string(),
                 });
-                ToolCallResult::error(serde_json::to_string_pretty(&amp;result).unwrap())
+                ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
             }
         }
     }
 
     /// Extracts style from a `SchLib` file.
-    fn extract_schlib_style(filepath: &amp;str) -> ToolCallResult {
+    fn extract_schlib_style(filepath: &str) -> ToolCallResult {
         use crate::altium::SchLib;
         use std::collections::HashMap;
 
         match SchLib::open(filepath) {
             Ok(library) => {
                 // Line widths
-                let mut line_widths: Vec&lt;u8> = Vec::new();
+                let mut line_widths: Vec<u8> = Vec::new();
                 // Pin lengths
-                let mut pin_lengths: Vec&lt;i32> = Vec::new();
+                let mut pin_lengths: Vec<i32> = Vec::new();
                 // Colours used
-                let mut line_colors: HashMap&lt;String, usize> = HashMap::new();
-                let mut fill_colors: HashMap&lt;String, usize> = HashMap::new();
+                let mut line_colors: HashMap<String, usize> = HashMap::new();
+                let mut fill_colors: HashMap<String, usize> = HashMap::new();
                 // Rectangle stats
                 let mut rect_filled_count = 0usize;
                 let mut rect_unfilled_count = 0usize;
 
                 for (_name, symbol) in library.iter() {
                     // Analyze pins
-                    for pin in &amp;symbol.pins {
+                    for pin in &symbol.pins {
                         pin_lengths.push(pin.length);
                     }
 
                     // Analyze rectangles
-                    for rect in &amp;symbol.rectangles {
+                    for rect in &symbol.rectangles {
                         line_widths.push(rect.line_width);
                         let line_color = format!("#{:06X}", rect.line_color);
                         let fill_color = format!("#{:06X}", rect.fill_color);
@@ -1678,7 +1678,7 @@ impl McpServer {
                     }
 
                     // Analyze lines
-                    for line in &amp;symbol.lines {
+                    for line in &symbol.lines {
                         line_widths.push(line.line_width);
                         let color = format!("#{:06X}", line.color);
                         *line_colors.entry(color).or_insert(0) += 1;
@@ -1691,7 +1691,7 @@ impl McpServer {
                 } else {
                     let min = *pin_lengths.iter().min().unwrap();
                     let max = *pin_lengths.iter().max().unwrap();
-                    let most_common = Self::most_common_i32(&amp;pin_lengths);
+                    let most_common = Self::most_common_i32(&pin_lengths);
                     json!({
                         "min_units": min,
                         "max_units": max,
@@ -1705,7 +1705,7 @@ impl McpServer {
                 } else {
                     let min = *line_widths.iter().min().unwrap();
                     let max = *line_widths.iter().max().unwrap();
-                    let most_common = Self::most_common_u8(&amp;line_widths);
+                    let most_common = Self::most_common_u8(&line_widths);
                     json!({
                         "min": min,
                         "max": max,
@@ -1731,7 +1731,7 @@ impl McpServer {
                     }
                 });
 
-                ToolCallResult::text(serde_json::to_string_pretty(&amp;result).unwrap())
+                ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
             }
             Err(e) => {
                 let result = json!({
@@ -1739,17 +1739,17 @@ impl McpServer {
                     "filepath": filepath,
                     "error": e.to_string(),
                 });
-                ToolCallResult::error(serde_json::to_string_pretty(&amp;result).unwrap())
+                ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
             }
         }
     }
 
     /// Finds the most common value in a slice of f64, rounded to 2 decimal places.
     #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
-    fn most_common_f64(values: &amp;[f64]) -> f64 {
+    fn most_common_f64(values: &[f64]) -> f64 {
         use std::collections::HashMap;
-        let mut counts: HashMap&lt;i64, usize> = HashMap::new();
-        for &amp;v in values {
+        let mut counts: HashMap<i64, usize> = HashMap::new();
+        for &v in values {
             // Round to 2 decimal places for grouping
             let key = (v * 100.0).round() as i64;
             *counts.entry(key).or_insert(0) += 1;
@@ -1761,10 +1761,10 @@ impl McpServer {
     }
 
     /// Finds the most common value in a slice of i32.
-    fn most_common_i32(values: &amp;[i32]) -> i32 {
+    fn most_common_i32(values: &[i32]) -> i32 {
         use std::collections::HashMap;
-        let mut counts: HashMap&lt;i32, usize> = HashMap::new();
-        for &amp;v in values {
+        let mut counts: HashMap<i32, usize> = HashMap::new();
+        for &v in values {
             *counts.entry(v).or_insert(0) += 1;
         }
         counts
@@ -1774,10 +1774,10 @@ impl McpServer {
     }
 
     /// Finds the most common value in a slice of u8.
-    fn most_common_u8(values: &amp;[u8]) -> u8 {
+    fn most_common_u8(values: &[u8]) -> u8 {
         use std::collections::HashMap;
-        let mut counts: HashMap&lt;u8, usize> = HashMap::new();
-        for &amp;v in values {
+        let mut counts: HashMap<u8, usize> = HashMap::new();
+        for &v in values {
             *counts.entry(v).or_insert(0) += 1;
         }
         counts
@@ -1794,7 +1794,7 @@ impl McpServer {
     const MAX_COORDINATE_MM: f64 = 5000.0;
 
     /// Validates that a coordinate is within the safe range for Altium internal units.
-    fn validate_coordinate(value: f64, field_name: &amp;str) -> Result&lt;(), String> {
+    fn validate_coordinate(value: f64, field_name: &str) -> Result<(), String> {
         if !value.is_finite() {
             return Err(format!(
                 "{field_name} must be a finite number, got: {value}"
@@ -1811,52 +1811,52 @@ impl McpServer {
 
     /// Validates all coordinates in a footprint before writing.
     fn validate_footprint_coordinates(
-        footprint: &amp;crate::altium::pcblib::Footprint,
-    ) -> Result&lt;(), String> {
-        let name = &amp;footprint.name;
+        footprint: &crate::altium::pcblib::Footprint,
+    ) -> Result<(), String> {
+        let name = &footprint.name;
 
         for (i, pad) in footprint.pads.iter().enumerate() {
-            Self::validate_coordinate(pad.x, &amp;format!("Footprint '{name}' pad {i} x"))?;
-            Self::validate_coordinate(pad.y, &amp;format!("Footprint '{name}' pad {i} y"))?;
-            Self::validate_coordinate(pad.width, &amp;format!("Footprint '{name}' pad {i} width"))?;
-            Self::validate_coordinate(pad.height, &amp;format!("Footprint '{name}' pad {i} height"))?;
+            Self::validate_coordinate(pad.x, &format!("Footprint '{name}' pad {i} x"))?;
+            Self::validate_coordinate(pad.y, &format!("Footprint '{name}' pad {i} y"))?;
+            Self::validate_coordinate(pad.width, &format!("Footprint '{name}' pad {i} width"))?;
+            Self::validate_coordinate(pad.height, &format!("Footprint '{name}' pad {i} height"))?;
             if let Some(hole) = pad.hole_size {
-                Self::validate_coordinate(hole, &amp;format!("Footprint '{name}' pad {i} hole_size"))?;
+                Self::validate_coordinate(hole, &format!("Footprint '{name}' pad {i} hole_size"))?;
             }
         }
 
         for (i, track) in footprint.tracks.iter().enumerate() {
-            Self::validate_coordinate(track.x1, &amp;format!("Footprint '{name}' track {i} x1"))?;
-            Self::validate_coordinate(track.y1, &amp;format!("Footprint '{name}' track {i} y1"))?;
-            Self::validate_coordinate(track.x2, &amp;format!("Footprint '{name}' track {i} x2"))?;
-            Self::validate_coordinate(track.y2, &amp;format!("Footprint '{name}' track {i} y2"))?;
-            Self::validate_coordinate(track.width, &amp;format!("Footprint '{name}' track {i} width"))?;
+            Self::validate_coordinate(track.x1, &format!("Footprint '{name}' track {i} x1"))?;
+            Self::validate_coordinate(track.y1, &format!("Footprint '{name}' track {i} y1"))?;
+            Self::validate_coordinate(track.x2, &format!("Footprint '{name}' track {i} x2"))?;
+            Self::validate_coordinate(track.y2, &format!("Footprint '{name}' track {i} y2"))?;
+            Self::validate_coordinate(track.width, &format!("Footprint '{name}' track {i} width"))?;
         }
 
         for (i, arc) in footprint.arcs.iter().enumerate() {
-            Self::validate_coordinate(arc.x, &amp;format!("Footprint '{name}' arc {i} x"))?;
-            Self::validate_coordinate(arc.y, &amp;format!("Footprint '{name}' arc {i} y"))?;
-            Self::validate_coordinate(arc.radius, &amp;format!("Footprint '{name}' arc {i} radius"))?;
-            Self::validate_coordinate(arc.width, &amp;format!("Footprint '{name}' arc {i} width"))?;
+            Self::validate_coordinate(arc.x, &format!("Footprint '{name}' arc {i} x"))?;
+            Self::validate_coordinate(arc.y, &format!("Footprint '{name}' arc {i} y"))?;
+            Self::validate_coordinate(arc.radius, &format!("Footprint '{name}' arc {i} radius"))?;
+            Self::validate_coordinate(arc.width, &format!("Footprint '{name}' arc {i} width"))?;
         }
 
         for (i, region) in footprint.regions.iter().enumerate() {
             for (j, vertex) in region.vertices.iter().enumerate() {
                 Self::validate_coordinate(
                     vertex.x,
-                    &amp;format!("Footprint '{name}' region {i} vertex {j} x"),
+                    &format!("Footprint '{name}' region {i} vertex {j} x"),
                 )?;
                 Self::validate_coordinate(
                     vertex.y,
-                    &amp;format!("Footprint '{name}' region {i} vertex {j} y"),
+                    &format!("Footprint '{name}' region {i} vertex {j} y"),
                 )?;
             }
         }
 
         for (i, text) in footprint.text.iter().enumerate() {
-            Self::validate_coordinate(text.x, &amp;format!("Footprint '{name}' text {i} x"))?;
-            Self::validate_coordinate(text.y, &amp;format!("Footprint '{name}' text {i} y"))?;
-            Self::validate_coordinate(text.height, &amp;format!("Footprint '{name}' text {i} height"))?;
+            Self::validate_coordinate(text.x, &format!("Footprint '{name}' text {i} x"))?;
+            Self::validate_coordinate(text.y, &format!("Footprint '{name}' text {i} y"))?;
+            Self::validate_coordinate(text.height, &format!("Footprint '{name}' text {i} height"))?;
         }
 
         Ok(())
@@ -1867,7 +1867,7 @@ impl McpServer {
     const MAX_SCHLIB_COORDINATE: i32 = 32000;
 
     /// Validates that a `SchLib` coordinate is within the safe range for i16.
-    fn validate_schlib_coordinate(value: i32, field_name: &amp;str) -> Result&lt;(), String> {
+    fn validate_schlib_coordinate(value: i32, field_name: &str) -> Result<(), String> {
         if value.abs() > Self::MAX_SCHLIB_COORDINATE {
             return Err(format!(
                 "{field_name} value {value} exceeds the maximum safe range of ±{} units",
@@ -1878,82 +1878,82 @@ impl McpServer {
     }
 
     /// Validates all coordinates in a symbol before writing.
-    fn validate_symbol_coordinates(symbol: &amp;crate::altium::schlib::Symbol) -> Result&lt;(), String> {
-        let name = &amp;symbol.name;
+    fn validate_symbol_coordinates(symbol: &crate::altium::schlib::Symbol) -> Result<(), String> {
+        let name = &symbol.name;
 
         for (i, pin) in symbol.pins.iter().enumerate() {
-            Self::validate_schlib_coordinate(pin.x, &amp;format!("Symbol '{name}' pin {i} x"))?;
-            Self::validate_schlib_coordinate(pin.y, &amp;format!("Symbol '{name}' pin {i} y"))?;
+            Self::validate_schlib_coordinate(pin.x, &format!("Symbol '{name}' pin {i} x"))?;
+            Self::validate_schlib_coordinate(pin.y, &format!("Symbol '{name}' pin {i} y"))?;
             Self::validate_schlib_coordinate(
                 pin.length,
-                &amp;format!("Symbol '{name}' pin {i} length"),
+                &format!("Symbol '{name}' pin {i} length"),
             )?;
         }
 
         for (i, rect) in symbol.rectangles.iter().enumerate() {
             Self::validate_schlib_coordinate(
                 rect.x1,
-                &amp;format!("Symbol '{name}' rectangle {i} x1"),
+                &format!("Symbol '{name}' rectangle {i} x1"),
             )?;
             Self::validate_schlib_coordinate(
                 rect.y1,
-                &amp;format!("Symbol '{name}' rectangle {i} y1"),
+                &format!("Symbol '{name}' rectangle {i} y1"),
             )?;
             Self::validate_schlib_coordinate(
                 rect.x2,
-                &amp;format!("Symbol '{name}' rectangle {i} x2"),
+                &format!("Symbol '{name}' rectangle {i} x2"),
             )?;
             Self::validate_schlib_coordinate(
                 rect.y2,
-                &amp;format!("Symbol '{name}' rectangle {i} y2"),
+                &format!("Symbol '{name}' rectangle {i} y2"),
             )?;
         }
 
         for (i, line) in symbol.lines.iter().enumerate() {
-            Self::validate_schlib_coordinate(line.x1, &amp;format!("Symbol '{name}' line {i} x1"))?;
-            Self::validate_schlib_coordinate(line.y1, &amp;format!("Symbol '{name}' line {i} y1"))?;
-            Self::validate_schlib_coordinate(line.x2, &amp;format!("Symbol '{name}' line {i} x2"))?;
-            Self::validate_schlib_coordinate(line.y2, &amp;format!("Symbol '{name}' line {i} y2"))?;
+            Self::validate_schlib_coordinate(line.x1, &format!("Symbol '{name}' line {i} x1"))?;
+            Self::validate_schlib_coordinate(line.y1, &format!("Symbol '{name}' line {i} y1"))?;
+            Self::validate_schlib_coordinate(line.x2, &format!("Symbol '{name}' line {i} x2"))?;
+            Self::validate_schlib_coordinate(line.y2, &format!("Symbol '{name}' line {i} y2"))?;
         }
 
         for (i, polyline) in symbol.polylines.iter().enumerate() {
-            for (j, &amp;(x, y)) in polyline.points.iter().enumerate() {
+            for (j, &(x, y)) in polyline.points.iter().enumerate() {
                 Self::validate_schlib_coordinate(
                     x,
-                    &amp;format!("Symbol '{name}' polyline {i} point {j} x"),
+                    &format!("Symbol '{name}' polyline {i} point {j} x"),
                 )?;
                 Self::validate_schlib_coordinate(
                     y,
-                    &amp;format!("Symbol '{name}' polyline {i} point {j} y"),
+                    &format!("Symbol '{name}' polyline {i} point {j} y"),
                 )?;
             }
         }
 
         for (i, arc) in symbol.arcs.iter().enumerate() {
-            Self::validate_schlib_coordinate(arc.x, &amp;format!("Symbol '{name}' arc {i} x"))?;
-            Self::validate_schlib_coordinate(arc.y, &amp;format!("Symbol '{name}' arc {i} y"))?;
+            Self::validate_schlib_coordinate(arc.x, &format!("Symbol '{name}' arc {i} x"))?;
+            Self::validate_schlib_coordinate(arc.y, &format!("Symbol '{name}' arc {i} y"))?;
             Self::validate_schlib_coordinate(
                 arc.radius,
-                &amp;format!("Symbol '{name}' arc {i} radius"),
+                &format!("Symbol '{name}' arc {i} radius"),
             )?;
         }
 
         for (i, ellipse) in symbol.ellipses.iter().enumerate() {
-            Self::validate_schlib_coordinate(ellipse.x, &amp;format!("Symbol '{name}' ellipse {i} x"))?;
-            Self::validate_schlib_coordinate(ellipse.y, &amp;format!("Symbol '{name}' ellipse {i} y"))?;
+            Self::validate_schlib_coordinate(ellipse.x, &format!("Symbol '{name}' ellipse {i} x"))?;
+            Self::validate_schlib_coordinate(ellipse.y, &format!("Symbol '{name}' ellipse {i} y"))?;
             Self::validate_schlib_coordinate(
                 ellipse.radius_x,
-                &amp;format!("Symbol '{name}' ellipse {i} radius_x"),
+                &format!("Symbol '{name}' ellipse {i} radius_x"),
             )?;
             Self::validate_schlib_coordinate(
                 ellipse.radius_y,
-                &amp;format!("Symbol '{name}' ellipse {i} radius_y"),
+                &format!("Symbol '{name}' ellipse {i} radius_y"),
             )?;
         }
 
         for (i, label) in symbol.labels.iter().enumerate() {
-            Self::validate_schlib_coordinate(label.x, &amp;format!("Symbol '{name}' label {i} x"))?;
-            Self::validate_schlib_coordinate(label.y, &amp;format!("Symbol '{name}' label {i} y"))?;
+            Self::validate_schlib_coordinate(label.x, &format!("Symbol '{name}' label {i} x"))?;
+            Self::validate_schlib_coordinate(label.y, &format!("Symbol '{name}' label {i} y"))?;
         }
 
         Ok(())
@@ -1962,7 +1962,7 @@ impl McpServer {
     // ==================== Primitive Parsing Helpers ====================
 
     /// Parses a pad from JSON.
-    fn parse_pad(json: &amp;Value) -> Result&lt;crate::altium::pcblib::Pad, String> {
+    fn parse_pad(json: &Value) -> Result<crate::altium::pcblib::Pad, String> {
         use crate::altium::pcblib::{Layer, Pad, PadShape};
 
         let designator = json
@@ -2045,7 +2045,7 @@ impl McpServer {
             .get("corner_radius_percent")
             .and_then(Value::as_u64)
             .and_then(|v| u8::try_from(v).ok())
-            .filter(|&amp;v| v &lt;= 100);
+            .filter(|&v| v <= 100);
 
         Ok(Pad {
             designator: designator.to_string(),
@@ -2067,7 +2067,7 @@ impl McpServer {
     }
 
     /// Parses a track from JSON.
-    fn parse_track(json: &amp;Value) -> Result&lt;crate::altium::pcblib::Track, String> {
+    fn parse_track(json: &Value) -> Result<crate::altium::pcblib::Track, String> {
         use crate::altium::pcblib::{Layer, Track};
 
         let x1 = json
@@ -2106,7 +2106,7 @@ impl McpServer {
     }
 
     /// Parses an arc from JSON.
-    fn parse_arc(json: &amp;Value) -> Result&lt;crate::altium::pcblib::Arc, String> {
+    fn parse_arc(json: &Value) -> Result<crate::altium::pcblib::Arc, String> {
         use crate::altium::pcblib::{Arc, Layer};
 
         let x = json
@@ -2157,7 +2157,7 @@ impl McpServer {
     }
 
     /// Parses a region from JSON.
-    fn parse_region(json: &amp;Value) -> Option&lt;crate::altium::pcblib::Region> {
+    fn parse_region(json: &Value) -> Option<crate::altium::pcblib::Region> {
         use crate::altium::pcblib::{Layer, Region, Vertex};
 
         let vertices_json = json.get("vertices").and_then(Value::as_array)?;
@@ -2167,7 +2167,7 @@ impl McpServer {
             .and_then(Layer::parse)
             .unwrap_or(Layer::Mechanical15);
 
-        let vertices: Vec&lt;Vertex> = vertices_json
+        let vertices: Vec<Vertex> = vertices_json
             .iter()
             .filter_map(|v| {
                 let x = v.get("x").and_then(Value::as_f64)?;
@@ -2176,7 +2176,7 @@ impl McpServer {
             })
             .collect();
 
-        if vertices.len() &lt; 3 {
+        if vertices.len() < 3 {
             return None; // Need at least 3 vertices for a polygon
         }
 
@@ -2184,7 +2184,7 @@ impl McpServer {
     }
 
     /// Parses text from JSON.
-    fn parse_text(json: &amp;Value) -> Option&lt;crate::altium::pcblib::Text> {
+    fn parse_text(json: &Value) -> Option<crate::altium::pcblib::Text> {
         use crate::altium::pcblib::{Layer, Text};
 
         let x = json.get("x").and_then(Value::as_f64)?;
@@ -2212,7 +2212,7 @@ impl McpServer {
 
     /// Parses a schematic pin from JSON.
     #[allow(clippy::cast_possible_truncation)]
-    fn parse_schlib_pin(json: &amp;Value) -> Option&lt;crate::altium::schlib::Pin> {
+    fn parse_schlib_pin(json: &Value) -> Option<crate::altium::schlib::Pin> {
         use crate::altium::schlib::{Pin, PinElectricalType, PinOrientation};
 
         let designator = json.get("designator").and_then(Value::as_str)?;
@@ -2280,7 +2280,7 @@ impl McpServer {
 
     /// Parses a schematic rectangle from JSON.
     #[allow(clippy::cast_possible_truncation)]
-    fn parse_schlib_rectangle(json: &amp;Value) -> Option&lt;crate::altium::schlib::Rectangle> {
+    fn parse_schlib_rectangle(json: &Value) -> Option<crate::altium::schlib::Rectangle> {
         use crate::altium::schlib::Rectangle;
 
         let x1 = json.get("x1").and_then(Value::as_i64)? as i32;
@@ -2318,7 +2318,7 @@ impl McpServer {
 
     /// Parses a schematic line from JSON.
     #[allow(clippy::cast_possible_truncation)]
-    fn parse_schlib_line(json: &amp;Value) -> Option&lt;crate::altium::schlib::Line> {
+    fn parse_schlib_line(json: &Value) -> Option<crate::altium::schlib::Line> {
         use crate::altium::schlib::Line;
 
         let x1 = json.get("x1").and_then(Value::as_i64)? as i32;
@@ -2349,7 +2349,7 @@ impl McpServer {
 
     /// Parses a schematic parameter from JSON.
     #[allow(clippy::cast_possible_truncation)]
-    fn parse_schlib_parameter(json: &amp;Value) -> Option&lt;crate::altium::schlib::Parameter> {
+    fn parse_schlib_parameter(json: &Value) -> Option<crate::altium::schlib::Parameter> {
         use crate::altium::schlib::Parameter;
 
         let name = json.get("name").and_then(Value::as_str)?;
@@ -2386,11 +2386,11 @@ impl McpServer {
 
     /// Parses a schematic polyline from JSON.
     #[allow(clippy::cast_possible_truncation)]
-    fn parse_schlib_polyline(json: &amp;Value) -> Option&lt;crate::altium::schlib::Polyline> {
+    fn parse_schlib_polyline(json: &Value) -> Option<crate::altium::schlib::Polyline> {
         use crate::altium::schlib::Polyline;
 
         let points_json = json.get("points").and_then(Value::as_array)?;
-        let points: Vec&lt;(i32, i32)> = points_json
+        let points: Vec<(i32, i32)> = points_json
             .iter()
             .filter_map(|p| {
                 let x = p.get("x").and_then(Value::as_i64)? as i32;
@@ -2399,7 +2399,7 @@ impl McpServer {
             })
             .collect();
 
-        if points.len() &lt; 2 {
+        if points.len() < 2 {
             return None; // Need at least 2 points for a polyline
         }
 
@@ -2423,7 +2423,7 @@ impl McpServer {
 
     /// Parses a schematic arc from JSON.
     #[allow(clippy::cast_possible_truncation)]
-    fn parse_schlib_arc(json: &amp;Value) -> Option&lt;crate::altium::schlib::Arc> {
+    fn parse_schlib_arc(json: &Value) -> Option<crate::altium::schlib::Arc> {
         use crate::altium::schlib::Arc;
 
         let x = json.get("x").and_then(Value::as_i64)? as i32;
@@ -2461,7 +2461,7 @@ impl McpServer {
 
     /// Parses a schematic ellipse from JSON.
     #[allow(clippy::cast_possible_truncation)]
-    fn parse_schlib_ellipse(json: &amp;Value) -> Option&lt;crate::altium::schlib::Ellipse> {
+    fn parse_schlib_ellipse(json: &Value) -> Option<crate::altium::schlib::Ellipse> {
         use crate::altium::schlib::Ellipse;
 
         let x = json.get("x").and_then(Value::as_i64)? as i32;
@@ -2513,7 +2513,7 @@ mod tests {
         let tools = McpServer::get_tool_definitions();
         assert!(!tools.is_empty());
 
-        for tool in &amp;tools {
+        for tool in &tools {
             assert!(!tool.name.is_empty());
             assert!(tool.input_schema.is_object());
         }
@@ -2525,7 +2525,7 @@ mod tests {
         assert!(!result.is_error);
         assert_eq!(result.content.len(), 1);
 
-        match &amp;result.content[0] {
+        match &result.content[0] {
             ToolContent::Text { text } => assert_eq!(text, "Hello, world!"),
         }
     }
@@ -2536,7 +2536,7 @@ mod tests {
         assert!(result.is_error);
         assert_eq!(result.content.len(), 1);
 
-        match &amp;result.content[0] {
+        match &result.content[0] {
             ToolContent::Text { text } => assert_eq!(text, "Something went wrong"),
         }
     }
