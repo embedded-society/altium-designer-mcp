@@ -29,10 +29,12 @@ src/
 │   ├── mod.rs                   # Module exports
 │   ├── error.rs                 # Altium-specific errors
 │   ├── pcblib/
-│   │   ├── mod.rs               # PcbLib read/write
-│   │   └── primitives.rs        # Pad, Track, Arc, Region, Text, Layer
+│   │   ├── mod.rs               # PcbLib module exports
+│   │   ├── primitives.rs        # Pad, Track, Arc, Region, Text, Fill, etc.
+│   │   ├── reader.rs            # Binary parsing
+│   │   └── writer.rs            # Binary encoding
 │   └── schlib/
-│       ├── mod.rs               # SchLib read/write
+│       ├── mod.rs               # SchLib module exports
 │       ├── primitives.rs        # Pin, Rectangle, Line, Arc, Ellipse, etc.
 │       ├── reader.rs            # Binary parsing
 │       └── writer.rs            # Binary encoding
@@ -148,14 +150,7 @@ format is being reverse-engineered from existing libraries and prior art
 
 ## MCP Tools
 
-| Tool | Description |
-|------|-------------|
-| `read_pcblib` | Read footprints and primitives from .PcbLib |
-| `write_pcblib` | Write footprints (defined by primitives) to .PcbLib |
-| `read_schlib` | Read symbols and primitives from .SchLib |
-| `write_schlib` | Write symbols to .SchLib |
-| `list_components` | List component names in a library |
-| `extract_style` | Extract styling information from existing libraries |
+See [README.md § MCP Tools](../README.md#mcp-tools) for the complete tool reference with examples.
 
 ---
 

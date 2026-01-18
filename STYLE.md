@@ -50,6 +50,13 @@ Avoid duplicating information across files. Each piece of information should hav
 | PR requirements | `CONTRIBUTING.md` § Pull Requests |
 | Security policy | `SECURITY.md` |
 | Formatting rules | `.editorconfig` |
+| MCP tools reference | `README.md` § MCP Tools |
+| Primitive types | `README.md` § Primitive Types |
+| Altium layers | `README.md` § Standard Altium Layers |
+| Configuration options | `README.md` § Configuration |
+| Core principle/vision | `docs/VISION.md` |
+| Primitive JSON schemas | `docs/AI_WORKFLOW.md` § Primitive Types |
+| IPC standards reference | `docs/AI_WORKFLOW.md` § IPC Standards Reference |
 
 **Guidelines:**
 
@@ -237,8 +244,8 @@ See `CONTRIBUTING.md` § Commit Messages for conventions and allowed types.
 - All dimensions in millimetres (mm)
 - Use `f64` for dimensional values
 - Document units in variable names or comments when not obvious
-- Footprint primitives: Pad, Track, Arc, Region, Text, Fill, ComponentBody
-- Symbol primitives: Pin, Rectangle, Line, Polyline, Arc, Ellipse, Label
+- Footprint primitives: Pad, Track, Arc, Region, Text, Fill, ComponentBody, Model3D
+- Symbol primitives: Pin, Rectangle, Line, Polyline, Arc, Ellipse, Label, Parameter, FootprintModel
 
 ---
 

@@ -30,11 +30,11 @@ Fixes #(issue number)
 
 ## Code Quality
 
-- [ ] Code compiles without warnings (`cargo build`)
-- [ ] Clippy passes (`cargo clippy -- -D warnings`)
-- [ ] Code is formatted (`cargo fmt`)
-- [ ] Documentation is updated if needed
-- [ ] CHANGELOG.md is updated for user-facing changes
+See [CONTRIBUTING.md § Pull Requests](../CONTRIBUTING.md#pull-requests) for full PR requirements.
+
+- [ ] CI checks pass (build, test, clippy, fmt)
+- [ ] Documentation updated if needed
+- [ ] CHANGELOG.md updated for user-facing changes
 
 ## Screenshots / Logs
 

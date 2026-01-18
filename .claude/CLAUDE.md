@@ -67,29 +67,11 @@ src/
 
 ## MCP Tools
 
-| Tool | Description |
-|------|-------------|
-| `read_pcblib` | Read footprints from .PcbLib (supports pagination) |
-| `read_schlib` | Read symbols from .SchLib (supports pagination) |
-| `list_components` | List component names in a library |
-| `extract_style` | Extract styling info from existing libraries |
-| `write_pcblib` | Write footprints to .PcbLib |
-| `write_schlib` | Write symbols to .SchLib |
-
-### Pagination (for large libraries)
-
-`read_pcblib` and `read_schlib` support optional parameters:
-
-- `component_name`: fetch specific component by name
-- `limit`: max components to return
-- `offset`: skip first N components
+See [README.md § MCP Tools](../README.md#mcp-tools) for the complete tool reference.
 
 ## Primitives
 
-The AI provides primitive definitions. The tool writes them.
-
-**Footprint**: Pads, tracks, arcs, regions, text, fills, component bodies (3D models)
-**Symbol**: Pins, rectangles, lines, polylines, arcs, ellipses, labels
+See [README.md § Primitive Types](../README.md#primitive-types) for the complete primitive reference.
 
 ## Off Limits
 
