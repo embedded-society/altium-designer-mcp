@@ -247,6 +247,40 @@ pub fn encode_data_stream(footprint: &Footprint) -> Vec<u8> {
     data
 }
 
+/// Encodes per-layer data for a Pad (Block 5).
+///
+/// Per-layer data is required when stack mode is not Simple. The format is:
+/// - 32 size entries (`CoordPoint`, 8 bytes each) = 256 bytes
+/// - 32 shape entries (1 byte each) = 32 bytes
+/// - 32 corner radius percentages (1 byte each, 0-100) = 32 bytes
+///
+/// Total: 320 bytes
+fn encode_pad_per_layer_data(pad: &Pad) -> Vec<u8> {
+    let mut block = Vec::with_capacity(320);
+
+    // 32 size entries (width, height for each layer) - 256 bytes
+    // For simple pads, all layers use the same size
+    for _ in 0..32 {
+        write_i32(&mut block, from_mm(pad.width));
+        write_i32(&mut block, from_mm(pad.height));
+    }
+
+    // 32 shape entries - 32 bytes
+    // For simple pads, all layers use the same shape
+    let shape_id = pad_shape_to_id(pad.shape);
+    for _ in 0..32 {
+        block.push(shape_id);
+    }
+
+    // 32 corner radius percentages - 32 bytes
+    let corner_radius = pad.corner_radius_percent.unwrap_or(0);
+    for _ in 0..32 {
+        block.push(corner_radius);
+    }
+
+    block
+}
+
 /// Encodes a Pad primitive.
 fn encode_pad(data: &mut Vec<u8>, pad: &Pad) {
     // Block 0: Designator string
@@ -265,8 +299,14 @@ fn encode_pad(data: &mut Vec<u8>, pad: &Pad) {
     let geometry = encode_pad_geometry(pad);
     write_block(data, &geometry);
 
-    // Block 5: Per-layer data (empty for simple pads)
-    write_block(data, &[]);
+    // Block 5: Per-layer data
+    // Write per-layer data when corner radius is specified (stack mode != Simple)
+    if pad.corner_radius_percent.is_some() {
+        let per_layer_data = encode_pad_per_layer_data(pad);
+        write_block(data, &per_layer_data);
+    } else {
+        write_block(data, &[]);
+    }
 }
 
 /// Encodes the geometry block for a pad.
@@ -338,7 +378,13 @@ fn encode_pad_geometry(pad: &Pad) -> Vec<u8> {
     block.push(hole_shape_to_id(pad.hole_shape));
 
     // Stack mode - offset 62
-    block.push(0x00); // Simple stack mode
+    // Use FullStack mode (2) when corner radius is specified, otherwise Simple (0)
+    let stack_mode = if pad.corner_radius_percent.is_some() {
+        2u8
+    } else {
+        0u8
+    };
+    block.push(stack_mode);
 
     // Offsets 63-85: Unknown/reserved data (23 bytes)
     // Byte 63: Unknown
@@ -495,7 +541,7 @@ fn encode_via_geometry(via: &Via) -> Vec<u8> {
 }
 
 /// Converts a `ViaStackMode` to its binary ID.
-fn via_stack_mode_to_id(mode: ViaStackMode) -> u8 {
+const fn via_stack_mode_to_id(mode: ViaStackMode) -> u8 {
     match mode {
         ViaStackMode::Simple => 0,
         ViaStackMode::TopMiddleBottom => 1,

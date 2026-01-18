@@ -665,20 +665,21 @@ fn parse_via(data: &[u8], offset: usize) -> Option<(Via, usize)> {
     };
 
     // Per-layer diameters - offset 46+ (32 × 4 bytes = 128 bytes)
-    let per_layer_diameters = if diameter_stack_mode != ViaStackMode::Simple && geometry.len() > 45 + 128 {
-        let mut diameters = Vec::with_capacity(32);
-        for i in 0..32 {
-            let offset = 46 + (i * 4);
-            if let Some(val) = read_i32(geometry, offset) {
-                diameters.push(to_mm(val));
-            } else {
-                diameters.push(diameter); // Fallback to main diameter
+    let per_layer_diameters =
+        if diameter_stack_mode != ViaStackMode::Simple && geometry.len() > 45 + 128 {
+            let mut diameters = Vec::with_capacity(32);
+            for i in 0..32 {
+                let offset = 46 + (i * 4);
+                if let Some(val) = read_i32(geometry, offset) {
+                    diameters.push(to_mm(val));
+                } else {
+                    diameters.push(diameter); // Fallback to main diameter
+                }
             }
-        }
-        Some(diameters)
-    } else {
-        None
-    };
+            Some(diameters)
+        } else {
+            None
+        };
 
     let via = Via {
         x,
@@ -700,12 +701,11 @@ fn parse_via(data: &[u8], offset: usize) -> Option<(Via, usize)> {
 }
 
 /// Converts a via stack mode ID to `ViaStackMode`.
-fn via_stack_mode_from_id(id: u8) -> ViaStackMode {
+const fn via_stack_mode_from_id(id: u8) -> ViaStackMode {
     match id {
-        0 => ViaStackMode::Simple,
         1 => ViaStackMode::TopMiddleBottom,
         2 => ViaStackMode::FullStack,
-        _ => ViaStackMode::Simple, // Default fallback
+        _ => ViaStackMode::Simple, // 0 and any unknown value default to Simple
     }
 }
 
