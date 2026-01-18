@@ -51,7 +51,7 @@ def parse_string_block(data: bytes, offset: int) -> tuple[str, int]:
             try:
                 s = data[offset + 5 : offset + 5 + str_len].decode("ascii")
                 return s, offset + 4 + block_len
-            except:
+            except Exception:
                 pass
 
     return "", offset + 4 + block_len
