@@ -143,7 +143,7 @@ pub struct ToolCallResult {
     /// Content returned by the tool.
     pub content: Vec<ToolContent>,
     /// Whether the tool call resulted in an error.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[serde(skip_serializing_if = "|b| !b")]
     pub is_error: bool,
 }
 
