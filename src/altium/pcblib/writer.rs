@@ -13,7 +13,9 @@
 //! [0x00]                                       // End marker
 //! ```
 
-use super::primitives::{Arc, ComponentBody, Fill, Layer, Pad, PadShape, Region, Text, Track, Via};
+use super::primitives::{
+    Arc, ComponentBody, Fill, HoleShape, Layer, Pad, PadShape, Region, Text, Track, Via,
+};
 use super::Footprint;
 
 /// Encodes text content for the `WideStrings` stream.
@@ -167,6 +169,15 @@ const fn pad_shape_to_id(shape: PadShape) -> u8 {
     }
 }
 
+/// Converts our `HoleShape` enum to Altium hole shape ID.
+const fn hole_shape_to_id(shape: HoleShape) -> u8 {
+    match shape {
+        HoleShape::Round => 0,
+        HoleShape::Square => 1,
+        HoleShape::Slot => 2,
+    }
+}
+
 /// Writes the common 13-byte header for primitives.
 fn write_common_header(data: &mut Vec<u8>, layer: Layer) {
     // Byte 0: Layer ID
@@ -258,10 +269,36 @@ fn encode_pad(data: &mut Vec<u8>, pad: &Pad) {
 }
 
 /// Encodes the geometry block for a pad.
+///
+/// # Geometry Block Offsets
+///
+/// | Offset | Size | Field |
+/// |--------|------|-------|
+/// | 0-12 | 13 | Common header (layer, flags, padding) |
+/// | 13-16 | 4 | X position |
+/// | 17-20 | 4 | Y position |
+/// | 21-24 | 4 | Width (top) |
+/// | 25-28 | 4 | Height (top) |
+/// | 29-32 | 4 | Width (mid) |
+/// | 33-36 | 4 | Height (mid) |
+/// | 37-40 | 4 | Width (bottom) |
+/// | 41-44 | 4 | Height (bottom) |
+/// | 45-48 | 4 | Hole size |
+/// | 49 | 1 | Shape (top) |
+/// | 50 | 1 | Shape (mid) |
+/// | 51 | 1 | Shape (bottom) |
+/// | 52-59 | 8 | Rotation (double) |
+/// | 60 | 1 | Is plated |
+/// | 61 | 1 | Hole shape |
+/// | 62 | 1 | Stack mode |
+/// | 86-89 | 4 | Paste mask expansion |
+/// | 90-93 | 4 | Solder mask expansion |
+/// | 101 | 1 | Paste mask expansion manual |
+/// | 102 | 1 | Solder mask expansion manual |
 fn encode_pad_geometry(pad: &Pad) -> Vec<u8> {
     let mut block = Vec::with_capacity(128);
 
-    // Common header (13 bytes)
+    // Common header (13 bytes) - offsets 0-12
     write_common_header(&mut block, pad.layer);
 
     // Location (X, Y) - offsets 13-20
@@ -296,42 +333,49 @@ fn encode_pad_geometry(pad: &Pad) -> Vec<u8> {
     // Is plated - offset 60
     block.push(u8::from(pad.hole_size.is_some()));
 
-    // Unknown byte
-    block.push(0x00);
+    // Hole shape - offset 61
+    block.push(hole_shape_to_id(pad.hole_shape));
 
     // Stack mode - offset 62
     block.push(0x00); // Simple stack mode
 
-    // Unknown byte
+    // Offsets 63-85: Unknown/reserved data (23 bytes)
+    // Byte 63: Unknown
     block.push(0x00);
 
-    // Unknown i32s (4 of them)
+    // Bytes 64-71: 2 unknown i32s (8 bytes)
     write_i32(&mut block, 0);
     write_i32(&mut block, 0);
 
-    // Unknown i16
+    // Bytes 72-73: Unknown i16 (2 bytes)
     block.extend_from_slice(&[0u8; 2]);
 
-    // More unknown i32s
+    // Bytes 74-85: 3 more i32s (12 bytes)
     write_i32(&mut block, 0);
     write_i32(&mut block, 0);
     write_i32(&mut block, 0);
 
-    // Paste/solder mask expansions (use defaults)
-    write_i32(&mut block, 0); // expansion_paste_mask
-    write_i32(&mut block, 0); // expansion_solder_mask
+    // Paste mask expansion - offset 86-89
+    let paste_expansion = pad.paste_mask_expansion.unwrap_or(0.0);
+    write_i32(&mut block, from_mm(paste_expansion));
 
-    // Unknown bytes (7)
+    // Solder mask expansion - offset 90-93
+    let solder_expansion = pad.solder_mask_expansion.unwrap_or(0.0);
+    write_i32(&mut block, from_mm(solder_expansion));
+
+    // Bytes 94-100: Unknown (7 bytes)
     block.extend_from_slice(&[0u8; 7]);
 
-    // Manual expansion flags
-    block.push(0x00); // expansion_manual_paste_mask
-    block.push(0x00); // expansion_manual_solder_mask
+    // Paste mask expansion manual flag - offset 101
+    block.push(u8::from(pad.paste_mask_expansion_manual));
 
-    // More unknown (7 bytes)
+    // Solder mask expansion manual flag - offset 102
+    block.push(u8::from(pad.solder_mask_expansion_manual));
+
+    // Bytes 103-109: More unknown (7 bytes)
     block.extend_from_slice(&[0u8; 7]);
 
-    // Jumper ID
+    // Jumper ID - offset 110-111
     block.extend_from_slice(&[0u8; 2]);
 
     block
@@ -903,6 +947,13 @@ mod tests {
         assert_eq!(layer_to_id(Layer::TopLayer), 1);
         assert_eq!(layer_to_id(Layer::BottomLayer), 32);
         assert_eq!(layer_to_id(Layer::MultiLayer), 74);
+    }
+
+    #[test]
+    fn test_hole_shape_to_id() {
+        assert_eq!(hole_shape_to_id(HoleShape::Round), 0);
+        assert_eq!(hole_shape_to_id(HoleShape::Square), 1);
+        assert_eq!(hole_shape_to_id(HoleShape::Slot), 2);
     }
 
     #[test]
