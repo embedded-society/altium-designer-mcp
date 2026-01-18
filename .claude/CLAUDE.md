@@ -69,12 +69,20 @@ src/
 
 | Tool | Description |
 |------|-------------|
-| `read_pcblib` | Read footprints and primitives from .PcbLib |
-| `read_schlib` | Read symbols and primitives from .SchLib |
+| `read_pcblib` | Read footprints from .PcbLib (supports pagination) |
+| `read_schlib` | Read symbols from .SchLib (supports pagination) |
 | `list_components` | List component names in a library |
 | `extract_style` | Extract styling info from existing libraries |
 | `write_pcblib` | Write footprints to .PcbLib |
 | `write_schlib` | Write symbols to .SchLib |
+
+### Pagination (for large libraries)
+
+`read_pcblib` and `read_schlib` support optional parameters:
+
+- `component_name`: fetch specific component by name
+- `limit`: max components to return
+- `offset`: skip first N components
 
 ## Primitives
 

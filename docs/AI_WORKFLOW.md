@@ -165,7 +165,7 @@ IPC Name: RESC1608X55N
 
 ### read_pcblib
 
-Read footprints from an existing library.
+Read footprints from an existing library. Coordinates are in millimetres.
 
 ```json
 {
@@ -175,6 +175,24 @@ Read footprints from an existing library.
     }
 }
 ```
+
+**For large libraries**, use pagination to avoid output limits:
+
+```json
+{
+    "name": "read_pcblib",
+    "arguments": {
+        "filepath": "./LargeLibrary.PcbLib",
+        "component_name": "RESC1608X55N"
+    }
+}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `component_name` | Fetch only this specific footprint |
+| `limit` | Maximum footprints to return |
+| `offset` | Skip first N footprints |
 
 ### write_pcblib
 
@@ -192,7 +210,7 @@ Write footprints with complete primitive definitions.
 
 ### read_schlib
 
-Read symbols from an existing schematic library.
+Read symbols from an existing schematic library. Coordinates are in schematic units (10 = 1 grid).
 
 ```json
 {
@@ -202,6 +220,8 @@ Read symbols from an existing schematic library.
     }
 }
 ```
+
+Pagination parameters (`component_name`, `limit`, `offset`) work the same as `read_pcblib`.
 
 ### write_schlib
 
@@ -335,6 +355,34 @@ The AI provides complete primitive definitions. The tool writes them.
 | Top Assembly | Assembly outline |
 | Top 3D Body | 3D body outline |
 | Top Courtyard | Courtyard (IPC-7351) |
+
+---
+
+## Working with Large Libraries
+
+For libraries with many components, use pagination to avoid output limits:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ LARGE LIBRARY WORKFLOW                                                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  1. LIST COMPONENTS FIRST                                                   │
+│     AI calls: list_components { filepath }                                  │
+│     Returns: ["RESC0402...", "RESC0603...", ...]                            │
+│                                                                             │
+│  2. FETCH SPECIFIC COMPONENTS                                               │
+│     AI calls: read_pcblib { filepath, component_name: "RESC0603..." }       │
+│     Returns: Single footprint with full details                             │
+│                                                                             │
+│  3. OR PAGINATE THROUGH ALL                                                 │
+│     AI calls: read_pcblib { filepath, limit: 5, offset: 0 }                 │
+│     Response includes: has_more: true, total_count: 50                      │
+│     AI calls: read_pcblib { filepath, limit: 5, offset: 5 }                 │
+│     ... continues until has_more: false                                     │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 

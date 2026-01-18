@@ -89,7 +89,7 @@ See [docs/VISION.md](docs/VISION.md) for the full architectural rationale.
 
 ### `read_pcblib`
 
-Read footprints from an Altium `.PcbLib` file.
+Read footprints from an Altium `.PcbLib` file. All coordinates are in millimetres.
 
 ```json
 {
@@ -99,6 +99,26 @@ Read footprints from an Altium `.PcbLib` file.
     }
 }
 ```
+
+**Pagination options** (for large libraries):
+
+```json
+{
+    "name": "read_pcblib",
+    "arguments": {
+        "filepath": "./LargeLibrary.PcbLib",
+        "component_name": "RESC1608X55N",
+        "limit": 10,
+        "offset": 0
+    }
+}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `component_name` | Fetch only this specific footprint |
+| `limit` | Maximum footprints to return |
+| `offset` | Skip first N footprints |
 
 ### `write_pcblib`
 
@@ -130,13 +150,27 @@ Write footprints to an Altium `.PcbLib` file. The AI provides primitive definiti
 
 ### `read_schlib`
 
-Read symbols from an Altium `.SchLib` file.
+Read symbols from an Altium `.SchLib` file. Coordinates are in schematic units (10 units = 1 grid).
 
 ```json
 {
     "name": "read_schlib",
     "arguments": {
         "filepath": "./MySymbols.SchLib"
+    }
+}
+```
+
+**Pagination options** (for large libraries):
+
+```json
+{
+    "name": "read_schlib",
+    "arguments": {
+        "filepath": "./LargeLibrary.SchLib",
+        "component_name": "RES_0603",
+        "limit": 10,
+        "offset": 0
     }
 }
 ```

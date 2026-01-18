@@ -510,7 +510,7 @@ impl McpServer {
                     "Read an Altium .PcbLib file and return its contents including footprints \
                      with their primitives (pads, tracks, arcs, regions, text). Returns structured \
                      data that can be used to understand existing footprint styles. \
-                     All coordinates and dimensions are in millimeters (mm). \
+                     All coordinates and dimensions are in millimetres (mm). \
                      For large libraries, use component_name to fetch specific footprints, \
                      or use limit/offset for pagination."
                         .to_string(),
@@ -617,7 +617,7 @@ impl McpServer {
                      its primitives: pads (with position, size, shape, layer), tracks, arcs, \
                      regions, and text. The AI is responsible for calculating correct positions \
                      and sizes based on IPC-7351B or other standards. \
-                     All coordinates and dimensions must be in millimeters (mm)."
+                     All coordinates and dimensions must be in millimetres (mm)."
                         .to_string(),
                 ),
                 input_schema: json!({
