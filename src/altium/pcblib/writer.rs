@@ -13,7 +13,7 @@
 //! [0x00]                                       // End marker
 //! ```
 
-use super::primitives::{Arc, Layer, Pad, PadShape, Text, Track};
+use super::primitives::{Arc, Layer, Pad, PadShape, Region, Text, Track};
 use super::Footprint;
 
 /// Conversion factor from millimetres to Altium internal units.
@@ -144,6 +144,11 @@ pub fn encode_data_stream(footprint: &Footprint) -> Vec<u8> {
     for text in &footprint.text {
         data.push(0x05); // Text record type
         encode_text(&mut data, text);
+    }
+
+    for region in &footprint.regions {
+        data.push(0x0B); // Region record type
+        encode_region(&mut data, region);
     }
 
     // End marker
@@ -381,6 +386,68 @@ fn encode_text_geometry(text: &Text) -> Vec<u8> {
     // Total block should be around 80-100 bytes minimum
     while block.len() < 80 {
         block.push(0x00);
+    }
+
+    block
+}
+
+/// Encodes a Region primitive (filled polygon).
+///
+/// Region format (matching Altium):
+/// - Block 0: Properties block containing common header, parameter string, and vertices
+/// - Block 1: Empty block
+fn encode_region(data: &mut Vec<u8>, region: &Region) {
+    // Block 0: Properties with embedded vertices
+    let props = encode_region_properties(region);
+    write_block(data, &props);
+
+    // Block 1: Empty block (required by Altium format)
+    write_block(data, &[]);
+}
+
+/// Encodes the properties block for a region.
+///
+/// Format (matching Altium):
+/// ```text
+/// [common_header:13]       // Layer, flags, padding
+/// [unknown:5]              // Unknown bytes
+/// [param_len:4 u32]        // Parameter string length
+/// [params:param_len]       // Parameter string (ASCII)
+/// [vertex_count:4 u32]     // Number of vertices
+/// [vertices:count*16]      // Vertices as doubles
+/// ```
+#[allow(clippy::cast_possible_truncation)] // Vertex count and param length fit in u32
+fn encode_region_properties(region: &Region) -> Vec<u8> {
+    let vertex_count = region.vertices.len();
+
+    // Build parameter string
+    let layer_name = region.layer.as_str().replace(' ', "").to_uppercase();
+    let params = format!("V7_LAYER={layer_name}|NAME= |KIND=0");
+    let params_bytes = params.as_bytes();
+
+    let mut block = Vec::with_capacity(22 + params_bytes.len() + 4 + vertex_count * 16);
+
+    // Common header (13 bytes)
+    write_common_header(&mut block, region.layer);
+
+    // Unknown bytes (5 bytes)
+    block.extend_from_slice(&[0x00; 5]);
+
+    // Parameter string length
+    write_u32(&mut block, params_bytes.len() as u32);
+
+    // Parameter string
+    block.extend_from_slice(params_bytes);
+
+    // Vertex count
+    write_u32(&mut block, vertex_count as u32);
+
+    // Vertices as doubles in internal units
+    for vertex in &region.vertices {
+        let x_internal = f64::from(from_mm(vertex.x));
+        let y_internal = f64::from(from_mm(vertex.y));
+        write_f64(&mut block, x_internal);
+        write_f64(&mut block, y_internal);
     }
 
     block

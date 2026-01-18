@@ -24,7 +24,7 @@
 //! - `0x0B`: Region
 //! - `0x0C`: `ComponentBody`
 
-use super::primitives::{Arc, Layer, Pad, PadShape, Text, Track};
+use super::primitives::{Arc, Layer, Pad, PadShape, Region, Text, Track, Vertex};
 use super::Footprint;
 
 /// Conversion factor from Altium internal units to millimetres.
@@ -230,11 +230,20 @@ pub fn parse_data_stream(footprint: &mut Footprint, data: &[u8]) {
                     break;
                 }
             }
-            0x03 | 0x06 | 0x0B | 0x0C => {
+            0x0B => {
+                // Region (filled polygon)
+                if let Some((region, new_offset)) = parse_region(data, offset) {
+                    footprint.add_region(region);
+                    offset = new_offset;
+                } else {
+                    tracing::debug!("Failed to parse Region at offset {offset:#x}");
+                    break;
+                }
+            }
+            0x03 | 0x06 | 0x0C => {
                 // These primitives are recognized but not yet fully implemented:
                 // - 0x03: Via (similar to pad but for vias)
                 // - 0x06: Fill (filled rectangle)
-                // - 0x0B: Region (filled polygon with vertices - format undocumented)
                 // - 0x0C: ComponentBody (3D model reference - stored in /Library/Models)
                 //
                 // TODO: Implement parsing for these. See pyAltiumLib/AltiumSharp for reference.
@@ -242,7 +251,6 @@ pub fn parse_data_stream(footprint: &mut Footprint, data: &[u8]) {
                 let type_name = match record_type {
                     0x03 => "Via",
                     0x06 => "Fill",
-                    0x0B => "Region",
                     0x0C => "ComponentBody",
                     _ => "Unknown",
                 };
@@ -557,6 +565,114 @@ fn find_ascii_in_block(block: &[u8], pattern: &str) -> Option<usize> {
         .find(|&i| &block[i..i + pattern_bytes.len()] == pattern_bytes)
 }
 
+/// Parses a Region primitive (filled polygon).
+/// Returns the parsed `Region` and the new offset on success.
+///
+/// # Region Block Format (from `AltiumSharp` analysis)
+///
+/// Region has 2 blocks:
+/// - Block 0: Properties (common header + metadata)
+/// - Block 1: Vertices (count + coordinate pairs)
+///
+/// Block 0:
+/// ```text
+/// [layer:1][flags:12]      // 13-byte common header
+/// [unknown:4 u32]          // Unknown data
+/// [unknown:1]              // Unknown byte
+/// ...                      // Additional properties
+/// ```
+///
+/// Block 1 (vertices):
+/// ```text
+/// [count:4 u32]            // Number of vertices
+/// [x:8 f64][y:8 f64]       // Vertex 1 (doubles in internal units)
+/// [x:8 f64][y:8 f64]       // Vertex 2
+/// ...
+/// ```
+#[allow(clippy::cast_possible_truncation)] // Altium coords fit in i32
+fn parse_region(data: &[u8], offset: usize) -> Option<(Region, usize)> {
+    // Region format (observed from Altium files):
+    // Block 0: Properties block containing:
+    //   - Common header (13 bytes): layer, flags, padding
+    //   - Unknown data (5 bytes)
+    //   - Parameter string length (4 bytes)
+    //   - Parameter string (ASCII key=value pairs)
+    //   - Vertex count (4 bytes)
+    //   - Vertices (count * 16 bytes, each as 2 doubles)
+    // Block 1: Usually empty (0 bytes)
+
+    // Block 0: Properties with embedded vertices
+    let (props_block, mut current) = read_block(data, offset)?;
+
+    if props_block.len() < 22 {
+        tracing::trace!(
+            "Region properties block too short: {} bytes",
+            props_block.len()
+        );
+        return None;
+    }
+
+    // Common header (13 bytes)
+    let layer_id = props_block[0];
+    let layer = layer_from_id(layer_id);
+
+    // Skip unknown bytes (5 bytes after header)
+    // Read parameter string length at offset 18
+    let param_len = read_u32(props_block, 18)? as usize;
+
+    // Skip parameter string, vertex data follows
+    let vertex_offset = 22 + param_len;
+
+    if props_block.len() < vertex_offset + 4 {
+        tracing::trace!(
+            "Region block too short for vertex count at offset {}",
+            vertex_offset
+        );
+        return None;
+    }
+
+    // Read vertex count
+    let vertex_count = read_u32(props_block, vertex_offset)? as usize;
+
+    // Each vertex is 2 doubles (16 bytes)
+    let vertex_data_offset = vertex_offset + 4;
+    let expected_size = vertex_data_offset + vertex_count * 16;
+
+    if props_block.len() < expected_size {
+        tracing::trace!(
+            "Region block too short for {} vertices: {} < {}",
+            vertex_count,
+            props_block.len(),
+            expected_size
+        );
+        return None;
+    }
+
+    // Parse vertices
+    let mut vertices = Vec::with_capacity(vertex_count);
+    for i in 0..vertex_count {
+        let base = vertex_data_offset + i * 16;
+        // Coordinates stored as doubles in internal units
+        let x_internal = read_f64(props_block, base)?;
+        let y_internal = read_f64(props_block, base + 8)?;
+
+        // Convert from internal units to mm
+        let x = to_mm(x_internal.round() as i32);
+        let y = to_mm(y_internal.round() as i32);
+
+        vertices.push(Vertex { x, y });
+    }
+
+    // Block 1: Usually empty, but still need to read it
+    if let Some((_, next)) = read_block(data, current) {
+        current = next;
+    }
+
+    let region = Region { vertices, layer };
+
+    Some((region, current))
+}
+
 /// Skips a primitive by reading its blocks.
 /// Returns the new offset on success.
 fn skip_primitive(data: &[u8], offset: usize, record_type: u8) -> Option<usize> {
@@ -564,10 +680,10 @@ fn skip_primitive(data: &[u8], offset: usize, record_type: u8) -> Option<usize> 
 
     // Different primitives have different numbers of blocks
     let block_count: u8 = match record_type {
-        0x03 => 6,        // Via (similar to Pad)
-        0x05 | 0x0B => 2, // Text (geometry + content), Region (properties + vertices)
-        0x0C => 3,        // ComponentBody
-        _ => 1,           // Fill (0x06) and others default to 1 block
+        0x03 => 6, // Via (similar to Pad)
+        0x05 => 2, // Text (geometry + content)
+        0x0C => 3, // ComponentBody
+        _ => 1,    // Fill (0x06) and others default to 1 block
     };
 
     for _ in 0..block_count {
