@@ -29,10 +29,12 @@ src/
 │   ├── mod.rs                   # Module exports
 │   ├── error.rs                 # Altium-specific errors
 │   ├── pcblib/
-│   │   ├── mod.rs               # PcbLib read/write
-│   │   └── primitives.rs        # Pad, Track, Arc, Region, Text, Layer
+│   │   ├── mod.rs               # PcbLib module exports
+│   │   ├── primitives.rs        # Pad, Track, Arc, Region, Text, Fill, etc.
+│   │   ├── reader.rs            # Binary parsing
+│   │   └── writer.rs            # Binary encoding
 │   └── schlib/
-│       ├── mod.rs               # SchLib read/write
+│       ├── mod.rs               # SchLib module exports
 │       ├── primitives.rs        # Pin, Rectangle, Line, Arc, Ellipse, etc.
 │       ├── reader.rs            # Binary parsing
 │       └── writer.rs            # Binary encoding
