@@ -22,13 +22,15 @@ This document tracks implementation gaps between the documented PcbLib format (`
 - [x] Write WideStrings stream when saving libraries
 - [ ] TODO: Verify WideStringsIndex offset in geometry block (currently tries offsets 95-97)
 
-### 3D Model Embedding - Not Implemented
+### 3D Model Embedding - Implemented ✓
 
-- [ ] Parse `/Library/Models/Header` stream for model count
-- [ ] Parse `/Library/Models/Data` stream for GUID-to-index mapping
-- [ ] Extract zlib-compressed STEP files from `/Library/Models/{N}` streams
-- [ ] Add model embedding support when writing libraries
-- [ ] Link `ComponentBody.model_id` to actual embedded model data
+- [x] Parse `/Library/Models/Header` stream for model count
+- [x] Parse `/Library/Models/Data` stream for GUID-to-index mapping
+- [x] Extract zlib-compressed STEP files from `/Library/Models/{N}` streams
+- [x] Add `EmbeddedModel` struct with id, name, data, compressed_size
+- [x] Add `models()`, `get_model()`, `add_model()` methods to `PcbLib`
+- [x] Add model embedding support when writing libraries
+- [x] Link `ComponentBody.model_id` to embedded model data via `get_model()`
 
 ## Pad Advanced Features
 
@@ -164,8 +166,9 @@ Flag bits to support:
 
 ### Testing
 
-- [ ] Add roundtrip tests for Via primitive (once implemented)
-- [ ] Add tests for WideStrings parsing
+- [x] Add roundtrip tests for Via primitive
+- [x] Add tests for WideStrings parsing
+- [x] Add tests for 3D model parsing and embedding
 - [ ] Add tests for advanced pad features (stack modes, per-layer data)
 - [ ] Add tests for all layer ID mappings
 - [ ] Add integration tests with real Altium library files

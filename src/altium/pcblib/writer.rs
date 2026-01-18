@@ -791,6 +791,83 @@ fn mm_to_mil(mm: f64) -> f64 {
     mm / 0.0254
 }
 
+// =============================================================================
+// 3D Model Writing
+// =============================================================================
+
+use super::primitives::EmbeddedModel;
+use flate2::write::ZlibEncoder;
+use flate2::Compression;
+use std::io::Write as IoWrite;
+
+/// Compresses model data using zlib.
+///
+/// # Arguments
+///
+/// * `data` - The uncompressed STEP file data
+///
+/// # Returns
+///
+/// Zlib-compressed data.
+pub fn compress_model_data(data: &[u8]) -> Vec<u8> {
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+    if encoder.write_all(data).is_ok() {
+        encoder.finish().unwrap_or_default()
+    } else {
+        Vec::new()
+    }
+}
+
+/// Encodes the `/Library/Models/Header` stream.
+///
+/// # Format
+///
+/// ```text
+/// |HEADER=Protel for Windows - PCB Models Library|RECORD_COUNT={count}|
+/// ```
+#[allow(clippy::cast_possible_truncation)] // Model count always fits in usize
+pub fn encode_model_header_stream(model_count: usize) -> Vec<u8> {
+    format!("|HEADER=Protel for Windows - PCB Models Library|RECORD_COUNT={model_count}|")
+        .into_bytes()
+}
+
+/// Encodes the `/Library/Models/Data` stream.
+///
+/// # Format
+///
+/// ```text
+/// |RECORD0={GUID}|NAME0=filename.step|RECORD1={GUID2}|NAME1=filename2.step|...
+/// ```
+pub fn encode_model_data_stream(models: &[EmbeddedModel]) -> Vec<u8> {
+    use std::fmt::Write;
+
+    let mut output = String::new();
+
+    for (index, model) in models.iter().enumerate() {
+        let _ = write!(output, "|RECORD{index}={}", model.id);
+        let _ = write!(output, "|NAME{index}={}", model.name);
+    }
+
+    if !output.is_empty() {
+        output.push('|');
+    }
+
+    output.into_bytes()
+}
+
+/// Prepares models for writing by compressing and indexing them.
+///
+/// # Returns
+///
+/// A vector of (index, `compressed_data`) tuples.
+pub fn prepare_models_for_writing(models: &[EmbeddedModel]) -> Vec<(usize, Vec<u8>)> {
+    models
+        .iter()
+        .enumerate()
+        .map(|(idx, model)| (idx, compress_model_data(&model.data)))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -911,5 +988,78 @@ mod tests {
         assert_eq!(texts.len(), 1);
         assert!(texts.contains(&"CUSTOM_TEXT".to_string()));
         assert!(!texts.iter().any(|t| t.starts_with('.')));
+    }
+
+    // =============================================================================
+    // 3D Model Writing Tests
+    // =============================================================================
+
+    #[test]
+    fn test_compress_model_data() {
+        use flate2::read::ZlibDecoder;
+        use std::io::Read;
+
+        let original = b"ISO-10303-21; HEADER; FILE_DESCRIPTION...";
+        let compressed = compress_model_data(original);
+
+        // Verify it's actually compressed (should be smaller for larger data)
+        assert!(!compressed.is_empty());
+
+        // Verify we can decompress it
+        let mut decoder = ZlibDecoder::new(&compressed[..]);
+        let mut decompressed = Vec::new();
+        decoder.read_to_end(&mut decompressed).unwrap();
+
+        assert_eq!(decompressed, original);
+    }
+
+    #[test]
+    fn test_encode_model_header_stream() {
+        let data = encode_model_header_stream(5);
+        let text = String::from_utf8(data).unwrap();
+
+        assert!(text.contains("HEADER=Protel for Windows"));
+        assert!(text.contains("RECORD_COUNT=5"));
+    }
+
+    #[test]
+    fn test_encode_model_data_stream() {
+        let models = vec![
+            EmbeddedModel::new("{GUID-1}", "model1.step", vec![]),
+            EmbeddedModel::new("{GUID-2}", "model2.step", vec![]),
+        ];
+
+        let data = encode_model_data_stream(&models);
+        let text = String::from_utf8(data).unwrap();
+
+        assert!(text.contains("|RECORD0={GUID-1}"));
+        assert!(text.contains("|NAME0=model1.step"));
+        assert!(text.contains("|RECORD1={GUID-2}"));
+        assert!(text.contains("|NAME1=model2.step"));
+    }
+
+    #[test]
+    fn test_encode_model_data_stream_empty() {
+        let models: Vec<EmbeddedModel> = vec![];
+        let data = encode_model_data_stream(&models);
+        assert!(data.is_empty());
+    }
+
+    #[test]
+    fn test_prepare_models_for_writing() {
+        let models = vec![
+            EmbeddedModel::new("{A}", "a.step", b"STEP A".to_vec()),
+            EmbeddedModel::new("{B}", "b.step", b"STEP B".to_vec()),
+        ];
+
+        let prepared = prepare_models_for_writing(&models);
+
+        assert_eq!(prepared.len(), 2);
+        assert_eq!(prepared[0].0, 0);
+        assert_eq!(prepared[1].0, 1);
+
+        // Verify each is compressed
+        assert!(!prepared[0].1.is_empty());
+        assert!(!prepared[1].1.is_empty());
     }
 }

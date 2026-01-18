@@ -39,7 +39,8 @@ mod writer;
 use serde::{Deserialize, Serialize};
 
 pub use primitives::{
-    Arc, ComponentBody, Fill, Layer, Model3D, Pad, PadShape, Region, Text, Track, Vertex, Via,
+    Arc, ComponentBody, EmbeddedModel, Fill, Layer, Model3D, Pad, PadShape, Region, Text, Track,
+    Vertex, Via,
 };
 
 use crate::altium::error::{AltiumError, AltiumResult};
@@ -172,6 +173,12 @@ impl Footprint {
 pub struct PcbLib {
     /// Footprints in the library.
     footprints: Vec<Footprint>,
+
+    /// Embedded 3D models from `/Library/Models/` storage.
+    ///
+    /// These are zlib-compressed STEP files that are referenced by
+    /// `ComponentBody` records via their GUID.
+    models: Vec<EmbeddedModel>,
 }
 
 impl PcbLib {
@@ -207,6 +214,9 @@ impl PcbLib {
 
         // Read WideStrings stream if present (contains text content for Text primitives)
         let wide_strings = Self::read_wide_strings(&mut cfb);
+
+        // Read embedded 3D models if present
+        library.models = Self::read_models(&mut cfb);
 
         // List all entries to find footprint storages
         let entries: Vec<_> = cfb.walk().map(|e| e.path().to_path_buf()).collect();
@@ -275,6 +285,86 @@ impl PcbLib {
             }
         }
         reader::WideStrings::new()
+    }
+
+    /// Reads embedded 3D models from `/Library/Models/` storage.
+    ///
+    /// Models are stored as:
+    /// - `/Library/Models/Header` - Model count and metadata
+    /// - `/Library/Models/Data` - GUID-to-index mapping
+    /// - `/Library/Models/{N}` - zlib-compressed STEP files
+    fn read_models<F: std::io::Read + std::io::Seek>(
+        cfb: &mut cfb::CompoundFile<F>,
+    ) -> Vec<EmbeddedModel> {
+        // Check if Models storage exists
+        let models_storage = std::path::Path::new("/Library/Models");
+        if !cfb.is_storage(models_storage) {
+            return Vec::new();
+        }
+
+        // Read Header to get model count
+        let header_path = models_storage.join("Header");
+        let _model_count = cfb
+            .is_stream(&header_path)
+            .then(|| {
+                cfb.open_stream(&header_path).ok().and_then(|mut stream| {
+                    let mut data = Vec::new();
+                    std::io::Read::read_to_end(&mut stream, &mut data)
+                        .ok()
+                        .map(|_| reader::parse_model_header_stream(&data))
+                })
+            })
+            .flatten()
+            .unwrap_or(0);
+
+        // Read Data stream to get GUID-to-index mapping
+        let data_path = models_storage.join("Data");
+        let model_index = cfb
+            .is_stream(&data_path)
+            .then(|| {
+                cfb.open_stream(&data_path).ok().and_then(|mut stream| {
+                    let mut data = Vec::new();
+                    std::io::Read::read_to_end(&mut stream, &mut data)
+                        .ok()
+                        .map(|_| reader::parse_model_data_stream(&data))
+                })
+            })
+            .flatten()
+            .unwrap_or_default();
+
+        if model_index.is_empty() {
+            tracing::debug!("No model index found in /Library/Models/Data");
+            return Vec::new();
+        }
+
+        // Read compressed model streams
+        let mut model_data: Vec<(usize, Vec<u8>)> = Vec::new();
+
+        // Model streams are numbered 0, 1, 2, ...
+        for idx in 0..100 {
+            // Reasonable upper limit
+            let stream_path = models_storage.join(idx.to_string());
+            if cfb.is_stream(&stream_path) {
+                if let Ok(mut stream) = cfb.open_stream(&stream_path) {
+                    let mut data = Vec::new();
+                    if std::io::Read::read_to_end(&mut stream, &mut data).is_ok() {
+                        tracing::trace!(
+                            index = idx,
+                            size = data.len(),
+                            "Read compressed model stream"
+                        );
+                        model_data.push((idx, data));
+                    }
+                }
+            } else {
+                // No more model streams
+                break;
+            }
+        }
+
+        let models = reader::parse_embedded_models(&model_index, &model_data);
+        tracing::debug!(count = models.len(), "Parsed embedded 3D models");
+        models
     }
 
     /// Reads a single footprint from the OLE document.
@@ -384,6 +474,9 @@ impl PcbLib {
         // Write WideStrings stream if there's text content
         self.write_wide_strings(&mut cfb)?;
 
+        // Write embedded 3D models if present
+        self.write_models(&mut cfb)?;
+
         // Write each footprint
         for footprint in &self.footprints {
             self.write_footprint(&mut cfb, footprint)?;
@@ -392,6 +485,7 @@ impl PcbLib {
         tracing::info!(
             path = %path.display(),
             count = self.footprints.len(),
+            models = self.models.len(),
             "Wrote PcbLib"
         );
 
@@ -421,6 +515,64 @@ impl PcbLib {
             .map_err(|e| AltiumError::invalid_ole(format!("Failed to write WideStrings: {e}")))?;
 
         tracing::debug!(count = texts.len(), "Wrote WideStrings stream");
+        Ok(())
+    }
+
+    /// Writes embedded 3D models to `/Library/Models/` storage.
+    ///
+    /// Creates:
+    /// - `/Library/Models/Header` - Model count and metadata
+    /// - `/Library/Models/Data` - GUID-to-index mapping
+    /// - `/Library/Models/{N}` - zlib-compressed STEP files
+    fn write_models<F: std::io::Read + std::io::Write + std::io::Seek>(
+        &self,
+        cfb: &mut cfb::CompoundFile<F>,
+    ) -> AltiumResult<()> {
+        if self.models.is_empty() {
+            return Ok(());
+        }
+
+        // Create /Library storage if it doesn't exist
+        if !cfb.exists("/Library") {
+            cfb.create_storage("/Library").map_err(|e| {
+                AltiumError::invalid_ole(format!("Failed to create Library storage: {e}"))
+            })?;
+        }
+
+        // Create /Library/Models storage
+        cfb.create_storage("/Library/Models").map_err(|e| {
+            AltiumError::invalid_ole(format!("Failed to create Models storage: {e}"))
+        })?;
+
+        // Write Header stream
+        let header_data = writer::encode_model_header_stream(self.models.len());
+        let mut header_stream = cfb.create_stream("/Library/Models/Header").map_err(|e| {
+            AltiumError::invalid_ole(format!("Failed to create Models/Header: {e}"))
+        })?;
+        std::io::Write::write_all(&mut header_stream, &header_data)
+            .map_err(|e| AltiumError::invalid_ole(format!("Failed to write Models/Header: {e}")))?;
+
+        // Write Data stream (GUID-to-index mapping)
+        let data_content = writer::encode_model_data_stream(&self.models);
+        let mut data_stream = cfb
+            .create_stream("/Library/Models/Data")
+            .map_err(|e| AltiumError::invalid_ole(format!("Failed to create Models/Data: {e}")))?;
+        std::io::Write::write_all(&mut data_stream, &data_content)
+            .map_err(|e| AltiumError::invalid_ole(format!("Failed to write Models/Data: {e}")))?;
+
+        // Write individual model streams (compressed)
+        let compressed_models = writer::prepare_models_for_writing(&self.models);
+        for (idx, compressed) in compressed_models {
+            let stream_path = format!("/Library/Models/{idx}");
+            let mut model_stream = cfb.create_stream(&stream_path).map_err(|e| {
+                AltiumError::invalid_ole(format!("Failed to create model stream {idx}: {e}"))
+            })?;
+            std::io::Write::write_all(&mut model_stream, &compressed).map_err(|e| {
+                AltiumError::invalid_ole(format!("Failed to write model stream {idx}: {e}"))
+            })?;
+        }
+
+        tracing::debug!(count = self.models.len(), "Wrote embedded 3D models");
         Ok(())
     }
 
@@ -520,6 +672,28 @@ impl PcbLib {
     /// Adds a footprint to the library.
     pub fn add(&mut self, footprint: Footprint) {
         self.footprints.push(footprint);
+    }
+
+    /// Returns the number of embedded 3D models in the library.
+    #[must_use]
+    pub fn model_count(&self) -> usize {
+        self.models.len()
+    }
+
+    /// Returns an iterator over the embedded 3D models.
+    pub fn models(&self) -> impl Iterator<Item = &EmbeddedModel> {
+        self.models.iter()
+    }
+
+    /// Gets an embedded model by GUID.
+    #[must_use]
+    pub fn get_model(&self, id: &str) -> Option<&EmbeddedModel> {
+        self.models.iter().find(|m| m.id == id)
+    }
+
+    /// Adds an embedded 3D model to the library.
+    pub fn add_model(&mut self, model: EmbeddedModel) {
+        self.models.push(model);
     }
 }
 
