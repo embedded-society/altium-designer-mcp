@@ -444,8 +444,12 @@ def parse_component_body_params(block: bytes) -> dict:
                     # Clean up null bytes
                     val = val.rstrip('\x00')
                     params[key] = val
-    except Exception:
-        pass
+    except Exception as e:
+        # Keep returning an empty parameter dict on failure, but make the error visible.
+        print(
+            f"      Warning: failed to parse ComponentBody parameters: {e}",
+            file=sys.stderr,
+        )
     return params
 
 
