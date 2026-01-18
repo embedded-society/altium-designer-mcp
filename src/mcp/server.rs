@@ -55,8 +55,12 @@ impl Default for ServerCapabilities {
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct ToolCapabilities {
     /// Whether the tool list can change during the session.
-    #[serde(rename = "listChanged", skip_serializing_if = "std::ops::Not::not")]
+    #[serde(rename = "listChanged", skip_serializing_if = "is_false")]
     pub list_changed: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 /// Server information for initialisation response.
