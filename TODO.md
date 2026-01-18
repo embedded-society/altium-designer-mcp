@@ -54,11 +54,12 @@ This document tracks implementation gaps between the documented PcbLib format (`
 - [x] Write to geometry block in `encode_pad_geometry()`
 - [x] Add roundtrip tests for mask expansion
 
-### Corner Radius - Partial Implementation
+### Corner Radius - Implemented ✓
 
 - [x] Add `corner_radius_percent: Option<u8>` field to `Pad` struct (0-100%)
 - [x] Parse corner radius from per-layer data (Block 5)
-- [ ] Write corner radius to per-layer data (not yet implemented)
+- [x] Write corner radius to per-layer data (Block 5, offset 288)
+- [x] Set stack mode to FullStack (2) when corner radius is specified
 - Note: Percentage of smaller pad dimension, not absolute value
 
 ### Stack Modes - Not Implemented
