@@ -2,7 +2,8 @@
 
 This document describes the binary format of Altium Designer `.PcbLib` (PCB footprint library) files.
 
-> **Legend:** Items marked with `TODO` need implementation. Items marked with `UNKNOWN` are not fully understood.
+> **Note:** This documentation is based on reverse engineering from AltiumSharp, pyAltiumLib, and sample file analysis.
+> See [References](#references) for links.
 
 ## File Structure
 
@@ -11,7 +12,7 @@ PcbLib files are OLE Compound Documents (CFB format) containing:
 ```text
 /
 ├── FileHeader          # Library metadata
-├── Storage             # Additional storage info (UNKNOWN: purpose unclear)
+├── Storage             # Additional storage info (contains UniqueIdPrimitiveInformation mappings)
 ├── WideStrings         # UTF-16 encoded text content (TODO: not parsed)
 └── {ComponentName}/    # One storage per footprint
     └── Data            # Binary primitives stream
@@ -52,7 +53,7 @@ Each component's Data stream contains the footprint primitives:
 |----|------|--------|-------------|
 | `0x01` | Arc | ✓ | Arc or circle |
 | `0x02` | Pad | ✓ | SMD or through-hole pad |
-| `0x03` | Via | TODO | Via (similar to pad structure) |
+| `0x03` | Via | ✓ | Via (6 blocks, similar to pad) |
 | `0x04` | Track | ✓ | Line segment |
 | `0x05` | Text | Partial | Text string (WideStrings TODO) |
 | `0x06` | Fill | ✓ | Filled rectangle |
@@ -77,11 +78,13 @@ Most primitives use length-prefixed blocks:
 
 ## Layer IDs
 
-### Copper and Signal Layers
+### Copper Layers
 
 | ID | Layer |
 |----|-------|
+| 0 | No Layer |
 | 1 | Top Layer |
+| 2-31 | Mid Layer 1-30 (internal copper) |
 | 32 | Bottom Layer |
 | 74 | Multi-Layer |
 
@@ -96,9 +99,24 @@ Most primitives use length-prefixed blocks:
 | 37 | Top Solder Mask |
 | 38 | Bottom Solder Mask |
 
+### Internal Plane Layers
+
+| ID | Layer |
+|----|-------|
+| 39-54 | Internal Plane 1-16 |
+
+### Mechanical and Documentation Layers
+
+| ID | Layer |
+|----|-------|
+| 55 | Drill Guide |
+| 56 | Keep-Out Layer |
+| 57-72 | Mechanical 1-16 |
+| 73 | Drill Drawing |
+
 ### Component Layer Pairs
 
-These mechanical layers are configured as component layer pairs in the sample library:
+These mechanical layers are typically configured as component layer pairs:
 
 | ID | Mechanical | Purpose |
 |----|------------|---------|
@@ -111,13 +129,22 @@ These mechanical layers are configured as component layer pairs in the sample li
 
 **AI assistants should prefer these dedicated layers over generic mechanical layers.**
 
-### Other Layers
+### Special Layers
 
 | ID | Layer |
 |----|-------|
-| 56 | Keep-Out Layer |
-| 57 | Mechanical 1 |
-| 64-72 | Mechanical 8-16 |
+| 75 | Connect Layer |
+| 76 | Background Layer |
+| 77 | DRC Error Layer |
+| 78 | Highlight Layer |
+| 79 | Grid Color 1 |
+| 80 | Grid Color 10 |
+| 81 | Pad Hole Layer |
+| 82 | Via Hole Layer |
+| 83 | Top Pad Master |
+| 84 | Bottom Pad Master |
+| 85 | DRC Detail Layer |
+| 255 | Unknown |
 
 ## Primitive Formats
 
@@ -126,18 +153,18 @@ These mechanical layers are configured as component layer pairs in the sample li
 Pads have 6 blocks:
 
 1. Designator string block (length-prefixed)
-2. UNKNOWN (typically empty)
-3. Marker string (`|&|0`) — UNKNOWN purpose
-4. UNKNOWN (typically empty)
+2. Layer stack data (typically empty for simple pads)
+3. Marker string (`|&|0`) — internal reference marker
+4. Net/connectivity data (typically empty in libraries)
 5. Geometry data (main pad definition)
-6. Per-layer data (optional, for complex pads)
+6. Per-layer data (for complex pads with different shapes/sizes per layer)
 
 **Geometry block structure:**
 
 | Offset | Size | Field |
 |--------|------|-------|
 | 0 | 1 | Layer ID |
-| 1-12 | 12 | Flags and padding (UNKNOWN: detailed meaning) |
+| 1-12 | 12 | Flags and padding (see Common Header) |
 | 13-16 | 4 | X position (internal units, signed) |
 | 17-20 | 4 | Y position (internal units, signed) |
 | 21-24 | 4 | Width (top layer stack) |
@@ -151,19 +178,38 @@ Pads have 6 blocks:
 | 50 | 1 | Shape (middle) |
 | 51 | 1 | Shape (bottom) |
 | 52-59 | 8 | Rotation (IEEE 754 double, degrees) |
-| 60 | 1 | Is plated (UNKNOWN: exact encoding) |
-| 61+ | var | UNKNOWN: additional pad properties |
+| 60 | 1 | Is plated (0 = no, 1 = yes) |
+| 61 | 1 | Reserved |
+| 62 | 1 | Stack mode (see below) |
+| 63+ | var | Additional pad properties (paste/solder mask expansion, etc.) |
 
 **Pad shapes:**
 
 | ID | Shape | Notes |
 |----|-------|-------|
-| 1 | Round | Also used for rounded rectangle in some contexts |
-| 2 | Rectangle | Sharp corners |
-| 3 | Octagon/Oval | Mapped to Oval |
-| other | RoundedRectangle | Default fallback |
+| 1 | Round | Circular pad |
+| 2 | Rectangular | Sharp corners |
+| 3 | Octagonal | 8-sided (often mapped to Oval) |
+| 9 | RoundedRectangle | Rectangular with rounded corners |
 
-> **UNKNOWN:** The relationship between shape ID 1 and corner radius for rounded rectangles is not fully understood. Block 6 (per-layer data) format is not documented.
+**Stack modes:**
+
+| ID | Mode | Description |
+|----|------|-------------|
+| 0 | Simple | All layers mirror top layer settings |
+| 1 | TopMiddleBottom | Independent top, middle (layers 1-30), bottom |
+| 2 | FullStack | Complete per-layer customization (32 layers) |
+
+**Per-layer data (Block 6):**
+
+When stack mode is not Simple, Block 6 contains per-layer arrays:
+
+- 32 size entries (CoordPoint, 8 bytes each)
+- 32 shape entries (1 byte each)
+- 32 corner radius percentages (1 byte each, 0-100)
+- 32 offset-from-hole-center entries (CoordPoint, 8 bytes each)
+
+> **Note:** Corner radius is stored as a percentage (0-100) of the smaller pad dimension, not as an absolute value.
 
 ### Track (0x04)
 
@@ -201,11 +247,20 @@ All primitives start with a common header:
 | Offset | Size | Field |
 |--------|------|-------|
 | 0 | 1 | Layer ID |
-| 1 | 1 | Flags (UNKNOWN: bit meanings) |
-| 2 | 1 | More flags (UNKNOWN: bit meanings) |
-| 3-12 | 10 | Padding (typically 0xFF, UNKNOWN: may contain data) |
+| 1 | 2 | Flags (uint16, see PcbFlags below) |
+| 3-12 | 10 | Padding (typically 0xFF) |
 
-> **UNKNOWN:** The exact meaning of flag bytes at offsets 1-2 is not fully understood. They may contain component-locked, keepout, or net-related flags.
+**PcbFlags (uint16):**
+
+| Bit | Flag | Description |
+|-----|------|-------------|
+| 0x0001 | Locked | Primitive is locked |
+| 0x0002 | Polygon | Part of polygon pour |
+| 0x0004 | KeepOut | Keep-out region |
+| 0x0008 | TentingTop | Tented on top |
+| 0x0010 | TentingBottom | Tented on bottom |
+
+> **Note:** Most flags are typically 0x00 for library components. Net-related flags are used in board files.
 
 ### Text (0x05)
 
@@ -216,17 +271,41 @@ Text has 2 blocks:
 | Offset | Size | Field |
 |--------|------|-------|
 | 0 | 1 | Layer ID |
-| 1-12 | 12 | Flags and padding (UNKNOWN) |
+| 1-12 | 12 | Flags and padding |
 | 13-16 | 4 | X position (internal units) |
 | 17-20 | 4 | Y position |
 | 21-24 | 4 | Height |
-| 25-26 | 2 | Font style flags (UNKNOWN: bit meanings) |
+| 25-26 | 2 | Stroke font ID (see below) |
 | 27-34 | 8 | Rotation (double, degrees) |
-| 35+ | var | Font name and additional data (UNKNOWN: format) |
+| 35+ | var | Font name and additional data |
+
+**Text kinds:**
+
+| ID | Kind | Description |
+|----|------|-------------|
+| 0 | Stroke | Vector-based outline text |
+| 1 | TrueType | Font-based rendering |
+| 2 | BarCode | Barcode representation |
+
+**Stroke font IDs:**
+
+| ID | Font |
+|----|------|
+| 0 | Default |
+| 1 | Sans Serif |
+| 3 | Serif |
+
+**Text justification:**
+
+| ID | Position |
+|----|----------|
+| 1-3 | Bottom Right, Center, Left |
+| 4-6 | Middle Right, Center, Left |
+| 7-9 | Top Right, Center, Left |
 
 **Block 1 (Content):**
 
-Length-prefixed string with text content, or index reference to `WideStrings` stream.
+Length-prefixed string with text content, or index reference to `WideStrings` stream via `WideStringsIndex`.
 
 **Special text values (inline):**
 
@@ -235,7 +314,7 @@ Length-prefixed string with text content, or index reference to `WideStrings` st
 | `.Designator` | Pad/component designator |
 | `.Comment` | Component comment |
 
-**WideStrings stream format (TODO: not fully implemented):**
+**WideStrings stream format:**
 
 ```text
 |ENCODEDTEXT0=84,69,83,84|ENCODEDTEXT1=...|
@@ -268,14 +347,14 @@ Filled polygon with 2 blocks:
 | Offset | Size | Field |
 |--------|------|-------|
 | 0 | 1 | Layer ID |
-| 1-12 | 12 | Flags and padding (UNKNOWN) |
-| 13-17 | 5 | UNKNOWN |
+| 1-12 | 12 | Flags and padding |
+| 13-17 | 5 | Reserved |
 | 18-21 | 4 | Parameter string length |
 | 22+ | var | Parameter string (ASCII key=value, pipe-delimited) |
 | 22+len | 4 | Vertex count |
 | 26+len | 16×N | Vertices (N pairs of doubles) |
 
-**Block 1:** Usually empty (UNKNOWN purpose).
+**Block 1:** Outline data for display (usually empty in simple regions).
 
 **Vertex format:**
 
@@ -299,17 +378,24 @@ Binary header followed by pipe-delimited key=value parameters. Parameters start 
 | `V7_LAYER` | Layer name | "MECHANICAL6" |
 | `MODELID` | Model GUID | "{GUID}" |
 | `MODEL.NAME` | Model filename | "RESC1005X04L.step" |
-| `MODEL.EMBED` | Embedded flag | "TRUE" |
+| `MODEL.EMBED` | Embedded flag | "TRUE" or "FALSE" |
+| `MODEL.CHECKSUM` | Model integrity hash | Integer value |
+| `MODEL.2D.X` | 2D placement X | Coordinate |
+| `MODEL.2D.Y` | 2D placement Y | Coordinate |
+| `MODEL.2D.ROTATION` | 2D rotation | Degrees |
 | `MODEL.3D.ROTX` | X rotation (degrees) | "0.000" |
 | `MODEL.3D.ROTY` | Y rotation (degrees) | "0.000" |
 | `MODEL.3D.ROTZ` | Z rotation (degrees) | "0.000" |
 | `MODEL.3D.DZ` | Z offset | "15.748mil" |
+| `MODEL.SNAPCOUNT` | Snap point count | Integer |
 | `STANDOFFHEIGHT` | Standoff height | "0mil" |
 | `OVERALLHEIGHT` | Overall height | "0.4mm" |
 
 > **Note:** Height values can be in "mil" or "mm" units.
 
-**Block 1 and 2:** Usually empty (UNKNOWN purpose).
+**Block 1:** Model snap points data (usually empty).
+
+**Block 2:** Reserved (usually empty).
 
 **V7_LAYER mapping:**
 
@@ -322,20 +408,53 @@ Binary header followed by pipe-delimited key=value parameters. Parameters start 
 | MECHANICAL6 | Top 3D Body |
 | MECHANICAL7 | Bottom 3D Body |
 
+### Via (0x03)
+
+Vias have 6 blocks, similar to Pads:
+
+1. Designator/name block (typically empty)
+2. Layer stack data
+3. Marker string
+4. Net/connectivity data
+5. Geometry data
+6. Per-layer data
+
+**Geometry block structure:**
+
+| Offset | Size | Field |
+|--------|------|-------|
+| 0 | 1 | Layer ID (typically Multi-Layer) |
+| 1-12 | 12 | Flags and padding |
+| 13-16 | 4 | X position |
+| 17-20 | 4 | Y position |
+| 21-24 | 4 | Diameter |
+| 25-28 | 4 | Hole size |
+| 29 | 1 | From layer ID |
+| 30 | 1 | To layer ID |
+| 31-34 | 4 | Thermal relief air gap width |
+| 35 | 1 | Thermal relief conductors count |
+| 36-39 | 4 | Thermal relief conductors width |
+| 40-43 | 4 | Solder mask expansion |
+| 44 | 1 | Solder mask expansion manual flag |
+| 45 | 1 | Diameter stack mode |
+| 46+ | var | Per-layer diameters (32 × 4 bytes when FullStack) |
+
+**Diameter stack mode:** Same as Pad stack modes (Simple, TopMiddleBottom, FullStack).
+
 ### 3D Model Storage
 
 Altium embeds 3D models in the library file:
 
 ```text
 /Library/Models/
-├── Header          # 4 bytes (UNKNOWN format)
-├── Data            # Model references/metadata (UNKNOWN format)
-├── 0               # First embedded model (STEP data)
+├── Header          # Model count and metadata
+├── Data            # Model references indexed by GUID
+├── 0               # First embedded model (zlib-compressed STEP)
 ├── 1               # Second embedded model
 └── ...
 ```
 
-> **TODO:** 3D model storage parsing is not implemented. Models are referenced by GUID in `ComponentBody` records.
+> **Note:** STEP models are stored with zlib compression. Models are referenced by GUID in `ComponentBody` records.
 
 ## Known Limitations
 
@@ -343,15 +462,15 @@ The following features are not fully understood or implemented:
 
 | Feature | Status |
 |---------|--------|
-| Via primitive (0x03) | TODO: Similar to Pad, needs implementation |
-| WideStrings stream | TODO: Contains UTF-16 encoded text |
-| 3D model embedding | TODO: Header/Data stream format unknown |
-| Per-layer pad data | UNKNOWN: Block 6 format |
-| Pad corner radius | UNKNOWN: How rounded rectangle radius is stored |
-| Net information | UNKNOWN: How net assignment is encoded |
-| Component variants | UNKNOWN: Not observed in samples |
+| Via primitive (0x03) | Documented above, implementation pending |
+| WideStrings stream | TODO: Format known, parsing not implemented |
+| 3D model embedding | TODO: zlib-compressed STEP, parsing not implemented |
+| Pad hole shapes | Documented: Round(0), Square(1), Slot(2) |
+| Net information | Used in board files, not library files |
+| Component variants | Not applicable to library files |
 
 ## References
 
+- [AltiumSharp](https://github.com/issus/AltiumSharp) - C# library for Altium files (MIT)
 - [pyAltiumLib](https://github.com/ChrisHoyer/pyAltiumLib) - Python library for reading Altium files
-- [AltiumSharp](https://github.com/issus/AltiumSharp) - C# library for Altium files
+- [python-altium](https://github.com/vadmium/python-altium) - Altium format documentation

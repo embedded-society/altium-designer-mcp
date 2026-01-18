@@ -2,7 +2,8 @@
 
 This document describes the binary format of Altium Designer `.SchLib` (Schematic symbol library) files.
 
-> **Legend:** Items marked with `TODO` need implementation. Items marked with `UNKNOWN` are not fully understood.
+> **Note:** This documentation is based on reverse engineering from AltiumSharp, pyAltiumLib, and sample file analysis.
+> See [References](#references) for links.
 
 ## File Structure
 
@@ -11,7 +12,7 @@ SchLib files are OLE Compound Documents (CFB format) containing:
 ```text
 /
 ├── FileHeader          # Library metadata
-├── Storage             # Additional storage info (UNKNOWN: purpose unclear)
+├── Storage             # Section key mappings (maps LibRef names to storage names)
 └── {ComponentName}/    # One storage per symbol
     └── Data            # Symbol primitives stream
 ```
@@ -100,15 +101,15 @@ Binary pin records have a variable-length structure. Offsets after the descripti
 | Offset | Size | Field |
 |--------|------|-------|
 | 0-3 | 4 | Record type (always 2 for pin) |
-| 4 | 1 | UNKNOWN |
+| 4 | 1 | Symbol line width |
 | 5-6 | 2 | OwnerPartId (signed i16, LE) |
 | 7 | 1 | OwnerPartDisplayMode |
-| 8 | 1 | Symbol_InnerEdge (pin symbol decoration) |
-| 9 | 1 | Symbol_OuterEdge (pin symbol decoration) |
-| 10 | 1 | Symbol_Inside (pin symbol decoration) |
-| 11 | 1 | Symbol_Outside (pin symbol decoration) |
+| 8 | 1 | Symbol_InnerEdge (see Pin Symbols below) |
+| 9 | 1 | Symbol_OuterEdge (see Pin Symbols below) |
+| 10 | 1 | Symbol_Inside (see Pin Symbols below) |
+| 11 | 1 | Symbol_Outside (see Pin Symbols below) |
 | 12 | 1 | Description length |
-| 13 | 1 | UNKNOWN |
+| 13 | 1 | Formal type |
 | 14+ | N | Description string (ASCII) |
 
 After description (relative offsets):
@@ -120,7 +121,7 @@ After description (relative offsets):
 | +2-3 | 2 | Length (schematic units, i16) |
 | +4-5 | 2 | Location.X (signed i16) |
 | +6-7 | 2 | Location.Y (signed i16) |
-| +8-11 | 4 | Color (BGR, UNKNOWN: may not always be present) |
+| +8-11 | 4 | Color (BGR format) |
 | +12 | 1 | Name length |
 | +13+ | N | Name string (ASCII) |
 
@@ -131,20 +132,47 @@ After name:
 | +0 | 1 | Designator length |
 | +1+ | N | Designator string (ASCII) |
 
-> **UNKNOWN:** Symbol decoration bytes (8-11) control pin symbols like clock, dot, etc. Exact bit mappings need documentation.
+### Pin Symbols
+
+The four symbol positions (InnerEdge, OuterEdge, Inside, Outside) can each have one of these decorations:
+
+| ID | Symbol | Description |
+|----|--------|-------------|
+| 0 | None | No decoration |
+| 1 | Dot | Inversion dot (bubble) |
+| 2 | RightLeftSignalFlow | Right-to-left signal flow arrow |
+| 3 | Clock | Clock input indicator |
+| 4 | ActiveLowInput | Active low input bar |
+| 5 | AnalogSignalIn | Analog signal input |
+| 6 | NotLogicConnection | Not a logic connection |
+| 7 | PostponedOutput | Postponed output |
+| 8 | OpenCollector | Open collector output |
+| 9 | HiZ | High impedance |
+| 10 | HighCurrent | High current |
+| 11 | Pulse | Pulse |
+| 12 | Schmitt | Schmitt trigger input |
+| 13 | ActiveLowOutput | Active low output bar |
+| 14 | OpenCollectorPullUp | Open collector with pull-up |
+| 15 | OpenEmitter | Open emitter output |
+| 16 | OpenEmitterPullUp | Open emitter with pull-up |
+| 17 | DigitalSignalIn | Digital signal input |
+| 18 | ShiftLeft | Shift left |
+| 19 | OpenOutput | Open output |
+| 20 | LeftRightSignalFlow | Left-to-right signal flow arrow |
+| 21 | BidirectionalSignalFlow | Bidirectional signal flow |
 
 ### Pin Flags (byte at +1)
 
-| Bit | Flag |
-|-----|------|
-| 0x01 | Rotated |
-| 0x02 | Flipped |
-| 0x04 | Hidden |
-| 0x08 | Show Name |
-| 0x10 | Show Designator |
-| 0x20 | UNKNOWN |
-| 0x40 | Graphically Locked |
-| 0x80 | UNKNOWN |
+| Bit | Flag | Description |
+|-----|------|-------------|
+| 0x01 | Rotated | Pin rotated 90° |
+| 0x02 | Flipped | Pin flipped |
+| 0x04 | Hidden | Pin hidden from view |
+| 0x08 | DisplayNameVisible | Show pin name |
+| 0x10 | DesignatorVisible | Show pin designator |
+| 0x20 | Reserved | Reserved |
+| 0x40 | GraphicallyLocked | Pin is graphically locked |
+| 0x80 | Reserved | Reserved |
 
 ### Pin Orientation
 
@@ -220,6 +248,87 @@ Common colours:
 |RECORD=45|OwnerIndex=0|Description=Generic Chip Resistor, 0805|ModelName=GENERIC_CHIP_RES_0805_IPC_MEDIUM_DENSITY|ModelType=PCBLIB|...
 ```
 
+## Primitive Details
+
+### Rectangle (RECORD=14)
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `Location.X` | int | First corner X |
+| `Location.Y` | int | First corner Y |
+| `Corner.X` | int | Second corner X |
+| `Corner.Y` | int | Second corner Y |
+| `LineWidth` | int | Border line width |
+| `Color` | int | Border colour (BGR) |
+| `AreaColor` | int | Fill colour (BGR) |
+| `IsSolid` | bool | Whether filled |
+| `Transparent` | bool | Whether transparent |
+
+### Polyline (RECORD=6)
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `LocationCount` | int | Number of vertices |
+| `X{N}`, `Y{N}` | int | Vertex coordinates (1-indexed) |
+| `LineWidth` | int | Line thickness |
+| `Color` | int | Line colour (BGR) |
+| `LineStyle` | int | 0=Solid, 1=Dashed, 2=Dotted |
+| `StartLineShape` | int | Start endpoint shape |
+| `EndLineShape` | int | End endpoint shape |
+| `LineShapeSize` | int | Size of endpoint shapes |
+
+**Line shapes:**
+
+| ID | Shape |
+|----|-------|
+| 0 | None |
+| 1 | Arrow |
+| 2 | SolidArrow |
+| 3 | Tail |
+| 4 | SolidTail |
+| 5 | Circle |
+| 6 | Square |
+
+### Label (RECORD=4)
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `Location.X` | int | Position X |
+| `Location.Y` | int | Position Y |
+| `Text` | string | Label text |
+| `FontId` | int | Font reference |
+| `Color` | int | Text colour (BGR) |
+| `Orientation` | int | Text orientation |
+| `Justification` | int | Text alignment |
+| `IsMirrored` | bool | Mirror horizontally |
+| `IsHidden` | bool | Hidden from view |
+
+### Parameter (RECORD=41)
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `Location.X` | int | Position X |
+| `Location.Y` | int | Position Y |
+| `Name` | string | Parameter name |
+| `Text` | string | Parameter value |
+| `FontId` | int | Font reference |
+| `Color` | int | Text colour (BGR) |
+| `ShowName` | bool | Display name with value |
+| `IsHidden` | bool | Hidden from view |
+| `ReadOnlyState` | int | Read-only flag |
+| `ParamType` | int | 0=String, 1=Boolean, 2=Integer, 3=Float |
+
+### Implementation (RECORD=45)
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `Description` | string | Model description |
+| `ModelName` | string | Model identifier |
+| `ModelType` | string | Type (PCBLIB, SIM, etc.) |
+| `IsCurrent` | bool | Active implementation |
+| `DataFileCount` | int | Number of data files |
+| `ModelDataFileKind{N}` | string | Data file references |
+
 ## Multi-Part Symbols
 
 Some symbols have multiple parts (e.g., quad op-amp):
@@ -235,21 +344,23 @@ The following features are not fully understood or implemented:
 
 | Feature | Status |
 |---------|--------|
-| Label (RECORD=4) | TODO: Text label primitive |
+| Label (RECORD=4) | Documented above, implementation pending |
 | Bezier (RECORD=5) | TODO: Bezier curve primitive |
-| Polygon (RECORD=7) | TODO: Filled polygon primitive |
-| RoundRectangle (RECORD=10) | TODO: Rounded rectangle |
-| EllipticalArc (RECORD=11) | TODO: Elliptical arc |
-| ImplementationList (RECORD=44) | TODO: Model list container |
+| Polygon (RECORD=7) | TODO: Filled polygon (similar to Polyline) |
+| RoundRectangle (RECORD=10) | TODO: Rectangle with corner radius |
+| EllipticalArc (RECORD=11) | TODO: Elliptical arc primitive |
+| ImplementationList (RECORD=44) | Container for model list (parsed but not used) |
 | ModelDatafileLink (RECORD=46) | TODO: Simulation model reference |
 | ModelDatafileEntity (RECORD=47) | TODO: Simulation model entity |
-| Implementation (RECORD=48) | TODO: Implementation details |
-| Pin text format (RECORD=2) | TODO: Rarely used, binary format preferred |
-| Pin symbol decorations | UNKNOWN: Bits 8-11 of pin header |
-| Display modes | UNKNOWN: How multiple display modes are stored |
-| Font storage | UNKNOWN: Custom font embedding format |
+| Implementation (RECORD=48) | TODO: Additional implementation details |
+| Pin text format (RECORD=2) | Rarely used, binary format preferred |
+| Pin symbol decorations | Documented above (22 symbol types) |
+| Display modes | Stored in DisplayModeCount, primitives have OwnerPartDisplayMode |
+| Font storage | Fonts defined in FileHeader (FontName{N}, Size{N}) |
 
 ## References
 
+- [AltiumSharp](https://github.com/issus/AltiumSharp) - C# library for Altium files (MIT)
 - [pyAltiumLib](https://github.com/ChrisHoyer/pyAltiumLib) - Python library for reading Altium files
+- [python-altium](https://github.com/vadmium/python-altium) - Altium format documentation
 - Sample analysis: `scripts/analyze_schlib.py`
