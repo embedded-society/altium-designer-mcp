@@ -9,12 +9,12 @@ fn test_component_body_parsing() {
 
     println!("\n=== Testing ComponentBody Parsing ===\n");
 
-    let mut total_bodies = 0;
+    let mut total_component_bodies_count = 0;
     for fp in lib.footprints() {
         if !fp.component_bodies.is_empty() {
             println!("Footprint: {}", fp.name);
             println!("  ComponentBodies: {}", fp.component_bodies.len());
-            total_bodies += fp.component_bodies.len();
+            total_component_bodies_count += fp.component_bodies.len();
 
             for (body_index, body) in fp.component_bodies.iter().enumerate() {
                 println!("    Body[{body_index}]:");
@@ -34,9 +34,9 @@ fn test_component_body_parsing() {
         }
     }
 
-    println!("Total component bodies found: {total_bodies}");
+    println!("Total component bodies found: {total_component_bodies_count}");
     assert!(
-        total_bodies > 0,
+        total_component_bodies_count > 0,
         "Expected at least one component body in sample.PcbLib"
     );
 }
