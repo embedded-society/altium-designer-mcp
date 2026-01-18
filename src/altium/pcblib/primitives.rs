@@ -446,6 +446,24 @@ pub struct Vertex {
     pub y: f64,
 }
 
+/// Text rendering kind.
+///
+/// Altium supports three types of text rendering:
+/// - Stroke: Vector-based text using stroke fonts (most common in PCB footprints)
+/// - TrueType: Text rendered using TrueType fonts
+/// - `BarCode`: Barcode text (1D or 2D codes)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TextKind {
+    /// Stroke (vector) font text - most common for PCB footprints.
+    #[default]
+    Stroke,
+    /// TrueType font text.
+    TrueType,
+    /// Barcode text (1D or 2D).
+    BarCode,
+}
+
 /// A text string on a layer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Text {
@@ -462,6 +480,9 @@ pub struct Text {
     /// Rotation angle in degrees.
     #[serde(default)]
     pub rotation: f64,
+    /// Text rendering kind (Stroke, TrueType, or `BarCode`).
+    #[serde(default)]
+    pub kind: TextKind,
 }
 
 /// A filled rectangle on a layer.

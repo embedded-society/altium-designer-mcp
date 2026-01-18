@@ -40,7 +40,7 @@ use serde::{Deserialize, Serialize};
 
 pub use primitives::{
     Arc, ComponentBody, EmbeddedModel, Fill, HoleShape, Layer, Model3D, Pad, PadShape,
-    PadStackMode, Region, Text, Track, Vertex, Via,
+    PadStackMode, Region, Text, TextKind, Track, Vertex, Via,
 };
 
 use crate::altium::error::{AltiumError, AltiumResult};
@@ -876,6 +876,7 @@ mod tests {
             height: 0.8,
             layer: Layer::TopOverlay,
             rotation: 0.0,
+            kind: TextKind::Stroke,
         });
         original.add_text(Text {
             x: 1.5,
@@ -884,6 +885,7 @@ mod tests {
             height: 0.5,
             layer: Layer::TopOverlay,
             rotation: 90.0,
+            kind: TextKind::Stroke,
         });
 
         let data = writer::encode_data_stream(&original);

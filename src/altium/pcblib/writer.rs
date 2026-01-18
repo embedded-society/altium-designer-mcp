@@ -14,8 +14,8 @@
 //! ```
 
 use super::primitives::{
-    Arc, ComponentBody, Fill, HoleShape, Layer, Pad, PadShape, PadStackMode, Region, Text, Track,
-    Via, ViaStackMode,
+    Arc, ComponentBody, Fill, HoleShape, Layer, Pad, PadShape, PadStackMode, Region, Text,
+    TextKind, Track, Via, ViaStackMode,
 };
 use super::Footprint;
 
@@ -593,6 +593,15 @@ const fn pad_stack_mode_to_id(mode: PadStackMode) -> u8 {
     }
 }
 
+/// Converts a `TextKind` to its binary ID.
+const fn text_kind_to_id(kind: TextKind) -> u8 {
+    match kind {
+        TextKind::Stroke => 0,
+        TextKind::TrueType => 1,
+        TextKind::BarCode => 2,
+    }
+}
+
 /// Encodes a Track primitive.
 fn encode_track(data: &mut Vec<u8>, track: &Track) {
     let mut block = Vec::with_capacity(64);
@@ -671,8 +680,15 @@ fn encode_text(data: &mut Vec<u8>, text: &Text) {
 fn encode_text_geometry(text: &Text) -> Vec<u8> {
     let mut block = Vec::with_capacity(128);
 
-    // Common header (13 bytes)
-    write_common_header(&mut block, text.layer);
+    // Text header (13 bytes) - similar to common header but with text kind at byte 1
+    // Byte 0: Layer ID
+    block.push(layer_to_id(text.layer));
+    // Byte 1: Text kind (0 = Stroke, 1 = TrueType, 2 = BarCode)
+    block.push(text_kind_to_id(text.kind));
+    // Byte 2: More flags
+    block.push(0x00);
+    // Bytes 3-12: Padding (0xFF as per pyAltiumLib)
+    block.extend_from_slice(&[0xFF; 10]);
 
     // Position (X, Y) - offsets 13-20
     write_i32(&mut block, from_mm(text.x));
@@ -1129,7 +1145,7 @@ mod tests {
 
     #[test]
     fn test_collect_wide_strings_content() {
-        use super::{Layer, Text};
+        use super::{Layer, Text, TextKind};
 
         let mut fp = Footprint::new("TEST");
         fp.add_text(Text {
@@ -1139,6 +1155,7 @@ mod tests {
             height: 1.0,
             layer: Layer::TopOverlay,
             rotation: 0.0,
+            kind: TextKind::Stroke,
         });
         fp.add_text(Text {
             x: 1.0,
@@ -1147,6 +1164,7 @@ mod tests {
             height: 1.0,
             layer: Layer::TopOverlay,
             rotation: 0.0,
+            kind: TextKind::Stroke,
         });
 
         let texts = collect_wide_strings_content(&[fp]);

@@ -27,8 +27,8 @@
 use std::collections::HashMap;
 
 use super::primitives::{
-    Arc, ComponentBody, Fill, HoleShape, Layer, Pad, PadShape, PadStackMode, Region, Text, Track,
-    Vertex, Via, ViaStackMode,
+    Arc, ComponentBody, Fill, HoleShape, Layer, Pad, PadShape, PadStackMode, Region, Text,
+    TextKind, Track, Vertex, Via, ViaStackMode,
 };
 use super::Footprint;
 
@@ -245,6 +245,20 @@ const fn hole_shape_from_id(id: u8) -> HoleShape {
         1 => HoleShape::Square,
         2 => HoleShape::Slot,
         _ => HoleShape::Round, // Default and ID 0
+    }
+}
+
+/// Converts Altium text kind ID to our `TextKind` enum.
+///
+/// Text kind IDs:
+/// - 0: Stroke (vector font)
+/// - 1: TrueType
+/// - 2: `BarCode`
+const fn text_kind_from_id(id: u8) -> TextKind {
+    match id {
+        1 => TextKind::TrueType,
+        2 => TextKind::BarCode,
+        _ => TextKind::Stroke, // Default and ID 0
     }
 }
 
@@ -951,6 +965,14 @@ fn parse_text(
     let layer_id = geometry_block[0];
     let layer = layer_from_id(layer_id);
 
+    // Text kind - typically in flags area (offset 1)
+    // 0 = Stroke, 1 = TrueType, 2 = BarCode
+    let kind = if geometry_block.len() > 1 {
+        text_kind_from_id(geometry_block[1])
+    } else {
+        TextKind::Stroke
+    };
+
     // Position (X, Y) - offsets 13-20
     let x = to_mm(read_i32(geometry_block, 13)?);
     let y = to_mm(read_i32(geometry_block, 17)?);
@@ -990,6 +1012,7 @@ fn parse_text(
         height,
         layer,
         rotation,
+        kind,
     };
 
     Some((text, current))
