@@ -133,6 +133,7 @@ Add to `Layer` enum in `src/altium/pcblib/primitives.rs`:
 - [ ] Write flags to common header (writer.rs, currently hardcoded to 0x00)
 
 Flag bits to support:
+
 - [ ] `Locked` (0x0001)
 - [ ] `Polygon` (0x0002)
 - [ ] `KeepOut` (0x0004)
