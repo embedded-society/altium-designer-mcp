@@ -81,12 +81,12 @@ This document tracks implementation gaps between the documented PcbLib format (`
 
 ## Text Advanced Features
 
-### Text Kinds - Not Differentiated
+### Text Kinds - Implemented ✓
 
-- [ ] Add `TextKind` enum: `Stroke`, `TrueType`, `BarCode`
-- [ ] Add `kind: TextKind` field to `Text` struct
-- [ ] Parse text kind from geometry block
-- [ ] Write text kind to geometry block
+- [x] Add `TextKind` enum: `Stroke`, `TrueType`, `BarCode`
+- [x] Add `kind: TextKind` field to `Text` struct
+- [x] Parse text kind from geometry block (offset 1)
+- [x] Write text kind to geometry block (offset 1)
 
 ### Stroke Font IDs - Not Exposed
 
