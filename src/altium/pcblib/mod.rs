@@ -38,7 +38,9 @@ mod writer;
 
 use serde::{Deserialize, Serialize};
 
-pub use primitives::{Arc, Fill, Layer, Model3D, Pad, PadShape, Region, Text, Track, Vertex};
+pub use primitives::{
+    Arc, ComponentBody, Fill, Layer, Model3D, Pad, PadShape, Region, Text, Track, Vertex,
+};
 
 use crate::altium::error::{AltiumError, AltiumResult};
 
@@ -92,7 +94,11 @@ pub struct Footprint {
     #[serde(default)]
     pub fills: Vec<primitives::Fill>,
 
-    /// 3D model reference.
+    /// 3D component bodies (embedded models).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub component_bodies: Vec<primitives::ComponentBody>,
+
+    /// 3D model reference (legacy, use `component_bodies` for new code).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_3d: Option<Model3D>,
 }
@@ -110,6 +116,7 @@ impl Footprint {
             regions: Vec::new(),
             text: Vec::new(),
             fills: Vec::new(),
+            component_bodies: Vec::new(),
             model_3d: None,
         }
     }
@@ -142,6 +149,11 @@ impl Footprint {
     /// Adds a fill to the footprint.
     pub fn add_fill(&mut self, fill: primitives::Fill) {
         self.fills.push(fill);
+    }
+
+    /// Adds a component body (3D model) to the footprint.
+    pub fn add_component_body(&mut self, body: primitives::ComponentBody) {
+        self.component_bodies.push(body);
     }
 }
 
@@ -739,5 +751,46 @@ mod tests {
         assert!(approx_eq(decoded.fills[1].y2, 0.5, 0.001));
         assert_eq!(decoded.fills[1].layer, Layer::BottomPaste);
         assert!(approx_eq(decoded.fills[1].rotation, 45.0, 0.001));
+    }
+
+    #[test]
+    fn binary_roundtrip_component_body() {
+        use super::primitives::ComponentBody;
+
+        let mut original = Footprint::new("ROUNDTRIP_COMPONENT_BODY");
+
+        // Add a ComponentBody with typical values
+        let body = ComponentBody {
+            model_id: "{TEST-GUID-1234-5678-ABCDEFGH}".to_string(),
+            model_name: "TEST_MODEL.step".to_string(),
+            embedded: true,
+            rotation_x: 0.0,
+            rotation_y: 0.0,
+            rotation_z: 45.0,
+            z_offset: 0.5, // mm
+            overall_height: 1.0, // mm
+            standoff_height: 0.1, // mm
+            layer: Layer::Top3DBody,
+        };
+        original.add_component_body(body);
+
+        let data = writer::encode_data_stream(&original);
+        let mut decoded = Footprint::new("ROUNDTRIP_COMPONENT_BODY");
+        reader::parse_data_stream(&mut decoded, &data);
+
+        assert_eq!(decoded.component_bodies.len(), 1);
+
+        let body = &decoded.component_bodies[0];
+        assert_eq!(body.model_id, "{TEST-GUID-1234-5678-ABCDEFGH}");
+        assert_eq!(body.model_name, "TEST_MODEL.step");
+        assert!(body.embedded);
+        assert!(approx_eq(body.rotation_x, 0.0, 0.001));
+        assert!(approx_eq(body.rotation_y, 0.0, 0.001));
+        assert!(approx_eq(body.rotation_z, 45.0, 0.001));
+        // Heights are converted to/from mils with some precision loss
+        assert!(approx_eq(body.z_offset, 0.5, 0.01));
+        assert!(approx_eq(body.overall_height, 1.0, 0.01));
+        assert!(approx_eq(body.standoff_height, 0.1, 0.01));
+        assert_eq!(body.layer, Layer::Top3DBody);
     }
 }

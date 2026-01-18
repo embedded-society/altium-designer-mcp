@@ -14,7 +14,7 @@ This document outlines the plan for implementing the remaining unimplemented pri
 | Text (0x05) | ✅ | ✅ | Complete |
 | Fill (0x06) | ✅ | ✅ | Complete |
 | Region (0x0B) | ✅ | ✅ | Complete |
-| ComponentBody (0x0C) | ❌ | ❌ | Skipped |
+| ComponentBody (0x0C) | ✅ | ✅ | Complete |
 
 ---
 
@@ -130,77 +130,69 @@ Altium regions support curved edges via arc angles. An arc angle of 0 means a st
 
 ---
 
-## Phase 4: ComponentBody (0x0C) — 3D Models
+## Phase 4: ComponentBody (0x0C) — 3D Models ✅ Complete
 
-**Priority: Low** — Complex, requires model storage handling.
-
-### What We Know
-
-- Uses 3 blocks
-- References embedded STEP models in `/Library/Models/N`
-- Models stored as zlib-compressed ASCII STEP
-- Model metadata in `/Library/Models/Data`
+**Status:** Read/Write implemented. Model metadata parsing complete.
 
 ### Architecture
 
 ```text
 ComponentBody Record (in footprint Data stream)
        ↓
-  References model by index
+  References model by GUID (MODELID)
+       ↓
+/Library/Models/Data (model metadata: GUID, filename, rotations)
        ↓
 /Library/Models/N (embedded STEP, zlib compressed)
-       ↓
-/Library/Models/Data (model metadata)
 ```
 
-### Binary Format (needs verification)
+### Binary Format (verified)
 
-**Block 1 (properties):**
+**Block 0 (properties):**
 
 ```text
-[common_header:13]     # Layer (usually M6/M7 for 3D body)
-[model_index:4 u32]    # Index into /Library/Models
-[x_offset:8 f64]       # X offset in mm
-[y_offset:8 f64]       # Y offset
-[z_offset:8 f64]       # Z offset
-[rotation:8 f64]       # Rotation
+[layer:1]              # Layer ID (62 = Top 3D Body)
+[record_type:2]        # 0x0C 0x00
+[ff_padding:10]        # 0xFF padding
+[zeros:5]              # Zeros
+[param_len:4 u32]      # Parameter string length (including null)
+[param_string:N]       # Key=value pairs separated by |
+[vertex_count:4 u32]   # Outline vertex count (usually 0)
+[vertices...]          # Optional outline vertices
 ```
 
-**Block 2 & 3:** Unknown, possibly additional transforms or metadata.
+**Block 1 & 2:** Optional, usually empty (0 bytes).
 
-### Implementation Steps
+### Key Parameters in Block 0
 
-1. **Read `/Library/Models/Data`** — Parse model metadata
-2. **Read `/Library/Models/N`** — Decompress zlib, extract STEP
-3. **Parse ComponentBody record** — Link to model by index
-4. **For writing** — Compress STEP, write to Models storage
-5. **Update Footprint struct** — Store extracted model path or data
+- `V7_LAYER=MECHANICAL6` — Layer (MECHANICAL6 = Top 3D Body)
+- `MODELID={GUID}` — References model in /Library/Models/Data
+- `MODEL.NAME=filename.step` — STEP filename
+- `MODEL.EMBED=TRUE` — Model is embedded
+- `MODEL.3D.ROTX/ROTY/ROTZ=0.000` — Rotation in degrees
+- `MODEL.3D.DZ=0mil` — Z offset
+- `STANDOFFHEIGHT=0mil` — Standoff height
+- `OVERALLHEIGHT=15.748mil` — Overall component height
 
-### Complexity
+### Implementation Notes
 
-This is the most complex primitive because:
-
-- Requires reading from multiple OLE streams (not just footprint Data)
-- Needs zlib decompression
-- Model data is large (10+ KB per model)
-- Writing requires embedding STEP files
-
-### Suggested Approach
-
-**Read-only first:** Implement reading to extract model references and paths. Writing embedded models can be deferred.
+- ComponentBody struct stores model reference (GUID, filename)
+- Model data itself remains in `/Library/Models/N` streams
+- Writing generates parameter string with model metadata
+- Round-trip test verifies encode/decode preserves all values
 
 ---
 
 ## Development Order
 
-| Phase | Primitive | Effort | Value |
-|-------|-----------|--------|-------|
-| 1 | Text (0x05) | Medium | High (designators) |
-| 2 | Fill (0x06) | Low | Low |
-| 3 | Region (0x0B) | Medium | High (courtyards) |
-| 4 | ComponentBody (0x0C) | High | Medium (3D preview) |
+| Phase | Primitive | Effort | Status |
+|-------|-----------|--------|--------|
+| 1 | Text (0x05) | Medium | ✅ Complete |
+| 2 | Fill (0x06) | Low | ✅ Complete |
+| 3 | Region (0x0B) | Medium | ✅ Complete |
+| 4 | ComponentBody (0x0C) | High | ✅ Complete |
 
-**Recommended order:** Text → Region → Fill → ComponentBody
+**All primitives implemented!**
 
 ---
 

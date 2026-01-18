@@ -24,7 +24,9 @@
 //! - `0x0B`: Region
 //! - `0x0C`: `ComponentBody`
 
-use super::primitives::{Arc, Fill, Layer, Pad, PadShape, Region, Text, Track, Vertex};
+use super::primitives::{
+    Arc, ComponentBody, Fill, Layer, Pad, PadShape, Region, Text, Track, Vertex,
+};
 use super::Footprint;
 
 /// Conversion factor from Altium internal units to millimetres.
@@ -250,27 +252,23 @@ pub fn parse_data_stream(footprint: &mut Footprint, data: &[u8]) {
                     break;
                 }
             }
-            0x03 | 0x0C => {
-                // These primitives are recognized but not yet fully implemented:
-                // - 0x03: Via (similar to pad but for vias)
-                // - 0x0C: ComponentBody (3D model reference - stored in /Library/Models)
-                //
-                // TODO: Implement parsing for these. See `pyAltiumLib`/`AltiumSharp` for reference.
-                // 3D models are embedded in /Library/Models/N streams, referenced here.
-                let type_name = match record_type {
-                    0x03 => "Via",
-                    0x0C => "ComponentBody",
-                    _ => "Unknown",
-                };
-                tracing::trace!(
-                    "Skipping {type_name} primitive (0x{record_type:02x}) - not yet implemented"
-                );
+            0x0C => {
+                // ComponentBody (3D model reference)
+                if let Some((body, new_offset)) = parse_component_body(data, offset) {
+                    footprint.add_component_body(body);
+                    offset = new_offset;
+                } else {
+                    tracing::debug!("Failed to parse ComponentBody at offset {offset:#x}");
+                    break;
+                }
+            }
+            0x03 => {
+                // Via - not yet implemented, skip
+                tracing::trace!("Skipping Via primitive (0x03) - not yet implemented");
                 if let Some(new_offset) = skip_primitive(data, offset, record_type) {
                     offset = new_offset;
                 } else {
-                    tracing::debug!(
-                        "Failed to skip primitive type {record_type:#x} at offset {offset:#x}"
-                    );
+                    tracing::debug!("Failed to skip Via at offset {offset:#x}");
                     break;
                 }
             }
@@ -730,6 +728,131 @@ fn parse_fill(data: &[u8], offset: usize) -> Option<(Fill, usize)> {
     };
 
     Some((fill, current))
+}
+
+/// Parses a `ComponentBody` primitive (3D model reference).
+/// Returns the parsed `ComponentBody` and the new offset on success.
+///
+/// `ComponentBody` has 3 blocks:
+/// - Block 0: Properties (layer, parameters as key=value string)
+/// - Block 1: Usually empty
+/// - Block 2: Usually empty
+fn parse_component_body(data: &[u8], offset: usize) -> Option<(ComponentBody, usize)> {
+    let mut current = offset;
+
+    // Block 0: Properties with parameter string (required)
+    let (block0, next) = read_block(data, current)?;
+    current = next;
+
+    // Block 1: Usually empty (optional - may not exist at end of file)
+    if let Some((_, next)) = read_block(data, current) {
+        current = next;
+
+        // Block 2: Usually empty (optional)
+        if let Some((_, next)) = read_block(data, current) {
+            current = next;
+        }
+    }
+
+    // Parse block 0 to extract parameters
+    // Format: [header bytes][parameter_string]
+    // Parameter string is pipe-separated key=value pairs starting with V7_LAYER=
+    let block_str = String::from_utf8_lossy(block0);
+
+    // Find the parameter string (starts with V7_LAYER= or similar key)
+    let params = parse_component_body_params(&block_str);
+
+    // Extract key values
+    let model_id = params.get("MODELID").cloned().unwrap_or_default();
+    let model_name = params.get("MODEL.NAME").cloned().unwrap_or_default();
+    let embedded = params.get("MODEL.EMBED").is_some_and(|v| v == "TRUE");
+
+    // Parse rotations (stored as strings like "0.000")
+    let rotation_x = params
+        .get("MODEL.3D.ROTX")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.0);
+    let rotation_y = params
+        .get("MODEL.3D.ROTY")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.0);
+    let rotation_z = params
+        .get("MODEL.3D.ROTZ")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.0);
+
+    // Parse heights (stored as strings like "0mil" or "15.748mil")
+    let z_offset = parse_mil_value(params.get("MODEL.3D.DZ").map(String::as_str));
+    let standoff_height = parse_mil_value(params.get("STANDOFFHEIGHT").map(String::as_str));
+    let overall_height = parse_mil_value(params.get("OVERALLHEIGHT").map(String::as_str));
+
+    // Parse layer from V7_LAYER (e.g., "MECHANICAL6")
+    let layer = params
+        .get("V7_LAYER")
+        .and_then(|v| parse_v7_layer(v))
+        .unwrap_or(Layer::Top3DBody);
+
+    let body = ComponentBody {
+        model_id,
+        model_name,
+        embedded,
+        rotation_x,
+        rotation_y,
+        rotation_z,
+        z_offset,
+        overall_height,
+        standoff_height,
+        layer,
+    };
+
+    Some((body, current))
+}
+
+/// Parses key=value parameters from a `ComponentBody` block string.
+fn parse_component_body_params(s: &str) -> std::collections::HashMap<String, String> {
+    let mut params = std::collections::HashMap::new();
+
+    // Find the start of parameters (look for V7_LAYER=)
+    if let Some(start) = s.find("V7_LAYER") {
+        let params_str = &s[start..];
+        for pair in params_str.split('|') {
+            if let Some((key, val)) = pair.split_once('=') {
+                // Clean up null bytes and whitespace
+                let val = val.trim_end_matches('\0').trim();
+                params.insert(key.to_string(), val.to_string());
+            }
+        }
+    }
+
+    params
+}
+
+/// Parses a value in mils (e.g., "15.748mil") to mm.
+fn parse_mil_value(s: Option<&str>) -> f64 {
+    let s = match s {
+        Some(s) => s,
+        None => return 0.0,
+    };
+
+    // Remove "mil" suffix if present
+    let numeric = s.trim_end_matches("mil").trim();
+    numeric
+        .parse::<f64>()
+        .map(|v| v * 0.0254) // Convert mils to mm
+        .unwrap_or(0.0)
+}
+
+/// Parses `V7_LAYER` string (e.g., "MECHANICAL6") to Layer enum.
+fn parse_v7_layer(s: &str) -> Option<Layer> {
+    match s {
+        "MECHANICAL6" => Some(Layer::Top3DBody),
+        "MECHANICAL7" => Some(Layer::Bottom3DBody),
+        "MECHANICAL2" => Some(Layer::TopAssembly),
+        "MECHANICAL3" => Some(Layer::BottomAssembly),
+        "MECHANICAL4" => Some(Layer::TopCourtyard),
+        "MECHANICAL5" => Some(Layer::BottomCourtyard),
+        _ => None,
+    }
 }
 
 /// Skips a primitive by reading its blocks.
