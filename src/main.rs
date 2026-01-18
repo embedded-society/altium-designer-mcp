@@ -91,7 +91,7 @@ fn main() -> ExitCode {
 
     // Display GPL license notice (required by GPLv3 Section 5d)
     eprintln!(
-        "altium-designer-mcp {}  Copyright (C) 2025  Embedded Society",
+        "altium-designer-mcp {}  Copyright (C) 2026  Embedded Society",
         env!("CARGO_PKG_VERSION")
     );
     eprintln!("This program comes with ABSOLUTELY NO WARRANTY.");

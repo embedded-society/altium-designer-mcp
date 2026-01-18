@@ -343,7 +343,7 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## Licence
 
-Copyright (C) 2025 Matej Gomboc <https://github.com/MatejGomboc/altium-designer-mcp>.
+Copyright (C) 2026 Matej Gomboc <https://github.com/MatejGomboc/altium-designer-mcp>.
 
 GNU General Public License v3.0 — see [LICENCE](LICENCE).
 
