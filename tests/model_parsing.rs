@@ -5,7 +5,9 @@ use altium_designer_mcp::altium::pcblib::PcbLib;
 #[test]
 #[ignore = "Requires sample.PcbLib with embedded 3D models"]
 fn test_model_parsing() {
-    let lib = PcbLib::read("scripts/sample.PcbLib").expect("Failed to read sample.PcbLib");
+    let lib_path =
+        std::env::var("ALTIUM_TEST_PCBLIB").unwrap_or_else(|_| "scripts/sample.PcbLib".to_string());
+    let lib = PcbLib::read(&lib_path).expect("Failed to read sample.PcbLib");
 
     println!("\n=== Testing 3D Model Parsing ===\n");
 
@@ -46,4 +48,16 @@ fn test_model_parsing() {
             }
         }
     }
+}
+
+#[test]
+fn test_model_parsing_missing_file() {
+    // This test ensures that the PcbLib::read API behaves sensibly when the
+    // requested file is not present. It does not rely on any external files
+    // and therefore can run in CI/CD environments.
+    let result = PcbLib::read("nonexistent_sample.PcbLib");
+    assert!(
+        result.is_err(),
+        "PcbLib::read should fail when the input file does not exist"
+    );
 }
