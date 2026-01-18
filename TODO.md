@@ -13,13 +13,14 @@ This document tracks implementation gaps between the documented PcbLib format (`
 - [x] Core fields: x, y, diameter, hole_size, from_layer, to_layer, solder_mask_expansion
 - [ ] Advanced fields TODO: thermal relief settings, diameter stack mode (per-layer diameters)
 
-### WideStrings Stream - Not Implemented
+### WideStrings Stream - Implemented ✓
 
-- [ ] Parse `/WideStrings` stream during library read in `src/altium/pcblib/mod.rs`
-- [ ] Decode `ENCODEDTEXT{N}=...` format (comma-separated ASCII codes)
-- [ ] Store decoded strings in a lookup table
-- [ ] Update `parse_text()` in `src/altium/pcblib/reader.rs` to use WideStrings lookup (currently only `.Designator`/`.Comment` work, see line 540-561)
-- [ ] Write WideStrings stream when saving libraries
+- [x] Parse `/WideStrings` stream during library read in `src/altium/pcblib/mod.rs`
+- [x] Decode `ENCODEDTEXT{N}=...` format (comma-separated ASCII codes)
+- [x] Store decoded strings in a lookup table (`WideStrings` type in reader.rs)
+- [x] Update `parse_text()` in `src/altium/pcblib/reader.rs` to use WideStrings lookup
+- [x] Write WideStrings stream when saving libraries
+- [ ] TODO: Verify WideStringsIndex offset in geometry block (currently tries offsets 95-97)
 
 ### 3D Model Embedding - Not Implemented
 
