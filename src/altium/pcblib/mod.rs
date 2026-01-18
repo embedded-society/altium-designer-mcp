@@ -261,7 +261,7 @@ impl PcbLib {
         Ok(library)
     }
 
-    /// Reads the WideStrings stream if present.
+    /// Reads the `WideStrings` stream if present.
     fn read_wide_strings<F: std::io::Read + std::io::Seek>(
         cfb: &mut cfb::CompoundFile<F>,
     ) -> reader::WideStrings {

@@ -31,7 +31,7 @@ use super::primitives::{
 };
 use super::Footprint;
 
-/// A lookup table for WideStrings text content.
+/// A lookup table for `WideStrings` text content.
 ///
 /// Maps index (e.g., 0, 1, 2) to decoded text content.
 /// The `/WideStrings` stream stores text as `|ENCODEDTEXT{N}=c1,c2,c3,...|`
@@ -55,12 +55,9 @@ pub fn parse_wide_strings(data: &[u8]) -> WideStrings {
     let mut strings = WideStrings::new();
 
     // WideStrings is pipe-delimited key=value pairs
-    let text = match String::from_utf8(data.to_vec()) {
-        Ok(s) => s,
-        Err(_) => {
-            tracing::debug!("WideStrings stream is not valid UTF-8");
-            return strings;
-        }
+    let Ok(text) = String::from_utf8(data.to_vec()) else {
+        tracing::debug!("WideStrings stream is not valid UTF-8");
+        return strings;
     };
 
     for pair in text.split('|') {
@@ -242,7 +239,7 @@ const fn pad_shape_from_id(id: u8) -> PadShape {
 ///
 /// * `footprint` - The footprint to populate with parsed primitives
 /// * `data` - The raw Data stream bytes
-/// * `wide_strings` - Optional WideStrings lookup for text content
+/// * `wide_strings` - Optional `WideStrings` lookup for text content
 pub fn parse_data_stream(
     footprint: &mut Footprint,
     data: &[u8],
@@ -706,9 +703,9 @@ fn parse_text(
     Some((text, current))
 }
 
-/// Resolves text content, looking up WideStrings if needed.
+/// Resolves text content, looking up `WideStrings` if needed.
 ///
-/// If the content looks like a WideStrings index (numeric), attempts to look it up.
+/// If the content looks like a `WideStrings` index (numeric), attempts to look it up.
 /// Otherwise returns the content as-is.
 fn resolve_text_content(content: &str, wide_strings: Option<&WideStrings>) -> String {
     // Special text values are returned as-is
@@ -734,12 +731,12 @@ fn resolve_text_content(content: &str, wide_strings: Option<&WideStrings>) -> St
 ///
 /// Text content may be:
 /// - Special inline text like `.Designator` or `.Comment`
-/// - A WideStrings index that needs to be looked up
+/// - A `WideStrings` index that needs to be looked up
 ///
 /// # Arguments
 ///
 /// * `block` - The geometry block data
-/// * `wide_strings` - Optional WideStrings lookup table
+/// * `wide_strings` - Optional `WideStrings` lookup table
 ///
 /// # Returns
 ///

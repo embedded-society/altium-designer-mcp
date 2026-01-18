@@ -136,7 +136,7 @@ impl Via {
     ///
     /// By default, vias span from top to bottom layer.
     #[must_use]
-    pub fn new(x: f64, y: f64, diameter: f64, hole_size: f64) -> Self {
+    pub const fn new(x: f64, y: f64, diameter: f64, hole_size: f64) -> Self {
         Self {
             x,
             y,
@@ -151,7 +151,7 @@ impl Via {
 
     /// Creates a blind via (connects outer layer to inner layer).
     #[must_use]
-    pub fn blind(x: f64, y: f64, diameter: f64, hole_size: f64, from: Layer, to: Layer) -> Self {
+    pub const fn blind(x: f64, y: f64, diameter: f64, hole_size: f64, from: Layer, to: Layer) -> Self {
         Self {
             x,
             y,

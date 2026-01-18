@@ -16,7 +16,7 @@
 use super::primitives::{Arc, ComponentBody, Fill, Layer, Pad, PadShape, Region, Text, Track, Via};
 use super::Footprint;
 
-/// Encodes text content for the WideStrings stream.
+/// Encodes text content for the `WideStrings` stream.
 ///
 /// # Format
 ///
@@ -32,8 +32,10 @@ use super::Footprint;
 ///
 /// # Returns
 ///
-/// Encoded WideStrings stream content as bytes.
+/// Encoded `WideStrings` stream content as bytes.
 pub fn encode_wide_strings(texts: &[&str]) -> Vec<u8> {
+    use std::fmt::Write;
+
     let mut output = String::new();
 
     for (index, text) in texts.iter().enumerate() {
@@ -49,7 +51,7 @@ pub fn encode_wide_strings(texts: &[&str]) -> Vec<u8> {
             .collect::<Vec<_>>()
             .join(",");
 
-        output.push_str(&format!("|ENCODEDTEXT{index}={encoded}"));
+        let _ = write!(output, "|ENCODEDTEXT{index}={encoded}");
     }
 
     if !output.is_empty() {
@@ -59,7 +61,7 @@ pub fn encode_wide_strings(texts: &[&str]) -> Vec<u8> {
     output.into_bytes()
 }
 
-/// Collects all text content from footprints that needs to be stored in WideStrings.
+/// Collects all text content from footprints that needs to be stored in `WideStrings`.
 ///
 /// Returns a vector of unique text strings (excluding special values like `.Designator`).
 pub fn collect_wide_strings_content(footprints: &[Footprint]) -> Vec<String> {
