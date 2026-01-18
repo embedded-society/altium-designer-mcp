@@ -13,7 +13,7 @@
 //! [0x00]                                       // End marker
 //! ```
 
-use super::primitives::{Arc, Layer, Pad, PadShape, Region, Text, Track};
+use super::primitives::{Arc, Fill, Layer, Pad, PadShape, Region, Text, Track};
 use super::Footprint;
 
 /// Conversion factor from millimetres to Altium internal units.
@@ -149,6 +149,11 @@ pub fn encode_data_stream(footprint: &Footprint) -> Vec<u8> {
     for region in &footprint.regions {
         data.push(0x0B); // Region record type
         encode_region(&mut data, region);
+    }
+
+    for fill in &footprint.fills {
+        data.push(0x06); // Fill record type
+        encode_fill(&mut data, fill);
     }
 
     // End marker
@@ -449,6 +454,50 @@ fn encode_region_properties(region: &Region) -> Vec<u8> {
         write_f64(&mut block, x_internal);
         write_f64(&mut block, y_internal);
     }
+
+    block
+}
+
+/// Encodes a Fill primitive (filled rectangle).
+///
+/// Fill format:
+/// - Block 0: Properties (layer, coordinates, rotation)
+fn encode_fill(data: &mut Vec<u8>, fill: &Fill) {
+    let block = encode_fill_block(fill);
+    write_block(data, &block);
+}
+
+/// Encodes the Fill block.
+///
+/// Format:
+/// ```text
+/// [layer:1]                 // Layer ID
+/// [flags:12]                // Flags and padding
+/// [x1:4 i32]                // First corner X (internal units)
+/// [y1:4 i32]                // First corner Y (internal units)
+/// [x2:4 i32]                // Second corner X (internal units)
+/// [y2:4 i32]                // Second corner Y (internal units)
+/// [rotation:8 f64]          // Rotation angle in degrees
+/// [unknown:13]              // Additional data (zeros)
+/// ```
+fn encode_fill_block(fill: &Fill) -> Vec<u8> {
+    // Total block size: 13 + 16 + 8 + 13 = 50 bytes
+    let mut block = Vec::with_capacity(50);
+
+    // Common header (13 bytes)
+    write_common_header(&mut block, fill.layer);
+
+    // Corner coordinates (16 bytes)
+    write_i32(&mut block, from_mm(fill.x1));
+    write_i32(&mut block, from_mm(fill.y1));
+    write_i32(&mut block, from_mm(fill.x2));
+    write_i32(&mut block, from_mm(fill.y2));
+
+    // Rotation (8 bytes)
+    write_f64(&mut block, fill.rotation);
+
+    // Unknown padding (13 bytes to match Altium's 50-byte block)
+    block.extend_from_slice(&[0x00; 13]);
 
     block
 }

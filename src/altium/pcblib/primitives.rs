@@ -215,6 +215,54 @@ pub struct Text {
     pub rotation: f64,
 }
 
+/// A filled rectangle on a layer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Fill {
+    /// First corner X position in mm.
+    pub x1: f64,
+    /// First corner Y position in mm.
+    pub y1: f64,
+    /// Second corner X position in mm.
+    pub x2: f64,
+    /// Second corner Y position in mm.
+    pub y2: f64,
+    /// Layer the fill is on.
+    pub layer: Layer,
+    /// Rotation angle in degrees.
+    #[serde(default)]
+    pub rotation: f64,
+}
+
+impl Fill {
+    /// Creates a new Fill from corner coordinates.
+    #[must_use]
+    pub const fn new(x1: f64, y1: f64, x2: f64, y2: f64, layer: Layer) -> Self {
+        Self {
+            x1,
+            y1,
+            x2,
+            y2,
+            layer,
+            rotation: 0.0,
+        }
+    }
+
+    /// Creates a Fill from center position and dimensions.
+    #[must_use]
+    pub fn from_center(x: f64, y: f64, width: f64, height: f64, layer: Layer) -> Self {
+        let half_w = width / 2.0;
+        let half_h = height / 2.0;
+        Self {
+            x1: x - half_w,
+            y1: y - half_h,
+            x2: x + half_w,
+            y2: y + half_h,
+            layer,
+            rotation: 0.0,
+        }
+    }
+}
+
 /// A 3D model reference.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Model3D {

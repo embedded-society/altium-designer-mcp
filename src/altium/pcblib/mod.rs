@@ -38,7 +38,7 @@ mod writer;
 
 use serde::{Deserialize, Serialize};
 
-pub use primitives::{Arc, Layer, Model3D, Pad, PadShape, Region, Text, Track, Vertex};
+pub use primitives::{Arc, Fill, Layer, Model3D, Pad, PadShape, Region, Text, Track, Vertex};
 
 use crate::altium::error::{AltiumError, AltiumResult};
 
@@ -88,6 +88,10 @@ pub struct Footprint {
     #[serde(default)]
     pub text: Vec<Text>,
 
+    /// Filled rectangles in the footprint.
+    #[serde(default)]
+    pub fills: Vec<primitives::Fill>,
+
     /// 3D model reference.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_3d: Option<Model3D>,
@@ -105,6 +109,7 @@ impl Footprint {
             arcs: Vec::new(),
             regions: Vec::new(),
             text: Vec::new(),
+            fills: Vec::new(),
             model_3d: None,
         }
     }
@@ -132,6 +137,11 @@ impl Footprint {
     /// Adds text to the footprint.
     pub fn add_text(&mut self, text: Text) {
         self.text.push(text);
+    }
+
+    /// Adds a fill to the footprint.
+    pub fn add_fill(&mut self, fill: primitives::Fill) {
+        self.fills.push(fill);
     }
 }
 
@@ -687,5 +697,47 @@ mod tests {
         // Rectangle
         assert_eq!(decoded.regions[1].vertices.len(), 4);
         assert_eq!(decoded.regions[1].layer, Layer::TopCourtyard);
+    }
+
+    #[test]
+    fn binary_roundtrip_fill() {
+        use super::primitives::Fill;
+
+        let mut original = Footprint::new("ROUNDTRIP_FILL");
+
+        // Add a simple fill rectangle
+        original.add_fill(Fill::new(-2.0, -1.0, 2.0, 1.0, Layer::TopPaste));
+
+        // Add a rotated fill
+        original.add_fill(Fill {
+            x1: -1.5,
+            y1: -0.5,
+            x2: 1.5,
+            y2: 0.5,
+            layer: Layer::BottomPaste,
+            rotation: 45.0,
+        });
+
+        let data = writer::encode_data_stream(&original);
+        let mut decoded = Footprint::new("ROUNDTRIP_FILL");
+        reader::parse_data_stream(&mut decoded, &data);
+
+        assert_eq!(decoded.fills.len(), 2);
+
+        // First fill
+        assert!(approx_eq(decoded.fills[0].x1, -2.0, 0.001));
+        assert!(approx_eq(decoded.fills[0].y1, -1.0, 0.001));
+        assert!(approx_eq(decoded.fills[0].x2, 2.0, 0.001));
+        assert!(approx_eq(decoded.fills[0].y2, 1.0, 0.001));
+        assert_eq!(decoded.fills[0].layer, Layer::TopPaste);
+        assert!(approx_eq(decoded.fills[0].rotation, 0.0, 0.001));
+
+        // Second fill (rotated)
+        assert!(approx_eq(decoded.fills[1].x1, -1.5, 0.001));
+        assert!(approx_eq(decoded.fills[1].y1, -0.5, 0.001));
+        assert!(approx_eq(decoded.fills[1].x2, 1.5, 0.001));
+        assert!(approx_eq(decoded.fills[1].y2, 0.5, 0.001));
+        assert_eq!(decoded.fills[1].layer, Layer::BottomPaste);
+        assert!(approx_eq(decoded.fills[1].rotation, 45.0, 0.001));
     }
 }

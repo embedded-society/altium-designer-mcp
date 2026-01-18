@@ -24,7 +24,7 @@
 //! - `0x0B`: Region
 //! - `0x0C`: `ComponentBody`
 
-use super::primitives::{Arc, Layer, Pad, PadShape, Region, Text, Track, Vertex};
+use super::primitives::{Arc, Fill, Layer, Pad, PadShape, Region, Text, Track, Vertex};
 use super::Footprint;
 
 /// Conversion factor from Altium internal units to millimetres.
@@ -240,17 +240,25 @@ pub fn parse_data_stream(footprint: &mut Footprint, data: &[u8]) {
                     break;
                 }
             }
-            0x03 | 0x06 | 0x0C => {
+            0x06 => {
+                // Fill (filled rectangle)
+                if let Some((fill, new_offset)) = parse_fill(data, offset) {
+                    footprint.add_fill(fill);
+                    offset = new_offset;
+                } else {
+                    tracing::debug!("Failed to parse Fill at offset {offset:#x}");
+                    break;
+                }
+            }
+            0x03 | 0x0C => {
                 // These primitives are recognized but not yet fully implemented:
                 // - 0x03: Via (similar to pad but for vias)
-                // - 0x06: Fill (filled rectangle)
                 // - 0x0C: ComponentBody (3D model reference - stored in /Library/Models)
                 //
-                // TODO: Implement parsing for these. See pyAltiumLib/AltiumSharp for reference.
+                // TODO: Implement parsing for these. See `pyAltiumLib`/`AltiumSharp` for reference.
                 // 3D models are embedded in /Library/Models/N streams, referenced here.
                 let type_name = match record_type {
                     0x03 => "Via",
-                    0x06 => "Fill",
                     0x0C => "ComponentBody",
                     _ => "Unknown",
                 };
@@ -671,6 +679,57 @@ fn parse_region(data: &[u8], offset: usize) -> Option<(Region, usize)> {
     let region = Region { vertices, layer };
 
     Some((region, current))
+}
+
+/// Parses a Fill primitive (filled rectangle).
+/// Returns the parsed `Fill` and the new offset on success.
+///
+/// # Fill Block Format
+///
+/// Fill has 1 block:
+/// ```text
+/// [layer:1]                 // Layer ID
+/// [flags:12]                // Flags and padding
+/// [x1:4 i32]                // First corner X (internal units)
+/// [y1:4 i32]                // First corner Y (internal units)
+/// [x2:4 i32]                // Second corner X (internal units)
+/// [y2:4 i32]                // Second corner Y (internal units)
+/// [rotation:8 f64]          // Rotation angle in degrees
+/// [unknown:...]             // Additional data
+/// ```
+fn parse_fill(data: &[u8], offset: usize) -> Option<(Fill, usize)> {
+    // Fill has a single block
+    let (block, current) = read_block(data, offset)?;
+
+    // Minimum size: 13 (header) + 16 (coordinates) + 8 (rotation) = 37 bytes
+    if block.len() < 37 {
+        tracing::trace!("Fill block too short: {} bytes", block.len());
+        return None;
+    }
+
+    // Common header (13 bytes)
+    let layer_id = block[0];
+    let layer = layer_from_id(layer_id);
+
+    // Coordinates at offset 13
+    let x1 = to_mm(read_i32(block, 13)?);
+    let y1 = to_mm(read_i32(block, 17)?);
+    let x2 = to_mm(read_i32(block, 21)?);
+    let y2 = to_mm(read_i32(block, 25)?);
+
+    // Rotation at offset 29
+    let rotation = read_f64(block, 29)?;
+
+    let fill = Fill {
+        x1,
+        y1,
+        x2,
+        y2,
+        layer,
+        rotation,
+    };
+
+    Some((fill, current))
 }
 
 /// Skips a primitive by reading its blocks.

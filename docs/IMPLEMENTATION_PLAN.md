@@ -12,7 +12,7 @@ This document outlines the plan for implementing the remaining unimplemented pri
 | Track (0x04) | ✅ | ✅ | Complete |
 | Arc (0x01) | ✅ | ✅ | Complete |
 | Text (0x05) | ✅ | ✅ | Complete |
-| Fill (0x06) | ❌ | ❌ | Skipped |
+| Fill (0x06) | ✅ | ✅ | Complete |
 | Region (0x0B) | ✅ | ✅ | Complete |
 | ComponentBody (0x0C) | ❌ | ❌ | Skipped |
 
