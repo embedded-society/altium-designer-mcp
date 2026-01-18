@@ -500,8 +500,23 @@ impl McpServer {
     ///
     /// These are low-level file I/O and primitive placement tools.
     /// The AI handles IPC calculations and design decisions.
-    #[allow(clippy::too_many_lines)]
     fn get_tool_definitions() -> Vec<ToolDefinition> {
+        let mut tools = Vec::new();
+
+        // Library reading tools
+        tools.extend(get_library_reading_tools());
+
+        // NOTE: Additional helper functions can be added here to keep this
+        // function short and maintainable, for example:
+        // tools.extend(get_library_writing_tools());
+        // tools.extend(get_placement_tools());
+        // ...
+
+        tools
+    }
+
+    /// Returns tool definitions related to reading libraries.
+    fn get_library_reading_tools() -> Vec<ToolDefinition> {
         vec![
             // === Library Reading ===
             ToolDefinition {
