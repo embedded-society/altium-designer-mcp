@@ -767,8 +767,8 @@ mod tests {
             rotation_x: 0.0,
             rotation_y: 0.0,
             rotation_z: 45.0,
-            z_offset: 0.5, // mm
-            overall_height: 1.0, // mm
+            z_offset: 0.5,        // mm
+            overall_height: 1.0,  // mm
             standoff_height: 0.1, // mm
             layer: Layer::Top3DBody,
         };
