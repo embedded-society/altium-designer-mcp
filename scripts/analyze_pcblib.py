@@ -133,6 +133,8 @@ def parse_footprint_data(name: str, data: bytes):
             offset = parse_text_blocks(data, offset)
         elif record_type == 0x0B:  # Region
             offset = parse_region_blocks(data, offset)
+        elif record_type == 0x06:  # Fill
+            offset = parse_fill_blocks(data, offset)
         elif record_type == 0x0C:  # ComponentBody
             offset = parse_component_body_blocks(data, offset)
         else:
@@ -401,14 +403,72 @@ def parse_region_blocks(data: bytes, offset: int) -> int:
     return offset
 
 
+def parse_fill_blocks(data: bytes, offset: int) -> int:
+    """Parse fill primitive blocks (1 block)."""
+    block, offset = read_block(data, offset)
+    print(f"    Fill block: {len(block)} bytes")
+
+    if len(block) >= 37:
+        layer = block[0]
+        print(f"      Layer: {layer}")
+
+        def to_mm(val):
+            return val / 10000.0 * 0.0254
+
+        x1 = struct.unpack_from("<i", block, 13)[0]
+        y1 = struct.unpack_from("<i", block, 17)[0]
+        x2 = struct.unpack_from("<i", block, 21)[0]
+        y2 = struct.unpack_from("<i", block, 25)[0]
+        print(f"      Corner 1: ({to_mm(x1):.4f}, {to_mm(y1):.4f}) mm")
+        print(f"      Corner 2: ({to_mm(x2):.4f}, {to_mm(y2):.4f}) mm")
+
+        if len(block) > 36:
+            rotation = struct.unpack_from("<d", block, 29)[0]
+            print(f"      Rotation: {rotation:.2f} deg")
+
+    return offset
+
+
+def parse_component_body_params(block: bytes) -> dict:
+    """Parse ComponentBody parameter string from block 0."""
+    params = {}
+    try:
+        block_str = block.decode('latin1')
+        # Find V7_LAYER which starts the parameter string
+        v7_idx = block_str.find('V7_LAYER')
+        if v7_idx >= 0:
+            params_str = block_str[v7_idx:]
+            for pair in params_str.split('|'):
+                if '=' in pair:
+                    key, val = pair.split('=', 1)
+                    # Clean up null bytes
+                    val = val.rstrip('\x00')
+                    params[key] = val
+    except Exception:
+        pass
+    return params
+
+
 def parse_component_body_blocks(data: bytes, offset: int) -> int:
     """Parse component body primitive blocks (3 blocks)."""
     for i in range(3):
         block, offset = read_block(data, offset)
         print(f"    ComponentBody block {i}: {len(block)} bytes")
-        if len(block) > 0:
+
+        if i == 0 and len(block) > 40:
+            params = parse_component_body_params(block)
+            if params:
+                print("      Key parameters:")
+                for key in ['MODELID', 'MODEL.NAME', 'MODEL.EMBED',
+                           'MODEL.3D.ROTX', 'MODEL.3D.ROTY', 'MODEL.3D.ROTZ',
+                           'MODEL.3D.DZ', 'STANDOFFHEIGHT', 'OVERALLHEIGHT']:
+                    if key in params:
+                        print(f"        {key}: {params[key]}")
+
+        if len(block) > 0 and len(block) < 100:
             preview = " ".join(f"{b:02x}" for b in block[:min(32, len(block))])
             print(f"      Raw: {preview}")
+
     return offset
 
 

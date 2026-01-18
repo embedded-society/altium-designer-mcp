@@ -263,7 +263,7 @@ impl Fill {
     }
 }
 
-/// A 3D model reference.
+/// A 3D model reference (simple version for programmatic creation).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Model3D {
     /// Path to the STEP file.
@@ -280,6 +280,71 @@ pub struct Model3D {
     /// Rotation around Z axis in degrees.
     #[serde(default)]
     pub rotation: f64,
+}
+
+/// A 3D component body primitive (record type 0x0C).
+///
+/// This represents an embedded 3D model in the footprint. The model data
+/// is stored in `/Library/Models/N` streams and referenced by GUID.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ComponentBody {
+    /// Model identifier (GUID) referencing `/Library/Models/Data`.
+    pub model_id: String,
+
+    /// Model filename (e.g., "RESC1005X04L.step").
+    #[serde(default)]
+    pub model_name: String,
+
+    /// Whether the model is embedded in the library.
+    #[serde(default)]
+    pub embedded: bool,
+
+    /// Rotation around X axis in degrees.
+    #[serde(default)]
+    pub rotation_x: f64,
+
+    /// Rotation around Y axis in degrees.
+    #[serde(default)]
+    pub rotation_y: f64,
+
+    /// Rotation around Z axis in degrees.
+    #[serde(default)]
+    pub rotation_z: f64,
+
+    /// Z offset (standoff from board) in mm.
+    #[serde(default)]
+    pub z_offset: f64,
+
+    /// Overall height in mm.
+    #[serde(default)]
+    pub overall_height: f64,
+
+    /// Standoff height in mm.
+    #[serde(default)]
+    pub standoff_height: f64,
+
+    /// Layer the body outline is on.
+    #[serde(default)]
+    pub layer: Layer,
+}
+
+impl ComponentBody {
+    /// Creates a new `ComponentBody` with the given model ID.
+    #[must_use]
+    pub fn new(model_id: impl Into<String>, model_name: impl Into<String>) -> Self {
+        Self {
+            model_id: model_id.into(),
+            model_name: model_name.into(),
+            embedded: true,
+            rotation_x: 0.0,
+            rotation_y: 0.0,
+            rotation_z: 0.0,
+            z_offset: 0.0,
+            overall_height: 0.0,
+            standoff_height: 0.0,
+            layer: Layer::Top3DBody,
+        }
+    }
 }
 
 /// Altium layer identifiers.

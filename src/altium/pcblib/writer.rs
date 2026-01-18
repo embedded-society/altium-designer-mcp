@@ -13,7 +13,7 @@
 //! [0x00]                                       // End marker
 //! ```
 
-use super::primitives::{Arc, Fill, Layer, Pad, PadShape, Region, Text, Track};
+use super::primitives::{Arc, ComponentBody, Fill, Layer, Pad, PadShape, Region, Text, Track};
 use super::Footprint;
 
 /// Conversion factor from millimetres to Altium internal units.
@@ -154,6 +154,11 @@ pub fn encode_data_stream(footprint: &Footprint) -> Vec<u8> {
     for fill in &footprint.fills {
         data.push(0x06); // Fill record type
         encode_fill(&mut data, fill);
+    }
+
+    for body in &footprint.component_bodies {
+        data.push(0x0C); // ComponentBody record type
+        encode_component_body(&mut data, body);
     }
 
     // End marker
@@ -500,6 +505,126 @@ fn encode_fill_block(fill: &Fill) -> Vec<u8> {
     block.extend_from_slice(&[0x00; 13]);
 
     block
+}
+
+/// Encodes a `ComponentBody` primitive (3D model reference).
+fn encode_component_body(data: &mut Vec<u8>, body: &ComponentBody) {
+    let block = encode_component_body_block(body);
+    write_block(data, &block);
+
+    // Blocks 1 and 2 are optional/empty
+    write_block(data, &[]);
+    write_block(data, &[]);
+}
+
+/// Encodes the `ComponentBody` block 0.
+///
+/// Format:
+/// ```text
+/// [layer:1]                    // Layer ID (e.g., 62 for Top 3D Body)
+/// [record_type:2]              // Record type (0x0C, 0x00)
+/// [ff_padding:10]              // 0xFF padding
+/// [zeros:5]                    // Zeros
+/// [param_len:4]                // Parameter string length (including null)
+/// [param_string:param_len]     // Key=value pairs separated by |
+/// [vertex_count:4]             // Outline vertex count (usually 0 or 4)
+/// [vertices...]                // Optional outline vertices
+/// ```
+#[allow(clippy::cast_possible_truncation)] // Parameter strings are always small
+fn encode_component_body_block(body: &ComponentBody) -> Vec<u8> {
+    let mut block = Vec::with_capacity(128);
+
+    // Layer ID (1 byte)
+    block.push(layer_to_id(body.layer));
+
+    // Record type marker (2 bytes): 0x0C 0x00
+    block.push(0x0C);
+    block.push(0x00);
+
+    // 0xFF padding (10 bytes)
+    block.extend_from_slice(&[0xFF; 10]);
+
+    // Zeros (5 bytes)
+    block.extend_from_slice(&[0x00; 5]);
+
+    // Build parameter string
+    let param_str = build_component_body_params(body);
+
+    // Parameter string length including null terminator (4 bytes)
+    let param_len = param_str.len() + 1; // +1 for null
+    write_u32(&mut block, param_len as u32);
+
+    // Parameter string (null-terminated)
+    block.extend_from_slice(param_str.as_bytes());
+    block.push(0x00); // Null terminator
+
+    // No outline vertices (4 bytes = count of 0)
+    write_u32(&mut block, 0);
+
+    block
+}
+
+/// Builds the parameter string for a `ComponentBody`.
+fn build_component_body_params(body: &ComponentBody) -> String {
+    let mut params = Vec::new();
+
+    // V7_LAYER (Top3DBody is MECHANICAL6, Bottom3DBody is MECHANICAL7)
+    let layer_name = match body.layer {
+        Layer::Bottom3DBody => "MECHANICAL7",
+        _ => "MECHANICAL6",
+    };
+    params.push(format!("V7_LAYER={layer_name}"));
+
+    // Standard parameters
+    params.push("NAME= ".to_string());
+    params.push("KIND=0".to_string());
+    params.push("SUBPOLYINDEX=-1".to_string());
+    params.push("UNIONINDEX=0".to_string());
+    params.push("ARCRESOLUTION=0.5mil".to_string());
+    params.push("ISSHAPEBASED=FALSE".to_string());
+    params.push("CAVITYHEIGHT=0mil".to_string());
+    params.push(format!(
+        "STANDOFFHEIGHT={}mil",
+        mm_to_mil(body.standoff_height)
+    ));
+    params.push(format!(
+        "OVERALLHEIGHT={}mil",
+        mm_to_mil(body.overall_height)
+    ));
+    params.push("BODYPROJECTION=0".to_string());
+    params.push("ARCRESOLUTION=0.5mil".to_string());
+    params.push("BODYCOLOR3D=8421504".to_string());
+    params.push("BODYOPACITY3D=1.000".to_string());
+    params.push("TEXTURECENTERX=0mil".to_string());
+    params.push("TEXTURECENTERY=0mil".to_string());
+    params.push("TEXTURESIZEX=0mil".to_string());
+    params.push("TEXTURESIZEY=0mil".to_string());
+    params.push("TEXTUREROTATION= 0.00000000000000E+0000".to_string());
+
+    // Model reference
+    params.push(format!("MODELID={}", body.model_id));
+    params.push("MODEL.CHECKSUM=0".to_string());
+    params.push(format!(
+        "MODEL.EMBED={}",
+        if body.embedded { "TRUE" } else { "FALSE" }
+    ));
+    params.push(format!("MODEL.NAME={}", body.model_name));
+    params.push("MODEL.2D.X=0mil".to_string());
+    params.push("MODEL.2D.Y=0mil".to_string());
+    params.push("MODEL.2D.ROTATION=0.000".to_string());
+    params.push(format!("MODEL.3D.ROTX={:.3}", body.rotation_x));
+    params.push(format!("MODEL.3D.ROTY={:.3}", body.rotation_y));
+    params.push(format!("MODEL.3D.ROTZ={:.3}", body.rotation_z));
+    params.push(format!("MODEL.3D.DZ={}mil", mm_to_mil(body.z_offset)));
+    params.push("MODEL.MODELTYPE=1".to_string());
+    params.push("MODEL.MODELSOURCE=Undefined".to_string());
+
+    params.join("|")
+}
+
+/// Converts mm to mils for parameter strings.
+fn mm_to_mil(mm: f64) -> f64 {
+    mm / 0.0254
 }
 
 #[cfg(test)]
