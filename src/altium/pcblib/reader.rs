@@ -532,25 +532,30 @@ fn parse_pad(data: &[u8], offset: usize) -> Option<(Pad, usize)> {
     // - 32 corner radius percentages (1 byte each) = 32 bytes
     // - 32 offset entries (x, y as i32 pairs) = 256 bytes (optional)
     // Total: 320 bytes minimum, 576 bytes with offsets
-    let (corner_radius_percent, per_layer_sizes, per_layer_shapes, per_layer_corner_radii, per_layer_offsets) =
-        if stack_mode == PadStackMode::Simple {
-            // For Simple mode, extract corner radius if available (backwards compatibility)
-            let corner_radius = per_layer_data.and_then(|data| {
-                if data.len() > 288 {
-                    let radius = data[288];
-                    if radius > 0 && radius <= 100 {
-                        Some(radius)
-                    } else {
-                        None
-                    }
+    let (
+        corner_radius_percent,
+        per_layer_sizes,
+        per_layer_shapes,
+        per_layer_corner_radii,
+        per_layer_offsets,
+    ) = if stack_mode == PadStackMode::Simple {
+        // For Simple mode, extract corner radius if available (backwards compatibility)
+        let corner_radius = per_layer_data.and_then(|data| {
+            if data.len() > 288 {
+                let radius = data[288];
+                if radius > 0 && radius <= 100 {
+                    Some(radius)
                 } else {
                     None
                 }
-            });
-            (corner_radius, None, None, None, None)
-        } else {
-            parse_per_layer_data(per_layer_data)
-        };
+            } else {
+                None
+            }
+        });
+        (corner_radius, None, None, None, None)
+    } else {
+        parse_per_layer_data(per_layer_data)
+    };
 
     let pad = Pad {
         designator,
