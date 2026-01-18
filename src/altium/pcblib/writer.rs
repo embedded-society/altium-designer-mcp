@@ -253,29 +253,53 @@ pub fn encode_data_stream(footprint: &Footprint) -> Vec<u8> {
 /// - 32 size entries (`CoordPoint`, 8 bytes each) = 256 bytes
 /// - 32 shape entries (1 byte each) = 32 bytes
 /// - 32 corner radius percentages (1 byte each, 0-100) = 32 bytes
+/// - 32 offset entries (`CoordPoint`, 8 bytes each) = 256 bytes (optional)
 ///
-/// Total: 320 bytes
+/// Total: 320 bytes minimum, 576 bytes with offsets
 fn encode_pad_per_layer_data(pad: &Pad) -> Vec<u8> {
-    let mut block = Vec::with_capacity(320);
+    let has_offsets = pad.per_layer_offsets.is_some();
+    let capacity = if has_offsets { 576 } else { 320 };
+    let mut block = Vec::with_capacity(capacity);
 
     // 32 size entries (width, height for each layer) - 256 bytes
-    // For simple pads, all layers use the same size
-    for _ in 0..32 {
-        write_i32(&mut block, from_mm(pad.width));
-        write_i32(&mut block, from_mm(pad.height));
+    for i in 0..32 {
+        let (width, height) = pad
+            .per_layer_sizes
+            .as_ref()
+            .and_then(|sizes| sizes.get(i).copied())
+            .unwrap_or((pad.width, pad.height));
+        write_i32(&mut block, from_mm(width));
+        write_i32(&mut block, from_mm(height));
     }
 
     // 32 shape entries - 32 bytes
-    // For simple pads, all layers use the same shape
-    let shape_id = pad_shape_to_id(pad.shape);
-    for _ in 0..32 {
-        block.push(shape_id);
+    for i in 0..32 {
+        let shape = pad
+            .per_layer_shapes
+            .as_ref()
+            .and_then(|shapes| shapes.get(i).copied())
+            .unwrap_or(pad.shape);
+        block.push(pad_shape_to_id(shape));
     }
 
     // 32 corner radius percentages - 32 bytes
-    let corner_radius = pad.corner_radius_percent.unwrap_or(0);
-    for _ in 0..32 {
-        block.push(corner_radius);
+    let default_radius = pad.corner_radius_percent.unwrap_or(0);
+    for i in 0..32 {
+        let radius = pad
+            .per_layer_corner_radii
+            .as_ref()
+            .and_then(|radii| radii.get(i).copied())
+            .unwrap_or(default_radius);
+        block.push(radius);
+    }
+
+    // 32 offset entries (x, y for each layer) - 256 bytes (optional)
+    if let Some(ref offsets) = pad.per_layer_offsets {
+        for i in 0..32 {
+            let (x, y) = offsets.get(i).copied().unwrap_or((0.0, 0.0));
+            write_i32(&mut block, from_mm(x));
+            write_i32(&mut block, from_mm(y));
+        }
     }
 
     block
@@ -300,8 +324,18 @@ fn encode_pad(data: &mut Vec<u8>, pad: &Pad) {
     write_block(data, &geometry);
 
     // Block 5: Per-layer data
-    // Write per-layer data when corner radius is specified (stack mode != Simple)
-    if pad.corner_radius_percent.is_some() {
+    // Write per-layer data when:
+    // - stack mode is not Simple, OR
+    // - corner radius is specified, OR
+    // - any per-layer data fields are present
+    let needs_per_layer_data = pad.stack_mode != PadStackMode::Simple
+        || pad.corner_radius_percent.is_some()
+        || pad.per_layer_sizes.is_some()
+        || pad.per_layer_shapes.is_some()
+        || pad.per_layer_corner_radii.is_some()
+        || pad.per_layer_offsets.is_some();
+
+    if needs_per_layer_data {
         let per_layer_data = encode_pad_per_layer_data(pad);
         write_block(data, &per_layer_data);
     } else {

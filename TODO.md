@@ -70,14 +70,14 @@ This document tracks implementation gaps between the documented PcbLib format (`
 - [x] Write stack mode in `encode_pad_geometry()` (writer.rs)
 - [x] Auto-upgrade to FullStack when corner_radius_percent is set
 
-### Per-Layer Pad Data - Not Implemented
+### Per-Layer Pad Data - Implemented ✓
 
-- [ ] Add per-layer size arrays to `Pad` struct (32 CoordPoints)
-- [ ] Add per-layer shape arrays (32 bytes)
-- [ ] Add per-layer corner radius percentages (32 bytes, 0-100)
-- [ ] Add per-layer offset-from-hole-center arrays (32 CoordPoints)
-- [ ] Parse Block 6 in `parse_pad()` when stack mode != Simple
-- [ ] Write Block 6 in `encode_pad()` when stack mode != Simple
+- [x] Add per-layer size arrays to `Pad` struct (32 CoordPoints)
+- [x] Add per-layer shape arrays (32 bytes)
+- [x] Add per-layer corner radius percentages (32 bytes, 0-100)
+- [x] Add per-layer offset-from-hole-center arrays (32 CoordPoints)
+- [x] Parse Block 5 in `parse_pad()` when stack mode != Simple
+- [x] Write Block 5 in `encode_pad()` when stack mode != Simple
 
 ## Text Advanced Features
 
