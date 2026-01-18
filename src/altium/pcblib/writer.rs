@@ -14,8 +14,8 @@
 //! ```
 
 use super::primitives::{
-    Arc, ComponentBody, Fill, HoleShape, Layer, Pad, PadShape, Region, Text, Track, Via,
-    ViaStackMode,
+    Arc, ComponentBody, Fill, HoleShape, Layer, Pad, PadShape, PadStackMode, Region, Text, Track,
+    Via, ViaStackMode,
 };
 use super::Footprint;
 
@@ -378,13 +378,14 @@ fn encode_pad_geometry(pad: &Pad) -> Vec<u8> {
     block.push(hole_shape_to_id(pad.hole_shape));
 
     // Stack mode - offset 62
-    // Use FullStack mode (2) when corner radius is specified, otherwise Simple (0)
-    let stack_mode = if pad.corner_radius_percent.is_some() {
-        2u8
-    } else {
-        0u8
-    };
-    block.push(stack_mode);
+    // Use pad's stack_mode, but upgrade to FullStack if corner radius is specified
+    let effective_stack_mode =
+        if pad.corner_radius_percent.is_some() && pad.stack_mode == PadStackMode::Simple {
+            PadStackMode::FullStack
+        } else {
+            pad.stack_mode
+        };
+    block.push(pad_stack_mode_to_id(effective_stack_mode));
 
     // Offsets 63-85: Unknown/reserved data (23 bytes)
     // Byte 63: Unknown
@@ -546,6 +547,15 @@ const fn via_stack_mode_to_id(mode: ViaStackMode) -> u8 {
         ViaStackMode::Simple => 0,
         ViaStackMode::TopMiddleBottom => 1,
         ViaStackMode::FullStack => 2,
+    }
+}
+
+/// Converts a `PadStackMode` to its binary ID.
+const fn pad_stack_mode_to_id(mode: PadStackMode) -> u8 {
+    match mode {
+        PadStackMode::Simple => 0,
+        PadStackMode::TopMiddleBottom => 1,
+        PadStackMode::FullStack => 2,
     }
 }
 

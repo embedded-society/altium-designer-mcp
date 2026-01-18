@@ -39,8 +39,8 @@ mod writer;
 use serde::{Deserialize, Serialize};
 
 pub use primitives::{
-    Arc, ComponentBody, EmbeddedModel, Fill, HoleShape, Layer, Model3D, Pad, PadShape, Region,
-    Text, Track, Vertex, Via,
+    Arc, ComponentBody, EmbeddedModel, Fill, HoleShape, Layer, Model3D, Pad, PadShape,
+    PadStackMode, Region, Text, Track, Vertex, Via,
 };
 
 use crate::altium::error::{AltiumError, AltiumResult};
