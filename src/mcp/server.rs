@@ -652,7 +652,11 @@ impl McpServer {
                                                 "y": { "type": "number", "description": "Y position in mm" },
                                                 "width": { "type": "number", "description": "Pad width in mm" },
                                                 "height": { "type": "number", "description": "Pad height in mm" },
-                                                "shape": { "type": "string", "enum": ["rectangle", "rounded_rectangle", "round", "oval"], "description": "Pad shape. Note: read_pcblib returns 'round', write accepts 'round' or 'circle'" },
+                                                "shape": {
+                                                    "type": "string",
+                                                    "enum": ["rectangle", "rounded_rectangle", "round", "oval"],
+                                                    "description": "Pad shape (round/circle are equivalent)"
+                                                },
                                                 "layer": { "type": "string", "description": "Layer name (default: multi-layer for SMD)" },
                                                 "hole_size": { "type": "number", "description": "Hole diameter for through-hole pads (mm)" }
                                             },
