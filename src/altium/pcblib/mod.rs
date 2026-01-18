@@ -233,7 +233,12 @@ impl PcbLib {
 
                 if !component_name.is_empty() && !is_internal {
                     // Read the component data
-                    match Self::read_footprint(&mut cfb, &entry_path, &component_name, &wide_strings) {
+                    match Self::read_footprint(
+                        &mut cfb,
+                        &entry_path,
+                        &component_name,
+                        &wide_strings,
+                    ) {
                         Ok(footprint) => library.footprints.push(footprint),
                         Err(e) => {
                             tracing::warn!(
@@ -342,7 +347,11 @@ impl PcbLib {
     ///
     /// The Data stream contains binary records for each primitive (pads, tracks, arcs, etc.).
     /// See the [`reader`] module for format details.
-    fn parse_primitives(footprint: &mut Footprint, data: &[u8], wide_strings: &reader::WideStrings) {
+    fn parse_primitives(
+        footprint: &mut Footprint,
+        data: &[u8],
+        wide_strings: &reader::WideStrings,
+    ) {
         reader::parse_data_stream(footprint, data, Some(wide_strings));
     }
 

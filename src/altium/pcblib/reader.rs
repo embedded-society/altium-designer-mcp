@@ -243,7 +243,11 @@ const fn pad_shape_from_id(id: u8) -> PadShape {
 /// * `footprint` - The footprint to populate with parsed primitives
 /// * `data` - The raw Data stream bytes
 /// * `wide_strings` - Optional WideStrings lookup for text content
-pub fn parse_data_stream(footprint: &mut Footprint, data: &[u8], wide_strings: Option<&WideStrings>) {
+pub fn parse_data_stream(
+    footprint: &mut Footprint,
+    data: &[u8],
+    wide_strings: Option<&WideStrings>,
+) {
     if data.len() < 5 {
         tracing::warn!("Data stream too short");
         return;
@@ -634,7 +638,11 @@ fn parse_arc(data: &[u8], offset: usize) -> Option<(Arc, usize)> {
 /// [font_name:varies]            // Font name in UTF-16 (null-terminated)
 /// [text_content:varies]         // Text content in UTF-16 or reference
 /// ```
-fn parse_text(data: &[u8], offset: usize, wide_strings: Option<&WideStrings>) -> Option<(Text, usize)> {
+fn parse_text(
+    data: &[u8],
+    offset: usize,
+    wide_strings: Option<&WideStrings>,
+) -> Option<(Text, usize)> {
     // Text has 2 blocks:
     // - Block 0: Geometry/metadata (layer, position, height, rotation, font, etc.)
     // - Block 1: Text content (length-prefixed string, or reference to WideStrings)
