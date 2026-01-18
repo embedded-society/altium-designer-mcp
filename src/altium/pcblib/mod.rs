@@ -39,8 +39,8 @@ mod writer;
 use serde::{Deserialize, Serialize};
 
 pub use primitives::{
-    Arc, ComponentBody, EmbeddedModel, Fill, Layer, Model3D, Pad, PadShape, Region, Text, Track,
-    Vertex, Via,
+    Arc, ComponentBody, EmbeddedModel, Fill, HoleShape, Layer, Model3D, Pad, PadShape, Region,
+    Text, Track, Vertex, Via,
 };
 
 use crate::altium::error::{AltiumError, AltiumResult};
@@ -1105,5 +1105,60 @@ mod tests {
         assert!(approx_eq(decoded.vias[0].x, 0.0, 0.001));
         assert!(approx_eq(decoded.vias[0].diameter, 0.5, 0.001));
         assert!(approx_eq(decoded.vias[0].hole_size, 0.25, 0.001));
+    }
+
+    #[test]
+    fn binary_roundtrip_pad_advanced_features() {
+        let mut original = Footprint::new("ROUNDTRIP_PAD_ADVANCED");
+
+        // Create a pad with hole shape and mask expansion
+        let mut pad_with_square_hole = Pad::through_hole("1", -2.54, 0.0, 1.8, 1.8, 1.0);
+        pad_with_square_hole.hole_shape = HoleShape::Square;
+        pad_with_square_hole.solder_mask_expansion = Some(0.1);
+        pad_with_square_hole.solder_mask_expansion_manual = true;
+        original.add_pad(pad_with_square_hole);
+
+        // Create a pad with slot hole
+        let mut pad_with_slot = Pad::through_hole("2", 0.0, 0.0, 2.0, 1.5, 0.8);
+        pad_with_slot.hole_shape = HoleShape::Slot;
+        pad_with_slot.paste_mask_expansion = Some(-0.05);
+        pad_with_slot.paste_mask_expansion_manual = true;
+        original.add_pad(pad_with_slot);
+
+        // Create a simple pad with round hole (default)
+        let pad_with_round_hole = Pad::through_hole("3", 2.54, 0.0, 1.5, 1.5, 0.8);
+        original.add_pad(pad_with_round_hole);
+
+        let data = writer::encode_data_stream(&original);
+        let mut decoded = Footprint::new("ROUNDTRIP_PAD_ADVANCED");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        assert_eq!(decoded.pads.len(), 3);
+
+        // Pad 1: Square hole with solder mask expansion
+        assert_eq!(decoded.pads[0].designator, "1");
+        assert_eq!(decoded.pads[0].hole_shape, HoleShape::Square);
+        assert!(decoded.pads[0].solder_mask_expansion.is_some());
+        assert!(approx_eq(
+            decoded.pads[0].solder_mask_expansion.unwrap(),
+            0.1,
+            0.001
+        ));
+        assert!(decoded.pads[0].solder_mask_expansion_manual);
+
+        // Pad 2: Slot hole with paste mask expansion
+        assert_eq!(decoded.pads[1].designator, "2");
+        assert_eq!(decoded.pads[1].hole_shape, HoleShape::Slot);
+        assert!(decoded.pads[1].paste_mask_expansion.is_some());
+        assert!(approx_eq(
+            decoded.pads[1].paste_mask_expansion.unwrap(),
+            -0.05,
+            0.001
+        ));
+        assert!(decoded.pads[1].paste_mask_expansion_manual);
+
+        // Pad 3: Default round hole
+        assert_eq!(decoded.pads[2].designator, "3");
+        assert_eq!(decoded.pads[2].hole_shape, HoleShape::Round);
     }
 }

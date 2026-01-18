@@ -35,9 +35,40 @@ pub struct Pad {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hole_size: Option<f64>,
 
+    /// Hole shape for through-hole pads.
+    #[serde(default, skip_serializing_if = "is_default_hole_shape")]
+    pub hole_shape: HoleShape,
+
     /// Rotation angle in degrees.
     #[serde(default)]
     pub rotation: f64,
+
+    /// Paste mask expansion in mm. None uses design rules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paste_mask_expansion: Option<f64>,
+
+    /// Solder mask expansion in mm. None uses design rules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub solder_mask_expansion: Option<f64>,
+
+    /// Whether paste mask expansion is manually set.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub paste_mask_expansion_manual: bool,
+
+    /// Whether solder mask expansion is manually set.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub solder_mask_expansion_manual: bool,
+
+    /// Corner radius as percentage of smaller pad dimension (0-100).
+    /// Only applies to `RoundedRectangle` shape.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub corner_radius_percent: Option<u8>,
+}
+
+/// Helper for serde to skip default hole shape in serialization.
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde requires reference
+fn is_default_hole_shape(shape: &HoleShape) -> bool {
+    *shape == HoleShape::default()
 }
 
 impl Pad {
@@ -53,7 +84,13 @@ impl Pad {
             shape: PadShape::RoundedRectangle,
             layer: Layer::MultiLayer,
             hole_size: None,
+            hole_shape: HoleShape::Round,
             rotation: 0.0,
+            paste_mask_expansion: None,
+            solder_mask_expansion: None,
+            paste_mask_expansion_manual: false,
+            solder_mask_expansion_manual: false,
+            corner_radius_percent: None,
         }
     }
 
@@ -76,7 +113,13 @@ impl Pad {
             shape: PadShape::Round,
             layer: Layer::MultiLayer,
             hole_size: Some(hole_size),
+            hole_shape: HoleShape::Round,
             rotation: 0.0,
+            paste_mask_expansion: None,
+            solder_mask_expansion: None,
+            paste_mask_expansion_manual: false,
+            solder_mask_expansion_manual: false,
+            corner_radius_percent: None,
         }
     }
 }
@@ -94,6 +137,22 @@ pub enum PadShape {
     Round,
     /// Oval/oblong pad.
     Oval,
+}
+
+/// Hole shape types for through-hole pads.
+///
+/// This is separate from `PadShape` as it describes the drill hole shape,
+/// not the copper pad shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HoleShape {
+    /// Circular hole (most common).
+    #[default]
+    Round,
+    /// Square hole.
+    Square,
+    /// Slot (oblong) hole.
+    Slot,
 }
 
 /// A PCB via (vertical interconnect access).

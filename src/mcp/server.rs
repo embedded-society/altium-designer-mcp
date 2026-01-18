@@ -2013,6 +2013,36 @@ impl McpServer {
         let hole_size = json.get("hole_size").and_then(Value::as_f64);
         let rotation = json.get("rotation").and_then(Value::as_f64).unwrap_or(0.0);
 
+        // Parse optional hole shape
+        let hole_shape = json
+            .get("hole_shape")
+            .and_then(Value::as_str)
+            .map(|s| match s.to_lowercase().as_str() {
+                "square" => crate::altium::pcblib::HoleShape::Square,
+                "slot" => crate::altium::pcblib::HoleShape::Slot,
+                _ => crate::altium::pcblib::HoleShape::Round,
+            })
+            .unwrap_or_default();
+
+        // Parse optional mask expansion values
+        let paste_mask_expansion = json.get("paste_mask_expansion").and_then(Value::as_f64);
+        let solder_mask_expansion = json.get("solder_mask_expansion").and_then(Value::as_f64);
+        let paste_mask_expansion_manual = json
+            .get("paste_mask_expansion_manual")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let solder_mask_expansion_manual = json
+            .get("solder_mask_expansion_manual")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+        // Parse optional corner radius
+        let corner_radius_percent = json
+            .get("corner_radius_percent")
+            .and_then(Value::as_u64)
+            .and_then(|v| u8::try_from(v).ok())
+            .filter(|&v| v <= 100);
+
         Ok(Pad {
             designator: designator.to_string(),
             x,
@@ -2022,7 +2052,13 @@ impl McpServer {
             shape,
             layer,
             hole_size,
+            hole_shape,
             rotation,
+            paste_mask_expansion,
+            solder_mask_expansion,
+            paste_mask_expansion_manual,
+            solder_mask_expansion_manual,
+            corner_radius_percent,
         })
     }
 
