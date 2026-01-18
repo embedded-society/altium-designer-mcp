@@ -145,7 +145,9 @@ fn encode_component_header(symbol: &Symbol) -> String {
 /// Encodes a rectangle record.
 fn encode_rectangle(rect: &Rectangle, index: usize) -> String {
     format!(
-        "|RECORD=14|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T|Location.X={}|Location.Y={}|Corner.X={}|Corner.Y={}|LineWidth={}|Color={}|AreaColor={}|IsSolid=T|UniqueID={}|",
+        "|RECORD=14|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T\
+         |Location.X={}|Location.Y={}|Corner.X={}|Corner.Y={}\
+         |LineWidth={}|Color={}|AreaColor={}|IsSolid=T|UniqueID={}|",
         index,
         rect.owner_part_id,
         rect.x1,
