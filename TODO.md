@@ -11,7 +11,7 @@ This document tracks implementation gaps between the documented PcbLib format (`
 - [x] Implement `encode_via()` in `src/altium/pcblib/writer.rs`
 - [x] Add `vias: Vec<Via>` field to `Footprint` struct in `src/altium/pcblib/mod.rs`
 - [x] Core fields: x, y, diameter, hole_size, from_layer, to_layer, solder_mask_expansion
-- [ ] Advanced fields TODO: thermal relief settings, diameter stack mode (per-layer diameters)
+- [x] Advanced fields: thermal relief settings (gap, conductors, width), diameter stack mode (Simple/TopMiddleBottom/FullStack), per-layer diameters
 
 ### WideStrings Stream - Implemented ✓
 

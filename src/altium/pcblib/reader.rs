@@ -28,6 +28,7 @@ use std::collections::HashMap;
 
 use super::primitives::{
     Arc, ComponentBody, Fill, HoleShape, Layer, Pad, PadShape, Region, Text, Track, Vertex, Via,
+    ViaStackMode,
 };
 use super::Footprint;
 
@@ -627,6 +628,25 @@ fn parse_via(data: &[u8], offset: usize) -> Option<(Via, usize)> {
         Layer::BottomLayer
     };
 
+    // Thermal relief settings - offsets 31-39
+    let thermal_relief_gap = if geometry.len() > 34 {
+        to_mm(read_i32(geometry, 31).unwrap_or(2540)) // Default: 10 mils = 2540 internal units
+    } else {
+        0.254 // Default: 10 mils
+    };
+
+    let thermal_relief_conductors = if geometry.len() > 35 {
+        geometry[35]
+    } else {
+        4 // Default: 4 conductors
+    };
+
+    let thermal_relief_width = if geometry.len() > 39 {
+        to_mm(read_i32(geometry, 36).unwrap_or(2540)) // Default: 10 mils = 2540 internal units
+    } else {
+        0.254 // Default: 10 mils
+    };
+
     // Solder mask expansion - offset 40
     let solder_mask_expansion = if geometry.len() > 43 {
         to_mm(read_i32(geometry, 40).unwrap_or(0))
@@ -637,6 +657,29 @@ fn parse_via(data: &[u8], offset: usize) -> Option<(Via, usize)> {
     // Solder mask expansion manual flag - offset 44
     let solder_mask_expansion_manual = geometry.len() > 44 && geometry[44] != 0;
 
+    // Diameter stack mode - offset 45
+    let diameter_stack_mode = if geometry.len() > 45 {
+        via_stack_mode_from_id(geometry[45])
+    } else {
+        ViaStackMode::Simple
+    };
+
+    // Per-layer diameters - offset 46+ (32 × 4 bytes = 128 bytes)
+    let per_layer_diameters = if diameter_stack_mode != ViaStackMode::Simple && geometry.len() > 45 + 128 {
+        let mut diameters = Vec::with_capacity(32);
+        for i in 0..32 {
+            let offset = 46 + (i * 4);
+            if let Some(val) = read_i32(geometry, offset) {
+                diameters.push(to_mm(val));
+            } else {
+                diameters.push(diameter); // Fallback to main diameter
+            }
+        }
+        Some(diameters)
+    } else {
+        None
+    };
+
     let via = Via {
         x,
         y,
@@ -646,9 +689,24 @@ fn parse_via(data: &[u8], offset: usize) -> Option<(Via, usize)> {
         to_layer,
         solder_mask_expansion,
         solder_mask_expansion_manual,
+        thermal_relief_gap,
+        thermal_relief_conductors,
+        thermal_relief_width,
+        diameter_stack_mode,
+        per_layer_diameters,
     };
 
     Some((via, current))
+}
+
+/// Converts a via stack mode ID to `ViaStackMode`.
+fn via_stack_mode_from_id(id: u8) -> ViaStackMode {
+    match id {
+        0 => ViaStackMode::Simple,
+        1 => ViaStackMode::TopMiddleBottom,
+        2 => ViaStackMode::FullStack,
+        _ => ViaStackMode::Simple, // Default fallback
+    }
 }
 
 /// Parses a Track primitive.

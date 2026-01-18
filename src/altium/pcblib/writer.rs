@@ -15,6 +15,7 @@
 
 use super::primitives::{
     Arc, ComponentBody, Fill, HoleShape, Layer, Pad, PadShape, Region, Text, Track, Via,
+    ViaStackMode,
 };
 use super::Footprint;
 
@@ -432,7 +433,7 @@ fn encode_via(data: &mut Vec<u8>, via: &Via) {
 /// [stack_mode:1]            // Diameter stack mode (0 = Simple)
 /// ```
 fn encode_via_geometry(via: &Via) -> Vec<u8> {
-    let mut block = Vec::with_capacity(64);
+    let mut block = Vec::with_capacity(256); // Larger for potential per-layer data
 
     // Common header (13 bytes) - use MultiLayer for vias
     write_common_header(&mut block, Layer::MultiLayer);
@@ -451,14 +452,14 @@ fn encode_via_geometry(via: &Via) -> Vec<u8> {
     block.push(layer_to_id(via.from_layer));
     block.push(layer_to_id(via.to_layer));
 
-    // Thermal relief air gap width - offset 31 (default: 10 mils = 0.254mm)
-    write_i32(&mut block, from_mm(0.254));
+    // Thermal relief air gap width - offset 31
+    write_i32(&mut block, from_mm(via.thermal_relief_gap));
 
-    // Thermal relief conductors count - offset 35 (default: 4)
-    block.push(4);
+    // Thermal relief conductors count - offset 35
+    block.push(via.thermal_relief_conductors);
 
-    // Thermal relief conductors width - offset 36 (default: 10 mils = 0.254mm)
-    write_i32(&mut block, from_mm(0.254));
+    // Thermal relief conductors width - offset 36
+    write_i32(&mut block, from_mm(via.thermal_relief_width));
 
     // Solder mask expansion - offset 40
     write_i32(&mut block, from_mm(via.solder_mask_expansion));
@@ -466,8 +467,24 @@ fn encode_via_geometry(via: &Via) -> Vec<u8> {
     // Solder mask expansion manual flag - offset 44
     block.push(u8::from(via.solder_mask_expansion_manual));
 
-    // Diameter stack mode - offset 45 (0 = Simple)
-    block.push(0x00);
+    // Diameter stack mode - offset 45
+    block.push(via_stack_mode_to_id(via.diameter_stack_mode));
+
+    // Per-layer diameters - offset 46+ (32 × 4 bytes = 128 bytes)
+    // Only write if stack mode is not Simple
+    if via.diameter_stack_mode != ViaStackMode::Simple {
+        if let Some(ref diameters) = via.per_layer_diameters {
+            for i in 0..32 {
+                let diameter = diameters.get(i).copied().unwrap_or(via.diameter);
+                write_i32(&mut block, from_mm(diameter));
+            }
+        } else {
+            // No per-layer data provided, use main diameter for all layers
+            for _ in 0..32 {
+                write_i32(&mut block, from_mm(via.diameter));
+            }
+        }
+    }
 
     // Pad to minimum expected size
     while block.len() < 46 {
@@ -475,6 +492,15 @@ fn encode_via_geometry(via: &Via) -> Vec<u8> {
     }
 
     block
+}
+
+/// Converts a `ViaStackMode` to its binary ID.
+fn via_stack_mode_to_id(mode: ViaStackMode) -> u8 {
+    match mode {
+        ViaStackMode::Simple => 0,
+        ViaStackMode::TopMiddleBottom => 1,
+        ViaStackMode::FullStack => 2,
+    }
 }
 
 /// Encodes a Track primitive.

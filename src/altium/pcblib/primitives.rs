@@ -155,6 +155,21 @@ pub enum HoleShape {
     Slot,
 }
 
+/// Via diameter stack mode.
+///
+/// Controls whether via diameters vary per layer or use a single uniform diameter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ViaStackMode {
+    /// All layers use the same diameter (most common).
+    #[default]
+    Simple,
+    /// Top, middle, and bottom layers can have different diameters.
+    TopMiddleBottom,
+    /// Each of the 32 layers can have an independent diameter.
+    FullStack,
+}
+
 /// A PCB via (vertical interconnect access).
 ///
 /// Vias connect traces between different copper layers. They have a drill hole
@@ -188,12 +203,53 @@ pub struct Via {
     /// Whether solder mask expansion is manually set.
     #[serde(default)]
     pub solder_mask_expansion_manual: bool,
+
+    // Thermal relief settings (for polygon pours)
+
+    /// Thermal relief air gap width in mm (default: 0.254mm = 10 mils).
+    #[serde(default = "default_thermal_relief_gap")]
+    pub thermal_relief_gap: f64,
+
+    /// Number of thermal relief conductors (default: 4).
+    #[serde(default = "default_thermal_relief_conductors")]
+    pub thermal_relief_conductors: u8,
+
+    /// Thermal relief conductor width in mm (default: 0.254mm = 10 mils).
+    #[serde(default = "default_thermal_relief_width")]
+    pub thermal_relief_width: f64,
+
+    // Diameter stack mode
+
+    /// Diameter stack mode (Simple, TopMiddleBottom, or FullStack).
+    #[serde(default)]
+    pub diameter_stack_mode: ViaStackMode,
+
+    /// Per-layer diameters in mm (32 layers). Only used when stack_mode != Simple.
+    /// Index 0 = Top Layer, Index 1 = Bottom Layer, Index 2-31 = Mid Layers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub per_layer_diameters: Option<Vec<f64>>,
+}
+
+/// Default thermal relief gap (10 mils = 0.254mm).
+fn default_thermal_relief_gap() -> f64 {
+    0.254
+}
+
+/// Default thermal relief conductor count.
+fn default_thermal_relief_conductors() -> u8 {
+    4
+}
+
+/// Default thermal relief conductor width (10 mils = 0.254mm).
+fn default_thermal_relief_width() -> f64 {
+    0.254
 }
 
 impl Via {
     /// Creates a new via with default settings.
     ///
-    /// By default, vias span from top to bottom layer.
+    /// By default, vias span from top to bottom layer with standard thermal relief
+    /// (10 mil gap, 4 conductors, 10 mil width) and simple diameter stack mode.
     #[must_use]
     pub const fn new(x: f64, y: f64, diameter: f64, hole_size: f64) -> Self {
         Self {
@@ -205,6 +261,11 @@ impl Via {
             to_layer: Layer::BottomLayer,
             solder_mask_expansion: 0.0,
             solder_mask_expansion_manual: false,
+            thermal_relief_gap: 0.254,       // 10 mils
+            thermal_relief_conductors: 4,
+            thermal_relief_width: 0.254,     // 10 mils
+            diameter_stack_mode: ViaStackMode::Simple,
+            per_layer_diameters: None,
         }
     }
 
@@ -227,6 +288,11 @@ impl Via {
             to_layer: to,
             solder_mask_expansion: 0.0,
             solder_mask_expansion_manual: false,
+            thermal_relief_gap: 0.254,       // 10 mils
+            thermal_relief_conductors: 4,
+            thermal_relief_width: 0.254,     // 10 mils
+            diameter_stack_mode: ViaStackMode::Simple,
+            per_layer_diameters: None,
         }
     }
 }
