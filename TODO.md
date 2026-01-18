@@ -88,12 +88,12 @@ This document tracks implementation gaps between the documented PcbLib format (`
 - [x] Parse text kind from geometry block (offset 1)
 - [x] Write text kind to geometry block (offset 1)
 
-### Stroke Font IDs - Not Exposed
+### Stroke Font IDs - Implemented ✓
 
-- [ ] Add `StrokeFont` enum: `Default`, `SansSerif`, `Serif`
-- [ ] Add `stroke_font: Option<StrokeFont>` field to `Text`
-- [ ] Parse stroke font ID (bytes 25-26 in geometry block)
-- [ ] Write stroke font ID
+- [x] Add `StrokeFont` enum: `Default`, `SansSerif`, `Serif`
+- [x] Add `stroke_font: Option<StrokeFont>` field to `Text`
+- [x] Parse stroke font ID (bytes 25-26 in geometry block)
+- [x] Write stroke font ID
 
 ### Text Justification - Not Exposed
 

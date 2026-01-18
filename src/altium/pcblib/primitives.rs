@@ -464,6 +464,22 @@ pub enum TextKind {
     BarCode,
 }
 
+/// Stroke font type for vector text.
+///
+/// When `TextKind` is `Stroke`, this specifies which stroke font to use.
+/// Stroke fonts are simple vector fonts built into Altium.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StrokeFont {
+    /// Default stroke font.
+    #[default]
+    Default,
+    /// Sans-serif stroke font.
+    SansSerif,
+    /// Serif stroke font.
+    Serif,
+}
+
 /// A text string on a layer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Text {
@@ -483,6 +499,9 @@ pub struct Text {
     /// Text rendering kind (Stroke, TrueType, or `BarCode`).
     #[serde(default)]
     pub kind: TextKind,
+    /// Stroke font type (only applies when `kind` is `Stroke`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stroke_font: Option<StrokeFont>,
 }
 
 /// A filled rectangle on a layer.
