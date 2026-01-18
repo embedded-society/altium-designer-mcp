@@ -4,13 +4,14 @@ This document tracks implementation gaps between the documented PcbLib format (`
 
 ## Primitives
 
-### Via (0x03) - Not Implemented
+### Via (0x03) - Implemented ✓
 
-- [ ] Add `Via` struct to `src/altium/pcblib/primitives.rs`
-- [ ] Implement `parse_via()` in `src/altium/pcblib/reader.rs` (currently skipped at line 265-274)
-- [ ] Implement `encode_via()` in `src/altium/pcblib/writer.rs`
-- [ ] Add `vias: Vec<Via>` field to `Footprint` struct in `src/altium/pcblib/mod.rs`
-- [ ] Fields needed: x, y, diameter, hole_size, from_layer, to_layer, thermal relief settings, solder mask expansion, diameter stack mode
+- [x] Add `Via` struct to `src/altium/pcblib/primitives.rs`
+- [x] Implement `parse_via()` in `src/altium/pcblib/reader.rs`
+- [x] Implement `encode_via()` in `src/altium/pcblib/writer.rs`
+- [x] Add `vias: Vec<Via>` field to `Footprint` struct in `src/altium/pcblib/mod.rs`
+- [x] Core fields: x, y, diameter, hole_size, from_layer, to_layer, solder_mask_expansion
+- [ ] Advanced fields TODO: thermal relief settings, diameter stack mode (per-layer diameters)
 
 ### WideStrings Stream - Not Implemented
 

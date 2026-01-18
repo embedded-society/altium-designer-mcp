@@ -39,7 +39,7 @@ mod writer;
 use serde::{Deserialize, Serialize};
 
 pub use primitives::{
-    Arc, ComponentBody, Fill, Layer, Model3D, Pad, PadShape, Region, Text, Track, Vertex,
+    Arc, ComponentBody, Fill, Layer, Model3D, Pad, PadShape, Region, Text, Track, Vertex, Via,
 };
 
 use crate::altium::error::{AltiumError, AltiumResult};
@@ -73,6 +73,10 @@ pub struct Footprint {
     /// Pads in the footprint.
     #[serde(default)]
     pub pads: Vec<Pad>,
+
+    /// Vias in the footprint.
+    #[serde(default)]
+    pub vias: Vec<Via>,
 
     /// Tracks (lines) in the footprint.
     #[serde(default)]
@@ -111,6 +115,7 @@ impl Footprint {
             name: name.into(),
             description: String::new(),
             pads: Vec::new(),
+            vias: Vec::new(),
             tracks: Vec::new(),
             arcs: Vec::new(),
             regions: Vec::new(),
@@ -124,6 +129,11 @@ impl Footprint {
     /// Adds a pad to the footprint.
     pub fn add_pad(&mut self, pad: Pad) {
         self.pads.push(pad);
+    }
+
+    /// Adds a via to the footprint.
+    pub fn add_via(&mut self, via: Via) {
+        self.vias.push(via);
     }
 
     /// Adds a track to the footprint.
@@ -792,5 +802,76 @@ mod tests {
         assert!(approx_eq(body.overall_height, 1.0, 0.01));
         assert!(approx_eq(body.standoff_height, 0.1, 0.01));
         assert_eq!(body.layer, Layer::Top3DBody);
+    }
+
+    #[test]
+    fn binary_roundtrip_via() {
+        let mut original = Footprint::new("ROUNDTRIP_VIA");
+
+        // Add a simple through via (top to bottom)
+        original.add_via(Via::new(0.0, 0.0, 0.6, 0.3));
+
+        // Add a via at different position
+        original.add_via(Via::new(2.54, 1.27, 0.8, 0.4));
+
+        // Add a blind via (top to mid layer) - though layers may map differently
+        original.add_via(Via::blind(
+            -1.0,
+            -1.0,
+            0.5,
+            0.25,
+            Layer::TopLayer,
+            Layer::BottomLayer,
+        ));
+
+        let data = writer::encode_data_stream(&original);
+        let mut decoded = Footprint::new("ROUNDTRIP_VIA");
+        reader::parse_data_stream(&mut decoded, &data);
+
+        assert_eq!(decoded.vias.len(), 3);
+
+        // First via
+        assert!(approx_eq(decoded.vias[0].x, 0.0, 0.001));
+        assert!(approx_eq(decoded.vias[0].y, 0.0, 0.001));
+        assert!(approx_eq(decoded.vias[0].diameter, 0.6, 0.001));
+        assert!(approx_eq(decoded.vias[0].hole_size, 0.3, 0.001));
+
+        // Second via
+        assert!(approx_eq(decoded.vias[1].x, 2.54, 0.001));
+        assert!(approx_eq(decoded.vias[1].y, 1.27, 0.001));
+        assert!(approx_eq(decoded.vias[1].diameter, 0.8, 0.001));
+        assert!(approx_eq(decoded.vias[1].hole_size, 0.4, 0.001));
+
+        // Third via (blind via)
+        assert!(approx_eq(decoded.vias[2].x, -1.0, 0.001));
+        assert!(approx_eq(decoded.vias[2].y, -1.0, 0.001));
+        assert!(approx_eq(decoded.vias[2].diameter, 0.5, 0.001));
+        assert!(approx_eq(decoded.vias[2].hole_size, 0.25, 0.001));
+        assert_eq!(decoded.vias[2].from_layer, Layer::TopLayer);
+        assert_eq!(decoded.vias[2].to_layer, Layer::BottomLayer);
+    }
+
+    #[test]
+    fn binary_roundtrip_mixed_with_vias() {
+        let mut original = Footprint::new("ROUNDTRIP_MIXED_VIA");
+
+        // Add various primitives including vias
+        original.add_pad(Pad::smd("1", -1.0, 0.0, 0.6, 0.5));
+        original.add_pad(Pad::smd("2", 1.0, 0.0, 0.6, 0.5));
+        original.add_via(Via::new(0.0, 0.0, 0.5, 0.25));
+        original.add_track(Track::new(-1.5, -0.3, 1.5, -0.3, 0.12, Layer::TopOverlay));
+
+        let data = writer::encode_data_stream(&original);
+        let mut decoded = Footprint::new("ROUNDTRIP_MIXED_VIA");
+        reader::parse_data_stream(&mut decoded, &data);
+
+        assert_eq!(decoded.pads.len(), 2);
+        assert_eq!(decoded.vias.len(), 1);
+        assert_eq!(decoded.tracks.len(), 1);
+
+        // Verify via data
+        assert!(approx_eq(decoded.vias[0].x, 0.0, 0.001));
+        assert!(approx_eq(decoded.vias[0].diameter, 0.5, 0.001));
+        assert!(approx_eq(decoded.vias[0].hole_size, 0.25, 0.001));
     }
 }

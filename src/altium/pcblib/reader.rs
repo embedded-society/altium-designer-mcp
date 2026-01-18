@@ -25,7 +25,7 @@
 //! - `0x0C`: `ComponentBody`
 
 use super::primitives::{
-    Arc, ComponentBody, Fill, Layer, Pad, PadShape, Region, Text, Track, Vertex,
+    Arc, ComponentBody, Fill, Layer, Pad, PadShape, Region, Text, Track, Vertex, Via,
 };
 use super::Footprint;
 
@@ -263,12 +263,12 @@ pub fn parse_data_stream(footprint: &mut Footprint, data: &[u8]) {
                 }
             }
             0x03 => {
-                // Via - not yet implemented, skip
-                tracing::trace!("Skipping Via primitive (0x03) - not yet implemented");
-                if let Some(new_offset) = skip_primitive(data, offset, record_type) {
+                // Via
+                if let Some((via, new_offset)) = parse_via(data, offset) {
+                    footprint.add_via(via);
                     offset = new_offset;
                 } else {
-                    tracing::debug!("Failed to skip Via at offset {offset:#x}");
+                    tracing::debug!("Failed to parse Via at offset {offset:#x}");
                     break;
                 }
             }
@@ -371,6 +371,101 @@ fn parse_pad(data: &[u8], offset: usize) -> Option<(Pad, usize)> {
     };
 
     Some((pad, current))
+}
+
+/// Parses a Via primitive.
+/// Returns the parsed `Via` and the new offset on success.
+///
+/// Via has 6 blocks (similar to Pad):
+/// - Block 0: Name/designator (typically empty)
+/// - Block 1: Layer stack data
+/// - Block 2: Marker string ("|&|0")
+/// - Block 3: Net/connectivity data
+/// - Block 4: Geometry data
+/// - Block 5: Per-layer data
+fn parse_via(data: &[u8], offset: usize) -> Option<(Via, usize)> {
+    let mut current = offset;
+
+    // Block 0: Name/designator (typically empty for vias)
+    let (_, next) = read_block(data, current)?;
+    current = next;
+
+    // Block 1: Layer stack data (skip)
+    let (_, next) = read_block(data, current)?;
+    current = next;
+
+    // Block 2: Marker string ("|&|0")
+    let (_, next) = read_block(data, current)?;
+    current = next;
+
+    // Block 3: Net/connectivity data (skip)
+    let (_, next) = read_block(data, current)?;
+    current = next;
+
+    // Block 4: Geometry data
+    let (geometry, next) = read_block(data, current)?;
+    current = next;
+
+    // Block 5: Per-layer data (optional)
+    if let Some((_, next)) = read_block(data, current) {
+        current = next;
+    }
+
+    // Parse geometry block
+    // Minimum size: 13 (header) + 4 (x) + 4 (y) + 4 (diameter) + 4 (hole) + 2 (layers) = 31 bytes
+    if geometry.len() < 31 {
+        tracing::trace!("Via geometry block too short: {} bytes", geometry.len());
+        return None;
+    }
+
+    // Common header (13 bytes) - layer ID at offset 0
+    // Note: Via layer is typically MultiLayer (74), but we read from/to layers separately
+
+    // Location (X, Y) - offsets 13-20
+    let x = to_mm(read_i32(geometry, 13)?);
+    let y = to_mm(read_i32(geometry, 17)?);
+
+    // Diameter - offset 21
+    let diameter = to_mm(read_i32(geometry, 21)?);
+
+    // Hole size - offset 25
+    let hole_size = to_mm(read_i32(geometry, 25)?);
+
+    // From/To layers - offsets 29-30
+    let from_layer = if geometry.len() > 29 {
+        layer_from_id(geometry[29])
+    } else {
+        Layer::TopLayer
+    };
+
+    let to_layer = if geometry.len() > 30 {
+        layer_from_id(geometry[30])
+    } else {
+        Layer::BottomLayer
+    };
+
+    // Solder mask expansion - offset 40
+    let solder_mask_expansion = if geometry.len() > 43 {
+        to_mm(read_i32(geometry, 40).unwrap_or(0))
+    } else {
+        0.0
+    };
+
+    // Solder mask expansion manual flag - offset 44
+    let solder_mask_expansion_manual = geometry.len() > 44 && geometry[44] != 0;
+
+    let via = Via {
+        x,
+        y,
+        diameter,
+        hole_size,
+        from_layer,
+        to_layer,
+        solder_mask_expansion,
+        solder_mask_expansion_manual,
+    };
+
+    Some((via, current))
 }
 
 /// Parses a Track primitive.
@@ -852,27 +947,6 @@ fn parse_v7_layer(s: &str) -> Option<Layer> {
         "MECHANICAL5" => Some(Layer::BottomCourtyard),
         _ => None,
     }
-}
-
-/// Skips a primitive by reading its blocks.
-/// Returns the new offset on success.
-fn skip_primitive(data: &[u8], offset: usize, record_type: u8) -> Option<usize> {
-    let mut current = offset;
-
-    // Different primitives have different numbers of blocks
-    let block_count: u8 = match record_type {
-        0x03 => 6, // Via (similar to Pad)
-        0x05 => 2, // Text (geometry + content)
-        0x0C => 3, // ComponentBody
-        _ => 1,    // Fill (0x06) and others default to 1 block
-    };
-
-    for _ in 0..block_count {
-        let (_, next) = read_block(data, current)?;
-        current = next;
-    }
-
-    Some(current)
 }
 
 #[cfg(test)]
