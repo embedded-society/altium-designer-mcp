@@ -59,7 +59,8 @@ pub struct ToolCapabilities {
     pub list_changed: bool,
 }
 
-fn is_false(b: &bool) -> bool {
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde requires &T signature
+const fn is_false(b: &bool) -> bool {
     !*b
 }
 
