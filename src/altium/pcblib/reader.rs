@@ -1073,6 +1073,202 @@ fn parse_v7_layer(s: &str) -> Option<Layer> {
     }
 }
 
+// =============================================================================
+// 3D Model Parsing
+// =============================================================================
+
+use super::primitives::EmbeddedModel;
+use flate2::read::ZlibDecoder;
+use std::io::Read as IoRead;
+
+/// A mapping of model GUID to stream index.
+///
+/// The `/Library/Models/Data` stream contains entries that map GUIDs to
+/// the numeric index of the model stream (e.g., `/Library/Models/0`).
+pub type ModelIndex = HashMap<String, usize>;
+
+/// Parses the `/Library/Models/Data` stream to extract GUID-to-index mapping.
+///
+/// # Format
+///
+/// The Data stream contains pipe-delimited key=value pairs:
+/// ```text
+/// |RECORD0={GUID}|NAME0=filename.step|...
+/// ```
+///
+/// Each model has:
+/// - `RECORD{N}` - The GUID (model ID)
+/// - `NAME{N}` - The model filename
+///
+/// # Returns
+///
+/// A `HashMap` mapping GUID strings to their stream index.
+pub fn parse_model_data_stream(data: &[u8]) -> ModelIndex {
+    let mut index = ModelIndex::new();
+
+    let Ok(text) = String::from_utf8(data.to_vec()) else {
+        tracing::debug!("Models/Data stream is not valid UTF-8");
+        return index;
+    };
+
+    // Parse pipe-delimited key=value pairs
+    // Format: |RECORD0={GUID}|NAME0=filename.step|RECORD1={GUID2}|...
+    let mut current_index: Option<usize> = None;
+    let mut current_guid: Option<String> = None;
+
+    for pair in text.split('|') {
+        if pair.is_empty() {
+            continue;
+        }
+
+        if let Some((key, value)) = pair.split_once('=') {
+            // Look for RECORD{N}={GUID} pattern
+            if let Some(idx_str) = key.strip_prefix("RECORD") {
+                if let Ok(idx) = idx_str.parse::<usize>() {
+                    // If we had a previous entry, store it
+                    if let (Some(prev_idx), Some(guid)) = (current_index, current_guid.take()) {
+                        index.insert(guid, prev_idx);
+                    }
+                    current_index = Some(idx);
+                    current_guid = Some(value.to_string());
+                }
+            }
+        }
+    }
+
+    // Store the last entry
+    if let (Some(idx), Some(guid)) = (current_index, current_guid) {
+        index.insert(guid, idx);
+    }
+
+    tracing::debug!(count = index.len(), "Parsed model index from Data stream");
+    index
+}
+
+/// Parses the `/Library/Models/Header` stream to get the model count.
+///
+/// # Format
+///
+/// The Header stream contains pipe-delimited key=value pairs:
+/// ```text
+/// |HEADER=Protel for Windows...|RECORD_COUNT=2|
+/// ```
+///
+/// # Returns
+///
+/// The number of models in the library, or 0 if parsing fails.
+pub fn parse_model_header_stream(data: &[u8]) -> usize {
+    let Ok(text) = String::from_utf8(data.to_vec()) else {
+        tracing::debug!("Models/Header stream is not valid UTF-8");
+        return 0;
+    };
+
+    for pair in text.split('|') {
+        if pair.is_empty() {
+            continue;
+        }
+
+        if let Some((key, value)) = pair.split_once('=') {
+            if key == "RECORD_COUNT" {
+                if let Ok(count) = value.parse::<usize>() {
+                    tracing::debug!(count, "Parsed model count from Header stream");
+                    return count;
+                }
+            }
+        }
+    }
+
+    0
+}
+
+/// Decompresses a zlib-compressed model stream.
+///
+/// Models in `/Library/Models/{N}` streams are zlib-compressed STEP files.
+///
+/// # Arguments
+///
+/// * `data` - The compressed model data
+///
+/// # Returns
+///
+/// The decompressed STEP file data, or an empty vector on error.
+pub fn decompress_model_data(data: &[u8]) -> Vec<u8> {
+    if data.is_empty() {
+        return Vec::new();
+    }
+
+    let mut decoder = ZlibDecoder::new(data);
+    let mut decompressed = Vec::new();
+
+    match decoder.read_to_end(&mut decompressed) {
+        Ok(size) => {
+            tracing::trace!(
+                compressed = data.len(),
+                decompressed = size,
+                "Decompressed model data"
+            );
+            decompressed
+        }
+        Err(e) => {
+            tracing::debug!(error = %e, "Failed to decompress model data");
+            Vec::new()
+        }
+    }
+}
+
+/// Parses embedded models from the `/Library/Models/` storage.
+///
+/// This function reads the Header and Data streams to understand the model
+/// structure, then extracts and decompresses each model.
+///
+/// # Arguments
+///
+/// * `model_index` - Mapping of GUID to stream index
+/// * `model_data` - Vector of (index, `compressed_data`) pairs
+///
+/// # Returns
+///
+/// A vector of `EmbeddedModel` structs with decompressed STEP data.
+pub fn parse_embedded_models(
+    model_index: &ModelIndex,
+    model_data: &[(usize, Vec<u8>)],
+) -> Vec<EmbeddedModel> {
+    let mut models = Vec::new();
+
+    // Create reverse mapping: index -> GUID
+    let index_to_guid: HashMap<usize, &String> =
+        model_index.iter().map(|(guid, idx)| (*idx, guid)).collect();
+
+    for (idx, compressed) in model_data {
+        let Some(guid) = index_to_guid.get(idx) else {
+            tracing::debug!(index = idx, "Model stream has no GUID mapping");
+            continue;
+        };
+
+        let decompressed = decompress_model_data(compressed);
+        if decompressed.is_empty() {
+            tracing::debug!(guid = %guid, "Failed to decompress model");
+            continue;
+        }
+
+        let model = EmbeddedModel {
+            id: (*guid).clone(),
+            name: String::new(), // Name can be extracted from Data stream if needed
+            data: decompressed,
+            compressed_size: compressed.len(),
+        };
+
+        tracing::debug!(
+            guid = %guid,
+            size = model.data.len(),
+            "Parsed embedded model"
+        );
+        models.push(model);
+    }
+
+    models
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1143,5 +1339,127 @@ mod tests {
         assert_eq!(decode_ascii_codes("72,69,76,76,79"), "HELLO");
         assert_eq!(decode_ascii_codes("65"), "A");
         assert_eq!(decode_ascii_codes(""), "");
+    }
+
+    // =============================================================================
+    // 3D Model Parsing Tests
+    // =============================================================================
+
+    #[test]
+    fn test_parse_model_data_stream() {
+        let data = b"|RECORD0={GUID-1234}|NAME0=model1.step|RECORD1={GUID-5678}|NAME1=model2.step|";
+        let index = parse_model_data_stream(data);
+
+        assert_eq!(index.len(), 2);
+        assert_eq!(index.get("{GUID-1234}"), Some(&0));
+        assert_eq!(index.get("{GUID-5678}"), Some(&1));
+    }
+
+    #[test]
+    fn test_parse_model_data_stream_empty() {
+        let data = b"";
+        let index = parse_model_data_stream(data);
+        assert!(index.is_empty());
+    }
+
+    #[test]
+    fn test_parse_model_data_stream_single() {
+        let data = b"|RECORD0={ABC-DEF}|NAME0=test.step|";
+        let index = parse_model_data_stream(data);
+
+        assert_eq!(index.len(), 1);
+        assert_eq!(index.get("{ABC-DEF}"), Some(&0));
+    }
+
+    #[test]
+    fn test_parse_model_header_stream() {
+        let data = b"|HEADER=Protel for Windows - PCB Models Library|RECORD_COUNT=3|";
+        let count = parse_model_header_stream(data);
+        assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn test_parse_model_header_stream_empty() {
+        let data = b"";
+        let count = parse_model_header_stream(data);
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_parse_model_header_stream_missing_count() {
+        let data = b"|HEADER=Protel for Windows|";
+        let count = parse_model_header_stream(data);
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_decompress_model_data() {
+        // Compress some test data
+        use flate2::write::ZlibEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+
+        let original = b"ISO-10303-21; HEADER; FILE_DESCRIPTION...";
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(original).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        // Decompress it
+        let decompressed = decompress_model_data(&compressed);
+
+        assert_eq!(decompressed, original);
+    }
+
+    #[test]
+    fn test_decompress_model_data_empty() {
+        let data = b"";
+        let result = decompress_model_data(data);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_decompress_model_data_invalid() {
+        let data = b"not valid zlib data";
+        let result = decompress_model_data(data);
+        assert!(result.is_empty()); // Should return empty on error
+    }
+
+    #[test]
+    fn test_parse_embedded_models() {
+        use flate2::write::ZlibEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+
+        // Create mock model index
+        let mut model_index = ModelIndex::new();
+        model_index.insert("{GUID-A}".to_string(), 0);
+        model_index.insert("{GUID-B}".to_string(), 1);
+
+        // Create compressed model data
+        let step_data_a = b"STEP model A content";
+        let step_data_b = b"STEP model B content";
+
+        let mut encoder_a = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder_a.write_all(step_data_a).unwrap();
+        let compressed_a = encoder_a.finish().unwrap();
+
+        let mut encoder_b = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder_b.write_all(step_data_b).unwrap();
+        let compressed_b = encoder_b.finish().unwrap();
+
+        let model_data = vec![(0, compressed_a), (1, compressed_b)];
+
+        // Parse models
+        let models = parse_embedded_models(&model_index, &model_data);
+
+        assert_eq!(models.len(), 2);
+
+        // Find model A
+        let model_a = models.iter().find(|m| m.id == "{GUID-A}").unwrap();
+        assert_eq!(model_a.data, step_data_a);
+
+        // Find model B
+        let model_b = models.iter().find(|m| m.id == "{GUID-B}").unwrap();
+        assert_eq!(model_b.data, step_data_b);
     }
 }

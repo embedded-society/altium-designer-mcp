@@ -56,6 +56,9 @@ csv = "1.3"
 # Glob pattern matching
 glob = "0.3"
 
+# Zlib decompression (for embedded 3D models)
+flate2 = "1.0"
+
 [dev-dependencies]
 # Async testing utilities
 tokio-test = "0.4"

@@ -358,6 +358,57 @@ pub struct Model3D {
     pub rotation: f64,
 }
 
+/// An embedded 3D model stored in the `/Library/Models/` storage.
+///
+/// 3D models in Altium `PcbLib` files are stored as zlib-compressed STEP data.
+/// Each model has a GUID identifier that is referenced by `ComponentBody` records.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EmbeddedModel {
+    /// Model GUID (e.g., "{ABCD1234-5678-90EF-GHIJ-KLMNOPQRSTUV}").
+    pub id: String,
+
+    /// Model filename (e.g., "RESC1005X04L.step").
+    #[serde(default)]
+    pub name: String,
+
+    /// Decompressed STEP file data.
+    ///
+    /// This is the raw STEP/IGES model data after zlib decompression.
+    #[serde(skip)]
+    pub data: Vec<u8>,
+
+    /// Compressed size in bytes (for reference).
+    #[serde(skip)]
+    pub compressed_size: usize,
+}
+
+impl EmbeddedModel {
+    /// Creates a new embedded model with the given ID and data.
+    #[must_use]
+    pub fn new(id: impl Into<String>, name: impl Into<String>, data: Vec<u8>) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            compressed_size: 0,
+            data,
+        }
+    }
+
+    /// Returns the decompressed data as a string (if valid UTF-8).
+    ///
+    /// STEP files are ASCII text, so this should work for valid models.
+    #[must_use]
+    pub fn as_string(&self) -> Option<String> {
+        String::from_utf8(self.data.clone()).ok()
+    }
+
+    /// Returns the size of the decompressed data in bytes.
+    #[must_use]
+    pub fn size(&self) -> usize {
+        self.data.len()
+    }
+}
+
 /// A 3D component body primitive (record type 0x0C).
 ///
 /// This represents an embedded 3D model in the footprint. The model data
