@@ -125,19 +125,19 @@ This document tracks implementation gaps between the documented PcbLib format (`
 - [x] Mechanical 1-16 (IDs 57-72)
 - [x] Mechanical 2-7 aliased to component layers (TopAssembly, BottomAssembly, etc.)
 
-### Missing Special Layers
+### Special Layers - Implemented ✓
 
-- [ ] `ConnectLayer` (ID 75)
-- [ ] `BackgroundLayer` (ID 76)
-- [ ] `DRCErrorLayer` (ID 77)
-- [ ] `HighlightLayer` (ID 78)
-- [ ] `GridColor1` (ID 79)
-- [ ] `GridColor10` (ID 80)
-- [ ] `PadHoleLayer` (ID 81)
-- [ ] `ViaHoleLayer` (ID 82)
-- [ ] `TopPadMaster` (ID 83)
-- [ ] `BottomPadMaster` (ID 84)
-- [ ] `DRCDetailLayer` (ID 85)
+- [x] `ConnectLayer` (ID 75)
+- [x] `BackgroundLayer` (ID 76)
+- [x] `DRCErrorLayer` (ID 77)
+- [x] `HighlightLayer` (ID 78)
+- [x] `GridColor1` (ID 79)
+- [x] `GridColor10` (ID 80)
+- [x] `PadHoleLayer` (ID 81)
+- [x] `ViaHoleLayer` (ID 82)
+- [x] `TopPadMaster` (ID 83)
+- [x] `BottomPadMaster` (ID 84)
+- [x] `DRCDetailLayer` (ID 85)
 
 ## PcbFlags - Not Exposed
 

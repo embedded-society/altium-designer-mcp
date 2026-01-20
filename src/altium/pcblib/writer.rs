@@ -213,6 +213,18 @@ const fn layer_to_id(layer: Layer) -> u8 {
         Layer::Mechanical14 => 70,
         Layer::Mechanical15 => 71,
         Layer::Mechanical16 => 72,
+        // Special layers (IDs 75-85)
+        Layer::ConnectLayer => 75,
+        Layer::BackgroundLayer => 76,
+        Layer::DRCErrorLayer => 77,
+        Layer::HighlightLayer => 78,
+        Layer::GridColor1 => 79,
+        Layer::GridColor10 => 80,
+        Layer::PadHoleLayer => 81,
+        Layer::ViaHoleLayer => 82,
+        Layer::TopPadMaster => 83,
+        Layer::BottomPadMaster => 84,
+        Layer::DRCDetailLayer => 85,
         Layer::MultiLayer => 74,
     }
 }

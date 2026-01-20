@@ -277,7 +277,19 @@ const fn layer_from_id(id: u8) -> Layer {
         72 => Layer::Mechanical16,
         // Drill drawing
         73 => Layer::DrillDrawing,
-        // 74 = Multi-Layer and all other unknown layers
+        // Special layers (IDs 75-85)
+        75 => Layer::ConnectLayer,
+        76 => Layer::BackgroundLayer,
+        77 => Layer::DRCErrorLayer,
+        78 => Layer::HighlightLayer,
+        79 => Layer::GridColor1,
+        80 => Layer::GridColor10,
+        81 => Layer::PadHoleLayer,
+        82 => Layer::ViaHoleLayer,
+        83 => Layer::TopPadMaster,
+        84 => Layer::BottomPadMaster,
+        85 => Layer::DRCDetailLayer,
+        // Unknown layers default to MultiLayer
         _ => Layer::MultiLayer,
     }
 }

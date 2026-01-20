@@ -989,8 +989,43 @@ pub enum Layer {
     #[serde(rename = "Mechanical 16", alias = "Mechanical16")]
     Mechanical16,
 
+    // Special layers (IDs 75-85)
+    /// Connect layer (ID 75).
+    #[serde(rename = "Connect Layer", alias = "ConnectLayer")]
+    ConnectLayer,
+    /// Background layer (ID 76).
+    #[serde(rename = "Background Layer", alias = "BackgroundLayer")]
+    BackgroundLayer,
+    /// DRC error layer (ID 77).
+    #[serde(rename = "DRC Error Layer", alias = "DRCErrorLayer")]
+    DRCErrorLayer,
+    /// Highlight layer (ID 78).
+    #[serde(rename = "Highlight Layer", alias = "HighlightLayer")]
+    HighlightLayer,
+    /// Grid color 1 layer (ID 79).
+    #[serde(rename = "Grid Color 1", alias = "GridColor1")]
+    GridColor1,
+    /// Grid color 10 layer (ID 80).
+    #[serde(rename = "Grid Color 10", alias = "GridColor10")]
+    GridColor10,
+    /// Pad hole layer (ID 81).
+    #[serde(rename = "Pad Hole Layer", alias = "PadHoleLayer")]
+    PadHoleLayer,
+    /// Via hole layer (ID 82).
+    #[serde(rename = "Via Hole Layer", alias = "ViaHoleLayer")]
+    ViaHoleLayer,
+    /// Top pad master layer (ID 83).
+    #[serde(rename = "Top Pad Master", alias = "TopPadMaster")]
+    TopPadMaster,
+    /// Bottom pad master layer (ID 84).
+    #[serde(rename = "Bottom Pad Master", alias = "BottomPadMaster")]
+    BottomPadMaster,
+    /// DRC detail layer (ID 85).
+    #[serde(rename = "DRC Detail Layer", alias = "DRCDetailLayer")]
+    DRCDetailLayer,
+
     // Keep-out
-    /// Keep-out layer.
+    /// Keep-out layer (ID 56).
     #[serde(rename = "Keep-Out Layer", alias = "KeepOut")]
     KeepOut,
 }
@@ -1079,6 +1114,17 @@ impl Layer {
             Self::Mechanical14 => "Mechanical 14",
             Self::Mechanical15 => "Mechanical 15",
             Self::Mechanical16 => "Mechanical 16",
+            Self::ConnectLayer => "Connect Layer",
+            Self::BackgroundLayer => "Background Layer",
+            Self::DRCErrorLayer => "DRC Error Layer",
+            Self::HighlightLayer => "Highlight Layer",
+            Self::GridColor1 => "Grid Color 1",
+            Self::GridColor10 => "Grid Color 10",
+            Self::PadHoleLayer => "Pad Hole Layer",
+            Self::ViaHoleLayer => "Via Hole Layer",
+            Self::TopPadMaster => "Top Pad Master",
+            Self::BottomPadMaster => "Bottom Pad Master",
+            Self::DRCDetailLayer => "DRC Detail Layer",
             Self::KeepOut => "Keep-Out Layer",
         }
     }
@@ -1166,6 +1212,17 @@ impl Layer {
             "Mechanical 14" => Some(Self::Mechanical14),
             "Mechanical 15" => Some(Self::Mechanical15),
             "Mechanical 16" => Some(Self::Mechanical16),
+            "Connect Layer" => Some(Self::ConnectLayer),
+            "Background Layer" => Some(Self::BackgroundLayer),
+            "DRC Error Layer" => Some(Self::DRCErrorLayer),
+            "Highlight Layer" => Some(Self::HighlightLayer),
+            "Grid Color 1" => Some(Self::GridColor1),
+            "Grid Color 10" => Some(Self::GridColor10),
+            "Pad Hole Layer" => Some(Self::PadHoleLayer),
+            "Via Hole Layer" => Some(Self::ViaHoleLayer),
+            "Top Pad Master" => Some(Self::TopPadMaster),
+            "Bottom Pad Master" => Some(Self::BottomPadMaster),
+            "DRC Detail Layer" => Some(Self::DRCDetailLayer),
             "Keep-Out Layer" => Some(Self::KeepOut),
             _ => None,
         }
