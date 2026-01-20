@@ -95,12 +95,12 @@ This document tracks implementation gaps between the documented PcbLib format (`
 - [x] Parse stroke font ID (bytes 25-26 in geometry block)
 - [x] Write stroke font ID
 
-### Text Justification - Not Exposed
+### Text Justification - Implemented ✓
 
-- [ ] Add `TextJustification` enum with 9 positions (BottomRight, BottomCenter, etc.)
-- [ ] Add `justification: TextJustification` field to `Text`
-- [ ] Parse justification from geometry block
-- [ ] Write justification (currently hardcoded to 4 in writer.rs line 391)
+- [x] Add `TextJustification` enum with 9 positions (BottomLeft, BottomCenter, etc.)
+- [x] Add `justification: TextJustification` field to `Text`
+- [x] Parse justification from geometry block (offset 67)
+- [x] Write justification to geometry block
 
 ## Layers - Incomplete Coverage
 

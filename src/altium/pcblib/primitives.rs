@@ -480,6 +480,35 @@ pub enum StrokeFont {
     Serif,
 }
 
+/// Text justification (alignment).
+///
+/// Specifies how text is aligned relative to its anchor point.
+/// The 9 positions form a 3x3 grid combining vertical (Bottom/Middle/Top)
+/// and horizontal (Left/Center/Right) alignment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TextJustification {
+    /// Bottom-left aligned.
+    BottomLeft,
+    /// Bottom-center aligned.
+    BottomCenter,
+    /// Bottom-right aligned.
+    BottomRight,
+    /// Middle-left aligned.
+    MiddleLeft,
+    /// Middle-center aligned.
+    #[default]
+    MiddleCenter,
+    /// Middle-right aligned.
+    MiddleRight,
+    /// Top-left aligned.
+    TopLeft,
+    /// Top-center aligned.
+    TopCenter,
+    /// Top-right aligned.
+    TopRight,
+}
+
 /// A text string on a layer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Text {
@@ -502,6 +531,9 @@ pub struct Text {
     /// Stroke font type (only applies when `kind` is `Stroke`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stroke_font: Option<StrokeFont>,
+    /// Text justification (alignment).
+    #[serde(default)]
+    pub justification: TextJustification,
 }
 
 /// A filled rectangle on a layer.
