@@ -853,6 +853,64 @@ pub enum Layer {
     #[serde(rename = "Bottom Solder", alias = "BottomSolder")]
     BottomSolder,
 
+    // Internal planes (IDs 39-54)
+    /// Internal plane 1 (ID 39).
+    #[serde(rename = "Internal Plane 1", alias = "InternalPlane1")]
+    InternalPlane1,
+    /// Internal plane 2 (ID 40).
+    #[serde(rename = "Internal Plane 2", alias = "InternalPlane2")]
+    InternalPlane2,
+    /// Internal plane 3 (ID 41).
+    #[serde(rename = "Internal Plane 3", alias = "InternalPlane3")]
+    InternalPlane3,
+    /// Internal plane 4 (ID 42).
+    #[serde(rename = "Internal Plane 4", alias = "InternalPlane4")]
+    InternalPlane4,
+    /// Internal plane 5 (ID 43).
+    #[serde(rename = "Internal Plane 5", alias = "InternalPlane5")]
+    InternalPlane5,
+    /// Internal plane 6 (ID 44).
+    #[serde(rename = "Internal Plane 6", alias = "InternalPlane6")]
+    InternalPlane6,
+    /// Internal plane 7 (ID 45).
+    #[serde(rename = "Internal Plane 7", alias = "InternalPlane7")]
+    InternalPlane7,
+    /// Internal plane 8 (ID 46).
+    #[serde(rename = "Internal Plane 8", alias = "InternalPlane8")]
+    InternalPlane8,
+    /// Internal plane 9 (ID 47).
+    #[serde(rename = "Internal Plane 9", alias = "InternalPlane9")]
+    InternalPlane9,
+    /// Internal plane 10 (ID 48).
+    #[serde(rename = "Internal Plane 10", alias = "InternalPlane10")]
+    InternalPlane10,
+    /// Internal plane 11 (ID 49).
+    #[serde(rename = "Internal Plane 11", alias = "InternalPlane11")]
+    InternalPlane11,
+    /// Internal plane 12 (ID 50).
+    #[serde(rename = "Internal Plane 12", alias = "InternalPlane12")]
+    InternalPlane12,
+    /// Internal plane 13 (ID 51).
+    #[serde(rename = "Internal Plane 13", alias = "InternalPlane13")]
+    InternalPlane13,
+    /// Internal plane 14 (ID 52).
+    #[serde(rename = "Internal Plane 14", alias = "InternalPlane14")]
+    InternalPlane14,
+    /// Internal plane 15 (ID 53).
+    #[serde(rename = "Internal Plane 15", alias = "InternalPlane15")]
+    InternalPlane15,
+    /// Internal plane 16 (ID 54).
+    #[serde(rename = "Internal Plane 16", alias = "InternalPlane16")]
+    InternalPlane16,
+
+    // Drill layers
+    /// Drill guide layer (ID 55).
+    #[serde(rename = "Drill Guide", alias = "DrillGuide")]
+    DrillGuide,
+    /// Drill drawing layer (ID 73).
+    #[serde(rename = "Drill Drawing", alias = "DrillDrawing")]
+    DrillDrawing,
+
     // Paste
     /// Top solder paste.
     #[serde(rename = "Top Paste", alias = "TopPaste")]
@@ -882,18 +940,54 @@ pub enum Layer {
     Bottom3DBody,
 
     // Generic mechanical layers (use component layer pairs when possible)
-    /// Mechanical layer 1.
+    /// Mechanical layer 1 (ID 57).
     #[serde(rename = "Mechanical 1", alias = "Mechanical1")]
     Mechanical1,
-    /// Mechanical layer 2.
+    /// Mechanical layer 2 (ID 58 - aliased to `TopAssembly`).
     #[serde(rename = "Mechanical 2", alias = "Mechanical2")]
     Mechanical2,
-    /// Mechanical layer 13.
+    /// Mechanical layer 3 (ID 59 - aliased to `BottomAssembly`).
+    #[serde(rename = "Mechanical 3", alias = "Mechanical3")]
+    Mechanical3,
+    /// Mechanical layer 4 (ID 60 - aliased to `TopCourtyard`).
+    #[serde(rename = "Mechanical 4", alias = "Mechanical4")]
+    Mechanical4,
+    /// Mechanical layer 5 (ID 61 - aliased to `BottomCourtyard`).
+    #[serde(rename = "Mechanical 5", alias = "Mechanical5")]
+    Mechanical5,
+    /// Mechanical layer 6 (ID 62 - aliased to `Top3DBody`).
+    #[serde(rename = "Mechanical 6", alias = "Mechanical6")]
+    Mechanical6,
+    /// Mechanical layer 7 (ID 63 - aliased to `Bottom3DBody`).
+    #[serde(rename = "Mechanical 7", alias = "Mechanical7")]
+    Mechanical7,
+    /// Mechanical layer 8 (ID 64).
+    #[serde(rename = "Mechanical 8", alias = "Mechanical8")]
+    Mechanical8,
+    /// Mechanical layer 9 (ID 65).
+    #[serde(rename = "Mechanical 9", alias = "Mechanical9")]
+    Mechanical9,
+    /// Mechanical layer 10 (ID 66).
+    #[serde(rename = "Mechanical 10", alias = "Mechanical10")]
+    Mechanical10,
+    /// Mechanical layer 11 (ID 67).
+    #[serde(rename = "Mechanical 11", alias = "Mechanical11")]
+    Mechanical11,
+    /// Mechanical layer 12 (ID 68).
+    #[serde(rename = "Mechanical 12", alias = "Mechanical12")]
+    Mechanical12,
+    /// Mechanical layer 13 (ID 69).
     #[serde(rename = "Mechanical 13", alias = "Mechanical13")]
     Mechanical13,
-    /// Mechanical layer 15.
+    /// Mechanical layer 14 (ID 70).
+    #[serde(rename = "Mechanical 14", alias = "Mechanical14")]
+    Mechanical14,
+    /// Mechanical layer 15 (ID 71).
     #[serde(rename = "Mechanical 15", alias = "Mechanical15")]
     Mechanical15,
+    /// Mechanical layer 16 (ID 72).
+    #[serde(rename = "Mechanical 16", alias = "Mechanical16")]
+    Mechanical16,
 
     // Keep-out
     /// Keep-out layer.
@@ -943,6 +1037,24 @@ impl Layer {
             Self::BottomOverlay => "Bottom Overlay",
             Self::TopSolder => "Top Solder",
             Self::BottomSolder => "Bottom Solder",
+            Self::InternalPlane1 => "Internal Plane 1",
+            Self::InternalPlane2 => "Internal Plane 2",
+            Self::InternalPlane3 => "Internal Plane 3",
+            Self::InternalPlane4 => "Internal Plane 4",
+            Self::InternalPlane5 => "Internal Plane 5",
+            Self::InternalPlane6 => "Internal Plane 6",
+            Self::InternalPlane7 => "Internal Plane 7",
+            Self::InternalPlane8 => "Internal Plane 8",
+            Self::InternalPlane9 => "Internal Plane 9",
+            Self::InternalPlane10 => "Internal Plane 10",
+            Self::InternalPlane11 => "Internal Plane 11",
+            Self::InternalPlane12 => "Internal Plane 12",
+            Self::InternalPlane13 => "Internal Plane 13",
+            Self::InternalPlane14 => "Internal Plane 14",
+            Self::InternalPlane15 => "Internal Plane 15",
+            Self::InternalPlane16 => "Internal Plane 16",
+            Self::DrillGuide => "Drill Guide",
+            Self::DrillDrawing => "Drill Drawing",
             Self::TopPaste => "Top Paste",
             Self::BottomPaste => "Bottom Paste",
             Self::TopAssembly => "Top Assembly",
@@ -953,8 +1065,20 @@ impl Layer {
             Self::Bottom3DBody => "Bottom 3D Body",
             Self::Mechanical1 => "Mechanical 1",
             Self::Mechanical2 => "Mechanical 2",
+            Self::Mechanical3 => "Mechanical 3",
+            Self::Mechanical4 => "Mechanical 4",
+            Self::Mechanical5 => "Mechanical 5",
+            Self::Mechanical6 => "Mechanical 6",
+            Self::Mechanical7 => "Mechanical 7",
+            Self::Mechanical8 => "Mechanical 8",
+            Self::Mechanical9 => "Mechanical 9",
+            Self::Mechanical10 => "Mechanical 10",
+            Self::Mechanical11 => "Mechanical 11",
+            Self::Mechanical12 => "Mechanical 12",
             Self::Mechanical13 => "Mechanical 13",
+            Self::Mechanical14 => "Mechanical 14",
             Self::Mechanical15 => "Mechanical 15",
+            Self::Mechanical16 => "Mechanical 16",
             Self::KeepOut => "Keep-Out Layer",
         }
     }
@@ -1000,6 +1124,24 @@ impl Layer {
             "Bottom Overlay" => Some(Self::BottomOverlay),
             "Top Solder" => Some(Self::TopSolder),
             "Bottom Solder" => Some(Self::BottomSolder),
+            "Internal Plane 1" => Some(Self::InternalPlane1),
+            "Internal Plane 2" => Some(Self::InternalPlane2),
+            "Internal Plane 3" => Some(Self::InternalPlane3),
+            "Internal Plane 4" => Some(Self::InternalPlane4),
+            "Internal Plane 5" => Some(Self::InternalPlane5),
+            "Internal Plane 6" => Some(Self::InternalPlane6),
+            "Internal Plane 7" => Some(Self::InternalPlane7),
+            "Internal Plane 8" => Some(Self::InternalPlane8),
+            "Internal Plane 9" => Some(Self::InternalPlane9),
+            "Internal Plane 10" => Some(Self::InternalPlane10),
+            "Internal Plane 11" => Some(Self::InternalPlane11),
+            "Internal Plane 12" => Some(Self::InternalPlane12),
+            "Internal Plane 13" => Some(Self::InternalPlane13),
+            "Internal Plane 14" => Some(Self::InternalPlane14),
+            "Internal Plane 15" => Some(Self::InternalPlane15),
+            "Internal Plane 16" => Some(Self::InternalPlane16),
+            "Drill Guide" => Some(Self::DrillGuide),
+            "Drill Drawing" => Some(Self::DrillDrawing),
             "Top Paste" => Some(Self::TopPaste),
             "Bottom Paste" => Some(Self::BottomPaste),
             "Top Assembly" => Some(Self::TopAssembly),
@@ -1010,8 +1152,20 @@ impl Layer {
             "Bottom 3D Body" => Some(Self::Bottom3DBody),
             "Mechanical 1" => Some(Self::Mechanical1),
             "Mechanical 2" => Some(Self::Mechanical2),
+            "Mechanical 3" => Some(Self::Mechanical3),
+            "Mechanical 4" => Some(Self::Mechanical4),
+            "Mechanical 5" => Some(Self::Mechanical5),
+            "Mechanical 6" => Some(Self::Mechanical6),
+            "Mechanical 7" => Some(Self::Mechanical7),
+            "Mechanical 8" => Some(Self::Mechanical8),
+            "Mechanical 9" => Some(Self::Mechanical9),
+            "Mechanical 10" => Some(Self::Mechanical10),
+            "Mechanical 11" => Some(Self::Mechanical11),
+            "Mechanical 12" => Some(Self::Mechanical12),
             "Mechanical 13" => Some(Self::Mechanical13),
+            "Mechanical 14" => Some(Self::Mechanical14),
             "Mechanical 15" => Some(Self::Mechanical15),
+            "Mechanical 16" => Some(Self::Mechanical16),
             "Keep-Out Layer" => Some(Self::KeepOut),
             _ => None,
         }
