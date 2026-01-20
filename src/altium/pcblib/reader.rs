@@ -260,12 +260,12 @@ const fn layer_from_id(id: u8) -> Layer {
         // Mechanical layers (IDs 57-72)
         57 => Layer::Mechanical1,
         // Component layer pairs (aliased to mechanical layers)
-        58 => Layer::TopAssembly,    // Also Mechanical 2
-        59 => Layer::BottomAssembly, // Also Mechanical 3
-        60 => Layer::TopCourtyard,   // Also Mechanical 4
+        58 => Layer::TopAssembly,     // Also Mechanical 2
+        59 => Layer::BottomAssembly,  // Also Mechanical 3
+        60 => Layer::TopCourtyard,    // Also Mechanical 4
         61 => Layer::BottomCourtyard, // Also Mechanical 5
-        62 => Layer::Top3DBody,      // Also Mechanical 6
-        63 => Layer::Bottom3DBody,   // Also Mechanical 7
+        62 => Layer::Top3DBody,       // Also Mechanical 6
+        63 => Layer::Bottom3DBody,    // Also Mechanical 7
         64 => Layer::Mechanical8,
         65 => Layer::Mechanical9,
         66 => Layer::Mechanical10,
