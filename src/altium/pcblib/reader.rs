@@ -825,18 +825,28 @@ fn parse_per_layer_data(
         }
     }
 
-    // Parse 32 shape entries (32 bytes, starting at offset 256)
-    let mut shapes = Vec::with_capacity(32);
-    for i in 0..32 {
-        let shape_id = data[256 + i];
-        shapes.push(pad_shape_from_id(shape_id));
-    }
-
     // Parse 32 corner radius entries (32 bytes, starting at offset 288)
+    // Parse corner radii first so we can use them to determine shapes
     let mut corner_radii = Vec::with_capacity(32);
     for i in 0..32 {
         let radius = data[288 + i];
         corner_radii.push(radius.min(100)); // Clamp to 0-100
+    }
+
+    // Parse 32 shape entries (32 bytes, starting at offset 256)
+    // Use corner radius to distinguish between Round and RoundedRectangle
+    // since both use shape ID 1 in Altium's binary format
+    let mut shapes = Vec::with_capacity(32);
+    for i in 0..32 {
+        let shape_id = data[256 + i];
+        let shape = pad_shape_from_id(shape_id);
+        // If shape ID is 1 (Round) but corner radius is < 100%, it's RoundedRectangle
+        let adjusted_shape = if shape == PadShape::Round && corner_radii[i] > 0 && corner_radii[i] < 100 {
+            PadShape::RoundedRectangle
+        } else {
+            shape
+        };
+        shapes.push(adjusted_shape);
     }
 
     // Extract corner radius percent from first layer (top layer, index 0)
@@ -1917,9 +1927,63 @@ mod tests {
 
     #[test]
     fn test_layer_from_id() {
+        // Copper layers
         assert_eq!(layer_from_id(1), Layer::TopLayer);
         assert_eq!(layer_from_id(32), Layer::BottomLayer);
         assert_eq!(layer_from_id(74), Layer::MultiLayer);
+
+        // Mid layers (2-31)
+        assert_eq!(layer_from_id(2), Layer::MidLayer1);
+        assert_eq!(layer_from_id(3), Layer::MidLayer2);
+        assert_eq!(layer_from_id(16), Layer::MidLayer15);
+        assert_eq!(layer_from_id(31), Layer::MidLayer30);
+
+        // Silkscreen and mask layers
+        assert_eq!(layer_from_id(33), Layer::TopOverlay);
+        assert_eq!(layer_from_id(34), Layer::BottomOverlay);
+        assert_eq!(layer_from_id(35), Layer::TopPaste);
+        assert_eq!(layer_from_id(36), Layer::BottomPaste);
+        assert_eq!(layer_from_id(37), Layer::TopSolder);
+        assert_eq!(layer_from_id(38), Layer::BottomSolder);
+
+        // Internal planes (39-54)
+        assert_eq!(layer_from_id(39), Layer::InternalPlane1);
+        assert_eq!(layer_from_id(40), Layer::InternalPlane2);
+        assert_eq!(layer_from_id(54), Layer::InternalPlane16);
+
+        // Drill layers
+        assert_eq!(layer_from_id(55), Layer::DrillGuide);
+        assert_eq!(layer_from_id(56), Layer::KeepOut);
+        assert_eq!(layer_from_id(73), Layer::DrillDrawing);
+
+        // Mechanical layers (57-72)
+        assert_eq!(layer_from_id(57), Layer::Mechanical1);
+        // Component layer pairs (aliased to mechanical 2-7)
+        assert_eq!(layer_from_id(58), Layer::TopAssembly);
+        assert_eq!(layer_from_id(59), Layer::BottomAssembly);
+        assert_eq!(layer_from_id(60), Layer::TopCourtyard);
+        assert_eq!(layer_from_id(61), Layer::BottomCourtyard);
+        assert_eq!(layer_from_id(62), Layer::Top3DBody);
+        assert_eq!(layer_from_id(63), Layer::Bottom3DBody);
+        assert_eq!(layer_from_id(64), Layer::Mechanical8);
+        assert_eq!(layer_from_id(72), Layer::Mechanical16);
+
+        // Special layers (75-85)
+        assert_eq!(layer_from_id(75), Layer::ConnectLayer);
+        assert_eq!(layer_from_id(76), Layer::BackgroundLayer);
+        assert_eq!(layer_from_id(77), Layer::DRCErrorLayer);
+        assert_eq!(layer_from_id(78), Layer::HighlightLayer);
+        assert_eq!(layer_from_id(79), Layer::GridColor1);
+        assert_eq!(layer_from_id(80), Layer::GridColor10);
+        assert_eq!(layer_from_id(81), Layer::PadHoleLayer);
+        assert_eq!(layer_from_id(82), Layer::ViaHoleLayer);
+        assert_eq!(layer_from_id(83), Layer::TopPadMaster);
+        assert_eq!(layer_from_id(84), Layer::BottomPadMaster);
+        assert_eq!(layer_from_id(85), Layer::DRCDetailLayer);
+
+        // Unknown IDs should default to MultiLayer
+        assert_eq!(layer_from_id(0), Layer::MultiLayer);
+        assert_eq!(layer_from_id(255), Layer::MultiLayer);
     }
 
     #[test]

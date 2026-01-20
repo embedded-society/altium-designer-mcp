@@ -181,15 +181,19 @@ Note: Text primitive uses byte 1 for `TextKind` instead of flags, so flags are a
 Note: All parse functions now return `ParseResult<T>` which is `Result<(T, usize), AltiumError>`.
 Error messages include the primitive type, block number, and byte offset where parsing failed.
 
-### Testing
+### Testing - Mostly Complete
 
 - [x] Add roundtrip tests for Via primitive
 - [x] Add tests for WideStrings parsing
 - [x] Add tests for 3D model parsing and embedding
 - [x] Add tests for pad hole shapes, mask expansion (basic features)
-- [ ] Add tests for advanced pad features (stack modes, per-layer data)
-- [ ] Add tests for all layer ID mappings
+- [x] Add tests for advanced pad features (stack modes, per-layer data)
+- [x] Add tests for all layer ID mappings
 - [ ] Add integration tests with real Altium library files
+
+Note: Tests added for `PadStackMode` (Simple, TopMiddleBottom, FullStack), per-layer pad data
+(sizes, shapes, corner radii, offsets), and comprehensive layer ID mapping tests covering
+all copper layers, mid layers, mask layers, internal planes, mechanical layers, and special layers.
 
 ### Documentation
 
