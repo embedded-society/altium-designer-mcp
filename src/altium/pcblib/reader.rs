@@ -46,6 +46,22 @@ type ParseResult<T> = Result<(T, usize), AltiumError>;
 /// where c1,c2,c3 are ASCII character codes.
 pub type WideStrings = HashMap<usize, String>;
 
+/// A unique ID entry parsed from the `UniqueIDPrimitiveInformation` stream.
+///
+/// Each entry maps a primitive (by index and type) to its unique ID.
+#[derive(Debug, Clone)]
+pub struct UniqueIdEntry {
+    /// Primitive index (1-indexed, as stored in Altium files).
+    pub primitive_index: usize,
+    /// Primitive object type (e.g., "Pad", "Track", "Arc").
+    pub primitive_type: String,
+    /// Unique ID (8-character alphanumeric string).
+    pub unique_id: String,
+}
+
+/// A list of unique ID entries for primitives in a footprint.
+pub type UniqueIdMap = Vec<UniqueIdEntry>;
+
 /// Parses the `/WideStrings` stream content.
 ///
 /// # Format
@@ -103,6 +119,202 @@ fn decode_ascii_codes(encoded: &str) -> String {
         .filter_map(|s| s.trim().parse::<u8>().ok())
         .map(|c| c as char)
         .collect()
+}
+
+/// Parses the `UniqueIDPrimitiveInformation/Data` stream content.
+///
+/// # Format
+///
+/// The stream contains length-prefixed records:
+/// ```text
+/// [length:4 LE u32][record_content:length]
+/// [length:4 LE u32][record_content:length]
+/// ...
+/// ```
+///
+/// Each record content is a pipe-delimited key=value string:
+/// ```text
+/// |PRIMITIVEINDEX=1|PRIMITIVEOBJECTID=Pad|UNIQUEID=QHHMRSCB
+/// ```
+///
+/// # Arguments
+///
+/// * `data` - The raw `UniqueIDPrimitiveInformation/Data` stream bytes
+///
+/// # Returns
+///
+/// A vector of `UniqueIdEntry` structs mapping primitives to their unique IDs.
+pub fn parse_unique_id_stream(data: &[u8]) -> UniqueIdMap {
+    let mut entries = UniqueIdMap::new();
+    let mut offset = 0;
+
+    while offset + 4 <= data.len() {
+        // Read 4-byte little-endian length
+        let Some(record_len) = read_u32(data, offset) else {
+            break;
+        };
+        let record_len = record_len as usize;
+        offset += 4;
+
+        // Sanity check on record length
+        if record_len == 0 || record_len > 10000 || offset + record_len > data.len() {
+            tracing::debug!(
+                offset,
+                record_len,
+                "Invalid UniqueID record length, stopping parse"
+            );
+            break;
+        }
+
+        // Read record content as string
+        let record_data = &data[offset..offset + record_len];
+        offset += record_len;
+
+        // Parse the pipe-delimited record
+        if let Ok(record_str) = String::from_utf8(record_data.to_vec()) {
+            if let Some(entry) = parse_unique_id_record(&record_str) {
+                tracing::trace!(
+                    index = entry.primitive_index,
+                    primitive_type = %entry.primitive_type,
+                    unique_id = %entry.unique_id,
+                    "Parsed UniqueID entry"
+                );
+                entries.push(entry);
+            }
+        }
+    }
+
+    tracing::debug!(count = entries.len(), "Parsed UniqueIDPrimitiveInformation stream");
+    entries
+}
+
+/// Parses a single unique ID record string.
+///
+/// # Format
+///
+/// ```text
+/// |PRIMITIVEINDEX=1|PRIMITIVEOBJECTID=Pad|UNIQUEID=QHHMRSCB
+/// ```
+fn parse_unique_id_record(record: &str) -> Option<UniqueIdEntry> {
+    let mut primitive_index: Option<usize> = None;
+    let mut primitive_type: Option<String> = None;
+    let mut unique_id: Option<String> = None;
+
+    for pair in record.split('|') {
+        if pair.is_empty() {
+            continue;
+        }
+
+        if let Some((key, value)) = pair.split_once('=') {
+            match key {
+                "PRIMITIVEINDEX" => {
+                    primitive_index = value.parse().ok();
+                }
+                "PRIMITIVEOBJECTID" => {
+                    primitive_type = Some(value.to_string());
+                }
+                "UNIQUEID" => {
+                    unique_id = Some(value.to_string());
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // Only return if we have all required fields
+    match (primitive_index, primitive_type, unique_id) {
+        (Some(index), Some(ptype), Some(uid)) if !uid.is_empty() => Some(UniqueIdEntry {
+            primitive_index: index,
+            primitive_type: ptype,
+            unique_id: uid,
+        }),
+        _ => None,
+    }
+}
+
+/// Applies unique IDs from the `UniqueIDPrimitiveInformation` stream to footprint primitives.
+///
+/// This function assigns unique IDs to primitives based on their type and index.
+/// The index is 1-based in the Altium format, and represents the order of primitives
+/// within each type (e.g., the 3rd Pad is index 3, regardless of Tracks in between).
+///
+/// # Arguments
+///
+/// * `footprint` - The footprint to update with unique IDs
+/// * `unique_ids` - The parsed unique ID map from `parse_unique_id_stream`
+pub fn apply_unique_ids(footprint: &mut Footprint, unique_ids: &UniqueIdMap) {
+    // Build lookup by (type, index) for efficient assignment
+    let mut lookup: HashMap<(&str, usize), &str> = HashMap::new();
+    for entry in unique_ids {
+        lookup.insert(
+            (entry.primitive_type.as_str(), entry.primitive_index),
+            entry.unique_id.as_str(),
+        );
+    }
+
+    // The PRIMITIVEINDEX appears to be 1-indexed and sequential within each primitive type
+    // Apply unique IDs to each primitive type
+
+    // Pads
+    for (i, pad) in footprint.pads.iter_mut().enumerate() {
+        if let Some(&uid) = lookup.get(&("Pad", i + 1)) {
+            pad.unique_id = Some(uid.to_string());
+        }
+    }
+
+    // Vias
+    for (i, via) in footprint.vias.iter_mut().enumerate() {
+        if let Some(&uid) = lookup.get(&("Via", i + 1)) {
+            via.unique_id = Some(uid.to_string());
+        }
+    }
+
+    // Tracks
+    for (i, track) in footprint.tracks.iter_mut().enumerate() {
+        if let Some(&uid) = lookup.get(&("Track", i + 1)) {
+            track.unique_id = Some(uid.to_string());
+        }
+    }
+
+    // Arcs
+    for (i, arc) in footprint.arcs.iter_mut().enumerate() {
+        if let Some(&uid) = lookup.get(&("Arc", i + 1)) {
+            arc.unique_id = Some(uid.to_string());
+        }
+    }
+
+    // Regions
+    for (i, region) in footprint.regions.iter_mut().enumerate() {
+        if let Some(&uid) = lookup.get(&("Region", i + 1)) {
+            region.unique_id = Some(uid.to_string());
+        }
+    }
+
+    // Text
+    for (i, text) in footprint.text.iter_mut().enumerate() {
+        if let Some(&uid) = lookup.get(&("Text", i + 1)) {
+            text.unique_id = Some(uid.to_string());
+        }
+    }
+
+    // Fills
+    for (i, fill) in footprint.fills.iter_mut().enumerate() {
+        if let Some(&uid) = lookup.get(&("Fill", i + 1)) {
+            fill.unique_id = Some(uid.to_string());
+        }
+    }
+
+    // ComponentBodies
+    for (i, body) in footprint.component_bodies.iter_mut().enumerate() {
+        if let Some(&uid) = lookup.get(&("ComponentBody", i + 1)) {
+            body.unique_id = Some(uid.to_string());
+        }
+    }
+
+    tracing::trace!(
+        footprint = %footprint.name,
+        "Applied unique IDs to primitives"
+    );
 }
 
 /// Conversion factor from Altium internal units to millimetres.
@@ -761,6 +973,7 @@ fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
         per_layer_corner_radii,
         per_layer_offsets,
         flags,
+        unique_id: None,
     };
 
     Ok((pad, current))
@@ -1044,6 +1257,7 @@ fn parse_via(data: &[u8], offset: usize) -> ParseResult<Via> {
         thermal_relief_width,
         diameter_stack_mode,
         per_layer_diameters,
+        unique_id: None,
     };
 
     Ok((via, current))
@@ -1110,6 +1324,7 @@ fn parse_track(data: &[u8], offset: usize) -> ParseResult<Track> {
         width,
         layer,
         flags,
+        unique_id: None,
     };
 
     Ok((track, next))
@@ -1172,6 +1387,7 @@ fn parse_arc(data: &[u8], offset: usize) -> ParseResult<Arc> {
         width,
         layer,
         flags,
+        unique_id: None,
     };
 
     Ok((arc, next))
@@ -1300,6 +1516,7 @@ fn parse_text(data: &[u8], offset: usize, wide_strings: Option<&WideStrings>) ->
         stroke_font,
         justification,
         flags,
+        unique_id: None,
     };
 
     Ok((text, current))
@@ -1513,6 +1730,7 @@ fn parse_region(data: &[u8], offset: usize) -> ParseResult<Region> {
         vertices,
         layer,
         flags,
+        unique_id: None,
     };
 
     Ok((region, current))
@@ -1581,6 +1799,7 @@ fn parse_fill(data: &[u8], offset: usize) -> ParseResult<Fill> {
         layer,
         rotation,
         flags,
+        unique_id: None,
     };
 
     Ok((fill, current))
@@ -1661,6 +1880,7 @@ fn parse_component_body(data: &[u8], offset: usize) -> ParseResult<ComponentBody
         overall_height,
         standoff_height,
         layer,
+        unique_id: None,
     };
 
     Ok((body, current))

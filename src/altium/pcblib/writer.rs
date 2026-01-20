@@ -1139,6 +1139,146 @@ pub fn prepare_models_for_writing(models: &[EmbeddedModel]) -> Vec<(usize, Vec<u
         .collect()
 }
 
+// =============================================================================
+// UniqueIDPrimitiveInformation Writing
+// =============================================================================
+
+/// Encodes the `UniqueIDPrimitiveInformation/Data` stream for a footprint.
+///
+/// # Format
+///
+/// The stream contains length-prefixed records:
+/// ```text
+/// [length:4 LE u32][record_content:length]
+/// [length:4 LE u32][record_content:length]
+/// ...
+/// ```
+///
+/// Each record content is a pipe-delimited key=value string:
+/// ```text
+/// |PRIMITIVEINDEX=1|PRIMITIVEOBJECTID=Pad|UNIQUEID=QHHMRSCB
+/// ```
+///
+/// # Arguments
+///
+/// * `footprint` - The footprint containing primitives with unique IDs
+///
+/// # Returns
+///
+/// The encoded stream data, or `None` if no primitives have unique IDs.
+#[allow(clippy::cast_possible_truncation)]
+pub fn encode_unique_id_stream(footprint: &Footprint) -> Option<Vec<u8>> {
+    let mut data = Vec::new();
+    let mut has_any_id = false;
+
+    // Encode each primitive type with its unique IDs
+    // Index is 1-based within each type
+
+    // Pads
+    for (i, pad) in footprint.pads.iter().enumerate() {
+        if let Some(ref uid) = pad.unique_id {
+            encode_unique_id_record(&mut data, i + 1, "Pad", uid);
+            has_any_id = true;
+        }
+    }
+
+    // Vias
+    for (i, via) in footprint.vias.iter().enumerate() {
+        if let Some(ref uid) = via.unique_id {
+            encode_unique_id_record(&mut data, i + 1, "Via", uid);
+            has_any_id = true;
+        }
+    }
+
+    // Tracks
+    for (i, track) in footprint.tracks.iter().enumerate() {
+        if let Some(ref uid) = track.unique_id {
+            encode_unique_id_record(&mut data, i + 1, "Track", uid);
+            has_any_id = true;
+        }
+    }
+
+    // Arcs
+    for (i, arc) in footprint.arcs.iter().enumerate() {
+        if let Some(ref uid) = arc.unique_id {
+            encode_unique_id_record(&mut data, i + 1, "Arc", uid);
+            has_any_id = true;
+        }
+    }
+
+    // Regions
+    for (i, region) in footprint.regions.iter().enumerate() {
+        if let Some(ref uid) = region.unique_id {
+            encode_unique_id_record(&mut data, i + 1, "Region", uid);
+            has_any_id = true;
+        }
+    }
+
+    // Text
+    for (i, text) in footprint.text.iter().enumerate() {
+        if let Some(ref uid) = text.unique_id {
+            encode_unique_id_record(&mut data, i + 1, "Text", uid);
+            has_any_id = true;
+        }
+    }
+
+    // Fills
+    for (i, fill) in footprint.fills.iter().enumerate() {
+        if let Some(ref uid) = fill.unique_id {
+            encode_unique_id_record(&mut data, i + 1, "Fill", uid);
+            has_any_id = true;
+        }
+    }
+
+    // ComponentBodies
+    for (i, body) in footprint.component_bodies.iter().enumerate() {
+        if let Some(ref uid) = body.unique_id {
+            encode_unique_id_record(&mut data, i + 1, "ComponentBody", uid);
+            has_any_id = true;
+        }
+    }
+
+    if has_any_id {
+        Some(data)
+    } else {
+        None
+    }
+}
+
+/// Encodes a single unique ID record.
+///
+/// # Format
+///
+/// ```text
+/// [length:4 LE u32]|PRIMITIVEINDEX={index}|PRIMITIVEOBJECTID={type}|UNIQUEID={uid}
+/// ```
+#[allow(clippy::cast_possible_truncation)]
+fn encode_unique_id_record(data: &mut Vec<u8>, index: usize, primitive_type: &str, unique_id: &str) {
+    let record = format!(
+        "|PRIMITIVEINDEX={}|PRIMITIVEOBJECTID={}|UNIQUEID={}",
+        index, primitive_type, unique_id
+    );
+    let record_bytes = record.as_bytes();
+
+    // Write length prefix (4 bytes LE)
+    write_u32(data, record_bytes.len() as u32);
+
+    // Write record content
+    data.extend_from_slice(record_bytes);
+}
+
+/// Checks if a footprint has any primitives with unique IDs.
+pub fn has_unique_ids(footprint: &Footprint) -> bool {
+    footprint.pads.iter().any(|p| p.unique_id.is_some())
+        || footprint.vias.iter().any(|v| v.unique_id.is_some())
+        || footprint.tracks.iter().any(|t| t.unique_id.is_some())
+        || footprint.arcs.iter().any(|a| a.unique_id.is_some())
+        || footprint.regions.iter().any(|r| r.unique_id.is_some())
+        || footprint.text.iter().any(|t| t.unique_id.is_some())
+        || footprint.fills.iter().any(|f| f.unique_id.is_some())
+        || footprint.component_bodies.iter().any(|b| b.unique_id.is_some())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1311,6 +1451,7 @@ mod tests {
             stroke_font: None,
             justification: TextJustification::MiddleCenter,
             flags: PcbFlags::empty(),
+            unique_id: None,
         });
         fp.add_text(Text {
             x: 1.0,
@@ -1323,6 +1464,7 @@ mod tests {
             stroke_font: None,
             justification: TextJustification::MiddleCenter,
             flags: PcbFlags::empty(),
+            unique_id: None,
         });
 
         let texts = collect_wide_strings_content(&[fp]);

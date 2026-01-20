@@ -2070,6 +2070,7 @@ impl McpServer {
             per_layer_corner_radii: None,
             per_layer_offsets: None,
             flags: PcbFlags::empty(),
+            unique_id: None,
         })
     }
 
@@ -2161,6 +2162,7 @@ impl McpServer {
             width,
             layer,
             flags: PcbFlags::empty(),
+            unique_id: None,
         })
     }
 
@@ -2192,6 +2194,7 @@ impl McpServer {
             vertices,
             layer,
             flags: PcbFlags::empty(),
+            unique_id: None,
         })
     }
 
@@ -2221,6 +2224,7 @@ impl McpServer {
             stroke_font: None,
             justification: TextJustification::MiddleCenter,
             flags: PcbFlags::empty(),
+            unique_id: None,
         })
     }
 

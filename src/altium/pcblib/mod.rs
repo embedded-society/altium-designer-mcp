@@ -550,6 +550,18 @@ impl PcbLib {
             Self::parse_primitives(&mut footprint, &data, wide_strings);
         }
 
+        // Read UniqueIDPrimitiveInformation stream if present (contains unique IDs for primitives)
+        let unique_id_path = storage_path.join("UniqueIDPrimitiveInformation/Data");
+        if cfb.is_stream(&unique_id_path) {
+            if let Ok(mut stream) = cfb.open_stream(&unique_id_path) {
+                let mut uid_data = Vec::new();
+                if std::io::Read::read_to_end(&mut stream, &mut uid_data).is_ok() {
+                    let unique_ids = reader::parse_unique_id_stream(&uid_data);
+                    reader::apply_unique_ids(&mut footprint, &unique_ids);
+                }
+            }
+        }
+
         Ok(footprint)
     }
 
@@ -811,6 +823,36 @@ impl PcbLib {
         std::io::Write::write_all(&mut stream, &data)
             .map_err(|e| AltiumError::invalid_ole(format!("Failed to write Data: {e}")))?;
 
+        // Write UniqueIDPrimitiveInformation stream if any primitives have unique IDs
+        if let Some(uid_data) = writer::encode_unique_id_stream(footprint) {
+            // Create UniqueIDPrimitiveInformation storage
+            let uid_storage_path = format!("{storage_path}/UniqueIDPrimitiveInformation");
+            cfb.create_storage(&uid_storage_path).map_err(|e| {
+                AltiumError::invalid_ole(format!(
+                    "Failed to create UniqueIDPrimitiveInformation storage: {e}"
+                ))
+            })?;
+
+            // Write Data stream inside UniqueIDPrimitiveInformation
+            let uid_data_path = format!("{uid_storage_path}/Data");
+            let mut uid_stream = cfb.create_stream(&uid_data_path).map_err(|e| {
+                AltiumError::invalid_ole(format!(
+                    "Failed to create UniqueIDPrimitiveInformation/Data: {e}"
+                ))
+            })?;
+            std::io::Write::write_all(&mut uid_stream, &uid_data).map_err(|e| {
+                AltiumError::invalid_ole(format!(
+                    "Failed to write UniqueIDPrimitiveInformation/Data: {e}"
+                ))
+            })?;
+
+            tracing::trace!(
+                footprint = %footprint.name,
+                size = uid_data.len(),
+                "Wrote UniqueIDPrimitiveInformation stream"
+            );
+        }
+
         Ok(())
     }
 
@@ -1070,6 +1112,7 @@ mod tests {
             stroke_font: None,
             justification: TextJustification::MiddleCenter,
             flags: PcbFlags::empty(),
+            unique_id: None,
         });
         original.add_text(Text {
             x: 1.5,
@@ -1082,6 +1125,7 @@ mod tests {
             stroke_font: None,
             justification: TextJustification::TopLeft,
             flags: PcbFlags::empty(),
+            unique_id: None,
         });
 
         let data = writer::encode_data_stream(&original);
@@ -1128,6 +1172,7 @@ mod tests {
             ],
             layer: Layer::TopAssembly,
             flags: PcbFlags::empty(),
+            unique_id: None,
         });
 
         // Add a rectangular region
@@ -1170,6 +1215,7 @@ mod tests {
             layer: Layer::BottomPaste,
             rotation: 45.0,
             flags: PcbFlags::empty(),
+            unique_id: None,
         });
 
         let data = writer::encode_data_stream(&original);
@@ -1213,6 +1259,7 @@ mod tests {
             overall_height: 1.0,  // mm
             standoff_height: 0.1, // mm
             layer: Layer::Top3DBody,
+            unique_id: None,
         };
         original.add_component_body(body);
 
@@ -1496,5 +1543,157 @@ mod tests {
         assert!(approx_eq(decoded_offsets[0].1, 0.05, 0.001));
         assert!(approx_eq(decoded_offsets[1].0, 0.0, 0.001));
         assert!(approx_eq(decoded_offsets[1].1, 0.0, 0.001));
+    }
+
+    // =========================================================================
+    // UniqueID Roundtrip Tests
+    // =========================================================================
+
+    #[test]
+    fn unique_id_parse_stream() {
+        // Test parsing the UniqueIDPrimitiveInformation stream format
+        let mut test_data = Vec::new();
+
+        // Record 1: |PRIMITIVEINDEX=1|PRIMITIVEOBJECTID=Pad|UNIQUEID=QHHMRSCB
+        let record1 = b"|PRIMITIVEINDEX=1|PRIMITIVEOBJECTID=Pad|UNIQUEID=QHHMRSCB";
+        test_data.extend_from_slice(&(record1.len() as u32).to_le_bytes());
+        test_data.extend_from_slice(record1);
+
+        // Record 2: |PRIMITIVEINDEX=2|PRIMITIVEOBJECTID=Pad|UNIQUEID=ABCD1234
+        let record2 = b"|PRIMITIVEINDEX=2|PRIMITIVEOBJECTID=Pad|UNIQUEID=ABCD1234";
+        test_data.extend_from_slice(&(record2.len() as u32).to_le_bytes());
+        test_data.extend_from_slice(record2);
+
+        // Record 3: |PRIMITIVEINDEX=1|PRIMITIVEOBJECTID=Track|UNIQUEID=WXYZ9876
+        let record3 = b"|PRIMITIVEINDEX=1|PRIMITIVEOBJECTID=Track|UNIQUEID=WXYZ9876";
+        test_data.extend_from_slice(&(record3.len() as u32).to_le_bytes());
+        test_data.extend_from_slice(record3);
+
+        let entries = reader::parse_unique_id_stream(&test_data);
+
+        assert_eq!(entries.len(), 3);
+
+        assert_eq!(entries[0].primitive_index, 1);
+        assert_eq!(entries[0].primitive_type, "Pad");
+        assert_eq!(entries[0].unique_id, "QHHMRSCB");
+
+        assert_eq!(entries[1].primitive_index, 2);
+        assert_eq!(entries[1].primitive_type, "Pad");
+        assert_eq!(entries[1].unique_id, "ABCD1234");
+
+        assert_eq!(entries[2].primitive_index, 1);
+        assert_eq!(entries[2].primitive_type, "Track");
+        assert_eq!(entries[2].unique_id, "WXYZ9876");
+    }
+
+    #[test]
+    fn unique_id_encode_stream() {
+        // Create a footprint with unique IDs
+        let mut footprint = Footprint::new("TEST_UNIQUE_ID");
+
+        let mut pad1 = Pad::smd("1", -0.5, 0.0, 0.6, 0.5);
+        pad1.unique_id = Some("UID00001".to_string());
+        footprint.add_pad(pad1);
+
+        let mut pad2 = Pad::smd("2", 0.5, 0.0, 0.6, 0.5);
+        pad2.unique_id = Some("UID00002".to_string());
+        footprint.add_pad(pad2);
+
+        let mut track = Track::new(-1.0, 0.0, 1.0, 0.0, 0.15, Layer::TopOverlay);
+        track.unique_id = Some("TRACK001".to_string());
+        footprint.add_track(track);
+
+        // Encode the unique ID stream
+        let uid_data = writer::encode_unique_id_stream(&footprint);
+        assert!(uid_data.is_some());
+
+        // Parse it back
+        let entries = reader::parse_unique_id_stream(&uid_data.unwrap());
+
+        assert_eq!(entries.len(), 3);
+
+        // Find Pad entries
+        let pad_entries: Vec<_> = entries.iter().filter(|e| e.primitive_type == "Pad").collect();
+        assert_eq!(pad_entries.len(), 2);
+        assert_eq!(pad_entries[0].unique_id, "UID00001");
+        assert_eq!(pad_entries[1].unique_id, "UID00002");
+
+        // Find Track entry
+        let track_entries: Vec<_> = entries.iter().filter(|e| e.primitive_type == "Track").collect();
+        assert_eq!(track_entries.len(), 1);
+        assert_eq!(track_entries[0].unique_id, "TRACK001");
+    }
+
+    #[test]
+    fn unique_id_apply_to_footprint() {
+        // Create a footprint without unique IDs
+        let mut footprint = Footprint::new("TEST_APPLY");
+        footprint.add_pad(Pad::smd("1", -0.5, 0.0, 0.6, 0.5));
+        footprint.add_pad(Pad::smd("2", 0.5, 0.0, 0.6, 0.5));
+        footprint.add_track(Track::new(-1.0, 0.0, 1.0, 0.0, 0.15, Layer::TopOverlay));
+
+        // Create unique ID entries
+        let entries = vec![
+            reader::UniqueIdEntry {
+                primitive_index: 1,
+                primitive_type: "Pad".to_string(),
+                unique_id: "PADUID01".to_string(),
+            },
+            reader::UniqueIdEntry {
+                primitive_index: 2,
+                primitive_type: "Pad".to_string(),
+                unique_id: "PADUID02".to_string(),
+            },
+            reader::UniqueIdEntry {
+                primitive_index: 1,
+                primitive_type: "Track".to_string(),
+                unique_id: "TRKUID01".to_string(),
+            },
+        ];
+
+        // Apply unique IDs
+        reader::apply_unique_ids(&mut footprint, &entries);
+
+        // Verify
+        assert_eq!(footprint.pads[0].unique_id, Some("PADUID01".to_string()));
+        assert_eq!(footprint.pads[1].unique_id, Some("PADUID02".to_string()));
+        assert_eq!(footprint.tracks[0].unique_id, Some("TRKUID01".to_string()));
+    }
+
+    #[test]
+    fn unique_id_no_primitives_with_ids() {
+        // Create a footprint without unique IDs
+        let mut footprint = Footprint::new("TEST_NO_IDS");
+        footprint.add_pad(Pad::smd("1", -0.5, 0.0, 0.6, 0.5));
+        footprint.add_pad(Pad::smd("2", 0.5, 0.0, 0.6, 0.5));
+
+        // Encode should return None since no primitives have unique IDs
+        let uid_data = writer::encode_unique_id_stream(&footprint);
+        assert!(uid_data.is_none());
+    }
+
+    #[test]
+    fn unique_id_partial_primitives() {
+        // Create a footprint where only some primitives have unique IDs
+        let mut footprint = Footprint::new("TEST_PARTIAL");
+
+        let mut pad1 = Pad::smd("1", -0.5, 0.0, 0.6, 0.5);
+        pad1.unique_id = Some("ONLYTHIS".to_string());
+        footprint.add_pad(pad1);
+
+        // Pad 2 has no unique ID
+        footprint.add_pad(Pad::smd("2", 0.5, 0.0, 0.6, 0.5));
+
+        // Encode
+        let uid_data = writer::encode_unique_id_stream(&footprint);
+        assert!(uid_data.is_some());
+
+        // Parse back
+        let entries = reader::parse_unique_id_stream(&uid_data.unwrap());
+
+        // Should only have 1 entry (the pad with the unique ID)
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].primitive_index, 1);
+        assert_eq!(entries[0].unique_id, "ONLYTHIS");
     }
 }

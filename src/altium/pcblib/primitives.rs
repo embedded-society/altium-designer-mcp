@@ -173,6 +173,10 @@ pub struct Pad {
     /// Primitive flags (locked, keepout, tenting, etc.).
     #[serde(default, skip_serializing_if = "PcbFlags::is_empty")]
     pub flags: PcbFlags,
+
+    /// Unique ID assigned by Altium (8-character alphanumeric string).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unique_id: Option<String>,
 }
 
 /// Helper for serde to skip default hole shape in serialization.
@@ -207,6 +211,7 @@ impl Pad {
             per_layer_corner_radii: None,
             per_layer_offsets: None,
             flags: PcbFlags::empty(),
+            unique_id: None,
         }
     }
 
@@ -242,6 +247,7 @@ impl Pad {
             per_layer_corner_radii: None,
             per_layer_offsets: None,
             flags: PcbFlags::empty(),
+            unique_id: None,
         }
     }
 }
@@ -363,6 +369,10 @@ pub struct Via {
     /// Index 0 = Top Layer, Index 1 = Bottom Layer, Index 2-31 = Mid Layers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub per_layer_diameters: Option<Vec<f64>>,
+
+    /// Unique ID assigned by Altium (8-character alphanumeric string).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unique_id: Option<String>,
 }
 
 /// Default thermal relief gap (10 mils = 0.254mm).
@@ -401,6 +411,7 @@ impl Via {
             thermal_relief_width: 0.254, // 10 mils
             diameter_stack_mode: ViaStackMode::Simple,
             per_layer_diameters: None,
+            unique_id: None,
         }
     }
 
@@ -428,6 +439,7 @@ impl Via {
             thermal_relief_width: 0.254, // 10 mils
             diameter_stack_mode: ViaStackMode::Simple,
             per_layer_diameters: None,
+            unique_id: None,
         }
     }
 }
@@ -469,6 +481,9 @@ pub struct Track {
     /// Primitive flags (locked, keepout, etc.).
     #[serde(default, skip_serializing_if = "PcbFlags::is_empty")]
     pub flags: PcbFlags,
+    /// Unique ID assigned by Altium (8-character alphanumeric string).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unique_id: Option<String>,
 }
 
 impl Track {
@@ -483,6 +498,7 @@ impl Track {
             width,
             layer,
             flags: PcbFlags::empty(),
+            unique_id: None,
         }
     }
 }
@@ -518,6 +534,7 @@ impl Track {
 ///     width: 0.15,
 ///     layer: Layer::TopOverlay,
 ///     flags: Default::default(),
+///     unique_id: None,
 /// };
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -539,6 +556,9 @@ pub struct Arc {
     /// Primitive flags (locked, keepout, etc.).
     #[serde(default, skip_serializing_if = "PcbFlags::is_empty")]
     pub flags: PcbFlags,
+    /// Unique ID assigned by Altium (8-character alphanumeric string).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unique_id: Option<String>,
 }
 
 impl Arc {
@@ -554,6 +574,7 @@ impl Arc {
             width,
             layer,
             flags: PcbFlags::empty(),
+            unique_id: None,
         }
     }
 }
@@ -568,6 +589,9 @@ pub struct Region {
     /// Primitive flags (locked, keepout, etc.).
     #[serde(default, skip_serializing_if = "PcbFlags::is_empty")]
     pub flags: PcbFlags,
+    /// Unique ID assigned by Altium (8-character alphanumeric string).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unique_id: Option<String>,
 }
 
 impl Region {
@@ -583,6 +607,7 @@ impl Region {
             ],
             layer,
             flags: PcbFlags::empty(),
+            unique_id: None,
         }
     }
 }
@@ -687,6 +712,9 @@ pub struct Text {
     /// Primitive flags (locked, keepout, etc.).
     #[serde(default, skip_serializing_if = "PcbFlags::is_empty")]
     pub flags: PcbFlags,
+    /// Unique ID assigned by Altium (8-character alphanumeric string).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unique_id: Option<String>,
 }
 
 /// A filled rectangle on a layer.
@@ -708,6 +736,9 @@ pub struct Fill {
     /// Primitive flags (locked, keepout, etc.).
     #[serde(default, skip_serializing_if = "PcbFlags::is_empty")]
     pub flags: PcbFlags,
+    /// Unique ID assigned by Altium (8-character alphanumeric string).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unique_id: Option<String>,
 }
 
 impl Fill {
@@ -722,6 +753,7 @@ impl Fill {
             layer,
             rotation: 0.0,
             flags: PcbFlags::empty(),
+            unique_id: None,
         }
     }
 
@@ -738,6 +770,7 @@ impl Fill {
             layer,
             rotation: 0.0,
             flags: PcbFlags::empty(),
+            unique_id: None,
         }
     }
 }
@@ -856,6 +889,10 @@ pub struct ComponentBody {
     /// Layer the body outline is on.
     #[serde(default)]
     pub layer: Layer,
+
+    /// Unique ID assigned by Altium (8-character alphanumeric string).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unique_id: Option<String>,
 }
 
 impl ComponentBody {
@@ -873,6 +910,7 @@ impl ComponentBody {
             overall_height: 0.0,
             standoff_height: 0.0,
             layer: Layer::Top3DBody,
+            unique_id: None,
         }
     }
 }
