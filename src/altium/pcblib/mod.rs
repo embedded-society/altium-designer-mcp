@@ -1172,4 +1172,140 @@ mod tests {
         assert_eq!(decoded.pads[2].designator, "3");
         assert_eq!(decoded.pads[2].hole_shape, HoleShape::Round);
     }
+
+    #[test]
+    fn binary_roundtrip_pad_stack_modes() {
+        let mut original = Footprint::new("ROUNDTRIP_STACK_MODES");
+
+        // Pad with Simple stack mode (default)
+        let pad_simple = Pad::smd("1", -2.54, 0.0, 1.0, 0.5);
+        assert_eq!(pad_simple.stack_mode, PadStackMode::Simple);
+        original.add_pad(pad_simple);
+
+        // Pad with TopMiddleBottom stack mode
+        let mut pad_tmb = Pad::through_hole("2", 0.0, 0.0, 1.5, 1.5, 0.8);
+        pad_tmb.stack_mode = PadStackMode::TopMiddleBottom;
+        original.add_pad(pad_tmb);
+
+        // Pad with FullStack stack mode
+        let mut pad_full = Pad::through_hole("3", 2.54, 0.0, 1.8, 1.8, 1.0);
+        pad_full.stack_mode = PadStackMode::FullStack;
+        original.add_pad(pad_full);
+
+        let data = writer::encode_data_stream(&original);
+        let mut decoded = Footprint::new("ROUNDTRIP_STACK_MODES");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        assert_eq!(decoded.pads.len(), 3);
+
+        // Verify stack modes preserved
+        assert_eq!(decoded.pads[0].stack_mode, PadStackMode::Simple);
+        assert_eq!(decoded.pads[1].stack_mode, PadStackMode::TopMiddleBottom);
+        assert_eq!(decoded.pads[2].stack_mode, PadStackMode::FullStack);
+    }
+
+    #[test]
+    fn binary_roundtrip_pad_corner_radius() {
+        let mut original = Footprint::new("ROUNDTRIP_CORNER_RADIUS");
+
+        // SMD pad with corner radius
+        let mut pad_with_radius = Pad::smd("1", 0.0, 0.0, 2.0, 1.0);
+        pad_with_radius.shape = PadShape::RoundedRectangle;
+        pad_with_radius.corner_radius_percent = Some(25);
+        // Setting corner radius requires FullStack mode
+        pad_with_radius.stack_mode = PadStackMode::FullStack;
+        original.add_pad(pad_with_radius);
+
+        // Pad without corner radius
+        let pad_no_radius = Pad::smd("2", 2.54, 0.0, 1.5, 0.8);
+        original.add_pad(pad_no_radius);
+
+        let data = writer::encode_data_stream(&original);
+        let mut decoded = Footprint::new("ROUNDTRIP_CORNER_RADIUS");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        assert_eq!(decoded.pads.len(), 2);
+
+        // Verify corner radius preserved
+        assert_eq!(decoded.pads[0].corner_radius_percent, Some(25));
+        assert_eq!(decoded.pads[0].stack_mode, PadStackMode::FullStack);
+
+        // Verify no corner radius pad unchanged
+        assert_eq!(decoded.pads[1].corner_radius_percent, None);
+        assert_eq!(decoded.pads[1].stack_mode, PadStackMode::Simple);
+    }
+
+    #[test]
+    fn binary_roundtrip_per_layer_pad_data() {
+        let mut original = Footprint::new("ROUNDTRIP_PER_LAYER");
+
+        // Create a pad with per-layer data
+        let mut pad = Pad::through_hole("1", 0.0, 0.0, 1.6, 1.6, 0.8);
+        pad.stack_mode = PadStackMode::FullStack;
+
+        // Set up per-layer sizes (32 layers)
+        let mut sizes = vec![(1.6, 1.6); 32];
+        sizes[0] = (1.8, 1.8); // Top layer larger
+        sizes[1] = (1.4, 1.4); // Bottom layer smaller
+        pad.per_layer_sizes = Some(sizes);
+
+        // Set up per-layer shapes
+        let mut shapes = vec![PadShape::Round; 32];
+        shapes[0] = PadShape::RoundedRectangle; // Top layer rounded rect
+        pad.per_layer_shapes = Some(shapes);
+
+        // Set up per-layer corner radii
+        let mut radii = vec![0_u8; 32];
+        radii[0] = 50; // Top layer 50% corner radius
+        pad.per_layer_corner_radii = Some(radii);
+
+        // Set up per-layer offsets
+        let mut offsets = vec![(0.0, 0.0); 32];
+        offsets[0] = (0.1, 0.05); // Top layer offset from hole center
+        pad.per_layer_offsets = Some(offsets);
+
+        original.add_pad(pad);
+
+        let data = writer::encode_data_stream(&original);
+        let mut decoded = Footprint::new("ROUNDTRIP_PER_LAYER");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        assert_eq!(decoded.pads.len(), 1);
+        let decoded_pad = &decoded.pads[0];
+
+        // Verify stack mode
+        assert_eq!(decoded_pad.stack_mode, PadStackMode::FullStack);
+
+        // Verify per-layer sizes
+        assert!(decoded_pad.per_layer_sizes.is_some());
+        let decoded_sizes = decoded_pad.per_layer_sizes.as_ref().unwrap();
+        assert_eq!(decoded_sizes.len(), 32);
+        assert!(approx_eq(decoded_sizes[0].0, 1.8, 0.001)); // Top X
+        assert!(approx_eq(decoded_sizes[0].1, 1.8, 0.001)); // Top Y
+        assert!(approx_eq(decoded_sizes[1].0, 1.4, 0.001)); // Bottom X
+        assert!(approx_eq(decoded_sizes[1].1, 1.4, 0.001)); // Bottom Y
+
+        // Verify per-layer shapes
+        assert!(decoded_pad.per_layer_shapes.is_some());
+        let decoded_shapes = decoded_pad.per_layer_shapes.as_ref().unwrap();
+        assert_eq!(decoded_shapes.len(), 32);
+        assert_eq!(decoded_shapes[0], PadShape::RoundedRectangle);
+        assert_eq!(decoded_shapes[1], PadShape::Round);
+
+        // Verify per-layer corner radii
+        assert!(decoded_pad.per_layer_corner_radii.is_some());
+        let decoded_radii = decoded_pad.per_layer_corner_radii.as_ref().unwrap();
+        assert_eq!(decoded_radii.len(), 32);
+        assert_eq!(decoded_radii[0], 50);
+        assert_eq!(decoded_radii[1], 0);
+
+        // Verify per-layer offsets
+        assert!(decoded_pad.per_layer_offsets.is_some());
+        let decoded_offsets = decoded_pad.per_layer_offsets.as_ref().unwrap();
+        assert_eq!(decoded_offsets.len(), 32);
+        assert!(approx_eq(decoded_offsets[0].0, 0.1, 0.001));
+        assert!(approx_eq(decoded_offsets[0].1, 0.05, 0.001));
+        assert!(approx_eq(decoded_offsets[1].0, 0.0, 0.001));
+        assert!(approx_eq(decoded_offsets[1].1, 0.0, 0.001));
+    }
 }

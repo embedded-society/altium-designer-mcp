@@ -1171,9 +1171,66 @@ mod tests {
 
     #[test]
     fn test_layer_to_id() {
+        // Copper layers
         assert_eq!(layer_to_id(Layer::TopLayer), 1);
         assert_eq!(layer_to_id(Layer::BottomLayer), 32);
         assert_eq!(layer_to_id(Layer::MultiLayer), 74);
+
+        // Mid layers (2-31)
+        assert_eq!(layer_to_id(Layer::MidLayer1), 2);
+        assert_eq!(layer_to_id(Layer::MidLayer2), 3);
+        assert_eq!(layer_to_id(Layer::MidLayer15), 16);
+        assert_eq!(layer_to_id(Layer::MidLayer30), 31);
+
+        // Silkscreen and mask layers
+        assert_eq!(layer_to_id(Layer::TopOverlay), 33);
+        assert_eq!(layer_to_id(Layer::BottomOverlay), 34);
+        assert_eq!(layer_to_id(Layer::TopPaste), 35);
+        assert_eq!(layer_to_id(Layer::BottomPaste), 36);
+        assert_eq!(layer_to_id(Layer::TopSolder), 37);
+        assert_eq!(layer_to_id(Layer::BottomSolder), 38);
+
+        // Internal planes (39-54)
+        assert_eq!(layer_to_id(Layer::InternalPlane1), 39);
+        assert_eq!(layer_to_id(Layer::InternalPlane2), 40);
+        assert_eq!(layer_to_id(Layer::InternalPlane16), 54);
+
+        // Drill layers
+        assert_eq!(layer_to_id(Layer::DrillGuide), 55);
+        assert_eq!(layer_to_id(Layer::KeepOut), 56);
+        assert_eq!(layer_to_id(Layer::DrillDrawing), 73);
+
+        // Mechanical layers (57-72)
+        assert_eq!(layer_to_id(Layer::Mechanical1), 57);
+        // Component layer pairs (aliased to mechanical 2-7)
+        assert_eq!(layer_to_id(Layer::TopAssembly), 58);
+        assert_eq!(layer_to_id(Layer::BottomAssembly), 59);
+        assert_eq!(layer_to_id(Layer::TopCourtyard), 60);
+        assert_eq!(layer_to_id(Layer::BottomCourtyard), 61);
+        assert_eq!(layer_to_id(Layer::Top3DBody), 62);
+        assert_eq!(layer_to_id(Layer::Bottom3DBody), 63);
+        // Mechanical aliases for the same layers
+        assert_eq!(layer_to_id(Layer::Mechanical2), 58);
+        assert_eq!(layer_to_id(Layer::Mechanical3), 59);
+        assert_eq!(layer_to_id(Layer::Mechanical4), 60);
+        assert_eq!(layer_to_id(Layer::Mechanical5), 61);
+        assert_eq!(layer_to_id(Layer::Mechanical6), 62);
+        assert_eq!(layer_to_id(Layer::Mechanical7), 63);
+        assert_eq!(layer_to_id(Layer::Mechanical8), 64);
+        assert_eq!(layer_to_id(Layer::Mechanical16), 72);
+
+        // Special layers (75-85)
+        assert_eq!(layer_to_id(Layer::ConnectLayer), 75);
+        assert_eq!(layer_to_id(Layer::BackgroundLayer), 76);
+        assert_eq!(layer_to_id(Layer::DRCErrorLayer), 77);
+        assert_eq!(layer_to_id(Layer::HighlightLayer), 78);
+        assert_eq!(layer_to_id(Layer::GridColor1), 79);
+        assert_eq!(layer_to_id(Layer::GridColor10), 80);
+        assert_eq!(layer_to_id(Layer::PadHoleLayer), 81);
+        assert_eq!(layer_to_id(Layer::ViaHoleLayer), 82);
+        assert_eq!(layer_to_id(Layer::TopPadMaster), 83);
+        assert_eq!(layer_to_id(Layer::BottomPadMaster), 84);
+        assert_eq!(layer_to_id(Layer::DRCDetailLayer), 85);
     }
 
     #[test]
