@@ -943,22 +943,22 @@ pub enum Layer {
     /// Mechanical layer 1 (ID 57).
     #[serde(rename = "Mechanical 1", alias = "Mechanical1")]
     Mechanical1,
-    /// Mechanical layer 2 (ID 58 - aliased to TopAssembly).
+    /// Mechanical layer 2 (ID 58 - aliased to `TopAssembly`).
     #[serde(rename = "Mechanical 2", alias = "Mechanical2")]
     Mechanical2,
-    /// Mechanical layer 3 (ID 59 - aliased to BottomAssembly).
+    /// Mechanical layer 3 (ID 59 - aliased to `BottomAssembly`).
     #[serde(rename = "Mechanical 3", alias = "Mechanical3")]
     Mechanical3,
-    /// Mechanical layer 4 (ID 60 - aliased to TopCourtyard).
+    /// Mechanical layer 4 (ID 60 - aliased to `TopCourtyard`).
     #[serde(rename = "Mechanical 4", alias = "Mechanical4")]
     Mechanical4,
-    /// Mechanical layer 5 (ID 61 - aliased to BottomCourtyard).
+    /// Mechanical layer 5 (ID 61 - aliased to `BottomCourtyard`).
     #[serde(rename = "Mechanical 5", alias = "Mechanical5")]
     Mechanical5,
-    /// Mechanical layer 6 (ID 62 - aliased to Top3DBody).
+    /// Mechanical layer 6 (ID 62 - aliased to `Top3DBody`).
     #[serde(rename = "Mechanical 6", alias = "Mechanical6")]
     Mechanical6,
-    /// Mechanical layer 7 (ID 63 - aliased to Bottom3DBody).
+    /// Mechanical layer 7 (ID 63 - aliased to `Bottom3DBody`).
     #[serde(rename = "Mechanical 7", alias = "Mechanical7")]
     Mechanical7,
     /// Mechanical layer 8 (ID 64).

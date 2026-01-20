@@ -197,18 +197,12 @@ const fn layer_to_id(layer: Layer) -> u8 {
         Layer::KeepOut => 56,
         Layer::Mechanical1 => 57,
         // Component layer pairs (from sample library)
-        Layer::TopAssembly => 58,
-        Layer::Mechanical2 => 58, // Aliased to TopAssembly
-        Layer::BottomAssembly => 59,
-        Layer::Mechanical3 => 59, // Aliased to BottomAssembly
-        Layer::TopCourtyard => 60,
-        Layer::Mechanical4 => 60, // Aliased to TopCourtyard
-        Layer::BottomCourtyard => 61,
-        Layer::Mechanical5 => 61, // Aliased to BottomCourtyard
-        Layer::Top3DBody => 62,
-        Layer::Mechanical6 => 62, // Aliased to Top3DBody
-        Layer::Bottom3DBody => 63,
-        Layer::Mechanical7 => 63, // Aliased to Bottom3DBody
+        Layer::TopAssembly | Layer::Mechanical2 => 58,
+        Layer::BottomAssembly | Layer::Mechanical3 => 59,
+        Layer::TopCourtyard | Layer::Mechanical4 => 60,
+        Layer::BottomCourtyard | Layer::Mechanical5 => 61,
+        Layer::Top3DBody | Layer::Mechanical6 => 62,
+        Layer::Bottom3DBody | Layer::Mechanical7 => 63,
         // Remaining mechanical layers (IDs 64-72)
         Layer::Mechanical8 => 64,
         Layer::Mechanical9 => 65,
