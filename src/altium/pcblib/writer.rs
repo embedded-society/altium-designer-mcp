@@ -15,7 +15,7 @@
 
 use super::primitives::{
     Arc, ComponentBody, Fill, HoleShape, Layer, Pad, PadShape, PadStackMode, Region, StrokeFont,
-    Text, TextKind, Track, Via, ViaStackMode,
+    Text, TextJustification, TextKind, Track, Via, ViaStackMode,
 };
 use super::Footprint;
 
@@ -611,6 +611,21 @@ const fn stroke_font_to_id(font: StrokeFont) -> u16 {
     }
 }
 
+/// Converts a `TextJustification` to its binary ID.
+const fn justification_to_id(justification: TextJustification) -> u8 {
+    match justification {
+        TextJustification::BottomLeft => 0,
+        TextJustification::BottomCenter => 1,
+        TextJustification::BottomRight => 2,
+        TextJustification::MiddleLeft => 3,
+        TextJustification::MiddleCenter => 4,
+        TextJustification::MiddleRight => 5,
+        TextJustification::TopLeft => 6,
+        TextJustification::TopCenter => 7,
+        TextJustification::TopRight => 8,
+    }
+}
+
 /// Encodes a Track primitive.
 fn encode_track(data: &mut Vec<u8>, track: &Track) {
     let mut block = Vec::with_capacity(64);
@@ -738,7 +753,7 @@ fn encode_text_geometry(text: &Text) -> Vec<u8> {
 
     // More font/text settings (defaults)
     write_i32(&mut block, from_mm(text.height)); // line_spacing
-    block.push(0x04); // justification
+    block.push(justification_to_id(text.justification)); // justification
     block.push(0x00);
     write_i32(&mut block, from_mm(text.height)); // glyph_width
 
@@ -1167,6 +1182,7 @@ mod tests {
             rotation: 0.0,
             kind: TextKind::Stroke,
             stroke_font: None,
+            justification: TextJustification::MiddleCenter,
         });
         fp.add_text(Text {
             x: 1.0,
@@ -1177,6 +1193,7 @@ mod tests {
             rotation: 0.0,
             kind: TextKind::Stroke,
             stroke_font: None,
+            justification: TextJustification::MiddleCenter,
         });
 
         let texts = collect_wide_strings_content(&[fp]);

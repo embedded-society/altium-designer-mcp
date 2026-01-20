@@ -2191,7 +2191,7 @@ impl McpServer {
 
     /// Parses text from JSON.
     fn parse_text(json: &Value) -> Option<crate::altium::pcblib::Text> {
-        use crate::altium::pcblib::{Layer, Text, TextKind};
+        use crate::altium::pcblib::{Layer, Text, TextJustification, TextKind};
 
         let x = json.get("x").and_then(Value::as_f64)?;
         let y = json.get("y").and_then(Value::as_f64)?;
@@ -2213,6 +2213,7 @@ impl McpServer {
             rotation,
             kind: TextKind::Stroke,
             stroke_font: None,
+            justification: TextJustification::MiddleCenter,
         })
     }
 

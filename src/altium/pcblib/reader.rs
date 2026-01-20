@@ -28,7 +28,7 @@ use std::collections::HashMap;
 
 use super::primitives::{
     Arc, ComponentBody, Fill, HoleShape, Layer, Pad, PadShape, PadStackMode, Region, StrokeFont,
-    Text, TextKind, Track, Vertex, Via, ViaStackMode,
+    Text, TextJustification, TextKind, Track, Vertex, Via, ViaStackMode,
 };
 use super::Footprint;
 
@@ -273,6 +273,32 @@ const fn stroke_font_from_id(id: u16) -> StrokeFont {
         1 => StrokeFont::SansSerif,
         2 => StrokeFont::Serif,
         _ => StrokeFont::Default, // Default and ID 0
+    }
+}
+
+/// Converts Altium text justification ID to our `TextJustification` enum.
+///
+/// Justification IDs form a 3x3 grid:
+/// - 0: `BottomLeft`
+/// - 1: `BottomCenter`
+/// - 2: `BottomRight`
+/// - 3: `MiddleLeft`
+/// - 4: `MiddleCenter`
+/// - 5: `MiddleRight`
+/// - 6: `TopLeft`
+/// - 7: `TopCenter`
+/// - 8: `TopRight`
+const fn justification_from_id(id: u8) -> TextJustification {
+    match id {
+        0 => TextJustification::BottomLeft,
+        1 => TextJustification::BottomCenter,
+        2 => TextJustification::BottomRight,
+        3 => TextJustification::MiddleLeft,
+        5 => TextJustification::MiddleRight,
+        6 => TextJustification::TopLeft,
+        7 => TextJustification::TopCenter,
+        8 => TextJustification::TopRight,
+        _ => TextJustification::MiddleCenter, // Default and ID 4
     }
 }
 
@@ -1015,6 +1041,15 @@ fn parse_text(
         0.0
     };
 
+    // Justification - offset 67 (assuming "Arial" font name)
+    // The offset varies based on font name length, but 67 works for typical cases.
+    // Format: line_spacing (4 bytes at 63-66) then justification (1 byte at 67)
+    let justification = if geometry_block.len() > 67 {
+        justification_from_id(geometry_block[67])
+    } else {
+        TextJustification::MiddleCenter
+    };
+
     // Block 1: Text content
     let text_content = if let Some((text_block, next)) = read_block(data, current) {
         current = next;
@@ -1041,6 +1076,7 @@ fn parse_text(
         rotation,
         kind,
         stroke_font,
+        justification,
     };
 
     Some((text, current))
