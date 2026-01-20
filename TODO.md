@@ -191,7 +191,7 @@ Error messages include the primitive type, block number, and byte offset where p
 - [x] Add tests for pad hole shapes, mask expansion (basic features)
 - [x] Add tests for advanced pad features (stack modes, per-layer data)
 - [x] Add tests for all layer ID mappings
-- [ ] Add integration tests with real Altium library files
+- [ ] Add integration tests with real Altium library files (blocked: requires sample .PcbLib/.SchLib files)
 
 Note: Tests added for `PadStackMode` (Simple, TopMiddleBottom, FullStack), per-layer pad data
 (sizes, shapes, corner radii, offsets), and comprehensive layer ID mapping tests covering
