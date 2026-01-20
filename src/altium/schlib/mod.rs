@@ -30,9 +30,12 @@
 //! | 1 | Component | Symbol header |
 //! | 2 | Pin | Pin (binary format uses type 0x0001) |
 //! | 4 | Label | Text label |
+//! | 5 | Bezier | Cubic Bezier curve |
 //! | 6 | Polyline | Multiple connected lines |
 //! | 7 | Polygon | Filled polygon |
 //! | 8 | Ellipse | Ellipse or circle |
+//! | 10 | RoundRect | Rounded rectangle |
+//! | 11 | EllipticalArc | Elliptical arc segment |
 //! | 12 | Arc | Arc segment |
 //! | 13 | Line | Single line segment |
 //! | 14 | Rectangle | Rectangle shape |
@@ -238,12 +241,24 @@ pub struct Symbol {
     /// Polylines.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub polylines: Vec<Polyline>,
+    /// Polygons.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub polygons: Vec<Polygon>,
     /// Arcs.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub arcs: Vec<Arc>,
+    /// Bezier curves.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub beziers: Vec<Bezier>,
     /// Ellipses.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ellipses: Vec<Ellipse>,
+    /// Rounded rectangles.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub round_rects: Vec<RoundRect>,
+    /// Elliptical arcs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub elliptical_arcs: Vec<EllipticalArc>,
     /// Labels.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub labels: Vec<Label>,
@@ -300,14 +315,34 @@ impl Symbol {
         self.polylines.push(polyline);
     }
 
+    /// Adds a polygon to the symbol.
+    pub fn add_polygon(&mut self, polygon: Polygon) {
+        self.polygons.push(polygon);
+    }
+
     /// Adds an arc to the symbol.
     pub fn add_arc(&mut self, arc: Arc) {
         self.arcs.push(arc);
     }
 
+    /// Adds a Bezier curve to the symbol.
+    pub fn add_bezier(&mut self, bezier: Bezier) {
+        self.beziers.push(bezier);
+    }
+
     /// Adds an ellipse to the symbol.
     pub fn add_ellipse(&mut self, ellipse: Ellipse) {
         self.ellipses.push(ellipse);
+    }
+
+    /// Adds a rounded rectangle to the symbol.
+    pub fn add_round_rect(&mut self, round_rect: RoundRect) {
+        self.round_rects.push(round_rect);
+    }
+
+    /// Adds an elliptical arc to the symbol.
+    pub fn add_elliptical_arc(&mut self, elliptical_arc: EllipticalArc) {
+        self.elliptical_arcs.push(elliptical_arc);
     }
 
     /// Adds a label to the symbol.
@@ -540,5 +575,229 @@ mod tests {
             .filter(|p| p.electrical_type == PinElectricalType::Output)
             .count();
         assert_eq!(output_pin_count, 2);
+    }
+
+    #[test]
+    fn roundtrip_bezier_curve() {
+        // Create a symbol with a Bezier curve
+        let mut symbol = Symbol::new("BEZIER_TEST");
+        symbol.description = "Test with Bezier".to_string();
+        symbol.designator = "U?".to_string();
+
+        // Add a Bezier curve
+        symbol.add_bezier(Bezier::new(-50, 20, -60, 30, -50, 30, -40, 30));
+
+        // Add a second Bezier with different properties
+        let mut bezier2 = Bezier::new(0, 0, 10, 20, 20, 20, 30, 0);
+        bezier2.line_width = 2;
+        bezier2.color = 0x00_00_FF; // Red
+        symbol.add_bezier(bezier2);
+
+        // Create library and write
+        let mut lib = SchLib::new();
+        lib.add_symbol(symbol);
+
+        let mut buffer = Cursor::new(Vec::new());
+        lib.write(&mut buffer).expect("Failed to write SchLib");
+
+        // Read back and verify
+        buffer.set_position(0);
+        let read_lib = SchLib::read(buffer).expect("Failed to read SchLib");
+
+        let read_symbol = read_lib.get("BEZIER_TEST").expect("Symbol not found");
+        assert_eq!(read_symbol.beziers.len(), 2, "Expected 2 Bezier curves");
+
+        // Verify first Bezier
+        let b1 = &read_symbol.beziers[0];
+        assert_eq!(b1.x1, -50);
+        assert_eq!(b1.y1, 20);
+        assert_eq!(b1.x2, -60);
+        assert_eq!(b1.y2, 30);
+        assert_eq!(b1.x3, -50);
+        assert_eq!(b1.y3, 30);
+        assert_eq!(b1.x4, -40);
+        assert_eq!(b1.y4, 30);
+
+        // Verify second Bezier
+        let b2 = &read_symbol.beziers[1];
+        assert_eq!(b2.x1, 0);
+        assert_eq!(b2.y1, 0);
+        assert_eq!(b2.x4, 30);
+        assert_eq!(b2.y4, 0);
+        assert_eq!(b2.line_width, 2);
+        assert_eq!(b2.color, 0x00_00_FF);
+    }
+
+    #[test]
+    fn roundtrip_polygon() {
+        // Create a symbol with a polygon
+        let mut symbol = Symbol::new("POLYGON_TEST");
+        symbol.description = "Test with Polygon".to_string();
+
+        // Add a filled triangle polygon
+        let mut polygon = Polygon {
+            points: vec![(-30, 40), (-20, 30), (-10, 40)],
+            line_width: 2,
+            line_color: 0x00_00_FF,  // Red border
+            fill_color: 0xFF_00_00,  // Blue fill
+            filled: true,
+            owner_part_id: 1,
+        };
+        symbol.add_polygon(polygon.clone());
+
+        // Add an unfilled rectangle polygon
+        polygon = Polygon {
+            points: vec![(0, 0), (20, 0), (20, 20), (0, 20)],
+            line_width: 1,
+            line_color: 0x00_80_00,  // Green border
+            fill_color: 0,
+            filled: false,
+            owner_part_id: 1,
+        };
+        symbol.add_polygon(polygon);
+
+        // Create library and write
+        let mut lib = SchLib::new();
+        lib.add_symbol(symbol);
+
+        let mut buffer = Cursor::new(Vec::new());
+        lib.write(&mut buffer).expect("Failed to write SchLib");
+
+        // Read back and verify
+        buffer.set_position(0);
+        let read_lib = SchLib::read(buffer).expect("Failed to read SchLib");
+
+        let read_symbol = read_lib.get("POLYGON_TEST").expect("Symbol not found");
+        assert_eq!(read_symbol.polygons.len(), 2, "Expected 2 Polygons");
+
+        // Verify first polygon (triangle)
+        let p1 = &read_symbol.polygons[0];
+        assert_eq!(p1.points.len(), 3);
+        assert_eq!(p1.points[0], (-30, 40));
+        assert_eq!(p1.points[1], (-20, 30));
+        assert_eq!(p1.points[2], (-10, 40));
+        assert_eq!(p1.line_width, 2);
+        assert_eq!(p1.line_color, 0x00_00_FF);
+        assert_eq!(p1.fill_color, 0xFF_00_00);
+        assert!(p1.filled);
+
+        // Verify second polygon (rectangle)
+        let p2 = &read_symbol.polygons[1];
+        assert_eq!(p2.points.len(), 4);
+        assert!(!p2.filled);
+    }
+
+    #[test]
+    fn roundtrip_round_rect() {
+        // Create a symbol with rounded rectangles
+        let mut symbol = Symbol::new("ROUNDRECT_TEST");
+        symbol.description = "Test with RoundRect".to_string();
+
+        // Add a filled rounded rectangle
+        let round_rect1 = RoundRect::new(40, 20, 90, 50, 20, 20);
+        symbol.add_round_rect(round_rect1);
+
+        // Add a second rounded rectangle with different properties
+        let mut round_rect2 = RoundRect::new(0, 0, 30, 20, 5, 10);
+        round_rect2.line_width = 2;
+        round_rect2.line_color = 0x00_00_FF; // Red
+        round_rect2.fill_color = 0xFF_00_00; // Blue
+        round_rect2.filled = false;
+        symbol.add_round_rect(round_rect2);
+
+        // Create library and write
+        let mut lib = SchLib::new();
+        lib.add_symbol(symbol);
+
+        let mut buffer = Cursor::new(Vec::new());
+        lib.write(&mut buffer).expect("Failed to write SchLib");
+
+        // Read back and verify
+        buffer.set_position(0);
+        let read_lib = SchLib::read(buffer).expect("Failed to read SchLib");
+
+        let read_symbol = read_lib.get("ROUNDRECT_TEST").expect("Symbol not found");
+        assert_eq!(
+            read_symbol.round_rects.len(),
+            2,
+            "Expected 2 RoundRects"
+        );
+
+        // Verify first rounded rectangle
+        let rr1 = &read_symbol.round_rects[0];
+        assert_eq!(rr1.x1, 40);
+        assert_eq!(rr1.y1, 20);
+        assert_eq!(rr1.x2, 90);
+        assert_eq!(rr1.y2, 50);
+        assert_eq!(rr1.corner_x_radius, 20);
+        assert_eq!(rr1.corner_y_radius, 20);
+        assert!(rr1.filled);
+
+        // Verify second rounded rectangle
+        let rr2 = &read_symbol.round_rects[1];
+        assert_eq!(rr2.x1, 0);
+        assert_eq!(rr2.y1, 0);
+        assert_eq!(rr2.x2, 30);
+        assert_eq!(rr2.y2, 20);
+        assert_eq!(rr2.corner_x_radius, 5);
+        assert_eq!(rr2.corner_y_radius, 10);
+        assert_eq!(rr2.line_width, 2);
+        assert!(!rr2.filled);
+    }
+
+    #[test]
+    fn roundtrip_elliptical_arc() {
+        // Create a symbol with elliptical arcs
+        let mut symbol = Symbol::new("ELLIPTICAL_ARC_TEST");
+        symbol.description = "Test with EllipticalArc".to_string();
+
+        // Add an elliptical arc with fractional radii
+        let arc1 = EllipticalArc::new(-60, 0, 9.96689, 9.99668, 90.0, 270.0);
+        symbol.add_elliptical_arc(arc1);
+
+        // Add a second elliptical arc (full ellipse)
+        let mut arc2 = EllipticalArc::full_ellipse(20, 30, 15.5, 10.25);
+        arc2.line_width = 2;
+        arc2.color = 0x00_FF_00; // Green
+        symbol.add_elliptical_arc(arc2);
+
+        // Create library and write
+        let mut lib = SchLib::new();
+        lib.add_symbol(symbol);
+
+        let mut buffer = Cursor::new(Vec::new());
+        lib.write(&mut buffer).expect("Failed to write SchLib");
+
+        // Read back and verify
+        buffer.set_position(0);
+        let read_lib = SchLib::read(buffer).expect("Failed to read SchLib");
+
+        let read_symbol = read_lib
+            .get("ELLIPTICAL_ARC_TEST")
+            .expect("Symbol not found");
+        assert_eq!(
+            read_symbol.elliptical_arcs.len(),
+            2,
+            "Expected 2 EllipticalArcs"
+        );
+
+        // Verify first elliptical arc
+        let ea1 = &read_symbol.elliptical_arcs[0];
+        assert_eq!(ea1.x, -60);
+        assert_eq!(ea1.y, 0);
+        // Check radii are close (allowing for fractional representation)
+        assert!((ea1.radius - 9.96689).abs() < 0.001);
+        assert!((ea1.secondary_radius - 9.99668).abs() < 0.001);
+        assert!((ea1.start_angle - 90.0).abs() < 0.001);
+        assert!((ea1.end_angle - 270.0).abs() < 0.001);
+
+        // Verify second elliptical arc
+        let ea2 = &read_symbol.elliptical_arcs[1];
+        assert_eq!(ea2.x, 20);
+        assert_eq!(ea2.y, 30);
+        assert!((ea2.radius - 15.5).abs() < 0.001);
+        assert!((ea2.secondary_radius - 10.25).abs() < 0.001);
+        assert_eq!(ea2.line_width, 2);
+        assert_eq!(ea2.color, 0x00_FF_00);
     }
 }

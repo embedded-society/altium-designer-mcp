@@ -16,8 +16,8 @@
 //! - `0x0001`: Binary pin record
 
 use super::primitives::{
-    Arc, Ellipse, FootprintModel, Label, Line, Parameter, Pin, Polyline, Rectangle,
-    TextJustification,
+    Arc, Bezier, Ellipse, EllipticalArc, FootprintModel, Label, Line, Parameter, Pin, Polygon,
+    Polyline, Rectangle, RoundRect, TextJustification,
 };
 use super::Symbol;
 
@@ -228,6 +228,31 @@ fn encode_polyline(polyline: &Polyline, index: usize) -> String {
     format!("|{}|", parts.join("|"))
 }
 
+/// Encodes a polygon record.
+fn encode_polygon(polygon: &Polygon, index: usize) -> String {
+    let is_solid = if polygon.filled { "T" } else { "F" };
+    let mut parts = vec![
+        "RECORD=7".to_string(),
+        format!("IndexInSheet={index}"),
+        format!("OwnerPartId={}", polygon.owner_part_id),
+        "IsNotAccesible=T".to_string(),
+        format!("LineWidth={}", polygon.line_width),
+        format!("Color={}", polygon.line_color),
+        format!("AreaColor={}", polygon.fill_color),
+        format!("IsSolid={is_solid}"),
+        format!("LocationCount={}", polygon.points.len()),
+    ];
+
+    for (i, (x, y)) in polygon.points.iter().enumerate() {
+        parts.push(format!("X{}={}", i + 1, x));
+        parts.push(format!("Y{}={}", i + 1, y));
+    }
+
+    parts.push(format!("UniqueID={}", generate_unique_id()));
+
+    format!("|{}|", parts.join("|"))
+}
+
 /// Encodes an arc record.
 fn encode_arc(arc: &Arc, index: usize) -> String {
     format!(
@@ -241,6 +266,26 @@ fn encode_arc(arc: &Arc, index: usize) -> String {
         arc.end_angle,
         arc.line_width,
         arc.color,
+        generate_unique_id()
+    )
+}
+
+/// Encodes a Bezier curve record.
+fn encode_bezier(bezier: &Bezier, index: usize) -> String {
+    format!(
+        "|RECORD=5|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T|LineWidth={}|Color={}|LocationCount=4|X1={}|Y1={}|X2={}|Y2={}|X3={}|Y3={}|X4={}|Y4={}|UniqueID={}|",
+        index,
+        bezier.owner_part_id,
+        bezier.line_width,
+        bezier.color,
+        bezier.x1,
+        bezier.y1,
+        bezier.x2,
+        bezier.y2,
+        bezier.x3,
+        bezier.y3,
+        bezier.x4,
+        bezier.y4,
         generate_unique_id()
     )
 }
@@ -260,6 +305,63 @@ fn encode_ellipse(ellipse: &Ellipse, index: usize) -> String {
         ellipse.line_color,
         ellipse.fill_color,
         is_solid,
+        generate_unique_id()
+    )
+}
+
+/// Encodes a rounded rectangle record.
+fn encode_round_rect(round_rect: &RoundRect, index: usize) -> String {
+    let is_solid = if round_rect.filled { "T" } else { "F" };
+    format!(
+        "|RECORD=10|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T\
+         |Location.X={}|Location.Y={}|Corner.X={}|Corner.Y={}\
+         |CornerXRadius={}|CornerYRadius={}\
+         |LineWidth={}|Color={}|AreaColor={}|IsSolid={}|UniqueID={}|",
+        index,
+        round_rect.owner_part_id,
+        round_rect.x1,
+        round_rect.y1,
+        round_rect.x2,
+        round_rect.y2,
+        round_rect.corner_x_radius,
+        round_rect.corner_y_radius,
+        round_rect.line_width,
+        round_rect.line_color,
+        round_rect.fill_color,
+        is_solid,
+        generate_unique_id()
+    )
+}
+
+/// Encodes an elliptical arc record.
+fn encode_elliptical_arc(arc: &EllipticalArc, index: usize) -> String {
+    // Extract integer and fractional parts from the radii
+    let radius_int = arc.radius.trunc() as i32;
+    let radius_frac = ((arc.radius.fract() * 100000.0).round() as u32).min(99999);
+
+    let secondary_radius_int = arc.secondary_radius.trunc() as i32;
+    let secondary_radius_frac =
+        ((arc.secondary_radius.fract() * 100000.0).round() as u32).min(99999);
+
+    format!(
+        "|RECORD=11|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T\
+         |Location.X={}|Location.Y={}\
+         |Radius={}|Radius_Frac={}\
+         |SecondaryRadius={}|SecondaryRadius_Frac={}\
+         |StartAngle={}|EndAngle={}\
+         |LineWidth={}|Color={}|UniqueID={}|",
+        index,
+        arc.owner_part_id,
+        arc.x,
+        arc.y,
+        radius_int,
+        radius_frac,
+        secondary_radius_int,
+        secondary_radius_frac,
+        arc.start_angle,
+        arc.end_angle,
+        arc.line_width,
+        arc.color,
         generate_unique_id()
     )
 }
@@ -379,39 +481,67 @@ pub fn encode_data_stream(symbol: &Symbol) -> Vec<u8> {
         index_counter += 1;
     }
 
-    // 7. Arcs
+    // 7. Polygons
+    for polygon in &symbol.polygons {
+        let record = encode_polygon(polygon, index_counter);
+        write_text_record(&mut data, &record);
+        index_counter += 1;
+    }
+
+    // 8. Arcs
     for arc in &symbol.arcs {
         let record = encode_arc(arc, index_counter);
         write_text_record(&mut data, &record);
         index_counter += 1;
     }
 
-    // 8. Ellipses
+    // 9. Bezier curves
+    for bezier in &symbol.beziers {
+        let record = encode_bezier(bezier, index_counter);
+        write_text_record(&mut data, &record);
+        index_counter += 1;
+    }
+
+    // 10. Ellipses
     for ellipse in &symbol.ellipses {
         let record = encode_ellipse(ellipse, index_counter);
         write_text_record(&mut data, &record);
         index_counter += 1;
     }
 
-    // 9. Labels
+    // 11. Rounded rectangles
+    for round_rect in &symbol.round_rects {
+        let record = encode_round_rect(round_rect, index_counter);
+        write_text_record(&mut data, &record);
+        index_counter += 1;
+    }
+
+    // 12. Elliptical arcs
+    for elliptical_arc in &symbol.elliptical_arcs {
+        let record = encode_elliptical_arc(elliptical_arc, index_counter);
+        write_text_record(&mut data, &record);
+        index_counter += 1;
+    }
+
+    // 13. Labels
     for label in &symbol.labels {
         let record = encode_label(label, index_counter);
         write_text_record(&mut data, &record);
         index_counter += 1;
     }
 
-    // 10. Designator
+    // 14. Designator
     if !symbol.designator.is_empty() {
         let record = encode_designator(&symbol.designator);
         write_text_record(&mut data, &record);
     }
 
-    // 10. Implementation list (if we have footprints)
+    // 15. Implementation list (if we have footprints)
     if !symbol.footprints.is_empty() {
         let impl_list = encode_implementation_list();
         write_text_record(&mut data, &impl_list);
 
-        // 11. Footprint models
+        // Footprint models
         for (i, model) in symbol.footprints.iter().enumerate() {
             let record = encode_footprint_model(model, i);
             write_text_record(&mut data, &record);

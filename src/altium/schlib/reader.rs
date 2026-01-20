@@ -17,8 +17,8 @@
 //! - `0x0001`: Binary pin record
 
 use super::primitives::{
-    Arc, Ellipse, FootprintModel, Label, Line, Parameter, Pin, PinElectricalType, PinOrientation,
-    Polyline, Rectangle, TextJustification,
+    Arc, Bezier, Ellipse, EllipticalArc, FootprintModel, Label, Line, Parameter, Pin,
+    PinElectricalType, PinOrientation, Polygon, Polyline, Rectangle, RoundRect, TextJustification,
 };
 use super::Symbol;
 use std::collections::HashMap;
@@ -166,10 +166,33 @@ fn parse_text_record_from_string(symbol: &mut Symbol, text: &str) {
                 symbol.add_label(label);
             }
         }
-        2 | 5 | 7 | 10 | 11 | 44 | 46 | 47 | 48 => {
+        5 => {
+            // Bezier curve
+            if let Some(bezier) = parse_bezier(&props) {
+                symbol.add_bezier(bezier);
+            }
+        }
+        7 => {
+            // Polygon
+            if let Some(polygon) = parse_polygon(&props) {
+                symbol.add_polygon(polygon);
+            }
+        }
+        10 => {
+            // Rounded Rectangle
+            if let Some(round_rect) = parse_round_rect(&props) {
+                symbol.add_round_rect(round_rect);
+            }
+        }
+        11 => {
+            // Elliptical Arc
+            if let Some(elliptical_arc) = parse_elliptical_arc(&props) {
+                symbol.add_elliptical_arc(elliptical_arc);
+            }
+        }
+        2 | 44 | 46 | 47 | 48 => {
             // Known but not yet implemented:
-            // 2=Pin(text), 5=Bezier, 7=Polygon,
-            // 10=RoundRect, 11=EllipticalArc,
+            // 2=Pin(text),
             // 44=ImplementationList, 46/47/48=Model data
             tracing::trace!("Skipping record type {record_id}");
         }
@@ -438,6 +461,55 @@ fn parse_polyline(props: &HashMap<String, String>) -> Option<Polyline> {
     })
 }
 
+/// Parses a polygon from properties.
+fn parse_polygon(props: &HashMap<String, String>) -> Option<Polygon> {
+    // Polygons have LocationCount and X{n}/Y{n} properties
+    let location_count: usize = props
+        .get("locationcount")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+
+    if location_count < 3 {
+        return None;
+    }
+
+    let mut points = Vec::with_capacity(location_count);
+    for i in 1..=location_count {
+        let x_key = format!("x{i}");
+        let y_key = format!("y{i}");
+        let x = props.get(&x_key).and_then(|s| s.parse().ok())?;
+        let y = props.get(&y_key).and_then(|s| s.parse().ok())?;
+        points.push((x, y));
+    }
+
+    let line_width = props
+        .get("linewidth")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+    let line_color = props
+        .get("color")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0x00_00_80);
+    let fill_color = props
+        .get("areacolor")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0xFF_FF_B0);
+    let filled = !props.get("issolid").is_some_and(|s| s == "F");
+    let owner_part_id = props
+        .get("ownerpartid")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+
+    Some(Polygon {
+        points,
+        line_width,
+        line_color,
+        fill_color,
+        filled,
+        owner_part_id,
+    })
+}
+
 /// Parses an ellipse from properties.
 fn parse_ellipse(props: &HashMap<String, String>) -> Option<Ellipse> {
     let x = props.get("location.x")?.parse().ok()?;
@@ -512,6 +584,160 @@ fn parse_arc(props: &HashMap<String, String>) -> Option<Arc> {
         x,
         y,
         radius,
+        start_angle,
+        end_angle,
+        line_width,
+        color,
+        owner_part_id,
+    })
+}
+
+/// Parses a Bezier curve from properties.
+fn parse_bezier(props: &HashMap<String, String>) -> Option<Bezier> {
+    // Bezier curves have 4 control points: X1,Y1 through X4,Y4
+    let x1 = props.get("x1")?.parse().ok()?;
+    let y1 = props.get("y1")?.parse().ok()?;
+    let x2 = props.get("x2")?.parse().ok()?;
+    let y2 = props.get("y2")?.parse().ok()?;
+    let x3 = props.get("x3")?.parse().ok()?;
+    let y3 = props.get("y3")?.parse().ok()?;
+    let x4 = props.get("x4")?.parse().ok()?;
+    let y4 = props.get("y4")?.parse().ok()?;
+
+    let line_width = props
+        .get("linewidth")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+    let color = props
+        .get("color")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0x00_00_80);
+    let owner_part_id = props
+        .get("ownerpartid")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+
+    Some(Bezier {
+        x1,
+        y1,
+        x2,
+        y2,
+        x3,
+        y3,
+        x4,
+        y4,
+        line_width,
+        color,
+        owner_part_id,
+    })
+}
+
+/// Parses a rounded rectangle from properties.
+fn parse_round_rect(props: &HashMap<String, String>) -> Option<RoundRect> {
+    let x1 = props.get("location.x")?.parse().ok()?;
+    let y1 = props.get("location.y")?.parse().ok()?;
+    let x2 = props.get("corner.x")?.parse().ok()?;
+    let y2 = props.get("corner.y")?.parse().ok()?;
+
+    let corner_x_radius = props
+        .get("cornerxradius")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let corner_y_radius = props
+        .get("corneryradius")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+
+    let line_width = props
+        .get("linewidth")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+    let line_color = props
+        .get("color")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0x00_00_80);
+    let fill_color = props
+        .get("areacolor")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0xFF_FF_B0);
+    let filled = !props.get("issolid").is_some_and(|s| s == "F");
+    let owner_part_id = props
+        .get("ownerpartid")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+
+    Some(RoundRect {
+        x1,
+        y1,
+        x2,
+        y2,
+        corner_x_radius,
+        corner_y_radius,
+        line_width,
+        line_color,
+        fill_color,
+        filled,
+        owner_part_id,
+    })
+}
+
+/// Parses an elliptical arc from properties.
+fn parse_elliptical_arc(props: &HashMap<String, String>) -> Option<EllipticalArc> {
+    let x = props.get("location.x")?.parse().ok()?;
+    // Location.Y may be omitted if it's 0
+    let y = props
+        .get("location.y")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+
+    // Primary radius with optional fractional part
+    let radius_int: f64 = props.get("radius")?.parse().ok()?;
+    let radius_frac: f64 = props
+        .get("radius_frac")
+        .and_then(|s| s.parse::<u32>().ok())
+        .map(|f| f64::from(f) / 100000.0)
+        .unwrap_or(0.0);
+    let radius = radius_int + radius_frac;
+
+    // Secondary radius with optional fractional part
+    let secondary_radius_int: f64 = props
+        .get("secondaryradius")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(radius_int);
+    let secondary_radius_frac: f64 = props
+        .get("secondaryradius_frac")
+        .and_then(|s| s.parse::<u32>().ok())
+        .map(|f| f64::from(f) / 100000.0)
+        .unwrap_or(0.0);
+    let secondary_radius = secondary_radius_int + secondary_radius_frac;
+
+    let start_angle = props
+        .get("startangle")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0.0);
+    let end_angle = props
+        .get("endangle")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(360.0);
+
+    let line_width = props
+        .get("linewidth")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+    let color = props
+        .get("color")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0x00_00_80);
+    let owner_part_id = props
+        .get("ownerpartid")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+
+    Some(EllipticalArc {
+        x,
+        y,
+        radius,
+        secondary_radius,
         start_angle,
         end_angle,
         line_width,

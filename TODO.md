@@ -207,9 +207,43 @@ Note: Module documentation includes coordinate system diagram (origin, X/Y axes,
 layer recommendations table, and internal units explanation. Doc examples with `cargo test` verification
 for Pad::smd, Pad::through_hole, Track::new, and Arc::circle.
 
+## SchLib Primitives
+
+### Bezier (RECORD=5) - Implemented ✓
+
+- [x] Add `Bezier` struct to `src/altium/schlib/primitives.rs`
+- [x] Add `beziers: Vec<Bezier>` field to `Symbol` struct
+- [x] Parse Bezier from RECORD=5 text records
+- [x] Write Bezier to RECORD=5 text records
+- [x] Add roundtrip tests
+
+### Polygon (RECORD=7) - Implemented ✓
+
+- [x] Add `Polygon` struct to `src/altium/schlib/primitives.rs`
+- [x] Add `polygons: Vec<Polygon>` field to `Symbol` struct
+- [x] Parse Polygon from RECORD=7 text records
+- [x] Write Polygon to RECORD=7 text records
+- [x] Add roundtrip tests
+
+### RoundRect (RECORD=10) - Implemented ✓
+
+- [x] Add `RoundRect` struct to `src/altium/schlib/primitives.rs`
+- [x] Add `round_rects: Vec<RoundRect>` field to `Symbol` struct
+- [x] Parse RoundRect from RECORD=10 text records
+- [x] Write RoundRect to RECORD=10 text records
+- [x] Add roundtrip tests
+
+### EllipticalArc (RECORD=11) - Implemented ✓
+
+- [x] Add `EllipticalArc` struct to `src/altium/schlib/primitives.rs`
+- [x] Add `elliptical_arcs: Vec<EllipticalArc>` field to `Symbol` struct
+- [x] Parse EllipticalArc from RECORD=11 text records (with fractional radius support)
+- [x] Write EllipticalArc to RECORD=11 text records
+- [x] Add roundtrip tests
+
 ## Low Priority / Future
 
-- [x] Support reading/writing SchLib files (Label primitive support added, roundtrip tests pass)
+- [x] Support reading/writing SchLib files (Bezier, Polygon, RoundRect, EllipticalArc, Label primitives added, roundtrip tests pass)
 - [ ] Support component variants (board-level feature, not library)
 - [ ] Support net information (board-level feature, not library)
 - [x] Optimize binary parsing with zero-copy where possible

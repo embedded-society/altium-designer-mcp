@@ -287,6 +287,28 @@ pub struct Polyline {
     pub owner_part_id: i32,
 }
 
+/// A filled polygon.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Polygon {
+    /// Vertices as (x, y) pairs.
+    pub points: Vec<(i32, i32)>,
+    /// Border line width.
+    #[serde(default = "default_line_width")]
+    pub line_width: u8,
+    /// Border colour (BGR format).
+    #[serde(default)]
+    pub line_color: u32,
+    /// Fill colour (BGR format).
+    #[serde(default)]
+    pub fill_color: u32,
+    /// Whether the polygon is filled.
+    #[serde(default = "default_true")]
+    pub filled: bool,
+    /// Owner part ID.
+    #[serde(default = "default_owner_part")]
+    pub owner_part_id: i32,
+}
+
 /// An arc or circle.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Arc {
@@ -315,6 +337,71 @@ pub struct Arc {
 
 const fn default_end_angle() -> f64 {
     360.0
+}
+
+/// A cubic Bezier curve.
+///
+/// Defined by four control points:
+/// - Start point (x1, y1)
+/// - Control point 1 (x2, y2)
+/// - Control point 2 (x3, y3)
+/// - End point (x4, y4)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Bezier {
+    /// Start point X.
+    pub x1: i32,
+    /// Start point Y.
+    pub y1: i32,
+    /// Control point 1 X.
+    pub x2: i32,
+    /// Control point 1 Y.
+    pub y2: i32,
+    /// Control point 2 X.
+    pub x3: i32,
+    /// Control point 2 Y.
+    pub y3: i32,
+    /// End point X.
+    pub x4: i32,
+    /// End point Y.
+    pub y4: i32,
+    /// Line width.
+    #[serde(default = "default_line_width")]
+    pub line_width: u8,
+    /// Line colour (BGR format).
+    #[serde(default)]
+    pub color: u32,
+    /// Owner part ID.
+    #[serde(default = "default_owner_part")]
+    pub owner_part_id: i32,
+}
+
+impl Bezier {
+    /// Creates a new Bezier curve.
+    #[must_use]
+    pub const fn new(
+        x1: i32,
+        y1: i32,
+        x2: i32,
+        y2: i32,
+        x3: i32,
+        y3: i32,
+        x4: i32,
+        y4: i32,
+    ) -> Self {
+        Self {
+            x1,
+            y1,
+            x2,
+            y2,
+            x3,
+            y3,
+            x4,
+            y4,
+            line_width: 1,
+            color: 0x00_00_80, // Dark red (BGR)
+            owner_part_id: 1,
+        }
+    }
 }
 
 /// An ellipse.
@@ -366,6 +453,129 @@ impl Ellipse {
     #[must_use]
     pub const fn circle(x: i32, y: i32, radius: i32) -> Self {
         Self::new(x, y, radius, radius)
+    }
+}
+
+/// A rounded rectangle.
+///
+/// Defined by two corner points and corner radii for rounding.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoundRect {
+    /// Left/bottom X coordinate.
+    pub x1: i32,
+    /// Left/bottom Y coordinate.
+    pub y1: i32,
+    /// Right/top X coordinate.
+    pub x2: i32,
+    /// Right/top Y coordinate.
+    pub y2: i32,
+    /// Corner X radius (horizontal rounding).
+    pub corner_x_radius: i32,
+    /// Corner Y radius (vertical rounding).
+    pub corner_y_radius: i32,
+    /// Line width.
+    #[serde(default = "default_line_width")]
+    pub line_width: u8,
+    /// Line colour (BGR format).
+    #[serde(default)]
+    pub line_color: u32,
+    /// Fill colour (BGR format).
+    #[serde(default)]
+    pub fill_color: u32,
+    /// Whether the rectangle is filled.
+    #[serde(default = "default_true")]
+    pub filled: bool,
+    /// Owner part ID.
+    #[serde(default = "default_owner_part")]
+    pub owner_part_id: i32,
+}
+
+impl RoundRect {
+    /// Creates a new rounded rectangle.
+    #[must_use]
+    pub const fn new(
+        x1: i32,
+        y1: i32,
+        x2: i32,
+        y2: i32,
+        corner_x_radius: i32,
+        corner_y_radius: i32,
+    ) -> Self {
+        Self {
+            x1,
+            y1,
+            x2,
+            y2,
+            corner_x_radius,
+            corner_y_radius,
+            line_width: 1,
+            line_color: 0x00_00_80, // Dark red (BGR)
+            fill_color: 0xFF_FF_B0, // Light yellow (BGR)
+            filled: true,
+            owner_part_id: 1,
+        }
+    }
+}
+
+/// An elliptical arc.
+///
+/// An arc segment of an ellipse, defined by center, radii, and angle range.
+/// Radii support fractional parts for precise positioning.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EllipticalArc {
+    /// Centre X coordinate.
+    pub x: i32,
+    /// Centre Y coordinate.
+    pub y: i32,
+    /// Primary radius (horizontal).
+    pub radius: f64,
+    /// Secondary radius (vertical).
+    pub secondary_radius: f64,
+    /// Start angle in degrees (0 = right, counter-clockwise).
+    #[serde(default)]
+    pub start_angle: f64,
+    /// End angle in degrees.
+    #[serde(default = "default_end_angle")]
+    pub end_angle: f64,
+    /// Line width.
+    #[serde(default = "default_line_width")]
+    pub line_width: u8,
+    /// Line colour (BGR format).
+    #[serde(default)]
+    pub color: u32,
+    /// Owner part ID.
+    #[serde(default = "default_owner_part")]
+    pub owner_part_id: i32,
+}
+
+impl EllipticalArc {
+    /// Creates a new elliptical arc.
+    #[must_use]
+    pub fn new(
+        x: i32,
+        y: i32,
+        radius: f64,
+        secondary_radius: f64,
+        start_angle: f64,
+        end_angle: f64,
+    ) -> Self {
+        Self {
+            x,
+            y,
+            radius,
+            secondary_radius,
+            start_angle,
+            end_angle,
+            line_width: 1,
+            color: 0x00_00_80, // Dark red (BGR)
+            owner_part_id: 1,
+        }
+    }
+
+    /// Creates a full ellipse (0 to 360 degrees).
+    #[must_use]
+    pub fn full_ellipse(x: i32, y: i32, radius: f64, secondary_radius: f64) -> Self {
+        Self::new(x, y, radius, secondary_radius, 0.0, 360.0)
     }
 }
 

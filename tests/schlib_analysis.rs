@@ -57,10 +57,10 @@ fn analyze_sample_schlib() {
 fn schlib_basic_parsing() {
     let lib = SchLib::open("scripts/sample.SchLib").expect("Failed to open sample.SchLib");
 
-    // Should have exactly 1 symbol
-    assert_eq!(lib.len(), 1);
+    // Should have 2 symbols (SMD Chip Resistor and NCV8163ASN330T1G)
+    assert_eq!(lib.len(), 2);
 
-    // Get the symbol
+    // Get the SMD Chip Resistor symbol
     let symbol = lib.get("SMD Chip Resistor").expect("Symbol not found");
 
     // Should have 2 pins
@@ -115,4 +115,42 @@ fn schlib_basic_parsing() {
         footprint_names.iter().any(|n| n.contains("1206")),
         "Expected 1206 footprint"
     );
+
+    // Verify NCV8163ASN330T1G symbol exists and has a Bezier curve
+    let ncv_symbol = lib.get("NCV8163ASN330T1G").expect("NCV8163ASN330T1G symbol not found");
+    assert_eq!(ncv_symbol.pins.len(), 5, "Expected 5 pins");
+    assert_eq!(ncv_symbol.beziers.len(), 1, "Expected 1 Bezier curve");
+
+    // Check Bezier curve properties
+    let bezier = &ncv_symbol.beziers[0];
+    assert_eq!(bezier.x1, -50);
+    assert_eq!(bezier.y1, 20);
+    assert_eq!(bezier.x4, -40);
+    assert_eq!(bezier.y4, 30);
+
+    // Check Polygon
+    assert_eq!(ncv_symbol.polygons.len(), 1, "Expected 1 Polygon");
+    let polygon = &ncv_symbol.polygons[0];
+    assert_eq!(polygon.points.len(), 3, "Expected 3 vertices");
+    assert_eq!(polygon.points[0], (-30, 40));
+    assert_eq!(polygon.points[1], (-20, 30));
+    assert_eq!(polygon.points[2], (-10, 40));
+
+    // Check RoundRect
+    assert_eq!(ncv_symbol.round_rects.len(), 1, "Expected 1 RoundRect");
+    let round_rect = &ncv_symbol.round_rects[0];
+    assert_eq!(round_rect.x1, 40);
+    assert_eq!(round_rect.y1, 20);
+    assert_eq!(round_rect.x2, 90);
+    assert_eq!(round_rect.y2, 50);
+    assert_eq!(round_rect.corner_x_radius, 20);
+    assert_eq!(round_rect.corner_y_radius, 20);
+
+    // Check EllipticalArc
+    assert_eq!(ncv_symbol.elliptical_arcs.len(), 1, "Expected 1 EllipticalArc");
+    let elliptical_arc = &ncv_symbol.elliptical_arcs[0];
+    assert_eq!(elliptical_arc.x, -60);
+    assert_eq!(elliptical_arc.y, 0);
+    assert!((elliptical_arc.radius - 9.96689).abs() < 0.01);
+    assert!((elliptical_arc.secondary_radius - 9.99668).abs() < 0.01);
 }
