@@ -395,6 +395,7 @@ const fn justification_from_id(id: u8) -> TextJustification {
 /// * `footprint` - The footprint to populate with parsed primitives
 /// * `data` - The raw Data stream bytes
 /// * `wide_strings` - Optional `WideStrings` lookup for text content
+#[allow(clippy::too_many_lines)]
 pub fn parse_data_stream(
     footprint: &mut Footprint,
     data: &[u8],
@@ -647,16 +648,9 @@ fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
 
     // Hole size - offset 45
     let hole_size = if geometry.len() > 48 {
-        if let Some(hole_val) = read_i32(geometry, 45) {
-            let hole = to_mm(hole_val);
-            if hole > 0.001 {
-                Some(hole)
-            } else {
-                None
-            }
-        } else {
-            None
-        }
+        read_i32(geometry, 45)
+            .map(to_mm)
+            .filter(|&hole| hole > 0.001)
     } else {
         None
     };
@@ -691,32 +685,18 @@ fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
 
     // Paste mask expansion - offset 86-89
     let paste_mask_expansion = if geometry.len() > 89 {
-        if let Some(expansion_val) = read_i32(geometry, 86) {
-            let expansion = to_mm(expansion_val);
-            if expansion.abs() > 0.0001 {
-                Some(expansion)
-            } else {
-                None
-            }
-        } else {
-            None
-        }
+        read_i32(geometry, 86)
+            .map(to_mm)
+            .filter(|&expansion| expansion.abs() > 0.0001)
     } else {
         None
     };
 
     // Solder mask expansion - offset 90-93
     let solder_mask_expansion = if geometry.len() > 93 {
-        if let Some(expansion_val) = read_i32(geometry, 90) {
-            let expansion = to_mm(expansion_val);
-            if expansion.abs() > 0.0001 {
-                Some(expansion)
-            } else {
-                None
-            }
-        } else {
-            None
-        }
+        read_i32(geometry, 90)
+            .map(to_mm)
+            .filter(|&expansion| expansion.abs() > 0.0001)
     } else {
         None
     };
@@ -910,6 +890,7 @@ const fn pad_stack_mode_from_id(id: u8) -> PadStackMode {
 /// - Block 3: Net/connectivity data
 /// - Block 4: Geometry data
 /// - Block 5: Per-layer data
+#[allow(clippy::too_many_lines)]
 fn parse_via(data: &[u8], offset: usize) -> ParseResult<Via> {
     let mut current = offset;
 
