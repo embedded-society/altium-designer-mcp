@@ -15,7 +15,10 @@
 //! - `0x0000`: Text record (pipe-delimited key=value pairs)
 //! - `0x0001`: Binary pin record
 
-use super::primitives::{Arc, Ellipse, FootprintModel, Line, Parameter, Pin, Polyline, Rectangle};
+use super::primitives::{
+    Arc, Ellipse, FootprintModel, Label, Line, Parameter, Pin, Polyline, Rectangle,
+    TextJustification,
+};
 use super::Symbol;
 
 /// Writes a text record (type 0) to the output.
@@ -261,6 +264,41 @@ fn encode_ellipse(ellipse: &Ellipse, index: usize) -> String {
     )
 }
 
+/// Encodes a label record.
+fn encode_label(label: &Label, index: usize) -> String {
+    #[allow(clippy::cast_possible_truncation)]
+    let orientation = (label.rotation / 90.0).round() as i32 % 4;
+    let justification = justification_to_id(label.justification);
+    format!(
+        "|RECORD=4|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Color={}|FontID={}|Orientation={}|Justification={}|Text={}|UniqueID={}|",
+        index,
+        label.owner_part_id,
+        label.x,
+        label.y,
+        label.color,
+        label.font_id,
+        orientation,
+        justification,
+        label.text,
+        generate_unique_id()
+    )
+}
+
+/// Converts `TextJustification` to Altium ID.
+const fn justification_to_id(justification: TextJustification) -> u8 {
+    match justification {
+        TextJustification::BottomLeft => 0,
+        TextJustification::BottomCenter => 1,
+        TextJustification::BottomRight => 2,
+        TextJustification::MiddleLeft => 3,
+        TextJustification::MiddleCenter => 4,
+        TextJustification::MiddleRight => 5,
+        TextJustification::TopLeft => 6,
+        TextJustification::TopCenter => 7,
+        TextJustification::TopRight => 8,
+    }
+}
+
 /// Encodes an implementation list record (start of model list).
 fn encode_implementation_list() -> String {
     "|RECORD=44|OwnerIndex=0|".to_string()
@@ -355,7 +393,14 @@ pub fn encode_data_stream(symbol: &Symbol) -> Vec<u8> {
         index_counter += 1;
     }
 
-    // 9. Designator
+    // 9. Labels
+    for label in &symbol.labels {
+        let record = encode_label(label, index_counter);
+        write_text_record(&mut data, &record);
+        index_counter += 1;
+    }
+
+    // 10. Designator
     if !symbol.designator.is_empty() {
         let record = encode_designator(&symbol.designator);
         write_text_record(&mut data, &record);
