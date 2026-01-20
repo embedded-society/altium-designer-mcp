@@ -212,4 +212,8 @@ for Pad::smd, Pad::through_hole, Track::new, and Arc::circle.
 - [x] Support reading/writing SchLib files (Label primitive support added, roundtrip tests pass)
 - [ ] Support component variants (board-level feature, not library)
 - [ ] Support net information (board-level feature, not library)
-- [ ] Optimize binary parsing with zero-copy where possible
+- [x] Optimize binary parsing with zero-copy where possible
+    - Binary data already uses zero-copy slices (`read_block` returns `&[u8]`)
+    - String allocation is necessary for encoding conversion (Windows-1252 to UTF-8)
+    - Full zero-copy would require lifetime parameters on all structs, significantly complicating the API for minimal benefit with typical library sizes (< 10MB)
+    - Current approach balances simplicity with efficiency
