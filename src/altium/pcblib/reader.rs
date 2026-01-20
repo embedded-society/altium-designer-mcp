@@ -1352,18 +1352,14 @@ fn extract_text_from_block(block: &[u8], wide_strings: Option<&WideStrings>) -> 
     }
 
     // Try to find a WideStrings index in the block
-    // The index is typically stored as a small integer near the end of the block
+    // The WideStringsIndex is a u16 at offset 115 in the geometry block
+    // Verified by reverse-engineering sample.PcbLib with Text primitives
     if let Some(ws) = wide_strings {
-        // Try extracting a potential index from the block
-        // The WideStringsIndex is typically a u16 or u32 near offset 95+
-        if block.len() > 97 {
-            // Try reading as u16 at common offsets
-            for offset in [95, 96, 97] {
-                if let Some(index) = read_u16(block, offset) {
-                    if let Some(resolved) = ws.get(&(index as usize)) {
-                        tracing::trace!(offset, index, resolved = %resolved, "Resolved WideStrings from block");
-                        return resolved.clone();
-                    }
+        if block.len() > 117 {
+            if let Some(index) = read_u16(block, 115) {
+                if let Some(resolved) = ws.get(&(index as usize)) {
+                    tracing::trace!(index, resolved = %resolved, "Resolved WideStrings from offset 115");
+                    return resolved.clone();
                 }
             }
         }

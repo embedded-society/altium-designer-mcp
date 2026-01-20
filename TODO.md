@@ -20,7 +20,10 @@ This document tracks implementation gaps between the documented PcbLib format (`
 - [x] Store decoded strings in a lookup table (`WideStrings` type in reader.rs)
 - [x] Update `parse_text()` in `src/altium/pcblib/reader.rs` to use WideStrings lookup
 - [x] Write WideStrings stream when saving libraries
-- [ ] TODO: Verify WideStringsIndex offset in geometry block (currently tries offsets 95-97)
+- [x] WideStringsIndex verified at geometry block offset 115 (u16, little-endian)
+    - Verified by reverse-engineering sample.PcbLib with Text primitives
+    - Index 0/1/2 correctly maps to ENCODEDTEXT0/1/2 in WideStrings stream
+    - Note: Writer creates shorter geometry blocks (~80 bytes); WideStrings lookup only used when reading Altium-created files with blocks > 117 bytes
 
 ### 3D Model Embedding - Implemented ✓
 

@@ -2,8 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "_comment": "Example configuration for altium-designer-mcp. Copy to ~/.altium-designer-mcp/config.json and customise.",
     "allowed_paths": [
-        "/path/to/your/altium/libraries",
-        "/another/library/path"
+        "./scripts"
     ],
     "logging": {
         "level": "warn"
