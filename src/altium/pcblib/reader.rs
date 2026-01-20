@@ -570,8 +570,9 @@ fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
     let mut current = offset;
 
     // Block 0: Designator string
-    let (block0, next) = read_block(data, current)
-        .ok_or_else(|| AltiumError::parse_error(offset, "failed to read Pad block 0 (designator)"))?;
+    let (block0, next) = read_block(data, current).ok_or_else(|| {
+        AltiumError::parse_error(offset, "failed to read Pad block 0 (designator)")
+    })?;
     let designator = read_string_from_block(block0);
     current = next;
 
@@ -591,8 +592,9 @@ fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
     current = next;
 
     // Block 4: Geometry data
-    let (geometry, next) = read_block(data, current)
-        .ok_or_else(|| AltiumError::parse_error(current, "failed to read Pad block 4 (geometry)"))?;
+    let (geometry, next) = read_block(data, current).ok_or_else(|| {
+        AltiumError::parse_error(current, "failed to read Pad block 4 (geometry)")
+    })?;
     current = next;
 
     // Block 5: Per-layer data (optional, may contain corner radius)
@@ -607,7 +609,10 @@ fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
     if geometry.len() < 52 {
         return Err(AltiumError::parse_error(
             offset,
-            format!("Pad geometry block too short: {} bytes, expected at least 52", geometry.len()),
+            format!(
+                "Pad geometry block too short: {} bytes, expected at least 52",
+                geometry.len()
+            ),
         ));
     }
 
@@ -617,20 +622,24 @@ fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
     let flags = read_flags(geometry);
 
     // Location (X, Y) - offsets 13-20
-    let x = to_mm(read_i32(geometry, 13).ok_or_else(|| {
-        AltiumError::parse_error(offset + 13, "failed to read Pad x coordinate")
-    })?);
-    let y = to_mm(read_i32(geometry, 17).ok_or_else(|| {
-        AltiumError::parse_error(offset + 17, "failed to read Pad y coordinate")
-    })?);
+    let x =
+        to_mm(read_i32(geometry, 13).ok_or_else(|| {
+            AltiumError::parse_error(offset + 13, "failed to read Pad x coordinate")
+        })?);
+    let y =
+        to_mm(read_i32(geometry, 17).ok_or_else(|| {
+            AltiumError::parse_error(offset + 17, "failed to read Pad y coordinate")
+        })?);
 
     // Size top (X, Y) - offsets 21-28
-    let size_top_x = to_mm(read_i32(geometry, 21).ok_or_else(|| {
-        AltiumError::parse_error(offset + 21, "failed to read Pad width")
-    })?);
-    let size_top_y = to_mm(read_i32(geometry, 25).ok_or_else(|| {
-        AltiumError::parse_error(offset + 25, "failed to read Pad height")
-    })?);
+    let size_top_x = to_mm(
+        read_i32(geometry, 21)
+            .ok_or_else(|| AltiumError::parse_error(offset + 21, "failed to read Pad width"))?,
+    );
+    let size_top_y = to_mm(
+        read_i32(geometry, 25)
+            .ok_or_else(|| AltiumError::parse_error(offset + 25, "failed to read Pad height"))?,
+    );
 
     // Use top size for width/height
     let width = size_top_x;
@@ -841,11 +850,12 @@ fn parse_per_layer_data(
         let shape_id = data[256 + i];
         let shape = pad_shape_from_id(shape_id);
         // If shape ID is 1 (Round) but corner radius is < 100%, it's RoundedRectangle
-        let adjusted_shape = if shape == PadShape::Round && corner_radii[i] > 0 && corner_radii[i] < 100 {
-            PadShape::RoundedRectangle
-        } else {
-            shape
-        };
+        let adjusted_shape =
+            if shape == PadShape::Round && corner_radii[i] > 0 && corner_radii[i] < 100 {
+                PadShape::RoundedRectangle
+            } else {
+                shape
+            };
         shapes.push(adjusted_shape);
     }
 
@@ -909,8 +919,9 @@ fn parse_via(data: &[u8], offset: usize) -> ParseResult<Via> {
     current = next;
 
     // Block 1: Layer stack data (skip)
-    let (_, next) = read_block(data, current)
-        .ok_or_else(|| AltiumError::parse_error(current, "failed to read Via block 1 (layer stack)"))?;
+    let (_, next) = read_block(data, current).ok_or_else(|| {
+        AltiumError::parse_error(current, "failed to read Via block 1 (layer stack)")
+    })?;
     current = next;
 
     // Block 2: Marker string ("|&|0")
@@ -919,13 +930,15 @@ fn parse_via(data: &[u8], offset: usize) -> ParseResult<Via> {
     current = next;
 
     // Block 3: Net/connectivity data (skip)
-    let (_, next) = read_block(data, current)
-        .ok_or_else(|| AltiumError::parse_error(current, "failed to read Via block 3 (net data)"))?;
+    let (_, next) = read_block(data, current).ok_or_else(|| {
+        AltiumError::parse_error(current, "failed to read Via block 3 (net data)")
+    })?;
     current = next;
 
     // Block 4: Geometry data
-    let (geometry, next) = read_block(data, current)
-        .ok_or_else(|| AltiumError::parse_error(current, "failed to read Via block 4 (geometry)"))?;
+    let (geometry, next) = read_block(data, current).ok_or_else(|| {
+        AltiumError::parse_error(current, "failed to read Via block 4 (geometry)")
+    })?;
     current = next;
 
     // Block 5: Per-layer data (optional)
@@ -938,7 +951,10 @@ fn parse_via(data: &[u8], offset: usize) -> ParseResult<Via> {
     if geometry.len() < 31 {
         return Err(AltiumError::parse_error(
             offset,
-            format!("Via geometry block too short: {} bytes, expected at least 31", geometry.len()),
+            format!(
+                "Via geometry block too short: {} bytes, expected at least 31",
+                geometry.len()
+            ),
         ));
     }
 
@@ -946,22 +962,26 @@ fn parse_via(data: &[u8], offset: usize) -> ParseResult<Via> {
     // Note: Via layer is typically MultiLayer (74), but we read from/to layers separately
 
     // Location (X, Y) - offsets 13-20
-    let x = to_mm(read_i32(geometry, 13).ok_or_else(|| {
-        AltiumError::parse_error(offset + 13, "failed to read Via x coordinate")
-    })?);
-    let y = to_mm(read_i32(geometry, 17).ok_or_else(|| {
-        AltiumError::parse_error(offset + 17, "failed to read Via y coordinate")
-    })?);
+    let x =
+        to_mm(read_i32(geometry, 13).ok_or_else(|| {
+            AltiumError::parse_error(offset + 13, "failed to read Via x coordinate")
+        })?);
+    let y =
+        to_mm(read_i32(geometry, 17).ok_or_else(|| {
+            AltiumError::parse_error(offset + 17, "failed to read Via y coordinate")
+        })?);
 
     // Diameter - offset 21
-    let diameter = to_mm(read_i32(geometry, 21).ok_or_else(|| {
-        AltiumError::parse_error(offset + 21, "failed to read Via diameter")
-    })?);
+    let diameter = to_mm(
+        read_i32(geometry, 21)
+            .ok_or_else(|| AltiumError::parse_error(offset + 21, "failed to read Via diameter"))?,
+    );
 
     // Hole size - offset 25
-    let hole_size = to_mm(read_i32(geometry, 25).ok_or_else(|| {
-        AltiumError::parse_error(offset + 25, "failed to read Via hole size")
-    })?);
+    let hole_size =
+        to_mm(read_i32(geometry, 25).ok_or_else(|| {
+            AltiumError::parse_error(offset + 25, "failed to read Via hole size")
+        })?);
 
     // From/To layers - offsets 29-30
     let from_layer = if geometry.len() > 29 {
@@ -1067,7 +1087,10 @@ fn parse_track(data: &[u8], offset: usize) -> ParseResult<Track> {
     if block.len() < 33 {
         return Err(AltiumError::parse_error(
             offset,
-            format!("Track block too short: {} bytes, expected at least 33", block.len()),
+            format!(
+                "Track block too short: {} bytes, expected at least 33",
+                block.len()
+            ),
         ));
     }
 
@@ -1093,9 +1116,10 @@ fn parse_track(data: &[u8], offset: usize) -> ParseResult<Track> {
     })?);
 
     // Width - offset 29
-    let width = to_mm(read_i32(block, 29).ok_or_else(|| {
-        AltiumError::parse_error(offset + 29, "failed to read Track width")
-    })?);
+    let width = to_mm(
+        read_i32(block, 29)
+            .ok_or_else(|| AltiumError::parse_error(offset + 29, "failed to read Track width"))?,
+    );
 
     let track = Track {
         x1,
@@ -1120,7 +1144,10 @@ fn parse_arc(data: &[u8], offset: usize) -> ParseResult<Arc> {
     if block.len() < 45 {
         return Err(AltiumError::parse_error(
             offset,
-            format!("Arc block too short: {} bytes, expected at least 45", block.len()),
+            format!(
+                "Arc block too short: {} bytes, expected at least 45",
+                block.len()
+            ),
         ));
     }
 
@@ -1130,26 +1157,30 @@ fn parse_arc(data: &[u8], offset: usize) -> ParseResult<Arc> {
     let flags = read_flags(block);
 
     // Centre coordinates (X, Y) - offsets 13-20
-    let x = to_mm(read_i32(block, 13).ok_or_else(|| {
-        AltiumError::parse_error(offset + 13, "failed to read Arc x coordinate")
-    })?);
-    let y = to_mm(read_i32(block, 17).ok_or_else(|| {
-        AltiumError::parse_error(offset + 17, "failed to read Arc y coordinate")
-    })?);
+    let x =
+        to_mm(read_i32(block, 13).ok_or_else(|| {
+            AltiumError::parse_error(offset + 13, "failed to read Arc x coordinate")
+        })?);
+    let y =
+        to_mm(read_i32(block, 17).ok_or_else(|| {
+            AltiumError::parse_error(offset + 17, "failed to read Arc y coordinate")
+        })?);
 
     // Radius - offset 21
-    let radius = to_mm(read_i32(block, 21).ok_or_else(|| {
-        AltiumError::parse_error(offset + 21, "failed to read Arc radius")
-    })?);
+    let radius = to_mm(
+        read_i32(block, 21)
+            .ok_or_else(|| AltiumError::parse_error(offset + 21, "failed to read Arc radius"))?,
+    );
 
     // Angles (doubles) - offsets 25-40
     let start_angle = read_f64(block, 25).unwrap_or(0.0);
     let end_angle = read_f64(block, 33).unwrap_or(360.0);
 
     // Width - offset 41
-    let width = to_mm(read_i32(block, 41).ok_or_else(|| {
-        AltiumError::parse_error(offset + 41, "failed to read Arc width")
-    })?);
+    let width = to_mm(
+        read_i32(block, 41)
+            .ok_or_else(|| AltiumError::parse_error(offset + 41, "failed to read Arc width"))?,
+    );
 
     let arc = Arc {
         x,
@@ -1183,11 +1214,7 @@ fn parse_arc(data: &[u8], offset: usize) -> ParseResult<Arc> {
 /// [font_name:varies]            // Font name in UTF-16 (null-terminated)
 /// [text_content:varies]         // Text content in UTF-16 or reference
 /// ```
-fn parse_text(
-    data: &[u8],
-    offset: usize,
-    wide_strings: Option<&WideStrings>,
-) -> ParseResult<Text> {
+fn parse_text(data: &[u8], offset: usize, wide_strings: Option<&WideStrings>) -> ParseResult<Text> {
     // Text has 2 blocks:
     // - Block 0: Geometry/metadata (layer, position, height, rotation, font, etc.)
     // - Block 1: Text content (length-prefixed string, or reference to WideStrings)
@@ -1229,9 +1256,10 @@ fn parse_text(
     })?);
 
     // Height - offset 21
-    let height = to_mm(read_i32(geometry_block, 21).ok_or_else(|| {
-        AltiumError::parse_error(offset + 21, "failed to read Text height")
-    })?);
+    let height = to_mm(
+        read_i32(geometry_block, 21)
+            .ok_or_else(|| AltiumError::parse_error(offset + 21, "failed to read Text height"))?,
+    );
 
     // Stroke font ID - offset 25-26 (u16)
     // Only meaningful when kind is Stroke
@@ -1420,8 +1448,9 @@ fn parse_region(data: &[u8], offset: usize) -> ParseResult<Region> {
     // Block 1: Usually empty (0 bytes)
 
     // Block 0: Properties with embedded vertices
-    let (props_block, mut current) = read_block(data, offset)
-        .ok_or_else(|| AltiumError::parse_error(offset, "failed to read Region properties block"))?;
+    let (props_block, mut current) = read_block(data, offset).ok_or_else(|| {
+        AltiumError::parse_error(offset, "failed to read Region properties block")
+    })?;
 
     if props_block.len() < 22 {
         return Err(AltiumError::parse_error(
@@ -1450,9 +1479,7 @@ fn parse_region(data: &[u8], offset: usize) -> ParseResult<Region> {
     if props_block.len() < vertex_offset + 4 {
         return Err(AltiumError::parse_error(
             offset + vertex_offset,
-            format!(
-                "Region block too short for vertex count at offset {vertex_offset}"
-            ),
+            format!("Region block too short for vertex count at offset {vertex_offset}"),
         ));
     }
 
@@ -1481,10 +1508,16 @@ fn parse_region(data: &[u8], offset: usize) -> ParseResult<Region> {
         let base = vertex_data_offset + i * 16;
         // Coordinates stored as doubles in internal units
         let x_internal = read_f64(props_block, base).ok_or_else(|| {
-            AltiumError::parse_error(offset + base, format!("failed to read Region vertex {i} x coordinate"))
+            AltiumError::parse_error(
+                offset + base,
+                format!("failed to read Region vertex {i} x coordinate"),
+            )
         })?;
         let y_internal = read_f64(props_block, base + 8).ok_or_else(|| {
-            AltiumError::parse_error(offset + base + 8, format!("failed to read Region vertex {i} y coordinate"))
+            AltiumError::parse_error(
+                offset + base + 8,
+                format!("failed to read Region vertex {i} y coordinate"),
+            )
         })?;
 
         // Convert from internal units to mm
@@ -1533,7 +1566,10 @@ fn parse_fill(data: &[u8], offset: usize) -> ParseResult<Fill> {
     if block.len() < 37 {
         return Err(AltiumError::parse_error(
             offset,
-            format!("Fill block too short: {} bytes, expected at least 37", block.len()),
+            format!(
+                "Fill block too short: {} bytes, expected at least 37",
+                block.len()
+            ),
         ));
     }
 
@@ -1557,9 +1593,8 @@ fn parse_fill(data: &[u8], offset: usize) -> ParseResult<Fill> {
     })?);
 
     // Rotation at offset 29
-    let rotation = read_f64(block, 29).ok_or_else(|| {
-        AltiumError::parse_error(offset + 29, "failed to read Fill rotation")
-    })?;
+    let rotation = read_f64(block, 29)
+        .ok_or_else(|| AltiumError::parse_error(offset + 29, "failed to read Fill rotation"))?;
 
     let fill = Fill {
         x1,
@@ -1585,8 +1620,9 @@ fn parse_component_body(data: &[u8], offset: usize) -> ParseResult<ComponentBody
     let mut current = offset;
 
     // Block 0: Properties with parameter string (required)
-    let (block0, next) = read_block(data, current)
-        .ok_or_else(|| AltiumError::parse_error(offset, "failed to read ComponentBody block 0 (properties)"))?;
+    let (block0, next) = read_block(data, current).ok_or_else(|| {
+        AltiumError::parse_error(offset, "failed to read ComponentBody block 0 (properties)")
+    })?;
     current = next;
 
     // Block 1: Usually empty (optional - may not exist at end of file)
