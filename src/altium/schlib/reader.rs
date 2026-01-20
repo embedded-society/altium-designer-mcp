@@ -17,8 +17,8 @@
 //! - `0x0001`: Binary pin record
 
 use super::primitives::{
-    Arc, Ellipse, FootprintModel, Line, Parameter, Pin, PinElectricalType, PinOrientation,
-    Polyline, Rectangle,
+    Arc, Ellipse, FootprintModel, Label, Line, Parameter, Pin, PinElectricalType, PinOrientation,
+    Polyline, Rectangle, TextJustification,
 };
 use super::Symbol;
 use std::collections::HashMap;
@@ -160,9 +160,15 @@ fn parse_text_record_from_string(symbol: &mut Symbol, text: &str) {
                 symbol.add_arc(arc);
             }
         }
-        2 | 4 | 5 | 7 | 10 | 11 | 44 | 46 | 47 | 48 => {
+        4 => {
+            // Label
+            if let Some(label) = parse_label(&props) {
+                symbol.add_label(label);
+            }
+        }
+        2 | 5 | 7 | 10 | 11 | 44 | 46 | 47 | 48 => {
             // Known but not yet implemented:
-            // 2=Pin(text), 4=Label, 5=Bezier, 7=Polygon,
+            // 2=Pin(text), 5=Bezier, 7=Polygon,
             // 10=RoundRect, 11=EllipticalArc,
             // 44=ImplementationList, 46/47/48=Model data
             tracing::trace!("Skipping record type {record_id}");
@@ -512,6 +518,61 @@ fn parse_arc(props: &HashMap<String, String>) -> Option<Arc> {
         color,
         owner_part_id,
     })
+}
+
+/// Parses a label from properties.
+fn parse_label(props: &HashMap<String, String>) -> Option<Label> {
+    let x = props.get("location.x")?.parse().ok()?;
+    let y = props.get("location.y")?.parse().ok()?;
+    let text = props.get("text").cloned().unwrap_or_default();
+
+    let font_id = props
+        .get("fontid")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+    let color = props
+        .get("color")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0x80_00_00); // Dark blue
+    let rotation = props
+        .get("orientation")
+        .and_then(|s| s.parse::<i32>().ok())
+        .map_or(0.0, |o| f64::from(o) * 90.0);
+    let justification = props
+        .get("justification")
+        .and_then(|s| s.parse::<u8>().ok())
+        .map_or(TextJustification::BottomLeft, justification_from_id);
+    let owner_part_id = props
+        .get("ownerpartid")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+
+    Some(Label {
+        x,
+        y,
+        text,
+        font_id,
+        color,
+        justification,
+        rotation,
+        owner_part_id,
+    })
+}
+
+/// Converts Altium justification ID to our enum.
+const fn justification_from_id(id: u8) -> TextJustification {
+    match id {
+        1 => TextJustification::BottomCenter,
+        2 => TextJustification::BottomRight,
+        3 => TextJustification::MiddleLeft,
+        4 => TextJustification::MiddleCenter,
+        5 => TextJustification::MiddleRight,
+        6 => TextJustification::TopLeft,
+        7 => TextJustification::TopCenter,
+        8 => TextJustification::TopRight,
+        // 0 and unknown default to BottomLeft
+        _ => TextJustification::BottomLeft,
+    }
 }
 
 /// Reads a 4-byte little-endian signed integer.

@@ -169,6 +169,29 @@ impl Footprint {
     }
 }
 
+/// Library metadata parsed from the `FileHeader` stream.
+///
+/// The `FileHeader` contains metadata about the library as a whole,
+/// including component names and descriptions indexed by position.
+#[derive(Debug, Clone, Default)]
+pub struct LibraryMetadata {
+    /// File type identifier (e.g., "Protel for Windows - PCB Library").
+    pub header: String,
+
+    /// Component count from `CompCount` field.
+    pub component_count: usize,
+
+    /// Component names by index from `LibRef{N}` fields.
+    ///
+    /// Note: These may not match the footprint names stored in each
+    /// component's Parameters stream (PATTERN field), which can be longer
+    /// than the 31-character OLE storage name limit.
+    pub component_names: Vec<String>,
+
+    /// Component descriptions by index from `CompDescr{N}` fields.
+    pub component_descriptions: Vec<String>,
+}
+
 /// A `PcbLib` footprint library.
 #[derive(Debug, Clone, Default)]
 pub struct PcbLib {
@@ -180,6 +203,9 @@ pub struct PcbLib {
     /// These are zlib-compressed STEP files that are referenced by
     /// `ComponentBody` records via their GUID.
     models: Vec<EmbeddedModel>,
+
+    /// Library metadata from the `FileHeader` stream.
+    metadata: LibraryMetadata,
 }
 
 impl PcbLib {
@@ -212,6 +238,13 @@ impl PcbLib {
             .map_err(|e| AltiumError::invalid_ole(format!("Failed to open OLE file: {e}")))?;
 
         let mut library = Self::new();
+
+        // Read FileHeader for library metadata
+        library.metadata = Self::read_file_header(&mut cfb);
+
+        // Read Storage stream for UniqueIdPrimitiveInformation (if present)
+        // Note: This is currently a stub - the format is not fully documented
+        Self::read_storage_stream(&mut cfb);
 
         // Read WideStrings stream if present (contains text content for Text primitives)
         let wide_strings = Self::read_wide_strings(&mut cfb);
@@ -270,6 +303,121 @@ impl PcbLib {
         );
 
         Ok(library)
+    }
+
+    /// Reads the `FileHeader` stream and parses library metadata.
+    ///
+    /// The `FileHeader` contains pipe-delimited key=value pairs:
+    /// - `HEADER`: File type identifier
+    /// - `CompCount`: Number of components
+    /// - `LibRef{N}`: Component names (0-indexed)
+    /// - `CompDescr{N}`: Component descriptions
+    fn read_file_header<F: std::io::Read + std::io::Seek>(
+        cfb: &mut cfb::CompoundFile<F>,
+    ) -> LibraryMetadata {
+        let mut metadata = LibraryMetadata::default();
+
+        let header_path = std::path::Path::new("/FileHeader");
+        if !cfb.is_stream(header_path) {
+            return metadata;
+        }
+
+        let Ok(mut stream) = cfb.open_stream(header_path) else {
+            return metadata;
+        };
+
+        let mut data = Vec::new();
+        if std::io::Read::read_to_end(&mut stream, &mut data).is_err() {
+            return metadata;
+        }
+
+        // FileHeader is ASCII text with pipe-delimited key=value pairs
+        let Ok(text) = String::from_utf8(data) else {
+            return metadata;
+        };
+
+        // Parse key=value pairs
+        for pair in text.split('|') {
+            if let Some((key, value)) = pair.split_once('=') {
+                let key_upper = key.to_uppercase();
+                match key_upper.as_str() {
+                    "HEADER" => {
+                        metadata.header = value.to_string();
+                    }
+                    "COMPCOUNT" => {
+                        metadata.component_count = value.parse().unwrap_or(0);
+                    }
+                    _ => {
+                        // Check for LibRef{N} and CompDescr{N} patterns
+                        if let Some(idx_str) = key_upper.strip_prefix("LIBREF") {
+                            if let Ok(idx) = idx_str.parse::<usize>() {
+                                // Ensure vector is large enough
+                                while metadata.component_names.len() <= idx {
+                                    metadata.component_names.push(String::new());
+                                }
+                                metadata.component_names[idx] = value.to_string();
+                            }
+                        } else if let Some(idx_str) = key_upper.strip_prefix("COMPDESCR") {
+                            if let Ok(idx) = idx_str.parse::<usize>() {
+                                // Ensure vector is large enough
+                                while metadata.component_descriptions.len() <= idx {
+                                    metadata.component_descriptions.push(String::new());
+                                }
+                                metadata.component_descriptions[idx] = value.to_string();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        tracing::debug!(
+            header = %metadata.header,
+            count = metadata.component_count,
+            names = metadata.component_names.len(),
+            "Parsed FileHeader"
+        );
+
+        metadata
+    }
+
+    /// Reads the `/Storage` stream for `UniqueIdPrimitiveInformation` mappings.
+    ///
+    /// This stream contains mappings that link primitives to unique IDs.
+    /// The exact format is not fully documented, so this is currently a stub
+    /// that logs what we find for future analysis.
+    ///
+    /// # Format (partially documented)
+    ///
+    /// The Storage stream appears to contain pipe-delimited key=value pairs
+    /// similar to other Altium streams. Known fields:
+    /// - `UNIQUEIDPRIMITIVEINFORMATION{N}`: Primitive unique ID mappings
+    fn read_storage_stream<F: std::io::Read + std::io::Seek>(cfb: &mut cfb::CompoundFile<F>) {
+        let storage_path = std::path::Path::new("/Storage");
+        if !cfb.is_stream(storage_path) {
+            return;
+        }
+
+        let Ok(mut stream) = cfb.open_stream(storage_path) else {
+            return;
+        };
+
+        let mut data = Vec::new();
+        if std::io::Read::read_to_end(&mut stream, &mut data).is_err() {
+            return;
+        }
+
+        // Storage stream is typically ASCII text with pipe-delimited key=value pairs
+        if let Ok(text) = String::from_utf8(data) {
+            // Count UniqueIdPrimitiveInformation entries for logging
+            let uid_count = text.matches("UNIQUEIDPRIMITIVEINFORMATION").count();
+            if uid_count > 0 {
+                tracing::debug!(
+                    count = uid_count,
+                    "Found UniqueIdPrimitiveInformation entries in Storage stream"
+                );
+            }
+        }
     }
 
     /// Reads the `WideStrings` stream if present.
@@ -578,14 +726,46 @@ impl PcbLib {
     }
 
     /// Writes the `FileHeader` stream.
+    ///
+    /// The `FileHeader` contains library metadata as pipe-delimited key=value pairs:
+    /// - `HEADER`: File type identifier
+    /// - `WEIGHT`: Number of components (same as `CompCount`)
+    /// - `CompCount`: Number of components
+    /// - `LibRef{N}`: Component names (0-indexed)
+    /// - `CompDescr{N}`: Component descriptions
     fn write_file_header<F: std::io::Read + std::io::Write + std::io::Seek>(
         &self,
         cfb: &mut cfb::CompoundFile<F>,
     ) -> AltiumResult<()> {
-        let header = format!(
-            "|HEADER=Protel for Windows - PCB Library|WEIGHT={}|",
-            self.footprints.len()
-        );
+        use std::fmt::Write;
+
+        let mut header = String::new();
+
+        // File type identifier
+        header.push_str("|HEADER=Protel for Windows - PCB Library");
+
+        // Component count (WEIGHT is legacy name, CompCount is modern)
+        let count = self.footprints.len();
+        let _ = write!(header, "|WEIGHT={count}");
+        let _ = write!(header, "|COMPCOUNT={count}");
+
+        // Component names and descriptions
+        for (idx, footprint) in self.footprints.iter().enumerate() {
+            // LibRef uses the footprint name (truncated to 31 chars for OLE compatibility)
+            let name = if footprint.name.len() > 31 {
+                &footprint.name[..31]
+            } else {
+                &footprint.name
+            };
+            let _ = write!(header, "|LIBREF{idx}={name}");
+
+            // CompDescr uses the footprint description
+            if !footprint.description.is_empty() {
+                let _ = write!(header, "|COMPDESCR{idx}={}", footprint.description);
+            }
+        }
+
+        header.push('|');
 
         let mut stream = cfb
             .create_stream("/FileHeader")
@@ -695,6 +875,15 @@ impl PcbLib {
     /// Adds an embedded 3D model to the library.
     pub fn add_model(&mut self, model: EmbeddedModel) {
         self.models.push(model);
+    }
+
+    /// Returns a reference to the library metadata.
+    ///
+    /// The metadata contains information parsed from the `FileHeader` stream,
+    /// including component names and descriptions.
+    #[must_use]
+    pub const fn metadata(&self) -> &LibraryMetadata {
+        &self.metadata
     }
 }
 
