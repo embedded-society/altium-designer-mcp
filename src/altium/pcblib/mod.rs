@@ -40,7 +40,8 @@ use serde::{Deserialize, Serialize};
 
 pub use primitives::{
     Arc, ComponentBody, EmbeddedModel, Fill, HoleShape, Layer, Model3D, Pad, PadShape,
-    PadStackMode, Region, StrokeFont, Text, TextJustification, TextKind, Track, Vertex, Via,
+    PadStackMode, PcbFlags, Region, StrokeFont, Text, TextJustification, TextKind, Track, Vertex,
+    Via,
 };
 
 use crate::altium::error::{AltiumError, AltiumResult};
@@ -879,6 +880,7 @@ mod tests {
             kind: TextKind::Stroke,
             stroke_font: None,
             justification: TextJustification::MiddleCenter,
+            flags: PcbFlags::empty(),
         });
         original.add_text(Text {
             x: 1.5,
@@ -890,6 +892,7 @@ mod tests {
             kind: TextKind::Stroke,
             stroke_font: None,
             justification: TextJustification::TopLeft,
+            flags: PcbFlags::empty(),
         });
 
         let data = writer::encode_data_stream(&original);
@@ -935,6 +938,7 @@ mod tests {
                 },
             ],
             layer: Layer::TopAssembly,
+            flags: PcbFlags::empty(),
         });
 
         // Add a rectangular region
@@ -976,6 +980,7 @@ mod tests {
             y2: 0.5,
             layer: Layer::BottomPaste,
             rotation: 45.0,
+            flags: PcbFlags::empty(),
         });
 
         let data = writer::encode_data_stream(&original);

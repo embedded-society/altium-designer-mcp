@@ -139,20 +139,22 @@ This document tracks implementation gaps between the documented PcbLib format (`
 - [x] `BottomPadMaster` (ID 84)
 - [x] `DRCDetailLayer` (ID 85)
 
-## PcbFlags - Not Exposed
+## PcbFlags - Implemented ✓
 
-- [ ] Add `PcbFlags` struct or bitflags to primitives
-- [ ] Add flags field to all primitives (Pad, Track, Arc, Region, Fill, Text)
-- [ ] Parse flags from common header bytes 1-2 (reader.rs)
-- [ ] Write flags to common header (writer.rs, currently hardcoded to 0x00)
+- [x] Add `PcbFlags` struct or bitflags to primitives
+- [x] Add flags field to all primitives (Pad, Track, Arc, Region, Fill, Text)
+- [x] Parse flags from common header bytes 1-2 (reader.rs)
+- [x] Write flags to common header (writer.rs)
 
-Flag bits to support:
+Flag bits supported:
 
-- [ ] `Locked` (0x0001)
-- [ ] `Polygon` (0x0002)
-- [ ] `KeepOut` (0x0004)
-- [ ] `TentingTop` (0x0008)
-- [ ] `TentingBottom` (0x0010)
+- [x] `LOCKED` (0x0001)
+- [x] `POLYGON` (0x0002)
+- [x] `KEEPOUT` (0x0004)
+- [x] `TENTING_TOP` (0x0008)
+- [x] `TENTING_BOTTOM` (0x0010)
+
+Note: Text primitive uses byte 1 for `TextKind` instead of flags, so flags are always empty for Text.
 
 ## OLE Streams - Partial Implementation
 

@@ -14,8 +14,8 @@
 //! ```
 
 use super::primitives::{
-    Arc, ComponentBody, Fill, HoleShape, Layer, Pad, PadShape, PadStackMode, Region, StrokeFont,
-    Text, TextJustification, TextKind, Track, Via, ViaStackMode,
+    Arc, ComponentBody, Fill, HoleShape, Layer, Pad, PadShape, PadStackMode, PcbFlags, Region,
+    StrokeFont, Text, TextJustification, TextKind, Track, Via, ViaStackMode,
 };
 use super::Footprint;
 
@@ -249,13 +249,13 @@ const fn hole_shape_to_id(shape: HoleShape) -> u8 {
 }
 
 /// Writes the common 13-byte header for primitives.
-fn write_common_header(data: &mut Vec<u8>, layer: Layer) {
+fn write_common_header(data: &mut Vec<u8>, layer: Layer, flags: PcbFlags) {
     // Byte 0: Layer ID
     data.push(layer_to_id(layer));
-    // Byte 1: Flags (unlocked, tenting, etc.) - use reasonable defaults
-    data.push(0x00);
-    // Byte 2: More flags
-    data.push(0x00);
+    // Bytes 1-2: Flags (locked, keepout, tenting, etc.)
+    let flag_bits = flags.bits();
+    data.push((flag_bits & 0xFF) as u8);
+    data.push(((flag_bits >> 8) & 0xFF) as u8);
     // Bytes 3-12: Padding (0xFF as per pyAltiumLib)
     data.extend_from_slice(&[0xFF; 10]);
 }
@@ -443,7 +443,7 @@ fn encode_pad_geometry(pad: &Pad) -> Vec<u8> {
     let mut block = Vec::with_capacity(128);
 
     // Common header (13 bytes) - offsets 0-12
-    write_common_header(&mut block, pad.layer);
+    write_common_header(&mut block, pad.layer, pad.flags);
 
     // Location (X, Y) - offsets 13-20
     write_i32(&mut block, from_mm(pad.x));
@@ -586,7 +586,8 @@ fn encode_via_geometry(via: &Via) -> Vec<u8> {
     let mut block = Vec::with_capacity(256); // Larger for potential per-layer data
 
     // Common header (13 bytes) - use MultiLayer for vias
-    write_common_header(&mut block, Layer::MultiLayer);
+    // Note: Via primitive doesn't have flags field (different binary structure)
+    write_common_header(&mut block, Layer::MultiLayer, PcbFlags::empty());
 
     // Location (X, Y) - offsets 13-20
     write_i32(&mut block, from_mm(via.x));
@@ -700,7 +701,7 @@ fn encode_track(data: &mut Vec<u8>, track: &Track) {
     let mut block = Vec::with_capacity(64);
 
     // Common header (13 bytes)
-    write_common_header(&mut block, track.layer);
+    write_common_header(&mut block, track.layer, track.flags);
 
     // Start coordinates (X, Y) - offsets 13-20
     write_i32(&mut block, from_mm(track.x1));
@@ -721,7 +722,7 @@ fn encode_arc(data: &mut Vec<u8>, arc: &Arc) {
     let mut block = Vec::with_capacity(64);
 
     // Common header (13 bytes)
-    write_common_header(&mut block, arc.layer);
+    write_common_header(&mut block, arc.layer, arc.flags);
 
     // Centre coordinates (X, Y) - offsets 13-20
     write_i32(&mut block, from_mm(arc.x));
@@ -872,7 +873,7 @@ fn encode_region_properties(region: &Region) -> Vec<u8> {
     let mut block = Vec::with_capacity(22 + params_bytes.len() + 4 + vertex_count * 16);
 
     // Common header (13 bytes)
-    write_common_header(&mut block, region.layer);
+    write_common_header(&mut block, region.layer, region.flags);
 
     // Unknown bytes (5 bytes)
     block.extend_from_slice(&[0x00; 5]);
@@ -924,7 +925,7 @@ fn encode_fill_block(fill: &Fill) -> Vec<u8> {
     let mut block = Vec::with_capacity(50);
 
     // Common header (13 bytes)
-    write_common_header(&mut block, fill.layer);
+    write_common_header(&mut block, fill.layer, fill.flags);
 
     // Corner coordinates (16 bytes)
     write_i32(&mut block, from_mm(fill.x1));
@@ -1239,7 +1240,7 @@ mod tests {
 
     #[test]
     fn test_collect_wide_strings_content() {
-        use super::{Layer, Text, TextKind};
+        use super::{Layer, PcbFlags, Text, TextKind};
 
         let mut fp = Footprint::new("TEST");
         fp.add_text(Text {
@@ -1252,6 +1253,7 @@ mod tests {
             kind: TextKind::Stroke,
             stroke_font: None,
             justification: TextJustification::MiddleCenter,
+            flags: PcbFlags::empty(),
         });
         fp.add_text(Text {
             x: 1.0,
@@ -1263,6 +1265,7 @@ mod tests {
             kind: TextKind::Stroke,
             stroke_font: None,
             justification: TextJustification::MiddleCenter,
+            flags: PcbFlags::empty(),
         });
 
         let texts = collect_wide_strings_content(&[fp]);

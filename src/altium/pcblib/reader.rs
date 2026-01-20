@@ -27,8 +27,8 @@
 use std::collections::HashMap;
 
 use super::primitives::{
-    Arc, ComponentBody, Fill, HoleShape, Layer, Pad, PadShape, PadStackMode, Region, StrokeFont,
-    Text, TextJustification, TextKind, Track, Vertex, Via, ViaStackMode,
+    Arc, ComponentBody, Fill, HoleShape, Layer, Pad, PadShape, PadStackMode, PcbFlags, Region,
+    StrokeFont, Text, TextJustification, TextKind, Track, Vertex, Via, ViaStackMode,
 };
 use super::Footprint;
 
@@ -177,6 +177,15 @@ fn read_string_from_block(block: &[u8]) -> String {
     }
     // Use Windows-1252 encoding (common in Altium files)
     String::from_utf8_lossy(&block[1..=str_len]).to_string()
+}
+
+/// Reads PCB flags from the common header bytes 1-2.
+fn read_flags(data: &[u8]) -> PcbFlags {
+    if data.len() < 3 {
+        return PcbFlags::empty();
+    }
+    let bits = u16::from_le_bytes([data[1], data[2]]);
+    PcbFlags::from_bits_truncate(bits)
 }
 
 /// Converts Altium layer ID to our Layer enum.
@@ -566,6 +575,7 @@ fn parse_pad(data: &[u8], offset: usize) -> Option<(Pad, usize)> {
     // Common header (13 bytes)
     let layer_id = geometry[0];
     let layer = layer_from_id(layer_id);
+    let flags = read_flags(geometry);
 
     // Location (X, Y) - offsets 13-20
     let x = to_mm(read_i32(geometry, 13)?);
@@ -702,6 +712,7 @@ fn parse_pad(data: &[u8], offset: usize) -> Option<(Pad, usize)> {
         per_layer_shapes,
         per_layer_corner_radii,
         per_layer_offsets,
+        flags,
     };
 
     Some((pad, current))
@@ -975,6 +986,7 @@ fn parse_track(data: &[u8], offset: usize) -> Option<(Track, usize)> {
     // Common header (13 bytes)
     let layer_id = block[0];
     let layer = layer_from_id(layer_id);
+    let flags = read_flags(block);
 
     // Start coordinates (X, Y) - offsets 13-20
     let x1 = to_mm(read_i32(block, 13)?);
@@ -987,7 +999,15 @@ fn parse_track(data: &[u8], offset: usize) -> Option<(Track, usize)> {
     // Width - offset 29
     let width = to_mm(read_i32(block, 29)?);
 
-    let track = Track::new(x1, y1, x2, y2, width, layer);
+    let track = Track {
+        x1,
+        y1,
+        x2,
+        y2,
+        width,
+        layer,
+        flags,
+    };
 
     Some((track, next))
 }
@@ -1005,6 +1025,7 @@ fn parse_arc(data: &[u8], offset: usize) -> Option<(Arc, usize)> {
     // Common header (13 bytes)
     let layer_id = block[0];
     let layer = layer_from_id(layer_id);
+    let flags = read_flags(block);
 
     // Centre coordinates (X, Y) - offsets 13-20
     let x = to_mm(read_i32(block, 13)?);
@@ -1028,6 +1049,7 @@ fn parse_arc(data: &[u8], offset: usize) -> Option<(Arc, usize)> {
         end_angle,
         width,
         layer,
+        flags,
     };
 
     Some((arc, next))
@@ -1074,8 +1096,10 @@ fn parse_text(
     // Common header (13 bytes)
     let layer_id = geometry_block[0];
     let layer = layer_from_id(layer_id);
+    // Note: Text doesn't use standard flags format - byte 1 is text kind, not flags
+    let flags = PcbFlags::empty();
 
-    // Text kind - typically in flags area (offset 1)
+    // Text kind at offset 1 (where flags low byte normally is)
     // 0 = Stroke, 1 = TrueType, 2 = BarCode
     let kind = if geometry_block.len() > 1 {
         text_kind_from_id(geometry_block[1])
@@ -1147,6 +1171,7 @@ fn parse_text(
         kind,
         stroke_font,
         justification,
+        flags,
     };
 
     Some((text, current))
@@ -1289,6 +1314,7 @@ fn parse_region(data: &[u8], offset: usize) -> Option<(Region, usize)> {
     // Common header (13 bytes)
     let layer_id = props_block[0];
     let layer = layer_from_id(layer_id);
+    let flags = read_flags(props_block);
 
     // Skip unknown bytes (5 bytes after header)
     // Read parameter string length at offset 18
@@ -1342,7 +1368,11 @@ fn parse_region(data: &[u8], offset: usize) -> Option<(Region, usize)> {
         current = next;
     }
 
-    let region = Region { vertices, layer };
+    let region = Region {
+        vertices,
+        layer,
+        flags,
+    };
 
     Some((region, current))
 }
@@ -1376,6 +1406,7 @@ fn parse_fill(data: &[u8], offset: usize) -> Option<(Fill, usize)> {
     // Common header (13 bytes)
     let layer_id = block[0];
     let layer = layer_from_id(layer_id);
+    let flags = read_flags(block);
 
     // Coordinates at offset 13
     let x1 = to_mm(read_i32(block, 13)?);
@@ -1393,6 +1424,7 @@ fn parse_fill(data: &[u8], offset: usize) -> Option<(Fill, usize)> {
         y2,
         layer,
         rotation,
+        flags,
     };
 
     Some((fill, current))

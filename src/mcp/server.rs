@@ -1964,7 +1964,7 @@ impl McpServer {
 
     /// Parses a pad from JSON.
     fn parse_pad(json: &Value) -> Result<crate::altium::pcblib::Pad, String> {
-        use crate::altium::pcblib::{Layer, Pad, PadShape, PadStackMode};
+        use crate::altium::pcblib::{Layer, Pad, PadShape, PadStackMode, PcbFlags};
 
         let designator = json
             .get("designator")
@@ -2069,6 +2069,7 @@ impl McpServer {
             per_layer_shapes: None,
             per_layer_corner_radii: None,
             per_layer_offsets: None,
+            flags: PcbFlags::empty(),
         })
     }
 
@@ -2113,7 +2114,7 @@ impl McpServer {
 
     /// Parses an arc from JSON.
     fn parse_arc(json: &Value) -> Result<crate::altium::pcblib::Arc, String> {
-        use crate::altium::pcblib::{Arc, Layer};
+        use crate::altium::pcblib::{Arc, Layer, PcbFlags};
 
         let x = json
             .get("x")
@@ -2159,12 +2160,13 @@ impl McpServer {
             end_angle,
             width,
             layer,
+            flags: PcbFlags::empty(),
         })
     }
 
     /// Parses a region from JSON.
     fn parse_region(json: &Value) -> Option<crate::altium::pcblib::Region> {
-        use crate::altium::pcblib::{Layer, Region, Vertex};
+        use crate::altium::pcblib::{Layer, PcbFlags, Region, Vertex};
 
         let vertices_json = json.get("vertices").and_then(Value::as_array)?;
         let layer = json
@@ -2186,12 +2188,16 @@ impl McpServer {
             return None; // Need at least 3 vertices for a polygon
         }
 
-        Some(Region { vertices, layer })
+        Some(Region {
+            vertices,
+            layer,
+            flags: PcbFlags::empty(),
+        })
     }
 
     /// Parses text from JSON.
     fn parse_text(json: &Value) -> Option<crate::altium::pcblib::Text> {
-        use crate::altium::pcblib::{Layer, Text, TextJustification, TextKind};
+        use crate::altium::pcblib::{Layer, PcbFlags, Text, TextJustification, TextKind};
 
         let x = json.get("x").and_then(Value::as_f64)?;
         let y = json.get("y").and_then(Value::as_f64)?;
@@ -2214,6 +2220,7 @@ impl McpServer {
             kind: TextKind::Stroke,
             stroke_font: None,
             justification: TextJustification::MiddleCenter,
+            flags: PcbFlags::empty(),
         })
     }
 
