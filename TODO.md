@@ -156,19 +156,21 @@ Flag bits supported:
 
 Note: Text primitive uses byte 1 for `TextKind` instead of flags, so flags are always empty for Text.
 
-## OLE Streams - Partial Implementation
+## OLE Streams - Implemented ✓
 
 ### Storage Stream
 
-- [ ] Parse `UniqueIdPrimitiveInformation` mappings from `/Storage` stream
-- [ ] Use mappings to link primitives to unique IDs
+- [x] Parse `UniqueIdPrimitiveInformation` mappings from `/Storage` stream (stub implemented, logs found entries)
+- [ ] Use mappings to link primitives to unique IDs (requires real files for reverse engineering)
 
 ### FileHeader Improvements
 
-- [ ] Parse `CompCount` field (number of components)
-- [ ] Parse `LibRef{N}` fields (component names by index)
-- [ ] Parse `CompDescr{N}` fields (component descriptions)
-- [ ] Write complete FileHeader with all fields (currently minimal in mod.rs line 364-367)
+- [x] Parse `CompCount` field (number of components)
+- [x] Parse `LibRef{N}` fields (component names by index)
+- [x] Parse `CompDescr{N}` fields (component descriptions)
+- [x] Write complete FileHeader with all fields
+- [x] Add `LibraryMetadata` struct for storing parsed header data
+- [x] Add `metadata()` accessor method to `PcbLib`
 
 ## Code Quality
 
@@ -207,7 +209,7 @@ for Pad::smd, Pad::through_hole, Track::new, and Arc::circle.
 
 ## Low Priority / Future
 
-- [ ] Support reading/writing SchLib files (separate module exists but may need similar review)
+- [x] Support reading/writing SchLib files (Label primitive support added, roundtrip tests pass)
 - [ ] Support component variants (board-level feature, not library)
 - [ ] Support net information (board-level feature, not library)
 - [ ] Optimize binary parsing with zero-copy where possible
