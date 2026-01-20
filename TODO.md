@@ -164,7 +164,12 @@ Note: Text primitive uses byte 1 for `TextKind` instead of flags, so flags are a
 ### Storage Stream
 
 - [x] Parse `UniqueIdPrimitiveInformation` mappings from `/Storage` stream (stub implemented, logs found entries)
-- [ ] Use mappings to link primitives to unique IDs (requires real files for reverse engineering)
+- [x] Use mappings to link primitives to unique IDs
+    - Added `unique_id: Option<String>` field to all PcbLib primitives
+    - Implemented `parse_unique_id_stream()` to parse `/{FootprintName}/UniqueIDPrimitiveInformation/Data`
+    - Implemented `apply_unique_ids()` to assign parsed IDs to primitives by type and index
+    - Implemented `encode_unique_id_stream()` to write unique IDs back when saving
+    - Added 5 roundtrip tests for parsing, encoding, and application
 
 ### FileHeader Improvements
 
