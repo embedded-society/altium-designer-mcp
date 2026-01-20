@@ -237,19 +237,46 @@ const fn layer_from_id(id: u8) -> Layer {
         36 => Layer::BottomPaste,
         37 => Layer::TopSolder,
         38 => Layer::BottomSolder,
+        // Internal planes (IDs 39-54)
+        39 => Layer::InternalPlane1,
+        40 => Layer::InternalPlane2,
+        41 => Layer::InternalPlane3,
+        42 => Layer::InternalPlane4,
+        43 => Layer::InternalPlane5,
+        44 => Layer::InternalPlane6,
+        45 => Layer::InternalPlane7,
+        46 => Layer::InternalPlane8,
+        47 => Layer::InternalPlane9,
+        48 => Layer::InternalPlane10,
+        49 => Layer::InternalPlane11,
+        50 => Layer::InternalPlane12,
+        51 => Layer::InternalPlane13,
+        52 => Layer::InternalPlane14,
+        53 => Layer::InternalPlane15,
+        54 => Layer::InternalPlane16,
+        // Drill and keep-out layers
+        55 => Layer::DrillGuide,
         56 => Layer::KeepOut,
+        // Mechanical layers (IDs 57-72)
         57 => Layer::Mechanical1,
-        // Component layer pairs (from sample library)
-        58 => Layer::TopAssembly,
-        59 => Layer::BottomAssembly,
-        60 => Layer::TopCourtyard,
-        61 => Layer::BottomCourtyard,
-        62 => Layer::Top3DBody,
-        63 => Layer::Bottom3DBody,
-        // Remaining mechanical layers
-        64..=68 => Layer::Mechanical2, // Mechanical 8-12
-        69 | 70 => Layer::Mechanical13,
-        71 | 72 => Layer::Mechanical15,
+        // Component layer pairs (aliased to mechanical layers)
+        58 => Layer::TopAssembly,    // Also Mechanical 2
+        59 => Layer::BottomAssembly, // Also Mechanical 3
+        60 => Layer::TopCourtyard,   // Also Mechanical 4
+        61 => Layer::BottomCourtyard, // Also Mechanical 5
+        62 => Layer::Top3DBody,      // Also Mechanical 6
+        63 => Layer::Bottom3DBody,   // Also Mechanical 7
+        64 => Layer::Mechanical8,
+        65 => Layer::Mechanical9,
+        66 => Layer::Mechanical10,
+        67 => Layer::Mechanical11,
+        68 => Layer::Mechanical12,
+        69 => Layer::Mechanical13,
+        70 => Layer::Mechanical14,
+        71 => Layer::Mechanical15,
+        72 => Layer::Mechanical16,
+        // Drill drawing
+        73 => Layer::DrillDrawing,
         // 74 = Multi-Layer and all other unknown layers
         _ => Layer::MultiLayer,
     }

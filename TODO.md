@@ -102,20 +102,28 @@ This document tracks implementation gaps between the documented PcbLib format (`
 - [x] Parse justification from geometry block (offset 67)
 - [x] Write justification to geometry block
 
-## Layers - Incomplete Coverage
+## Layers
 
 ### Mid Layers - Implemented ✓
 
 - [x] Mid layers: `MidLayer1` through `MidLayer30` (IDs 2-31)
 
-### Missing Layer Variants
+### Internal Planes - Implemented ✓
 
-Add to `Layer` enum in `src/altium/pcblib/primitives.rs`:
+- [x] Internal planes: `InternalPlane1` through `InternalPlane16` (IDs 39-54)
+- [x] Added to `Layer` enum in `src/altium/pcblib/primitives.rs`
+- [x] Added to `layer_from_id()` in reader.rs
+- [x] Added to `layer_to_id()` in writer.rs
 
-- [ ] Internal planes: `InternalPlane1` through `InternalPlane16` (IDs 39-54)
-- [ ] `DrillGuide` (ID 55)
-- [ ] `DrillDrawing` (ID 73)
-- [ ] Mechanical 3-12, 14, 16 (IDs 59-68, 70, 72) - currently some are aliased incorrectly
+### Drill Layers - Implemented ✓
+
+- [x] `DrillGuide` (ID 55)
+- [x] `DrillDrawing` (ID 73)
+
+### Mechanical Layers - Implemented ✓
+
+- [x] Mechanical 1-16 (IDs 57-72)
+- [x] Mechanical 2-7 aliased to component layers (TopAssembly, BottomAssembly, etc.)
 
 ### Missing Special Layers
 
@@ -130,11 +138,6 @@ Add to `Layer` enum in `src/altium/pcblib/primitives.rs`:
 - [ ] `TopPadMaster` (ID 83)
 - [ ] `BottomPadMaster` (ID 84)
 - [ ] `DRCDetailLayer` (ID 85)
-
-### Layer Mapping Fixes
-
-- [ ] Fix `layer_from_id()` in reader.rs (line 130-156) - many IDs incorrectly default to MultiLayer
-- [ ] Fix `layer_to_id()` in writer.rs (line 70-94) - incomplete mapping
 
 ## PcbFlags - Not Exposed
 
