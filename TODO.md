@@ -195,11 +195,15 @@ Note: Tests added for `PadStackMode` (Simple, TopMiddleBottom, FullStack), per-l
 (sizes, shapes, corner radii, offsets), and comprehensive layer ID mapping tests covering
 all copper layers, mid layers, mask layers, internal planes, mechanical layers, and special layers.
 
-### Documentation
+### Documentation - Implemented ✓
 
-- [ ] Add doc comments to all public types in primitives.rs
-- [ ] Document coordinate system in primitives.rs module docs
-- [ ] Add examples to Pad, Track, Arc struct docs
+- [x] Add doc comments to all public types in primitives.rs
+- [x] Document coordinate system in primitives.rs module docs
+- [x] Add examples to Pad, Track, Arc struct docs
+
+Note: Module documentation includes coordinate system diagram (origin, X/Y axes, rotation direction),
+layer recommendations table, and internal units explanation. Doc examples with `cargo test` verification
+for Pad::smd, Pad::through_hole, Track::new, and Arc::circle.
 
 ## Low Priority / Future
 

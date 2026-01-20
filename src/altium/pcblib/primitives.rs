@@ -1,7 +1,40 @@
 //! Footprint primitive types for `PcbLib` files.
 //!
-//! These types represent the geometric elements that make up a footprint:
-//! pads, tracks, arcs, regions, and text.
+//! This module provides types representing the geometric elements that make up a footprint:
+//! pads, tracks, arcs, regions, fills, text, and 3D model references.
+//!
+//! # Coordinate System
+//!
+//! All coordinates use millimeters (mm) as the unit of measurement. The coordinate system is:
+//!
+//! - **Origin**: Footprint center (0, 0)
+//! - **X-axis**: Positive to the right
+//! - **Y-axis**: Positive upward
+//! - **Rotation**: Counter-clockwise, 0° = right (positive X direction)
+//!
+//! ```text
+//!           +Y
+//!            │
+//!            │
+//!   ─────────┼─────────> +X
+//!            │
+//!            │
+//! ```
+//!
+//! # Layers
+//!
+//! Primitives are placed on specific layers. The most common layers for footprints are:
+//!
+//! - [`Layer::TopLayer`] / [`Layer::BottomLayer`]: Copper layers for SMD pads
+//! - [`Layer::MultiLayer`]: All copper layers (for through-hole pads)
+//! - [`Layer::TopOverlay`] / [`Layer::BottomOverlay`]: Silkscreen
+//! - [`Layer::TopPaste`] / [`Layer::BottomPaste`]: Solder paste stencil
+//! - [`Layer::TopSolder`] / [`Layer::BottomSolder`]: Solder mask openings
+//!
+//! # Internal Units
+//!
+//! Altium's binary format uses internal units (1/10000 of a mil = 2.54 nm).
+//! This module handles all conversions automatically - you always work in millimeters.
 
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
@@ -28,6 +61,32 @@ bitflags! {
 }
 
 /// A PCB pad (SMD or through-hole).
+///
+/// Pads are the connection points on a footprint where component leads are soldered.
+/// There are two main types:
+///
+/// - **SMD pads**: Surface-mount pads on a single layer (top or bottom)
+/// - **Through-hole pads**: Pads with a drilled hole spanning multiple layers
+///
+/// # Examples
+///
+/// Create an SMD pad for a 0603 resistor:
+///
+/// ```
+/// use altium_designer_mcp::altium::pcblib::primitives::Pad;
+///
+/// // 0.8mm × 0.9mm pad at position (-0.8, 0)
+/// let pad = Pad::smd("1", -0.8, 0.0, 0.8, 0.9);
+/// ```
+///
+/// Create a through-hole pad for a 2.54mm pin header:
+///
+/// ```
+/// use altium_designer_mcp::altium::pcblib::primitives::Pad;
+///
+/// // 1.6mm diameter pad with 0.8mm hole
+/// let pad = Pad::through_hole("1", 0.0, 0.0, 1.6, 1.6, 0.8);
+/// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Pad {
     /// Pad designator (e.g., "1", "2", "A1").
@@ -374,6 +433,25 @@ impl Via {
 }
 
 /// A track (line segment) on a layer.
+///
+/// Tracks are used to draw silkscreen outlines, keepout boundaries, and other
+/// line-based graphics in a footprint.
+///
+/// # Example
+///
+/// Create silkscreen outline tracks for a component:
+///
+/// ```
+/// use altium_designer_mcp::altium::pcblib::primitives::{Track, Layer};
+///
+/// // Draw a box outline with 0.15mm wide lines
+/// let tracks = vec![
+///     Track::new(-1.0, -0.5, 1.0, -0.5, 0.15, Layer::TopOverlay), // bottom
+///     Track::new(1.0, -0.5, 1.0, 0.5, 0.15, Layer::TopOverlay),   // right
+///     Track::new(1.0, 0.5, -1.0, 0.5, 0.15, Layer::TopOverlay),   // top
+///     Track::new(-1.0, 0.5, -1.0, -0.5, 0.15, Layer::TopOverlay), // left
+/// ];
+/// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Track {
     /// Start X position in mm.
@@ -410,6 +488,38 @@ impl Track {
 }
 
 /// An arc or circle on a layer.
+///
+/// Arcs are used to draw curved silkscreen outlines, pin 1 indicators,
+/// and other curved graphics in a footprint.
+///
+/// # Examples
+///
+/// Create a circle for pin 1 indicator:
+///
+/// ```
+/// use altium_designer_mcp::altium::pcblib::primitives::{Arc, Layer};
+///
+/// // Small circle on silkscreen to mark pin 1
+/// let pin1_marker = Arc::circle(-1.2, 0.6, 0.2, 0.15, Layer::TopOverlay);
+/// ```
+///
+/// Create a 90-degree arc:
+///
+/// ```
+/// use altium_designer_mcp::altium::pcblib::primitives::{Arc, Layer};
+///
+/// // Quarter circle from 0° to 90°
+/// let arc = Arc {
+///     x: 0.0,
+///     y: 0.0,
+///     radius: 1.0,
+///     start_angle: 0.0,
+///     end_angle: 90.0,
+///     width: 0.15,
+///     layer: Layer::TopOverlay,
+///     flags: Default::default(),
+/// };
+/// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Arc {
     /// Centre X position in mm.
