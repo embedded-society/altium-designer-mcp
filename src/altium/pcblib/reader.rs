@@ -31,6 +31,13 @@ use super::primitives::{
     StrokeFont, Text, TextJustification, TextKind, Track, Vertex, Via, ViaStackMode,
 };
 use super::Footprint;
+use crate::altium::error::AltiumError;
+
+/// Result type for internal parse functions.
+///
+/// Returns the parsed primitive along with the new offset on success,
+/// or an [`AltiumError::ParseError`] with offset and message on failure.
+type ParseResult<T> = Result<(T, usize), AltiumError>;
 
 /// A lookup table for `WideStrings` text content.
 ///
@@ -420,82 +427,106 @@ pub fn parse_data_stream(
         match record_type {
             0x01 => {
                 // Arc
-                if let Some((arc, new_offset)) = parse_arc(data, offset) {
-                    footprint.add_arc(arc);
-                    offset = new_offset;
-                } else {
-                    tracing::debug!("Failed to parse Arc at offset {offset:#x}");
-                    break;
+                match parse_arc(data, offset) {
+                    Ok((arc, new_offset)) => {
+                        footprint.add_arc(arc);
+                        offset = new_offset;
+                    }
+                    Err(e) => {
+                        tracing::debug!("Failed to parse Arc: {e}");
+                        break;
+                    }
                 }
             }
             0x02 => {
                 // Pad
-                if let Some((pad, new_offset)) = parse_pad(data, offset) {
-                    footprint.add_pad(pad);
-                    offset = new_offset;
-                } else {
-                    tracing::debug!("Failed to parse Pad at offset {offset:#x}");
-                    break;
+                match parse_pad(data, offset) {
+                    Ok((pad, new_offset)) => {
+                        footprint.add_pad(pad);
+                        offset = new_offset;
+                    }
+                    Err(e) => {
+                        tracing::debug!("Failed to parse Pad: {e}");
+                        break;
+                    }
                 }
             }
             0x04 => {
                 // Track
-                if let Some((track, new_offset)) = parse_track(data, offset) {
-                    footprint.add_track(track);
-                    offset = new_offset;
-                } else {
-                    tracing::debug!("Failed to parse Track at offset {offset:#x}");
-                    break;
+                match parse_track(data, offset) {
+                    Ok((track, new_offset)) => {
+                        footprint.add_track(track);
+                        offset = new_offset;
+                    }
+                    Err(e) => {
+                        tracing::debug!("Failed to parse Track: {e}");
+                        break;
+                    }
                 }
             }
             0x05 => {
                 // Text
-                if let Some((text, new_offset)) = parse_text(data, offset, wide_strings) {
-                    footprint.add_text(text);
-                    offset = new_offset;
-                } else {
-                    tracing::debug!("Failed to parse Text at offset {offset:#x}");
-                    break;
+                match parse_text(data, offset, wide_strings) {
+                    Ok((text, new_offset)) => {
+                        footprint.add_text(text);
+                        offset = new_offset;
+                    }
+                    Err(e) => {
+                        tracing::debug!("Failed to parse Text: {e}");
+                        break;
+                    }
                 }
             }
             0x0B => {
                 // Region (filled polygon)
-                if let Some((region, new_offset)) = parse_region(data, offset) {
-                    footprint.add_region(region);
-                    offset = new_offset;
-                } else {
-                    tracing::debug!("Failed to parse Region at offset {offset:#x}");
-                    break;
+                match parse_region(data, offset) {
+                    Ok((region, new_offset)) => {
+                        footprint.add_region(region);
+                        offset = new_offset;
+                    }
+                    Err(e) => {
+                        tracing::debug!("Failed to parse Region: {e}");
+                        break;
+                    }
                 }
             }
             0x06 => {
                 // Fill (filled rectangle)
-                if let Some((fill, new_offset)) = parse_fill(data, offset) {
-                    footprint.add_fill(fill);
-                    offset = new_offset;
-                } else {
-                    tracing::debug!("Failed to parse Fill at offset {offset:#x}");
-                    break;
+                match parse_fill(data, offset) {
+                    Ok((fill, new_offset)) => {
+                        footprint.add_fill(fill);
+                        offset = new_offset;
+                    }
+                    Err(e) => {
+                        tracing::debug!("Failed to parse Fill: {e}");
+                        break;
+                    }
                 }
             }
             0x0C => {
                 // ComponentBody (3D model reference)
-                if let Some((body, new_offset)) = parse_component_body(data, offset) {
-                    footprint.add_component_body(body);
-                    offset = new_offset;
-                } else {
-                    tracing::debug!("Failed to parse ComponentBody at offset {offset:#x}");
-                    break;
+                match parse_component_body(data, offset) {
+                    Ok((body, new_offset)) => {
+                        footprint.add_component_body(body);
+                        offset = new_offset;
+                    }
+                    Err(e) => {
+                        tracing::debug!("Failed to parse ComponentBody: {e}");
+                        break;
+                    }
                 }
             }
             0x03 => {
                 // Via
-                if let Some((via, new_offset)) = parse_via(data, offset) {
-                    footprint.add_via(via);
-                    offset = new_offset;
-                } else {
-                    tracing::debug!("Failed to parse Via at offset {offset:#x}");
-                    break;
+                match parse_via(data, offset) {
+                    Ok((via, new_offset)) => {
+                        footprint.add_via(via);
+                        offset = new_offset;
+                    }
+                    Err(e) => {
+                        tracing::debug!("Failed to parse Via: {e}");
+                        break;
+                    }
                 }
             }
             _ => {
@@ -535,28 +566,33 @@ pub fn parse_data_stream(
 /// | 101 | 1 | Paste mask expansion manual |
 /// | 102 | 1 | Solder mask expansion manual |
 #[allow(clippy::too_many_lines)] // Complex binary format requires detailed parsing
-fn parse_pad(data: &[u8], offset: usize) -> Option<(Pad, usize)> {
+fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
     let mut current = offset;
 
     // Block 0: Designator string
-    let (block0, next) = read_block(data, current)?;
+    let (block0, next) = read_block(data, current)
+        .ok_or_else(|| AltiumError::parse_error(offset, "failed to read Pad block 0 (designator)"))?;
     let designator = read_string_from_block(block0);
     current = next;
 
     // Block 1: Unknown (skip)
-    let (_, next) = read_block(data, current)?;
+    let (_, next) = read_block(data, current)
+        .ok_or_else(|| AltiumError::parse_error(current, "failed to read Pad block 1"))?;
     current = next;
 
     // Block 2: Unknown string ("|&|0")
-    let (_, next) = read_block(data, current)?;
+    let (_, next) = read_block(data, current)
+        .ok_or_else(|| AltiumError::parse_error(current, "failed to read Pad block 2"))?;
     current = next;
 
     // Block 3: Unknown (skip)
-    let (_, next) = read_block(data, current)?;
+    let (_, next) = read_block(data, current)
+        .ok_or_else(|| AltiumError::parse_error(current, "failed to read Pad block 3"))?;
     current = next;
 
     // Block 4: Geometry data
-    let (geometry, next) = read_block(data, current)?;
+    let (geometry, next) = read_block(data, current)
+        .ok_or_else(|| AltiumError::parse_error(current, "failed to read Pad block 4 (geometry)"))?;
     current = next;
 
     // Block 5: Per-layer data (optional, may contain corner radius)
@@ -569,7 +605,10 @@ fn parse_pad(data: &[u8], offset: usize) -> Option<(Pad, usize)> {
 
     // Parse geometry block
     if geometry.len() < 52 {
-        return None;
+        return Err(AltiumError::parse_error(
+            offset,
+            format!("Pad geometry block too short: {} bytes, expected at least 52", geometry.len()),
+        ));
     }
 
     // Common header (13 bytes)
@@ -578,12 +617,20 @@ fn parse_pad(data: &[u8], offset: usize) -> Option<(Pad, usize)> {
     let flags = read_flags(geometry);
 
     // Location (X, Y) - offsets 13-20
-    let x = to_mm(read_i32(geometry, 13)?);
-    let y = to_mm(read_i32(geometry, 17)?);
+    let x = to_mm(read_i32(geometry, 13).ok_or_else(|| {
+        AltiumError::parse_error(offset + 13, "failed to read Pad x coordinate")
+    })?);
+    let y = to_mm(read_i32(geometry, 17).ok_or_else(|| {
+        AltiumError::parse_error(offset + 17, "failed to read Pad y coordinate")
+    })?);
 
     // Size top (X, Y) - offsets 21-28
-    let size_top_x = to_mm(read_i32(geometry, 21)?);
-    let size_top_y = to_mm(read_i32(geometry, 25)?);
+    let size_top_x = to_mm(read_i32(geometry, 21).ok_or_else(|| {
+        AltiumError::parse_error(offset + 21, "failed to read Pad width")
+    })?);
+    let size_top_y = to_mm(read_i32(geometry, 25).ok_or_else(|| {
+        AltiumError::parse_error(offset + 25, "failed to read Pad height")
+    })?);
 
     // Use top size for width/height
     let width = size_top_x;
@@ -591,9 +638,13 @@ fn parse_pad(data: &[u8], offset: usize) -> Option<(Pad, usize)> {
 
     // Hole size - offset 45
     let hole_size = if geometry.len() > 48 {
-        let hole = to_mm(read_i32(geometry, 45)?);
-        if hole > 0.001 {
-            Some(hole)
+        if let Some(hole_val) = read_i32(geometry, 45) {
+            let hole = to_mm(hole_val);
+            if hole > 0.001 {
+                Some(hole)
+            } else {
+                None
+            }
         } else {
             None
         }
@@ -631,9 +682,13 @@ fn parse_pad(data: &[u8], offset: usize) -> Option<(Pad, usize)> {
 
     // Paste mask expansion - offset 86-89
     let paste_mask_expansion = if geometry.len() > 89 {
-        let expansion = to_mm(read_i32(geometry, 86)?);
-        if expansion.abs() > 0.0001 {
-            Some(expansion)
+        if let Some(expansion_val) = read_i32(geometry, 86) {
+            let expansion = to_mm(expansion_val);
+            if expansion.abs() > 0.0001 {
+                Some(expansion)
+            } else {
+                None
+            }
         } else {
             None
         }
@@ -643,9 +698,13 @@ fn parse_pad(data: &[u8], offset: usize) -> Option<(Pad, usize)> {
 
     // Solder mask expansion - offset 90-93
     let solder_mask_expansion = if geometry.len() > 93 {
-        let expansion = to_mm(read_i32(geometry, 90)?);
-        if expansion.abs() > 0.0001 {
-            Some(expansion)
+        if let Some(expansion_val) = read_i32(geometry, 90) {
+            let expansion = to_mm(expansion_val);
+            if expansion.abs() > 0.0001 {
+                Some(expansion)
+            } else {
+                None
+            }
         } else {
             None
         }
@@ -715,7 +774,7 @@ fn parse_pad(data: &[u8], offset: usize) -> Option<(Pad, usize)> {
         flags,
     };
 
-    Some((pad, current))
+    Ok((pad, current))
 }
 
 /// Parses per-layer pad data from Block 5.
@@ -831,27 +890,32 @@ const fn pad_stack_mode_from_id(id: u8) -> PadStackMode {
 /// - Block 3: Net/connectivity data
 /// - Block 4: Geometry data
 /// - Block 5: Per-layer data
-fn parse_via(data: &[u8], offset: usize) -> Option<(Via, usize)> {
+fn parse_via(data: &[u8], offset: usize) -> ParseResult<Via> {
     let mut current = offset;
 
     // Block 0: Name/designator (typically empty for vias)
-    let (_, next) = read_block(data, current)?;
+    let (_, next) = read_block(data, current)
+        .ok_or_else(|| AltiumError::parse_error(offset, "failed to read Via block 0 (name)"))?;
     current = next;
 
     // Block 1: Layer stack data (skip)
-    let (_, next) = read_block(data, current)?;
+    let (_, next) = read_block(data, current)
+        .ok_or_else(|| AltiumError::parse_error(current, "failed to read Via block 1 (layer stack)"))?;
     current = next;
 
     // Block 2: Marker string ("|&|0")
-    let (_, next) = read_block(data, current)?;
+    let (_, next) = read_block(data, current)
+        .ok_or_else(|| AltiumError::parse_error(current, "failed to read Via block 2 (marker)"))?;
     current = next;
 
     // Block 3: Net/connectivity data (skip)
-    let (_, next) = read_block(data, current)?;
+    let (_, next) = read_block(data, current)
+        .ok_or_else(|| AltiumError::parse_error(current, "failed to read Via block 3 (net data)"))?;
     current = next;
 
     // Block 4: Geometry data
-    let (geometry, next) = read_block(data, current)?;
+    let (geometry, next) = read_block(data, current)
+        .ok_or_else(|| AltiumError::parse_error(current, "failed to read Via block 4 (geometry)"))?;
     current = next;
 
     // Block 5: Per-layer data (optional)
@@ -862,22 +926,32 @@ fn parse_via(data: &[u8], offset: usize) -> Option<(Via, usize)> {
     // Parse geometry block
     // Minimum size: 13 (header) + 4 (x) + 4 (y) + 4 (diameter) + 4 (hole) + 2 (layers) = 31 bytes
     if geometry.len() < 31 {
-        tracing::trace!("Via geometry block too short: {} bytes", geometry.len());
-        return None;
+        return Err(AltiumError::parse_error(
+            offset,
+            format!("Via geometry block too short: {} bytes, expected at least 31", geometry.len()),
+        ));
     }
 
     // Common header (13 bytes) - layer ID at offset 0
     // Note: Via layer is typically MultiLayer (74), but we read from/to layers separately
 
     // Location (X, Y) - offsets 13-20
-    let x = to_mm(read_i32(geometry, 13)?);
-    let y = to_mm(read_i32(geometry, 17)?);
+    let x = to_mm(read_i32(geometry, 13).ok_or_else(|| {
+        AltiumError::parse_error(offset + 13, "failed to read Via x coordinate")
+    })?);
+    let y = to_mm(read_i32(geometry, 17).ok_or_else(|| {
+        AltiumError::parse_error(offset + 17, "failed to read Via y coordinate")
+    })?);
 
     // Diameter - offset 21
-    let diameter = to_mm(read_i32(geometry, 21)?);
+    let diameter = to_mm(read_i32(geometry, 21).ok_or_else(|| {
+        AltiumError::parse_error(offset + 21, "failed to read Via diameter")
+    })?);
 
     // Hole size - offset 25
-    let hole_size = to_mm(read_i32(geometry, 25)?);
+    let hole_size = to_mm(read_i32(geometry, 25).ok_or_else(|| {
+        AltiumError::parse_error(offset + 25, "failed to read Via hole size")
+    })?);
 
     // From/To layers - offsets 29-30
     let from_layer = if geometry.len() > 29 {
@@ -933,8 +1007,8 @@ fn parse_via(data: &[u8], offset: usize) -> Option<(Via, usize)> {
         if diameter_stack_mode != ViaStackMode::Simple && geometry.len() > 45 + 128 {
             let mut diameters = Vec::with_capacity(32);
             for i in 0..32 {
-                let offset = 46 + (i * 4);
-                if let Some(val) = read_i32(geometry, offset) {
+                let layer_offset = 46 + (i * 4);
+                if let Some(val) = read_i32(geometry, layer_offset) {
                     diameters.push(to_mm(val));
                 } else {
                     diameters.push(diameter); // Fallback to main diameter
@@ -961,7 +1035,7 @@ fn parse_via(data: &[u8], offset: usize) -> Option<(Via, usize)> {
         per_layer_diameters,
     };
 
-    Some((via, current))
+    Ok((via, current))
 }
 
 /// Converts a via stack mode ID to `ViaStackMode`.
@@ -975,12 +1049,16 @@ const fn via_stack_mode_from_id(id: u8) -> ViaStackMode {
 
 /// Parses a Track primitive.
 /// Returns the parsed `Track` and the new offset on success.
-fn parse_track(data: &[u8], offset: usize) -> Option<(Track, usize)> {
+fn parse_track(data: &[u8], offset: usize) -> ParseResult<Track> {
     // Track has a single block with geometry data
-    let (block, next) = read_block(data, offset)?;
+    let (block, next) = read_block(data, offset)
+        .ok_or_else(|| AltiumError::parse_error(offset, "failed to read Track block"))?;
 
     if block.len() < 33 {
-        return None;
+        return Err(AltiumError::parse_error(
+            offset,
+            format!("Track block too short: {} bytes, expected at least 33", block.len()),
+        ));
     }
 
     // Common header (13 bytes)
@@ -989,15 +1067,25 @@ fn parse_track(data: &[u8], offset: usize) -> Option<(Track, usize)> {
     let flags = read_flags(block);
 
     // Start coordinates (X, Y) - offsets 13-20
-    let x1 = to_mm(read_i32(block, 13)?);
-    let y1 = to_mm(read_i32(block, 17)?);
+    let x1 = to_mm(read_i32(block, 13).ok_or_else(|| {
+        AltiumError::parse_error(offset + 13, "failed to read Track x1 coordinate")
+    })?);
+    let y1 = to_mm(read_i32(block, 17).ok_or_else(|| {
+        AltiumError::parse_error(offset + 17, "failed to read Track y1 coordinate")
+    })?);
 
     // End coordinates (X, Y) - offsets 21-28
-    let x2 = to_mm(read_i32(block, 21)?);
-    let y2 = to_mm(read_i32(block, 25)?);
+    let x2 = to_mm(read_i32(block, 21).ok_or_else(|| {
+        AltiumError::parse_error(offset + 21, "failed to read Track x2 coordinate")
+    })?);
+    let y2 = to_mm(read_i32(block, 25).ok_or_else(|| {
+        AltiumError::parse_error(offset + 25, "failed to read Track y2 coordinate")
+    })?);
 
     // Width - offset 29
-    let width = to_mm(read_i32(block, 29)?);
+    let width = to_mm(read_i32(block, 29).ok_or_else(|| {
+        AltiumError::parse_error(offset + 29, "failed to read Track width")
+    })?);
 
     let track = Track {
         x1,
@@ -1009,17 +1097,21 @@ fn parse_track(data: &[u8], offset: usize) -> Option<(Track, usize)> {
         flags,
     };
 
-    Some((track, next))
+    Ok((track, next))
 }
 
 /// Parses an Arc primitive.
 /// Returns the parsed `Arc` and the new offset on success.
-fn parse_arc(data: &[u8], offset: usize) -> Option<(Arc, usize)> {
+fn parse_arc(data: &[u8], offset: usize) -> ParseResult<Arc> {
     // Arc has a single block with geometry data
-    let (block, next) = read_block(data, offset)?;
+    let (block, next) = read_block(data, offset)
+        .ok_or_else(|| AltiumError::parse_error(offset, "failed to read Arc block"))?;
 
     if block.len() < 45 {
-        return None;
+        return Err(AltiumError::parse_error(
+            offset,
+            format!("Arc block too short: {} bytes, expected at least 45", block.len()),
+        ));
     }
 
     // Common header (13 bytes)
@@ -1028,18 +1120,26 @@ fn parse_arc(data: &[u8], offset: usize) -> Option<(Arc, usize)> {
     let flags = read_flags(block);
 
     // Centre coordinates (X, Y) - offsets 13-20
-    let x = to_mm(read_i32(block, 13)?);
-    let y = to_mm(read_i32(block, 17)?);
+    let x = to_mm(read_i32(block, 13).ok_or_else(|| {
+        AltiumError::parse_error(offset + 13, "failed to read Arc x coordinate")
+    })?);
+    let y = to_mm(read_i32(block, 17).ok_or_else(|| {
+        AltiumError::parse_error(offset + 17, "failed to read Arc y coordinate")
+    })?);
 
     // Radius - offset 21
-    let radius = to_mm(read_i32(block, 21)?);
+    let radius = to_mm(read_i32(block, 21).ok_or_else(|| {
+        AltiumError::parse_error(offset + 21, "failed to read Arc radius")
+    })?);
 
     // Angles (doubles) - offsets 25-40
     let start_angle = read_f64(block, 25).unwrap_or(0.0);
     let end_angle = read_f64(block, 33).unwrap_or(360.0);
 
     // Width - offset 41
-    let width = to_mm(read_i32(block, 41)?);
+    let width = to_mm(read_i32(block, 41).ok_or_else(|| {
+        AltiumError::parse_error(offset + 41, "failed to read Arc width")
+    })?);
 
     let arc = Arc {
         x,
@@ -1052,7 +1152,7 @@ fn parse_arc(data: &[u8], offset: usize) -> Option<(Arc, usize)> {
         flags,
     };
 
-    Some((arc, next))
+    Ok((arc, next))
 }
 
 /// Parses a Text primitive.
@@ -1077,20 +1177,23 @@ fn parse_text(
     data: &[u8],
     offset: usize,
     wide_strings: Option<&WideStrings>,
-) -> Option<(Text, usize)> {
+) -> ParseResult<Text> {
     // Text has 2 blocks:
     // - Block 0: Geometry/metadata (layer, position, height, rotation, font, etc.)
     // - Block 1: Text content (length-prefixed string, or reference to WideStrings)
 
     // Block 0: Geometry
-    let (geometry_block, mut current) = read_block(data, offset)?;
+    let (geometry_block, mut current) = read_block(data, offset)
+        .ok_or_else(|| AltiumError::parse_error(offset, "failed to read Text geometry block"))?;
 
     if geometry_block.len() < 25 {
-        tracing::trace!(
-            "Text geometry block too short: {} bytes",
-            geometry_block.len()
-        );
-        return None;
+        return Err(AltiumError::parse_error(
+            offset,
+            format!(
+                "Text geometry block too short: {} bytes, expected at least 25",
+                geometry_block.len()
+            ),
+        ));
     }
 
     // Common header (13 bytes)
@@ -1108,11 +1211,17 @@ fn parse_text(
     };
 
     // Position (X, Y) - offsets 13-20
-    let x = to_mm(read_i32(geometry_block, 13)?);
-    let y = to_mm(read_i32(geometry_block, 17)?);
+    let x = to_mm(read_i32(geometry_block, 13).ok_or_else(|| {
+        AltiumError::parse_error(offset + 13, "failed to read Text x coordinate")
+    })?);
+    let y = to_mm(read_i32(geometry_block, 17).ok_or_else(|| {
+        AltiumError::parse_error(offset + 17, "failed to read Text y coordinate")
+    })?);
 
     // Height - offset 21
-    let height = to_mm(read_i32(geometry_block, 21)?);
+    let height = to_mm(read_i32(geometry_block, 21).ok_or_else(|| {
+        AltiumError::parse_error(offset + 21, "failed to read Text height")
+    })?);
 
     // Stroke font ID - offset 25-26 (u16)
     // Only meaningful when kind is Stroke
@@ -1174,7 +1283,7 @@ fn parse_text(
         flags,
     };
 
-    Some((text, current))
+    Ok((text, current))
 }
 
 /// Resolves text content, looking up `WideStrings` if needed.
@@ -1289,7 +1398,7 @@ fn find_ascii_in_block(block: &[u8], pattern: &str) -> Option<usize> {
 /// ...
 /// ```
 #[allow(clippy::cast_possible_truncation)] // Altium coords fit in i32
-fn parse_region(data: &[u8], offset: usize) -> Option<(Region, usize)> {
+fn parse_region(data: &[u8], offset: usize) -> ParseResult<Region> {
     // Region format (observed from Altium files):
     // Block 0: Properties block containing:
     //   - Common header (13 bytes): layer, flags, padding
@@ -1301,14 +1410,17 @@ fn parse_region(data: &[u8], offset: usize) -> Option<(Region, usize)> {
     // Block 1: Usually empty (0 bytes)
 
     // Block 0: Properties with embedded vertices
-    let (props_block, mut current) = read_block(data, offset)?;
+    let (props_block, mut current) = read_block(data, offset)
+        .ok_or_else(|| AltiumError::parse_error(offset, "failed to read Region properties block"))?;
 
     if props_block.len() < 22 {
-        tracing::trace!(
-            "Region properties block too short: {} bytes",
-            props_block.len()
-        );
-        return None;
+        return Err(AltiumError::parse_error(
+            offset,
+            format!(
+                "Region properties block too short: {} bytes, expected at least 22",
+                props_block.len()
+            ),
+        ));
     }
 
     // Common header (13 bytes)
@@ -1318,34 +1430,39 @@ fn parse_region(data: &[u8], offset: usize) -> Option<(Region, usize)> {
 
     // Skip unknown bytes (5 bytes after header)
     // Read parameter string length at offset 18
-    let param_len = read_u32(props_block, 18)? as usize;
+    let param_len = read_u32(props_block, 18).ok_or_else(|| {
+        AltiumError::parse_error(offset + 18, "failed to read Region parameter string length")
+    })? as usize;
 
     // Skip parameter string, vertex data follows
     let vertex_offset = 22 + param_len;
 
     if props_block.len() < vertex_offset + 4 {
-        tracing::trace!(
-            "Region block too short for vertex count at offset {}",
-            vertex_offset
-        );
-        return None;
+        return Err(AltiumError::parse_error(
+            offset + vertex_offset,
+            format!(
+                "Region block too short for vertex count at offset {vertex_offset}"
+            ),
+        ));
     }
 
     // Read vertex count
-    let vertex_count = read_u32(props_block, vertex_offset)? as usize;
+    let vertex_count = read_u32(props_block, vertex_offset).ok_or_else(|| {
+        AltiumError::parse_error(offset + vertex_offset, "failed to read Region vertex count")
+    })? as usize;
 
     // Each vertex is 2 doubles (16 bytes)
     let vertex_data_offset = vertex_offset + 4;
     let expected_size = vertex_data_offset + vertex_count * 16;
 
     if props_block.len() < expected_size {
-        tracing::trace!(
-            "Region block too short for {} vertices: {} < {}",
-            vertex_count,
-            props_block.len(),
-            expected_size
-        );
-        return None;
+        return Err(AltiumError::parse_error(
+            offset,
+            format!(
+                "Region block too short for {vertex_count} vertices: {} bytes, expected {expected_size}",
+                props_block.len()
+            ),
+        ));
     }
 
     // Parse vertices
@@ -1353,8 +1470,12 @@ fn parse_region(data: &[u8], offset: usize) -> Option<(Region, usize)> {
     for i in 0..vertex_count {
         let base = vertex_data_offset + i * 16;
         // Coordinates stored as doubles in internal units
-        let x_internal = read_f64(props_block, base)?;
-        let y_internal = read_f64(props_block, base + 8)?;
+        let x_internal = read_f64(props_block, base).ok_or_else(|| {
+            AltiumError::parse_error(offset + base, format!("failed to read Region vertex {i} x coordinate"))
+        })?;
+        let y_internal = read_f64(props_block, base + 8).ok_or_else(|| {
+            AltiumError::parse_error(offset + base + 8, format!("failed to read Region vertex {i} y coordinate"))
+        })?;
 
         // Convert from internal units to mm
         let x = to_mm(x_internal.round() as i32);
@@ -1374,7 +1495,7 @@ fn parse_region(data: &[u8], offset: usize) -> Option<(Region, usize)> {
         flags,
     };
 
-    Some((region, current))
+    Ok((region, current))
 }
 
 /// Parses a Fill primitive (filled rectangle).
@@ -1393,14 +1514,17 @@ fn parse_region(data: &[u8], offset: usize) -> Option<(Region, usize)> {
 /// [rotation:8 f64]          // Rotation angle in degrees
 /// [unknown:...]             // Additional data
 /// ```
-fn parse_fill(data: &[u8], offset: usize) -> Option<(Fill, usize)> {
+fn parse_fill(data: &[u8], offset: usize) -> ParseResult<Fill> {
     // Fill has a single block
-    let (block, current) = read_block(data, offset)?;
+    let (block, current) = read_block(data, offset)
+        .ok_or_else(|| AltiumError::parse_error(offset, "failed to read Fill block"))?;
 
     // Minimum size: 13 (header) + 16 (coordinates) + 8 (rotation) = 37 bytes
     if block.len() < 37 {
-        tracing::trace!("Fill block too short: {} bytes", block.len());
-        return None;
+        return Err(AltiumError::parse_error(
+            offset,
+            format!("Fill block too short: {} bytes, expected at least 37", block.len()),
+        ));
     }
 
     // Common header (13 bytes)
@@ -1409,13 +1533,23 @@ fn parse_fill(data: &[u8], offset: usize) -> Option<(Fill, usize)> {
     let flags = read_flags(block);
 
     // Coordinates at offset 13
-    let x1 = to_mm(read_i32(block, 13)?);
-    let y1 = to_mm(read_i32(block, 17)?);
-    let x2 = to_mm(read_i32(block, 21)?);
-    let y2 = to_mm(read_i32(block, 25)?);
+    let x1 = to_mm(read_i32(block, 13).ok_or_else(|| {
+        AltiumError::parse_error(offset + 13, "failed to read Fill x1 coordinate")
+    })?);
+    let y1 = to_mm(read_i32(block, 17).ok_or_else(|| {
+        AltiumError::parse_error(offset + 17, "failed to read Fill y1 coordinate")
+    })?);
+    let x2 = to_mm(read_i32(block, 21).ok_or_else(|| {
+        AltiumError::parse_error(offset + 21, "failed to read Fill x2 coordinate")
+    })?);
+    let y2 = to_mm(read_i32(block, 25).ok_or_else(|| {
+        AltiumError::parse_error(offset + 25, "failed to read Fill y2 coordinate")
+    })?);
 
     // Rotation at offset 29
-    let rotation = read_f64(block, 29)?;
+    let rotation = read_f64(block, 29).ok_or_else(|| {
+        AltiumError::parse_error(offset + 29, "failed to read Fill rotation")
+    })?;
 
     let fill = Fill {
         x1,
@@ -1427,7 +1561,7 @@ fn parse_fill(data: &[u8], offset: usize) -> Option<(Fill, usize)> {
         flags,
     };
 
-    Some((fill, current))
+    Ok((fill, current))
 }
 
 /// Parses a `ComponentBody` primitive (3D model reference).
@@ -1437,11 +1571,12 @@ fn parse_fill(data: &[u8], offset: usize) -> Option<(Fill, usize)> {
 /// - Block 0: Properties (layer, parameters as key=value string)
 /// - Block 1: Usually empty
 /// - Block 2: Usually empty
-fn parse_component_body(data: &[u8], offset: usize) -> Option<(ComponentBody, usize)> {
+fn parse_component_body(data: &[u8], offset: usize) -> ParseResult<ComponentBody> {
     let mut current = offset;
 
     // Block 0: Properties with parameter string (required)
-    let (block0, next) = read_block(data, current)?;
+    let (block0, next) = read_block(data, current)
+        .ok_or_else(|| AltiumError::parse_error(offset, "failed to read ComponentBody block 0 (properties)"))?;
     current = next;
 
     // Block 1: Usually empty (optional - may not exist at end of file)
@@ -1505,7 +1640,7 @@ fn parse_component_body(data: &[u8], offset: usize) -> Option<(ComponentBody, us
         layer,
     };
 
-    Some((body, current))
+    Ok((body, current))
 }
 
 /// Parses key=value parameters from a `ComponentBody` block string.
