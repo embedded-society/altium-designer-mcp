@@ -3,7 +3,29 @@
 //! These types represent the geometric elements that make up a footprint:
 //! pads, tracks, arcs, regions, and text.
 
+use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
+
+bitflags! {
+    /// Flags for PCB primitives stored in the common header (bytes 1-2).
+    ///
+    /// These flags control various properties of primitives such as locking,
+    /// keep-out zones, and solder mask tenting.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+    #[serde(transparent)]
+    pub struct PcbFlags: u16 {
+        /// Primitive is locked and cannot be moved/edited.
+        const LOCKED = 0x0001;
+        /// Primitive is part of a polygon pour.
+        const POLYGON = 0x0002;
+        /// Primitive defines a keep-out region.
+        const KEEPOUT = 0x0004;
+        /// Top solder mask tenting enabled (covers the pad/via).
+        const TENTING_TOP = 0x0008;
+        /// Bottom solder mask tenting enabled (covers the pad/via).
+        const TENTING_BOTTOM = 0x0010;
+    }
+}
 
 /// A PCB pad (SMD or through-hole).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -88,6 +110,10 @@ pub struct Pad {
     /// Only used when `stack_mode` != `Simple`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub per_layer_offsets: Option<Vec<(f64, f64)>>,
+
+    /// Primitive flags (locked, keepout, tenting, etc.).
+    #[serde(default, skip_serializing_if = "PcbFlags::is_empty")]
+    pub flags: PcbFlags,
 }
 
 /// Helper for serde to skip default hole shape in serialization.
@@ -121,6 +147,7 @@ impl Pad {
             per_layer_shapes: None,
             per_layer_corner_radii: None,
             per_layer_offsets: None,
+            flags: PcbFlags::empty(),
         }
     }
 
@@ -155,6 +182,7 @@ impl Pad {
             per_layer_shapes: None,
             per_layer_corner_radii: None,
             per_layer_offsets: None,
+            flags: PcbFlags::empty(),
         }
     }
 }
@@ -360,6 +388,9 @@ pub struct Track {
     pub width: f64,
     /// Layer the track is on.
     pub layer: Layer,
+    /// Primitive flags (locked, keepout, etc.).
+    #[serde(default, skip_serializing_if = "PcbFlags::is_empty")]
+    pub flags: PcbFlags,
 }
 
 impl Track {
@@ -373,6 +404,7 @@ impl Track {
             y2,
             width,
             layer,
+            flags: PcbFlags::empty(),
         }
     }
 }
@@ -394,6 +426,9 @@ pub struct Arc {
     pub width: f64,
     /// Layer the arc is on.
     pub layer: Layer,
+    /// Primitive flags (locked, keepout, etc.).
+    #[serde(default, skip_serializing_if = "PcbFlags::is_empty")]
+    pub flags: PcbFlags,
 }
 
 impl Arc {
@@ -408,6 +443,7 @@ impl Arc {
             end_angle: 360.0,
             width,
             layer,
+            flags: PcbFlags::empty(),
         }
     }
 }
@@ -419,6 +455,9 @@ pub struct Region {
     pub vertices: Vec<Vertex>,
     /// Layer the region is on.
     pub layer: Layer,
+    /// Primitive flags (locked, keepout, etc.).
+    #[serde(default, skip_serializing_if = "PcbFlags::is_empty")]
+    pub flags: PcbFlags,
 }
 
 impl Region {
@@ -433,6 +472,7 @@ impl Region {
                 Vertex { x: min_x, y: max_y },
             ],
             layer,
+            flags: PcbFlags::empty(),
         }
     }
 }
@@ -534,6 +574,9 @@ pub struct Text {
     /// Text justification (alignment).
     #[serde(default)]
     pub justification: TextJustification,
+    /// Primitive flags (locked, keepout, etc.).
+    #[serde(default, skip_serializing_if = "PcbFlags::is_empty")]
+    pub flags: PcbFlags,
 }
 
 /// A filled rectangle on a layer.
@@ -552,6 +595,9 @@ pub struct Fill {
     /// Rotation angle in degrees.
     #[serde(default)]
     pub rotation: f64,
+    /// Primitive flags (locked, keepout, etc.).
+    #[serde(default, skip_serializing_if = "PcbFlags::is_empty")]
+    pub flags: PcbFlags,
 }
 
 impl Fill {
@@ -565,6 +611,7 @@ impl Fill {
             y2,
             layer,
             rotation: 0.0,
+            flags: PcbFlags::empty(),
         }
     }
 
@@ -580,6 +627,7 @@ impl Fill {
             y2: y + half_h,
             layer,
             rotation: 0.0,
+            flags: PcbFlags::empty(),
         }
     }
 }
