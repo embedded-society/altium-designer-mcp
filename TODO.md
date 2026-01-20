@@ -104,11 +104,14 @@ This document tracks implementation gaps between the documented PcbLib format (`
 
 ## Layers - Incomplete Coverage
 
+### Mid Layers - Implemented ✓
+
+- [x] Mid layers: `MidLayer1` through `MidLayer30` (IDs 2-31)
+
 ### Missing Layer Variants
 
 Add to `Layer` enum in `src/altium/pcblib/primitives.rs`:
 
-- [ ] Mid layers: `MidLayer1` through `MidLayer30` (IDs 2-31)
 - [ ] Internal planes: `InternalPlane1` through `InternalPlane16` (IDs 39-54)
 - [ ] `DrillGuide` (ID 55)
 - [ ] `DrillDrawing` (ID 73)

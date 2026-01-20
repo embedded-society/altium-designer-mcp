@@ -736,10 +736,100 @@ impl ComponentBody {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Layer {
     // Copper layers
-    /// Top copper layer.
+    /// Top copper layer (ID 1).
     #[serde(rename = "Top Layer", alias = "TopLayer")]
     TopLayer,
-    /// Bottom copper layer.
+    /// Mid layer 1 (ID 2).
+    #[serde(rename = "Mid-Layer 1", alias = "MidLayer1")]
+    MidLayer1,
+    /// Mid layer 2 (ID 3).
+    #[serde(rename = "Mid-Layer 2", alias = "MidLayer2")]
+    MidLayer2,
+    /// Mid layer 3 (ID 4).
+    #[serde(rename = "Mid-Layer 3", alias = "MidLayer3")]
+    MidLayer3,
+    /// Mid layer 4 (ID 5).
+    #[serde(rename = "Mid-Layer 4", alias = "MidLayer4")]
+    MidLayer4,
+    /// Mid layer 5 (ID 6).
+    #[serde(rename = "Mid-Layer 5", alias = "MidLayer5")]
+    MidLayer5,
+    /// Mid layer 6 (ID 7).
+    #[serde(rename = "Mid-Layer 6", alias = "MidLayer6")]
+    MidLayer6,
+    /// Mid layer 7 (ID 8).
+    #[serde(rename = "Mid-Layer 7", alias = "MidLayer7")]
+    MidLayer7,
+    /// Mid layer 8 (ID 9).
+    #[serde(rename = "Mid-Layer 8", alias = "MidLayer8")]
+    MidLayer8,
+    /// Mid layer 9 (ID 10).
+    #[serde(rename = "Mid-Layer 9", alias = "MidLayer9")]
+    MidLayer9,
+    /// Mid layer 10 (ID 11).
+    #[serde(rename = "Mid-Layer 10", alias = "MidLayer10")]
+    MidLayer10,
+    /// Mid layer 11 (ID 12).
+    #[serde(rename = "Mid-Layer 11", alias = "MidLayer11")]
+    MidLayer11,
+    /// Mid layer 12 (ID 13).
+    #[serde(rename = "Mid-Layer 12", alias = "MidLayer12")]
+    MidLayer12,
+    /// Mid layer 13 (ID 14).
+    #[serde(rename = "Mid-Layer 13", alias = "MidLayer13")]
+    MidLayer13,
+    /// Mid layer 14 (ID 15).
+    #[serde(rename = "Mid-Layer 14", alias = "MidLayer14")]
+    MidLayer14,
+    /// Mid layer 15 (ID 16).
+    #[serde(rename = "Mid-Layer 15", alias = "MidLayer15")]
+    MidLayer15,
+    /// Mid layer 16 (ID 17).
+    #[serde(rename = "Mid-Layer 16", alias = "MidLayer16")]
+    MidLayer16,
+    /// Mid layer 17 (ID 18).
+    #[serde(rename = "Mid-Layer 17", alias = "MidLayer17")]
+    MidLayer17,
+    /// Mid layer 18 (ID 19).
+    #[serde(rename = "Mid-Layer 18", alias = "MidLayer18")]
+    MidLayer18,
+    /// Mid layer 19 (ID 20).
+    #[serde(rename = "Mid-Layer 19", alias = "MidLayer19")]
+    MidLayer19,
+    /// Mid layer 20 (ID 21).
+    #[serde(rename = "Mid-Layer 20", alias = "MidLayer20")]
+    MidLayer20,
+    /// Mid layer 21 (ID 22).
+    #[serde(rename = "Mid-Layer 21", alias = "MidLayer21")]
+    MidLayer21,
+    /// Mid layer 22 (ID 23).
+    #[serde(rename = "Mid-Layer 22", alias = "MidLayer22")]
+    MidLayer22,
+    /// Mid layer 23 (ID 24).
+    #[serde(rename = "Mid-Layer 23", alias = "MidLayer23")]
+    MidLayer23,
+    /// Mid layer 24 (ID 25).
+    #[serde(rename = "Mid-Layer 24", alias = "MidLayer24")]
+    MidLayer24,
+    /// Mid layer 25 (ID 26).
+    #[serde(rename = "Mid-Layer 25", alias = "MidLayer25")]
+    MidLayer25,
+    /// Mid layer 26 (ID 27).
+    #[serde(rename = "Mid-Layer 26", alias = "MidLayer26")]
+    MidLayer26,
+    /// Mid layer 27 (ID 28).
+    #[serde(rename = "Mid-Layer 27", alias = "MidLayer27")]
+    MidLayer27,
+    /// Mid layer 28 (ID 29).
+    #[serde(rename = "Mid-Layer 28", alias = "MidLayer28")]
+    MidLayer28,
+    /// Mid layer 29 (ID 30).
+    #[serde(rename = "Mid-Layer 29", alias = "MidLayer29")]
+    MidLayer29,
+    /// Mid layer 30 (ID 31).
+    #[serde(rename = "Mid-Layer 30", alias = "MidLayer30")]
+    MidLayer30,
+    /// Bottom copper layer (ID 32).
     #[serde(rename = "Bottom Layer", alias = "BottomLayer")]
     BottomLayer,
     /// Multi-layer (all copper layers, for through-hole pads).
@@ -817,6 +907,36 @@ impl Layer {
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::TopLayer => "Top Layer",
+            Self::MidLayer1 => "Mid-Layer 1",
+            Self::MidLayer2 => "Mid-Layer 2",
+            Self::MidLayer3 => "Mid-Layer 3",
+            Self::MidLayer4 => "Mid-Layer 4",
+            Self::MidLayer5 => "Mid-Layer 5",
+            Self::MidLayer6 => "Mid-Layer 6",
+            Self::MidLayer7 => "Mid-Layer 7",
+            Self::MidLayer8 => "Mid-Layer 8",
+            Self::MidLayer9 => "Mid-Layer 9",
+            Self::MidLayer10 => "Mid-Layer 10",
+            Self::MidLayer11 => "Mid-Layer 11",
+            Self::MidLayer12 => "Mid-Layer 12",
+            Self::MidLayer13 => "Mid-Layer 13",
+            Self::MidLayer14 => "Mid-Layer 14",
+            Self::MidLayer15 => "Mid-Layer 15",
+            Self::MidLayer16 => "Mid-Layer 16",
+            Self::MidLayer17 => "Mid-Layer 17",
+            Self::MidLayer18 => "Mid-Layer 18",
+            Self::MidLayer19 => "Mid-Layer 19",
+            Self::MidLayer20 => "Mid-Layer 20",
+            Self::MidLayer21 => "Mid-Layer 21",
+            Self::MidLayer22 => "Mid-Layer 22",
+            Self::MidLayer23 => "Mid-Layer 23",
+            Self::MidLayer24 => "Mid-Layer 24",
+            Self::MidLayer25 => "Mid-Layer 25",
+            Self::MidLayer26 => "Mid-Layer 26",
+            Self::MidLayer27 => "Mid-Layer 27",
+            Self::MidLayer28 => "Mid-Layer 28",
+            Self::MidLayer29 => "Mid-Layer 29",
+            Self::MidLayer30 => "Mid-Layer 30",
             Self::BottomLayer => "Bottom Layer",
             Self::MultiLayer => "Multi-Layer",
             Self::TopOverlay => "Top Overlay",
@@ -844,6 +964,36 @@ impl Layer {
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "Top Layer" => Some(Self::TopLayer),
+            "Mid-Layer 1" => Some(Self::MidLayer1),
+            "Mid-Layer 2" => Some(Self::MidLayer2),
+            "Mid-Layer 3" => Some(Self::MidLayer3),
+            "Mid-Layer 4" => Some(Self::MidLayer4),
+            "Mid-Layer 5" => Some(Self::MidLayer5),
+            "Mid-Layer 6" => Some(Self::MidLayer6),
+            "Mid-Layer 7" => Some(Self::MidLayer7),
+            "Mid-Layer 8" => Some(Self::MidLayer8),
+            "Mid-Layer 9" => Some(Self::MidLayer9),
+            "Mid-Layer 10" => Some(Self::MidLayer10),
+            "Mid-Layer 11" => Some(Self::MidLayer11),
+            "Mid-Layer 12" => Some(Self::MidLayer12),
+            "Mid-Layer 13" => Some(Self::MidLayer13),
+            "Mid-Layer 14" => Some(Self::MidLayer14),
+            "Mid-Layer 15" => Some(Self::MidLayer15),
+            "Mid-Layer 16" => Some(Self::MidLayer16),
+            "Mid-Layer 17" => Some(Self::MidLayer17),
+            "Mid-Layer 18" => Some(Self::MidLayer18),
+            "Mid-Layer 19" => Some(Self::MidLayer19),
+            "Mid-Layer 20" => Some(Self::MidLayer20),
+            "Mid-Layer 21" => Some(Self::MidLayer21),
+            "Mid-Layer 22" => Some(Self::MidLayer22),
+            "Mid-Layer 23" => Some(Self::MidLayer23),
+            "Mid-Layer 24" => Some(Self::MidLayer24),
+            "Mid-Layer 25" => Some(Self::MidLayer25),
+            "Mid-Layer 26" => Some(Self::MidLayer26),
+            "Mid-Layer 27" => Some(Self::MidLayer27),
+            "Mid-Layer 28" => Some(Self::MidLayer28),
+            "Mid-Layer 29" => Some(Self::MidLayer29),
+            "Mid-Layer 30" => Some(Self::MidLayer30),
             "Bottom Layer" => Some(Self::BottomLayer),
             "Multi-Layer" => Some(Self::MultiLayer),
             "Top Overlay" => Some(Self::TopOverlay),
