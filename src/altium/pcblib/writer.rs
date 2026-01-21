@@ -1253,7 +1253,12 @@ pub fn encode_unique_id_stream(footprint: &Footprint) -> Option<Vec<u8>> {
 /// [length:4 LE u32]|PRIMITIVEINDEX={index}|PRIMITIVEOBJECTID={type}|UNIQUEID={uid}
 /// ```
 #[allow(clippy::cast_possible_truncation)]
-fn encode_unique_id_record(data: &mut Vec<u8>, index: usize, primitive_type: &str, unique_id: &str) {
+fn encode_unique_id_record(
+    data: &mut Vec<u8>,
+    index: usize,
+    primitive_type: &str,
+    unique_id: &str,
+) {
     let record = format!(
         "|PRIMITIVEINDEX={}|PRIMITIVEOBJECTID={}|UNIQUEID={}",
         index, primitive_type, unique_id
@@ -1276,7 +1281,10 @@ pub fn has_unique_ids(footprint: &Footprint) -> bool {
         || footprint.regions.iter().any(|r| r.unique_id.is_some())
         || footprint.text.iter().any(|t| t.unique_id.is_some())
         || footprint.fills.iter().any(|f| f.unique_id.is_some())
-        || footprint.component_bodies.iter().any(|b| b.unique_id.is_some())
+        || footprint
+            .component_bodies
+            .iter()
+            .any(|b| b.unique_id.is_some())
 }
 
 #[cfg(test)]

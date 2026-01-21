@@ -1613,13 +1613,19 @@ mod tests {
         assert_eq!(entries.len(), 3);
 
         // Find Pad entries
-        let pad_entries: Vec<_> = entries.iter().filter(|e| e.primitive_type == "Pad").collect();
+        let pad_entries: Vec<_> = entries
+            .iter()
+            .filter(|e| e.primitive_type == "Pad")
+            .collect();
         assert_eq!(pad_entries.len(), 2);
         assert_eq!(pad_entries[0].unique_id, "UID00001");
         assert_eq!(pad_entries[1].unique_id, "UID00002");
 
         // Find Track entry
-        let track_entries: Vec<_> = entries.iter().filter(|e| e.primitive_type == "Track").collect();
+        let track_entries: Vec<_> = entries
+            .iter()
+            .filter(|e| e.primitive_type == "Track")
+            .collect();
         assert_eq!(track_entries.len(), 1);
         assert_eq!(track_entries[0].unique_id, "TRACK001");
     }

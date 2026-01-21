@@ -117,7 +117,9 @@ fn schlib_basic_parsing() {
     );
 
     // Verify NCV8163ASN330T1G symbol exists and has a Bezier curve
-    let ncv_symbol = lib.get("NCV8163ASN330T1G").expect("NCV8163ASN330T1G symbol not found");
+    let ncv_symbol = lib
+        .get("NCV8163ASN330T1G")
+        .expect("NCV8163ASN330T1G symbol not found");
     assert_eq!(ncv_symbol.pins.len(), 5, "Expected 5 pins");
     assert_eq!(ncv_symbol.beziers.len(), 1, "Expected 1 Bezier curve");
 
@@ -147,7 +149,11 @@ fn schlib_basic_parsing() {
     assert_eq!(round_rect.corner_y_radius, 20);
 
     // Check EllipticalArc
-    assert_eq!(ncv_symbol.elliptical_arcs.len(), 1, "Expected 1 EllipticalArc");
+    assert_eq!(
+        ncv_symbol.elliptical_arcs.len(),
+        1,
+        "Expected 1 EllipticalArc"
+    );
     let elliptical_arc = &ncv_symbol.elliptical_arcs[0];
     assert_eq!(elliptical_arc.x, -60);
     assert_eq!(elliptical_arc.y, 0);

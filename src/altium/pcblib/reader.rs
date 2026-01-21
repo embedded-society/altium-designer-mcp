@@ -184,7 +184,10 @@ pub fn parse_unique_id_stream(data: &[u8]) -> UniqueIdMap {
         }
     }
 
-    tracing::debug!(count = entries.len(), "Parsed UniqueIDPrimitiveInformation stream");
+    tracing::debug!(
+        count = entries.len(),
+        "Parsed UniqueIDPrimitiveInformation stream"
+    );
     entries
 }
 

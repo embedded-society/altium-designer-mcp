@@ -638,8 +638,8 @@ mod tests {
         let mut polygon = Polygon {
             points: vec![(-30, 40), (-20, 30), (-10, 40)],
             line_width: 2,
-            line_color: 0x00_00_FF,  // Red border
-            fill_color: 0xFF_00_00,  // Blue fill
+            line_color: 0x00_00_FF, // Red border
+            fill_color: 0xFF_00_00, // Blue fill
             filled: true,
             owner_part_id: 1,
         };
@@ -649,7 +649,7 @@ mod tests {
         polygon = Polygon {
             points: vec![(0, 0), (20, 0), (20, 20), (0, 20)],
             line_width: 1,
-            line_color: 0x00_80_00,  // Green border
+            line_color: 0x00_80_00, // Green border
             fill_color: 0,
             filled: false,
             owner_part_id: 1,
@@ -717,11 +717,7 @@ mod tests {
         let read_lib = SchLib::read(buffer).expect("Failed to read SchLib");
 
         let read_symbol = read_lib.get("ROUNDRECT_TEST").expect("Symbol not found");
-        assert_eq!(
-            read_symbol.round_rects.len(),
-            2,
-            "Expected 2 RoundRects"
-        );
+        assert_eq!(read_symbol.round_rects.len(), 2, "Expected 2 RoundRects");
 
         // Verify first rounded rectangle
         let rr1 = &read_symbol.round_rects[0];
