@@ -570,3 +570,39 @@ fn test_fills_various_sizes() {
 
     assert_eq!(read_fp.fills.len(), 3);
 }
+
+/// Tests that symbol names longer than 31 characters are rejected
+/// (OLE Compound File name limit)
+#[test]
+fn test_schlib_symbol_name_length_validation() {
+    use altium_designer_mcp::altium::schlib::{SchLib, Symbol};
+
+    let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
+    let file_path = temp_dir.path().join("name_test.SchLib");
+
+    let mut lib = SchLib::new();
+
+    // Create a symbol with a name exactly at the limit (31 chars) - should work
+    let valid_name = "A".repeat(31);
+    let mut valid_symbol = Symbol::new(&valid_name);
+    valid_symbol.description = "Valid length".to_string();
+    lib.add_symbol(valid_symbol);
+    assert!(lib.save(&file_path).is_ok(), "31-char name should be valid");
+
+    // Create a new lib with too-long name
+    let mut lib2 = SchLib::new();
+    let invalid_name = "B".repeat(32);
+    let mut invalid_symbol = Symbol::new(&invalid_name);
+    invalid_symbol.description = "Too long".to_string();
+    lib2.add_symbol(invalid_symbol);
+
+    let result = lib2.save(&file_path);
+    assert!(result.is_err(), "32-char name should be rejected");
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("exceeds 31 character limit"),
+        "Error message should mention character limit"
+    );
+}

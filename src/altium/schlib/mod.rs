@@ -172,6 +172,9 @@ impl SchLib {
     ///
     /// Returns an error if the library cannot be written.
     pub fn write<W: Read + Write + Seek>(&self, writer: W) -> AltiumResult<()> {
+        // OLE Compound File names are limited to 31 characters
+        const MAX_NAME_LEN: usize = 31;
+
         let mut cfb = CompoundFile::create(writer)
             .map_err(|e| AltiumError::invalid_ole(format!("Failed to create OLE file: {e}")))?;
 
@@ -190,6 +193,14 @@ impl SchLib {
 
         // Write each symbol's Data stream
         for symbol in &symbols {
+            if symbol.name.len() > MAX_NAME_LEN {
+                return Err(AltiumError::invalid_ole(format!(
+                    "Symbol name '{}' exceeds {} character limit (length: {})",
+                    symbol.name,
+                    MAX_NAME_LEN,
+                    symbol.name.len()
+                )));
+            }
             let stream_path = format!("/{}/Data", symbol.name);
 
             // Create the component directory first
