@@ -633,6 +633,7 @@ fn parse_bezier(props: &HashMap<String, String>) -> Option<Bezier> {
 }
 
 /// Parses a rounded rectangle from properties.
+#[allow(clippy::similar_names)]
 fn parse_round_rect(props: &HashMap<String, String>) -> Option<RoundRect> {
     let x1 = props.get("location.x")?.parse().ok()?;
     let y1 = props.get("location.y")?.parse().ok()?;
@@ -695,8 +696,7 @@ fn parse_elliptical_arc(props: &HashMap<String, String>) -> Option<EllipticalArc
     let radius_frac: f64 = props
         .get("radius_frac")
         .and_then(|s| s.parse::<u32>().ok())
-        .map(|f| f64::from(f) / 100000.0)
-        .unwrap_or(0.0);
+        .map_or(0.0, |f| f64::from(f) / 100_000.0);
     let radius = radius_int + radius_frac;
 
     // Secondary radius with optional fractional part
@@ -707,8 +707,7 @@ fn parse_elliptical_arc(props: &HashMap<String, String>) -> Option<EllipticalArc
     let secondary_radius_frac: f64 = props
         .get("secondaryradius_frac")
         .and_then(|s| s.parse::<u32>().ok())
-        .map(|f| f64::from(f) / 100000.0)
-        .unwrap_or(0.0);
+        .map_or(0.0, |f| f64::from(f) / 100_000.0);
     let secondary_radius = secondary_radius_int + secondary_radius_frac;
 
     let start_angle = props

@@ -1550,6 +1550,7 @@ mod tests {
     // =========================================================================
 
     #[test]
+    #[allow(clippy::cast_possible_truncation)]
     fn unique_id_parse_stream() {
         // Test parsing the UniqueIDPrimitiveInformation stream format
         let mut test_data = Vec::new();

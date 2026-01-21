@@ -378,6 +378,7 @@ pub struct Bezier {
 impl Bezier {
     /// Creates a new Bezier curve.
     #[must_use]
+    #[allow(clippy::too_many_arguments)]
     pub const fn new(
         x1: i32,
         y1: i32,
@@ -493,6 +494,7 @@ pub struct RoundRect {
 impl RoundRect {
     /// Creates a new rounded rectangle.
     #[must_use]
+    #[allow(clippy::similar_names)]
     pub const fn new(
         x1: i32,
         y1: i32,
@@ -551,7 +553,7 @@ pub struct EllipticalArc {
 impl EllipticalArc {
     /// Creates a new elliptical arc.
     #[must_use]
-    pub fn new(
+    pub const fn new(
         x: i32,
         y: i32,
         radius: f64,
@@ -574,7 +576,7 @@ impl EllipticalArc {
 
     /// Creates a full ellipse (0 to 360 degrees).
     #[must_use]
-    pub fn full_ellipse(x: i32, y: i32, radius: f64, secondary_radius: f64) -> Self {
+    pub const fn full_ellipse(x: i32, y: i32, radius: f64, secondary_radius: f64) -> Self {
         Self::new(x, y, radius, secondary_radius, 0.0, 360.0)
     }
 }

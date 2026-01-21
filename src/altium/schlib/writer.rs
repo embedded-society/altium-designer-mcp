@@ -334,14 +334,15 @@ fn encode_round_rect(round_rect: &RoundRect, index: usize) -> String {
 }
 
 /// Encodes an elliptical arc record.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn encode_elliptical_arc(arc: &EllipticalArc, index: usize) -> String {
     // Extract integer and fractional parts from the radii
     let radius_int = arc.radius.trunc() as i32;
-    let radius_frac = ((arc.radius.fract() * 100000.0).round() as u32).min(99999);
+    let radius_frac = ((arc.radius.fract() * 100_000.0).round() as u32).min(99999);
 
     let secondary_radius_int = arc.secondary_radius.trunc() as i32;
     let secondary_radius_frac =
-        ((arc.secondary_radius.fract() * 100000.0).round() as u32).min(99999);
+        ((arc.secondary_radius.fract() * 100_000.0).round() as u32).min(99999);
 
     format!(
         "|RECORD=11|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T\
