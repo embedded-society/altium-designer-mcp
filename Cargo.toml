@@ -65,6 +65,8 @@ bitflags = { version = "2.6", features = ["serde"] }
 [dev-dependencies]
 # Async testing utilities
 tokio-test = "0.4"
+# Temporary directories for tests
+tempfile = "3.15"
 
 [profile.release]
 opt-level = 3

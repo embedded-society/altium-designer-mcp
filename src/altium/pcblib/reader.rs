@@ -954,13 +954,22 @@ fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
         parse_per_layer_data(per_layer_data)
     };
 
+    // Adjust shape based on corner radius: if shape is Round but corner_radius is set,
+    // it's actually RoundedRectangle (both use shape ID 1 in Altium's binary format)
+    let adjusted_shape =
+        if shape == PadShape::Round && corner_radius_percent.is_some_and(|r| r > 0 && r < 100) {
+            PadShape::RoundedRectangle
+        } else {
+            shape
+        };
+
     let pad = Pad {
         designator,
         x,
         y,
         width,
         height,
-        shape,
+        shape: adjusted_shape,
         layer,
         hole_size,
         hole_shape,
