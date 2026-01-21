@@ -795,6 +795,17 @@ impl PcbLib {
         cfb: &mut cfb::CompoundFile<F>,
         footprint: &Footprint,
     ) -> AltiumResult<()> {
+        // OLE Compound File names are limited to 31 characters
+        const MAX_NAME_LEN: usize = 31;
+        if footprint.name.len() > MAX_NAME_LEN {
+            return Err(AltiumError::invalid_ole(format!(
+                "Footprint name '{}' exceeds {} character limit (length: {})",
+                footprint.name,
+                MAX_NAME_LEN,
+                footprint.name.len()
+            )));
+        }
+
         let storage_path = format!("/{}", footprint.name);
 
         // Create storage for the footprint
