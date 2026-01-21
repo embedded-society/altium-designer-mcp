@@ -1259,7 +1259,8 @@ fn encode_unique_id_record(
     primitive_type: &str,
     unique_id: &str,
 ) {
-    let record = format!("|PRIMITIVEINDEX={index}|PRIMITIVEOBJECTID={primitive_type}|UNIQUEID={unique_id}");
+    let record =
+        format!("|PRIMITIVEINDEX={index}|PRIMITIVEOBJECTID={primitive_type}|UNIQUEID={unique_id}");
     let record_bytes = record.as_bytes();
 
     // Write length prefix (4 bytes LE)
