@@ -72,19 +72,19 @@ pub fn parse_data_stream(symbol: &mut Symbol, data: &[u8]) {
 
 /// Parses a text record (pipe-delimited key=value pairs).
 fn parse_text_record(symbol: &mut Symbol, data: &[u8]) {
-    let text = if let Ok(s) = std::str::from_utf8(data) {
-        s.trim_end_matches('\0')
-    } else {
-        // Try Windows-1252 encoding
-        let decoded: String = data
-            .iter()
-            .take_while(|&&b| b != 0)
-            .map(|&b| b as char)
-            .collect();
-        return parse_text_record_from_string(symbol, &decoded);
-    };
+    // Remove null terminator if present
+    let data = data.split(|&b| b == 0).next().unwrap_or(data);
 
-    parse_text_record_from_string(symbol, text);
+    let text = std::str::from_utf8(data).map_or_else(
+        |_| {
+            // Decode as Windows-1252 (legacy Altium encoding)
+            let (decoded, _, _) = encoding_rs::WINDOWS_1252.decode(data);
+            decoded.into_owned()
+        },
+        str::to_string,
+    );
+
+    parse_text_record_from_string(symbol, &text);
 }
 
 /// Parses a text record from a decoded string.

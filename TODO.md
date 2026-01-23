@@ -35,11 +35,11 @@ These bugs were identified during a comprehensive code review (January 2026).
 - **Resolution**: Added validation in `write_binary_pin()` to return `AltiumError::InvalidParameter` if x, y, or length
   exceed ±32767. The `encode_data_stream()` now returns `AltiumResult<Vec<u8>>` and propagates errors.
 
-### Code Quality #7: Windows-1252 Encoding Approximation
+### ~~Code Quality #7: Windows-1252 Encoding Approximation~~ - FIXED
 
-- **Location**: [src/altium/schlib/reader.rs:79-84](src/altium/schlib/reader.rs#L79-L84)
-- **Issue**: Uses `b as char` which only works for ASCII. Non-ASCII Windows-1252 bytes produce incorrect characters.
-- **Fix**: Use the `encoding_rs` crate for proper Windows-1252 decoding.
+- **Status**: Fixed (January 2026)
+- **Resolution**: Added `encoding_rs` crate dependency and replaced `b as char` with proper `WINDOWS_1252.decode()`
+  for non-UTF-8 text records in SchLib reader.
 
 ## Future Enhancements
 
