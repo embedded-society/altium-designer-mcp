@@ -113,11 +113,25 @@ pub fn parse_wide_strings(data: &[u8]) -> WideStrings {
 /// # Example
 ///
 /// `"84,69,83,84"` → `"TEST"`
+///
+/// # Non-ASCII Handling
+///
+/// Values 0-127 are valid ASCII and converted directly.
+/// Values 128-255 are replaced with the Unicode replacement character (U+FFFD)
+/// since Altium's ENCODEDTEXT format should only contain ASCII.
 fn decode_ascii_codes(encoded: &str) -> String {
     encoded
         .split(',')
         .filter_map(|s| s.trim().parse::<u8>().ok())
-        .map(|c| c as char)
+        .map(|c| {
+            if c.is_ascii() {
+                c as char
+            } else {
+                // Non-ASCII byte - use replacement character and log warning
+                tracing::warn!(byte = c, "Non-ASCII byte in ENCODEDTEXT, replacing with U+FFFD");
+                '\u{FFFD}'
+            }
+        })
         .collect()
 }
 
@@ -2273,6 +2287,17 @@ mod tests {
         assert_eq!(decode_ascii_codes("72,69,76,76,79"), "HELLO");
         assert_eq!(decode_ascii_codes("65"), "A");
         assert_eq!(decode_ascii_codes(""), "");
+    }
+
+    #[test]
+    fn test_decode_ascii_codes_non_ascii() {
+        // Non-ASCII bytes (128-255) should be replaced with U+FFFD
+        assert_eq!(decode_ascii_codes("65,200,66"), "A\u{FFFD}B");
+        assert_eq!(decode_ascii_codes("255"), "\u{FFFD}");
+        // Boundary: 127 is still ASCII
+        assert_eq!(decode_ascii_codes("127"), "\x7F");
+        // Boundary: 128 is non-ASCII
+        assert_eq!(decode_ascii_codes("128"), "\u{FFFD}");
     }
 
     // =============================================================================

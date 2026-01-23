@@ -1692,7 +1692,7 @@ impl McpServer {
                 } else {
                     let min = *pin_lengths.iter().min().unwrap();
                     let max = *pin_lengths.iter().max().unwrap();
-                    let most_common = Self::most_common_i32(&pin_lengths);
+                    let most_common = Self::most_common(&pin_lengths);
                     json!({
                         "min_units": min,
                         "max_units": max,
@@ -1706,7 +1706,7 @@ impl McpServer {
                 } else {
                     let min = *line_widths.iter().min().unwrap();
                     let max = *line_widths.iter().max().unwrap();
-                    let most_common = Self::most_common_u8(&line_widths);
+                    let most_common = Self::most_common(&line_widths);
                     json!({
                         "min": min,
                         "max": max,
@@ -1745,7 +1745,28 @@ impl McpServer {
         }
     }
 
+    /// Finds the most common value in a slice of hashable, copyable values.
+    ///
+    /// Returns the default value if the slice is empty.
+    fn most_common<T>(values: &[T]) -> T
+    where
+        T: std::hash::Hash + Eq + Copy + Default,
+    {
+        use std::collections::HashMap;
+        let mut counts: HashMap<T, usize> = HashMap::new();
+        for &v in values {
+            *counts.entry(v).or_insert(0) += 1;
+        }
+        counts
+            .into_iter()
+            .max_by_key(|(_, count)| *count)
+            .map_or_else(T::default, |(key, _)| key)
+    }
+
     /// Finds the most common value in a slice of f64, rounded to 2 decimal places.
+    ///
+    /// Since f64 doesn't implement Hash/Eq, values are quantized to centesimal
+    /// precision (0.01) for grouping purposes.
     #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
     fn most_common_f64(values: &[f64]) -> f64 {
         use std::collections::HashMap;
@@ -1759,32 +1780,6 @@ impl McpServer {
             .into_iter()
             .max_by_key(|(_, count)| *count)
             .map_or(0.0, |(key, _)| key as f64 / 100.0)
-    }
-
-    /// Finds the most common value in a slice of i32.
-    fn most_common_i32(values: &[i32]) -> i32 {
-        use std::collections::HashMap;
-        let mut counts: HashMap<i32, usize> = HashMap::new();
-        for &v in values {
-            *counts.entry(v).or_insert(0) += 1;
-        }
-        counts
-            .into_iter()
-            .max_by_key(|(_, count)| *count)
-            .map_or(0, |(key, _)| key)
-    }
-
-    /// Finds the most common value in a slice of u8.
-    fn most_common_u8(values: &[u8]) -> u8 {
-        use std::collections::HashMap;
-        let mut counts: HashMap<u8, usize> = HashMap::new();
-        for &v in values {
-            *counts.entry(v).or_insert(0) += 1;
-        }
-        counts
-            .into_iter()
-            .max_by_key(|(_, count)| *count)
-            .map_or(0, |(key, _)| key)
     }
 
     // ==================== Coordinate Validation ====================
@@ -2559,5 +2554,32 @@ mod tests {
         match &result.content[0] {
             ToolContent::Text { text } => assert_eq!(text, "Something went wrong"),
         }
+    }
+
+    #[test]
+    fn most_common_generic() {
+        // Test with i32
+        let values_i32 = [1, 2, 2, 3, 2, 1];
+        assert_eq!(McpServer::most_common(&values_i32), 2);
+
+        // Test with u8
+        let values_u8: [u8; 5] = [5, 5, 3, 5, 3];
+        assert_eq!(McpServer::most_common(&values_u8), 5);
+
+        // Test with empty slice - should return default
+        let empty: [i32; 0] = [];
+        assert_eq!(McpServer::most_common(&empty), 0);
+    }
+
+    #[test]
+    fn most_common_f64_rounding() {
+        // Values that are close should be grouped together
+        let values = [1.001, 1.002, 1.009, 2.0];
+        // All three ~1.0 values round to 1.00, so 1.0 should be most common
+        assert!((McpServer::most_common_f64(&values) - 1.0).abs() < 0.01);
+
+        // Empty slice should return 0.0
+        let empty: [f64; 0] = [];
+        assert!((McpServer::most_common_f64(&empty) - 0.0).abs() < f64::EPSILON);
     }
 }
