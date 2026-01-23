@@ -115,13 +115,35 @@ fn write_block(data: &mut Vec<u8>, block: &[u8]) {
 }
 
 /// Writes a length-prefixed string block.
-#[allow(clippy::cast_possible_truncation)] // String names are always < 256 chars
-fn write_string_block(data: &mut Vec<u8>, s: &str) {
+///
+/// # Errors
+///
+/// Returns an error if the string exceeds 255 bytes.
+fn write_string_block(
+    data: &mut Vec<u8>,
+    s: &str,
+    field_name: &str,
+) -> crate::altium::error::AltiumResult<()> {
+    use crate::altium::error::AltiumError;
+
     let bytes = s.as_bytes();
+    if bytes.len() > 255 {
+        return Err(AltiumError::InvalidParameter {
+            name: field_name.to_string(),
+            message: format!(
+                "String '{}...' length {} exceeds maximum of 255 bytes",
+                &s[..s.len().min(20)],
+                bytes.len()
+            ),
+        });
+    }
+
     let mut block = Vec::with_capacity(1 + bytes.len());
+    #[allow(clippy::cast_possible_truncation)] // Validated above
     block.push(bytes.len() as u8);
     block.extend_from_slice(bytes);
     write_block(data, &block);
+    Ok(())
 }
 
 /// Converts our Layer enum to Altium layer ID.
@@ -261,11 +283,17 @@ fn write_common_header(data: &mut Vec<u8>, layer: Layer, flags: PcbFlags) {
 }
 
 /// Encodes footprint primitives to binary format.
-pub fn encode_data_stream(footprint: &Footprint) -> Vec<u8> {
+///
+/// # Errors
+///
+/// Returns an error if any string (footprint name, pad designator, text) exceeds 255 bytes.
+pub fn encode_data_stream(
+    footprint: &Footprint,
+) -> crate::altium::error::AltiumResult<Vec<u8>> {
     let mut data = Vec::new();
 
     // Write name block: [block_len:4][str_len:1][name:str_len]
-    write_string_block(&mut data, &footprint.name);
+    write_string_block(&mut data, &footprint.name, "footprint.name")?;
 
     // Write primitives
     // Order: Arcs, Pads, Tracks (following typical Altium ordering)
@@ -277,12 +305,12 @@ pub fn encode_data_stream(footprint: &Footprint) -> Vec<u8> {
 
     for pad in &footprint.pads {
         data.push(0x02); // Pad record type
-        encode_pad(&mut data, pad);
+        encode_pad(&mut data, pad)?;
     }
 
     for via in &footprint.vias {
         data.push(0x03); // Via record type
-        encode_via(&mut data, via);
+        encode_via(&mut data, via)?;
     }
 
     for track in &footprint.tracks {
@@ -292,7 +320,7 @@ pub fn encode_data_stream(footprint: &Footprint) -> Vec<u8> {
 
     for text in &footprint.text {
         data.push(0x05); // Text record type
-        encode_text(&mut data, text);
+        encode_text(&mut data, text)?;
     }
 
     for region in &footprint.regions {
@@ -313,7 +341,7 @@ pub fn encode_data_stream(footprint: &Footprint) -> Vec<u8> {
     // End marker
     data.push(0x00);
 
-    data
+    Ok(data)
 }
 
 /// Encodes per-layer data for a Pad (Block 5).
@@ -375,15 +403,15 @@ fn encode_pad_per_layer_data(pad: &Pad) -> Vec<u8> {
 }
 
 /// Encodes a Pad primitive.
-fn encode_pad(data: &mut Vec<u8>, pad: &Pad) {
+fn encode_pad(data: &mut Vec<u8>, pad: &Pad) -> crate::altium::error::AltiumResult<()> {
     // Block 0: Designator string
-    write_string_block(data, &pad.designator);
+    write_string_block(data, &pad.designator, "pad.designator")?;
 
     // Block 1: Unknown (empty block)
     write_block(data, &[]);
 
     // Block 2: "|&|0" string (standard marker)
-    write_string_block(data, "|&|0");
+    write_string_block(data, "|&|0", "pad.marker")?;
 
     // Block 3: Unknown (empty block)
     write_block(data, &[]);
@@ -410,6 +438,8 @@ fn encode_pad(data: &mut Vec<u8>, pad: &Pad) {
     } else {
         write_block(data, &[]);
     }
+
+    Ok(())
 }
 
 /// Encodes the geometry block for a pad.
@@ -541,7 +571,7 @@ fn encode_pad_geometry(pad: &Pad) -> Vec<u8> {
 /// - Block 3: Net/connectivity data (empty)
 /// - Block 4: Geometry data
 /// - Block 5: Per-layer data (empty for simple vias)
-fn encode_via(data: &mut Vec<u8>, via: &Via) {
+fn encode_via(data: &mut Vec<u8>, via: &Via) -> crate::altium::error::AltiumResult<()> {
     // Block 0: Name/designator (empty for vias)
     write_block(data, &[0u8; 1]); // Single null byte for empty string
 
@@ -549,7 +579,7 @@ fn encode_via(data: &mut Vec<u8>, via: &Via) {
     write_block(data, &[]);
 
     // Block 2: "|&|0" marker string
-    write_string_block(data, "|&|0");
+    write_string_block(data, "|&|0", "via.marker")?;
 
     // Block 3: Net/connectivity data (empty for library vias)
     write_block(data, &[]);
@@ -560,6 +590,8 @@ fn encode_via(data: &mut Vec<u8>, via: &Via) {
 
     // Block 5: Per-layer data (empty for simple vias)
     write_block(data, &[]);
+
+    Ok(())
 }
 
 /// Encodes the geometry block for a via.
@@ -746,13 +778,15 @@ fn encode_arc(data: &mut Vec<u8>, arc: &Arc) {
 /// Text has 2 blocks:
 /// - Block 0: Geometry/metadata (layer, position, height, rotation, font info)
 /// - Block 1: Text content (length-prefixed string)
-fn encode_text(data: &mut Vec<u8>, text: &Text) {
+fn encode_text(data: &mut Vec<u8>, text: &Text) -> crate::altium::error::AltiumResult<()> {
     // Block 0: Geometry
     let geometry = encode_text_geometry(text);
     write_block(data, &geometry);
 
     // Block 1: Text content
-    write_string_block(data, &text.text);
+    write_string_block(data, &text.text, "text.text")?;
+
+    Ok(())
 }
 
 /// Encodes the geometry block for text.
@@ -1320,12 +1354,21 @@ mod tests {
     #[test]
     fn test_write_string_block() {
         let mut data = Vec::new();
-        write_string_block(&mut data, "TEST");
+        write_string_block(&mut data, "TEST", "test_field").expect("should succeed");
         // Block length (5) + string length (4) + "TEST"
         assert_eq!(
             data,
             vec![0x05, 0x00, 0x00, 0x00, 0x04, b'T', b'E', b'S', b'T']
         );
+    }
+
+    #[test]
+    fn test_write_string_block_too_long() {
+        let mut data = Vec::new();
+        let long_string = "A".repeat(256);
+        let result = write_string_block(&mut data, &long_string, "test_field");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("exceeds maximum of 255 bytes"));
     }
 
     #[test]
@@ -1405,7 +1448,7 @@ mod tests {
         fp.add_pad(Pad::smd("1", -0.5, 0.0, 0.6, 0.5));
         fp.add_pad(Pad::smd("2", 0.5, 0.0, 0.6, 0.5));
 
-        let data = encode_data_stream(&fp);
+        let data = encode_data_stream(&fp).expect("encoding should succeed");
 
         // Should start with name block
         // Block length: 8 (1 + 7 for "TEST_FP")

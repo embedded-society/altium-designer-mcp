@@ -830,7 +830,7 @@ impl PcbLib {
             .create_stream(&data_path)
             .map_err(|e| AltiumError::invalid_ole(format!("Failed to create Data: {e}")))?;
 
-        let data = Self::encode_primitives(footprint);
+        let data = Self::encode_primitives(footprint)?;
         std::io::Write::write_all(&mut stream, &data)
             .map_err(|e| AltiumError::invalid_ole(format!("Failed to write Data: {e}")))?;
 
@@ -870,7 +870,11 @@ impl PcbLib {
     /// Encodes footprint primitives to binary format.
     ///
     /// See the [`writer`] module for format details.
-    fn encode_primitives(footprint: &Footprint) -> Vec<u8> {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any string (footprint name, pad designator, text) exceeds 255 bytes.
+    fn encode_primitives(footprint: &Footprint) -> AltiumResult<Vec<u8>> {
         writer::encode_data_stream(footprint)
     }
 
@@ -981,7 +985,7 @@ mod tests {
         original.add_pad(Pad::smd("2", 0.5, 0.0, 0.6, 0.5));
 
         // Encode to binary
-        let data = writer::encode_data_stream(&original);
+        let data = writer::encode_data_stream(&original).expect("encoding should succeed");
 
         // Decode from binary
         let mut decoded = Footprint::new("ROUNDTRIP_PAD");
@@ -1003,7 +1007,7 @@ mod tests {
         original.add_track(Track::new(-1.0, -0.5, 1.0, -0.5, 0.15, Layer::TopOverlay));
         original.add_track(Track::new(1.0, -0.5, 1.0, 0.5, 0.15, Layer::TopOverlay));
 
-        let data = writer::encode_data_stream(&original);
+        let data = writer::encode_data_stream(&original).expect("encoding should succeed");
         let mut decoded = Footprint::new("ROUNDTRIP_TRACK");
         reader::parse_data_stream(&mut decoded, &data, None);
 
@@ -1019,7 +1023,7 @@ mod tests {
         let mut original = Footprint::new("ROUNDTRIP_ARC");
         original.add_arc(Arc::circle(0.0, 0.0, 1.0, 0.15, Layer::TopOverlay));
 
-        let data = writer::encode_data_stream(&original);
+        let data = writer::encode_data_stream(&original).expect("encoding should succeed");
         let mut decoded = Footprint::new("ROUNDTRIP_ARC");
         reader::parse_data_stream(&mut decoded, &data, None);
 
@@ -1045,7 +1049,7 @@ mod tests {
         // Add tracks (record type 0x04)
         original.add_track(Track::new(-1.5, -0.3, 1.5, -0.3, 0.12, Layer::TopOverlay));
 
-        let data = writer::encode_data_stream(&original);
+        let data = writer::encode_data_stream(&original).expect("encoding should succeed");
         let mut decoded = Footprint::new("ROUNDTRIP_MIXED");
         reader::parse_data_stream(&mut decoded, &data, None);
 
@@ -1063,7 +1067,7 @@ mod tests {
         original.add_pad(Pad::smd("2", 1.27, 0.0, 0.5, 0.5));
         original.add_pad(Pad::smd("3", 2.54, 0.0, 1.0, 1.0));
 
-        let data = writer::encode_data_stream(&original);
+        let data = writer::encode_data_stream(&original).expect("encoding should succeed");
         let mut decoded = Footprint::new("ROUNDTRIP_PRECISION");
         reader::parse_data_stream(&mut decoded, &data, None);
 
@@ -1078,7 +1082,7 @@ mod tests {
         let mut original = Footprint::new("ROUNDTRIP_TH");
         original.add_pad(Pad::through_hole("1", 0.0, 0.0, 1.6, 1.6, 0.8));
 
-        let data = writer::encode_data_stream(&original);
+        let data = writer::encode_data_stream(&original).expect("encoding should succeed");
         let mut decoded = Footprint::new("ROUNDTRIP_TH");
         reader::parse_data_stream(&mut decoded, &data, None);
 
@@ -1097,7 +1101,7 @@ mod tests {
         original.add_track(Track::new(-1.0, 0.1, 1.0, 0.1, 0.1, Layer::TopCourtyard));
         original.add_track(Track::new(-1.0, 0.2, 1.0, 0.2, 0.1, Layer::Top3DBody));
 
-        let data = writer::encode_data_stream(&original);
+        let data = writer::encode_data_stream(&original).expect("encoding should succeed");
         let mut decoded = Footprint::new("ROUNDTRIP_LAYERS");
         reader::parse_data_stream(&mut decoded, &data, None);
 
@@ -1139,7 +1143,7 @@ mod tests {
             unique_id: None,
         });
 
-        let data = writer::encode_data_stream(&original);
+        let data = writer::encode_data_stream(&original).expect("encoding should succeed");
         let mut decoded = Footprint::new("ROUNDTRIP_TEXT");
         reader::parse_data_stream(&mut decoded, &data, None);
 
@@ -1189,7 +1193,7 @@ mod tests {
         // Add a rectangular region
         original.add_region(Region::rectangle(-1.0, -1.0, 1.0, 1.0, Layer::TopCourtyard));
 
-        let data = writer::encode_data_stream(&original);
+        let data = writer::encode_data_stream(&original).expect("encoding should succeed");
         let mut decoded = Footprint::new("ROUNDTRIP_REGION");
         reader::parse_data_stream(&mut decoded, &data, None);
 
@@ -1229,7 +1233,7 @@ mod tests {
             unique_id: None,
         });
 
-        let data = writer::encode_data_stream(&original);
+        let data = writer::encode_data_stream(&original).expect("encoding should succeed");
         let mut decoded = Footprint::new("ROUNDTRIP_FILL");
         reader::parse_data_stream(&mut decoded, &data, None);
 
@@ -1274,7 +1278,7 @@ mod tests {
         };
         original.add_component_body(body);
 
-        let data = writer::encode_data_stream(&original);
+        let data = writer::encode_data_stream(&original).expect("encoding should succeed");
         let mut decoded = Footprint::new("ROUNDTRIP_COMPONENT_BODY");
         reader::parse_data_stream(&mut decoded, &data, None);
 
@@ -1314,7 +1318,7 @@ mod tests {
             Layer::BottomLayer,
         ));
 
-        let data = writer::encode_data_stream(&original);
+        let data = writer::encode_data_stream(&original).expect("encoding should succeed");
         let mut decoded = Footprint::new("ROUNDTRIP_VIA");
         reader::parse_data_stream(&mut decoded, &data, None);
 
@@ -1351,7 +1355,7 @@ mod tests {
         original.add_via(Via::new(0.0, 0.0, 0.5, 0.25));
         original.add_track(Track::new(-1.5, -0.3, 1.5, -0.3, 0.12, Layer::TopOverlay));
 
-        let data = writer::encode_data_stream(&original);
+        let data = writer::encode_data_stream(&original).expect("encoding should succeed");
         let mut decoded = Footprint::new("ROUNDTRIP_MIXED_VIA");
         reader::parse_data_stream(&mut decoded, &data, None);
 
@@ -1387,7 +1391,7 @@ mod tests {
         let pad_with_round_hole = Pad::through_hole("3", 2.54, 0.0, 1.5, 1.5, 0.8);
         original.add_pad(pad_with_round_hole);
 
-        let data = writer::encode_data_stream(&original);
+        let data = writer::encode_data_stream(&original).expect("encoding should succeed");
         let mut decoded = Footprint::new("ROUNDTRIP_PAD_ADVANCED");
         reader::parse_data_stream(&mut decoded, &data, None);
 
@@ -1439,7 +1443,7 @@ mod tests {
         pad_full.stack_mode = PadStackMode::FullStack;
         original.add_pad(pad_full);
 
-        let data = writer::encode_data_stream(&original);
+        let data = writer::encode_data_stream(&original).expect("encoding should succeed");
         let mut decoded = Footprint::new("ROUNDTRIP_STACK_MODES");
         reader::parse_data_stream(&mut decoded, &data, None);
 
@@ -1467,7 +1471,7 @@ mod tests {
         let pad_no_radius = Pad::smd("2", 2.54, 0.0, 1.5, 0.8);
         original.add_pad(pad_no_radius);
 
-        let data = writer::encode_data_stream(&original);
+        let data = writer::encode_data_stream(&original).expect("encoding should succeed");
         let mut decoded = Footprint::new("ROUNDTRIP_CORNER_RADIUS");
         reader::parse_data_stream(&mut decoded, &data, None);
 
@@ -1513,7 +1517,7 @@ mod tests {
 
         original.add_pad(pad);
 
-        let data = writer::encode_data_stream(&original);
+        let data = writer::encode_data_stream(&original).expect("encoding should succeed");
         let mut decoded = Footprint::new("ROUNDTRIP_PER_LAYER");
         reader::parse_data_stream(&mut decoded, &data, None);
 

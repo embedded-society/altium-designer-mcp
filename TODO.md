@@ -8,13 +8,11 @@
 - **Resolution**: Added validation in `write_binary_pin()` to return `AltiumError::InvalidParameter` if pin name,
   designator, or description exceeds 255 bytes.
 
-### Potential Issue #9: String Length Truncation in PcbLib Writer
+### ~~Potential Issue #9: String Length Truncation in PcbLib Writer~~ - FIXED
 
-- **Location**: [src/altium/pcblib/writer.rs:122](src/altium/pcblib/writer.rs#L122)
-- **Issue**: Pad designator and footprint name lengths are cast to `u8`. Strings longer than 255 bytes will be
-  silently truncated.
-- **Impact**: Designators exceeding 255 characters would be corrupted. Extremely unlikely in practice.
-- **Fix**: Add validation to return an error if string length exceeds 255.
+- **Status**: Fixed (January 2026)
+- **Resolution**: Changed `write_string_block()` to return `AltiumResult<()>` and validate string length.
+  `encode_data_stream()` now returns `AltiumResult<Vec<u8>>` and propagates errors.
 
 ### Code Quality #10: Missing File Type Validation
 
