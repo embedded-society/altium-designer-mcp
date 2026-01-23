@@ -37,7 +37,48 @@ fn write_text_record(data: &mut Vec<u8>, content: &str) {
 }
 
 /// Writes a binary pin record (type 1) to the output.
-fn write_binary_pin(data: &mut Vec<u8>, pin: &Pin) {
+///
+/// # Errors
+///
+/// Returns an error if pin coordinates (x, y, length) exceed the i16 range (±32767).
+fn write_binary_pin(
+    data: &mut Vec<u8>,
+    pin: &Pin,
+) -> crate::altium::error::AltiumResult<()> {
+    use crate::altium::error::AltiumError;
+
+    // Validate that coordinates fit in i16 range
+    const I16_MIN: i32 = i16::MIN as i32;
+    const I16_MAX: i32 = i16::MAX as i32;
+
+    if pin.x < I16_MIN || pin.x > I16_MAX {
+        return Err(AltiumError::InvalidParameter {
+            name: "pin.x".to_string(),
+            message: format!(
+                "Pin '{}' x coordinate {} exceeds i16 range (±32767)",
+                pin.designator, pin.x
+            ),
+        });
+    }
+    if pin.y < I16_MIN || pin.y > I16_MAX {
+        return Err(AltiumError::InvalidParameter {
+            name: "pin.y".to_string(),
+            message: format!(
+                "Pin '{}' y coordinate {} exceeds i16 range (±32767)",
+                pin.designator, pin.y
+            ),
+        });
+    }
+    if pin.length < I16_MIN || pin.length > I16_MAX {
+        return Err(AltiumError::InvalidParameter {
+            name: "pin.length".to_string(),
+            message: format!(
+                "Pin '{}' length {} exceeds i16 range (±32767)",
+                pin.designator, pin.length
+            ),
+        });
+    }
+
     let mut record = Vec::with_capacity(64);
 
     // Record type (4 bytes) - always 2 for pin
@@ -121,6 +162,8 @@ fn write_binary_pin(data: &mut Vec<u8>, pin: &Pin) {
     data.extend_from_slice(&record_length.to_le_bytes());
     data.extend_from_slice(&1u16.to_be_bytes()); // Type 1 = binary pin
     data.extend_from_slice(&record);
+
+    Ok(())
 }
 
 /// Encodes a component header record.
@@ -450,8 +493,11 @@ fn generate_unique_id() -> String {
 }
 
 /// Encodes symbol primitives to binary format for the Data stream.
-#[must_use]
-pub fn encode_data_stream(symbol: &Symbol) -> Vec<u8> {
+///
+/// # Errors
+///
+/// Returns an error if any pin coordinates exceed the i16 range (±32767).
+pub fn encode_data_stream(symbol: &Symbol) -> crate::altium::error::AltiumResult<Vec<u8>> {
     let mut data = Vec::new();
     let mut index_counter = 0usize;
 
@@ -468,7 +514,7 @@ pub fn encode_data_stream(symbol: &Symbol) -> Vec<u8> {
 
     // 3. Pins (binary format)
     for pin in &symbol.pins {
-        write_binary_pin(&mut data, pin);
+        write_binary_pin(&mut data, pin)?;
     }
 
     // 4. Rectangles
@@ -562,7 +608,7 @@ pub fn encode_data_stream(symbol: &Symbol) -> Vec<u8> {
     // End marker: length = 0
     data.extend_from_slice(&0u16.to_le_bytes());
 
-    data
+    Ok(data)
 }
 
 /// Encodes the `FileHeader` stream content.
@@ -640,7 +686,7 @@ mod tests {
         symbol.add_pin(Pin::new("IN", "1", -10, 0, 10, PinOrientation::Right));
         symbol.add_rectangle(Rectangle::new(-5, -5, 5, 5));
 
-        let data = encode_data_stream(&symbol);
+        let data = encode_data_stream(&symbol).expect("encoding should succeed");
 
         // Should have content
         assert!(!data.is_empty());
@@ -649,6 +695,17 @@ mod tests {
         let len = data.len();
         assert_eq!(data[len - 2], 0x00);
         assert_eq!(data[len - 1], 0x00);
+    }
+
+    #[test]
+    fn test_encode_pin_coordinate_overflow() {
+        let mut symbol = Symbol::new("TEST");
+        symbol.add_pin(Pin::new("IN", "1", 50000, 0, 10, PinOrientation::Right)); // x exceeds i16
+
+        let result = encode_data_stream(&symbol);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("exceeds i16 range"));
     }
 
     #[test]

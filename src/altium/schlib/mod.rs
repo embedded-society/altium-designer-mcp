@@ -53,6 +53,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Read, Seek, Write};
 use std::path::Path;
+use tracing::warn;
 
 use super::{AltiumError, AltiumResult};
 pub use primitives::*;
@@ -105,23 +106,37 @@ impl SchLib {
         for comp_name in header.component_names {
             let stream_path = format!("{comp_name}/Data");
 
-            if let Ok(mut stream) = cfb.open_stream(&stream_path) {
-                let mut data = Vec::new();
-                // Skip components we can't read
-                if stream.read_to_end(&mut data).is_err() {
+            let mut stream = match cfb.open_stream(&stream_path) {
+                Ok(s) => s,
+                Err(e) => {
+                    warn!(
+                        component = %comp_name,
+                        error = %e,
+                        "Failed to open component stream, skipping"
+                    );
                     continue;
                 }
+            };
 
-                let mut symbol = Symbol::new(&comp_name);
-                symbol.description = header
-                    .component_descriptions
-                    .get(&comp_name)
-                    .cloned()
-                    .unwrap_or_default();
-
-                reader::parse_data_stream(&mut symbol, &data);
-                lib.symbols.insert(comp_name, symbol);
+            let mut data = Vec::new();
+            if let Err(e) = stream.read_to_end(&mut data) {
+                warn!(
+                    component = %comp_name,
+                    error = %e,
+                    "Failed to read component data, skipping"
+                );
+                continue;
             }
+
+            let mut symbol = Symbol::new(&comp_name);
+            symbol.description = header
+                .component_descriptions
+                .get(&comp_name)
+                .cloned()
+                .unwrap_or_default();
+
+            reader::parse_data_stream(&mut symbol, &data);
+            lib.symbols.insert(comp_name, symbol);
         }
 
         Ok(lib)
@@ -210,7 +225,7 @@ impl SchLib {
             })?;
 
             // Create and write the Data stream
-            let data = writer::encode_data_stream(symbol);
+            let data = writer::encode_data_stream(symbol)?;
             let mut stream = cfb.create_stream(&stream_path).map_err(|e| {
                 AltiumError::invalid_ole(format!("Failed to create stream {stream_path}: {e}"))
             })?;

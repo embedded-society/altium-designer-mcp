@@ -29,12 +29,11 @@ These bugs were identified during a comprehensive code review (January 2026).
 - **Status**: Fixed (January 2026)
 - **Resolution**: Changed `compress_model_data()` to return `AltiumResult<Vec<u8>>` and added `CompressionError` variant to `AltiumError`. Errors now propagate properly.
 
-### Potential Issue #6: Integer Truncation on SchLib Pin Coordinates
+### ~~Potential Issue #6: Integer Truncation on SchLib Pin Coordinates~~ - FIXED
 
-- **Location**: [src/altium/schlib/writer.rs:96-101](src/altium/schlib/writer.rs#L96-L101)
-- **Issue**: Pin `x`, `y`, `length` are `i32` but truncated to `i16` when writing binary pin records.
-- **Impact**: Coordinates exceeding ±32767 will wrap around silently.
-- **Fix**: Add validation or use the text-based pin format for large coordinates.
+- **Status**: Fixed (January 2026)
+- **Resolution**: Added validation in `write_binary_pin()` to return `AltiumError::InvalidParameter` if x, y, or length
+  exceed ±32767. The `encode_data_stream()` now returns `AltiumResult<Vec<u8>>` and propagates errors.
 
 ### Code Quality #7: Windows-1252 Encoding Approximation
 
