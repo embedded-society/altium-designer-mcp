@@ -40,16 +40,22 @@ fn write_text_record(data: &mut Vec<u8>, content: &str) {
 ///
 /// # Errors
 ///
-/// Returns an error if pin coordinates (x, y, length) exceed the i16 range (±32767).
+/// Returns an error if:
+/// - Pin coordinates (x, y, length) exceed the i16 range (±32767)
+/// - Pin name, designator, or description exceeds 255 bytes
+#[allow(clippy::too_many_lines)] // Complex binary format requires detailed validation and encoding
 fn write_binary_pin(
     data: &mut Vec<u8>,
     pin: &Pin,
 ) -> crate::altium::error::AltiumResult<()> {
     use crate::altium::error::AltiumError;
 
-    // Validate that coordinates fit in i16 range
+    // Validation constants
     const I16_MIN: i32 = i16::MIN as i32;
     const I16_MAX: i32 = i16::MAX as i32;
+    const MAX_STRING_LEN: usize = 255;
+
+    // Validate that coordinates fit in i16 range
 
     if pin.x < I16_MIN || pin.x > I16_MAX {
         return Err(AltiumError::InvalidParameter {
@@ -75,6 +81,41 @@ fn write_binary_pin(
             message: format!(
                 "Pin '{}' length {} exceeds i16 range (±32767)",
                 pin.designator, pin.length
+            ),
+        });
+    }
+
+    // Validate that string lengths fit in u8 range (binary pin format limitation)
+    if pin.name.len() > MAX_STRING_LEN {
+        return Err(AltiumError::InvalidParameter {
+            name: "pin.name".to_string(),
+            message: format!(
+                "Pin '{}' name length {} exceeds maximum of {} bytes",
+                pin.designator,
+                pin.name.len(),
+                MAX_STRING_LEN
+            ),
+        });
+    }
+    if pin.designator.len() > MAX_STRING_LEN {
+        return Err(AltiumError::InvalidParameter {
+            name: "pin.designator".to_string(),
+            message: format!(
+                "Pin designator '{}' length {} exceeds maximum of {} bytes",
+                pin.designator,
+                pin.designator.len(),
+                MAX_STRING_LEN
+            ),
+        });
+    }
+    if pin.description.len() > MAX_STRING_LEN {
+        return Err(AltiumError::InvalidParameter {
+            name: "pin.description".to_string(),
+            message: format!(
+                "Pin '{}' description length {} exceeds maximum of {} bytes",
+                pin.designator,
+                pin.description.len(),
+                MAX_STRING_LEN
             ),
         });
     }
@@ -706,6 +747,18 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.to_string().contains("exceeds i16 range"));
+    }
+
+    #[test]
+    fn test_encode_pin_name_too_long() {
+        let mut symbol = Symbol::new("TEST");
+        let long_name = "A".repeat(256); // Exceeds 255 byte limit
+        symbol.add_pin(Pin::new(&long_name, "1", 0, 0, 10, PinOrientation::Right));
+
+        let result = encode_data_stream(&symbol);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("exceeds maximum of 255 bytes"));
     }
 
     #[test]
