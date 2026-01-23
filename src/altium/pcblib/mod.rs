@@ -722,7 +722,7 @@ impl PcbLib {
             .map_err(|e| AltiumError::invalid_ole(format!("Failed to write Models/Data: {e}")))?;
 
         // Write individual model streams (compressed)
-        let compressed_models = writer::prepare_models_for_writing(&self.models);
+        let compressed_models = writer::prepare_models_for_writing(&self.models)?;
         for (idx, compressed) in compressed_models {
             let stream_path = format!("/Library/Models/{idx}");
             let mut model_stream = cfb.create_stream(&stream_path).map_err(|e| {

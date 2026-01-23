@@ -1078,14 +1078,21 @@ use std::io::Write as IoWrite;
 ///
 /// # Returns
 ///
-/// Zlib-compressed data.
-pub fn compress_model_data(data: &[u8]) -> Vec<u8> {
+/// Zlib-compressed data, or an error if compression fails.
+///
+/// # Errors
+///
+/// Returns `AltiumError::CompressionError` if the data cannot be compressed.
+pub fn compress_model_data(data: &[u8]) -> crate::altium::error::AltiumResult<Vec<u8>> {
+    use crate::altium::error::AltiumError;
+
     let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
-    if encoder.write_all(data).is_ok() {
-        encoder.finish().unwrap_or_default()
-    } else {
-        Vec::new()
-    }
+    encoder.write_all(data).map_err(|e| {
+        AltiumError::compression_error("Failed to write data to zlib encoder", Some(e))
+    })?;
+    encoder.finish().map_err(|e| {
+        AltiumError::compression_error("Failed to finish zlib compression", Some(e))
+    })
 }
 
 /// Encodes the `/Library/Models/Header` stream.
@@ -1129,12 +1136,18 @@ pub fn encode_model_data_stream(models: &[EmbeddedModel]) -> Vec<u8> {
 ///
 /// # Returns
 ///
-/// A vector of (index, `compressed_data`) tuples.
-pub fn prepare_models_for_writing(models: &[EmbeddedModel]) -> Vec<(usize, Vec<u8>)> {
+/// A vector of (index, `compressed_data`) tuples, or an error if compression fails.
+///
+/// # Errors
+///
+/// Returns `AltiumError::CompressionError` if any model data cannot be compressed.
+pub fn prepare_models_for_writing(
+    models: &[EmbeddedModel],
+) -> crate::altium::error::AltiumResult<Vec<(usize, Vec<u8>)>> {
     models
         .iter()
         .enumerate()
-        .map(|(idx, model)| (idx, compress_model_data(&model.data)))
+        .map(|(idx, model)| Ok((idx, compress_model_data(&model.data)?)))
         .collect()
 }
 
@@ -1491,7 +1504,7 @@ mod tests {
         use std::io::Read;
 
         let original = b"ISO-10303-21; HEADER; FILE_DESCRIPTION...";
-        let compressed = compress_model_data(original);
+        let compressed = compress_model_data(original).expect("compression should succeed");
 
         // Verify it's actually compressed (should be smaller for larger data)
         assert!(!compressed.is_empty());
@@ -1543,7 +1556,7 @@ mod tests {
             EmbeddedModel::new("{B}", "b.step", b"STEP B".to_vec()),
         ];
 
-        let prepared = prepare_models_for_writing(&models);
+        let prepared = prepare_models_for_writing(&models).expect("compression should succeed");
 
         assert_eq!(prepared.len(), 2);
         assert_eq!(prepared[0].0, 0);

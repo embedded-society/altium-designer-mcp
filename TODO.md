@@ -19,19 +19,15 @@ These bugs were identified during a comprehensive code review (January 2026).
 - **Status**: Fixed (January 2026)
 - **Resolution**: Added explicit `"warn" => Level::WARN` match arm in `get_log_level()`.
 
-### Potential Issue #4: Silent Read Error in SchLib
+### ~~Potential Issue #4: Silent Read Error in SchLib~~ - FIXED
 
-- **Location**: [src/altium/schlib/mod.rs:111-113](src/altium/schlib/mod.rs#L111-L113)
-- **Issue**: When `stream.read_to_end()` fails, the component is silently skipped.
-- **Impact**: Corrupted components are silently dropped without user notification.
-- **Fix**: Log a warning when skipping components due to read errors.
+- **Status**: Fixed (January 2026)
+- **Resolution**: Added `tracing::warn!` logs when component stream open or read fails.
 
-### Potential Issue #5: Model Compression Failure Returns Empty
+### ~~Potential Issue #5: Model Compression Failure Returns Empty~~ - FIXED
 
-- **Location**: [src/altium/pcblib/writer.rs:1085-1090](src/altium/pcblib/writer.rs#L1085-L1090)
-- **Issue**: If compression fails, an empty `Vec<u8>` is returned instead of propagating the error.
-- **Impact**: Silently produces invalid model data.
-- **Fix**: Return `Result<Vec<u8>>` and propagate errors.
+- **Status**: Fixed (January 2026)
+- **Resolution**: Changed `compress_model_data()` to return `AltiumResult<Vec<u8>>` and added `CompressionError` variant to `AltiumError`. Errors now propagate properly.
 
 ### Potential Issue #6: Integer Truncation on SchLib Pin Coordinates
 

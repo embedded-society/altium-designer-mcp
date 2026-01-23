@@ -75,6 +75,16 @@ pub enum AltiumError {
         /// Version string from the file.
         version: String,
     },
+
+    /// Compression or decompression failed.
+    #[error("Compression error: {message}")]
+    CompressionError {
+        /// Description of what went wrong.
+        message: String,
+        /// Underlying I/O error if available.
+        #[source]
+        source: Option<io::Error>,
+    },
 }
 
 impl AltiumError {
@@ -113,6 +123,14 @@ impl AltiumError {
         Self::ParseError {
             offset,
             message: message.into(),
+        }
+    }
+
+    /// Creates a compression error.
+    pub fn compression_error(message: impl Into<String>, source: Option<io::Error>) -> Self {
+        Self::CompressionError {
+            message: message.into(),
+            source,
         }
     }
 }
