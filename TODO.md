@@ -1,261 +1,53 @@
 # TODO
 
-This document tracks implementation gaps between the documented PcbLib format (`docs/PCBLIB_FORMAT.md`) and the Rust codebase.
-
-## Primitives
-
-### Via (0x03) - Implemented ✓
-
-- [x] Add `Via` struct to `src/altium/pcblib/primitives.rs`
-- [x] Implement `parse_via()` in `src/altium/pcblib/reader.rs`
-- [x] Implement `encode_via()` in `src/altium/pcblib/writer.rs`
-- [x] Add `vias: Vec<Via>` field to `Footprint` struct in `src/altium/pcblib/mod.rs`
-- [x] Core fields: x, y, diameter, hole_size, from_layer, to_layer, solder_mask_expansion
-- [x] Advanced fields: thermal relief settings (gap, conductors, width), diameter stack mode (Simple/TopMiddleBottom/FullStack), per-layer diameters
+## Bugs to Fix
 
-### WideStrings Stream - Implemented ✓
+These bugs were identified during a comprehensive code review (January 2026).
 
-- [x] Parse `/WideStrings` stream during library read in `src/altium/pcblib/mod.rs`
-- [x] Decode `ENCODEDTEXT{N}=...` format (comma-separated ASCII codes)
-- [x] Store decoded strings in a lookup table (`WideStrings` type in reader.rs)
-- [x] Update `parse_text()` in `src/altium/pcblib/reader.rs` to use WideStrings lookup
-- [x] Write WideStrings stream when saving libraries
-- [x] WideStringsIndex verified at geometry block offset 115 (u16, little-endian)
-    - Verified by reverse-engineering sample.PcbLib with Text primitives
-    - Index 0/1/2 correctly maps to ENCODEDTEXT0/1/2 in WideStrings stream
-    - Note: Writer creates shorter geometry blocks (~80 bytes); WideStrings lookup only used when reading Altium-created files with blocks > 117 bytes
+### ~~Bug #1: Duplicate ARCRESOLUTION Parameter~~ - FIXED
 
-### 3D Model Embedding - Implemented ✓
+- **Status**: Fixed (January 2026)
+- **Resolution**: Removed duplicate `ARCRESOLUTION=0.5mil` parameter from `build_component_body_params()`.
 
-- [x] Parse `/Library/Models/Header` stream for model count
-- [x] Parse `/Library/Models/Data` stream for GUID-to-index mapping
-- [x] Extract zlib-compressed STEP files from `/Library/Models/{N}` streams
-- [x] Add `EmbeddedModel` struct with id, name, data, compressed_size
-- [x] Add `models()`, `get_model()`, `add_model()` methods to `PcbLib`
-- [x] Add model embedding support when writing libraries
-- [x] Link `ComponentBody.model_id` to embedded model data via `get_model()`
+### ~~Bug #2: Weak Unique ID Generation~~ - FIXED
 
-## Pad Advanced Features
+- **Status**: Fixed (January 2026)
+- **Resolution**: Added atomic counter to `generate_unique_id()` to ensure uniqueness across rapid successive calls.
 
-### Hole Shapes - Implemented ✓
+### ~~Bug #3: Log Level Match Inconsistency~~ - FIXED
 
-- [x] Add `HoleShape` enum with `Round`, `Square`, `Slot` variants to `src/altium/pcblib/primitives.rs`
-- [x] Add `hole_shape: HoleShape` field to `Pad` struct
-- [x] Add `hole_shape_from_id()` in `src/altium/pcblib/reader.rs` to handle IDs 0 (Round), 1 (Square), 2 (Slot)
-- [x] Add `hole_shape_to_id()` in `src/altium/pcblib/writer.rs`
-- [x] Parse hole shape from geometry offset 61 in `parse_pad()`
-- [x] Write hole shape in `encode_pad_geometry()`
-- Note: Hole shapes are separate from pad shapes (copper outline)
+- **Status**: Fixed (January 2026)
+- **Resolution**: Added explicit `"warn" => Level::WARN` match arm in `get_log_level()`.
 
-### Paste/Solder Mask Expansion - Implemented ✓
+### Potential Issue #4: Silent Read Error in SchLib
 
-- [x] Add `paste_mask_expansion: Option<f64>` field to `Pad`
-- [x] Add `solder_mask_expansion: Option<f64>` field to `Pad`
-- [x] Add `paste_mask_expansion_manual: bool` field
-- [x] Add `solder_mask_expansion_manual: bool` field
-- [x] Parse from geometry block offsets 86-93 and 101-102
-- [x] Write to geometry block in `encode_pad_geometry()`
-- [x] Add roundtrip tests for mask expansion
+- **Location**: [src/altium/schlib/mod.rs:111-113](src/altium/schlib/mod.rs#L111-L113)
+- **Issue**: When `stream.read_to_end()` fails, the component is silently skipped.
+- **Impact**: Corrupted components are silently dropped without user notification.
+- **Fix**: Log a warning when skipping components due to read errors.
 
-### Corner Radius - Implemented ✓
+### Potential Issue #5: Model Compression Failure Returns Empty
 
-- [x] Add `corner_radius_percent: Option<u8>` field to `Pad` struct (0-100%)
-- [x] Parse corner radius from per-layer data (Block 5)
-- [x] Write corner radius to per-layer data (Block 5, offset 288)
-- [x] Set stack mode to FullStack (2) when corner radius is specified
-- Note: Percentage of smaller pad dimension, not absolute value
+- **Location**: [src/altium/pcblib/writer.rs:1085-1090](src/altium/pcblib/writer.rs#L1085-L1090)
+- **Issue**: If compression fails, an empty `Vec<u8>` is returned instead of propagating the error.
+- **Impact**: Silently produces invalid model data.
+- **Fix**: Return `Result<Vec<u8>>` and propagate errors.
 
-### Stack Modes - Implemented ✓
+### Potential Issue #6: Integer Truncation on SchLib Pin Coordinates
 
-- [x] Add `stack_mode: PadStackMode` field to `Pad` struct
-- [x] Create `PadStackMode` enum: `Simple`, `TopMiddleBottom`, `FullStack`
-- [x] Parse stack mode byte at geometry offset 62 in `parse_pad()` (reader.rs)
-- [x] Write stack mode in `encode_pad_geometry()` (writer.rs)
-- [x] Auto-upgrade to FullStack when corner_radius_percent is set
+- **Location**: [src/altium/schlib/writer.rs:96-101](src/altium/schlib/writer.rs#L96-L101)
+- **Issue**: Pin `x`, `y`, `length` are `i32` but truncated to `i16` when writing binary pin records.
+- **Impact**: Coordinates exceeding ±32767 will wrap around silently.
+- **Fix**: Add validation or use the text-based pin format for large coordinates.
 
-### Per-Layer Pad Data - Implemented ✓
+### Code Quality #7: Windows-1252 Encoding Approximation
 
-- [x] Add per-layer size arrays to `Pad` struct (32 CoordPoints)
-- [x] Add per-layer shape arrays (32 bytes)
-- [x] Add per-layer corner radius percentages (32 bytes, 0-100)
-- [x] Add per-layer offset-from-hole-center arrays (32 CoordPoints)
-- [x] Parse Block 5 in `parse_pad()` when stack mode != Simple
-- [x] Write Block 5 in `encode_pad()` when stack mode != Simple
+- **Location**: [src/altium/schlib/reader.rs:79-84](src/altium/schlib/reader.rs#L79-L84)
+- **Issue**: Uses `b as char` which only works for ASCII. Non-ASCII Windows-1252 bytes produce incorrect characters.
+- **Fix**: Use the `encoding_rs` crate for proper Windows-1252 decoding.
 
-## Text Advanced Features
+## Future Enhancements
 
-### Text Kinds - Implemented ✓
-
-- [x] Add `TextKind` enum: `Stroke`, `TrueType`, `BarCode`
-- [x] Add `kind: TextKind` field to `Text` struct
-- [x] Parse text kind from geometry block (offset 1)
-- [x] Write text kind to geometry block (offset 1)
-
-### Stroke Font IDs - Implemented ✓
-
-- [x] Add `StrokeFont` enum: `Default`, `SansSerif`, `Serif`
-- [x] Add `stroke_font: Option<StrokeFont>` field to `Text`
-- [x] Parse stroke font ID (bytes 25-26 in geometry block)
-- [x] Write stroke font ID
-
-### Text Justification - Implemented ✓
-
-- [x] Add `TextJustification` enum with 9 positions (BottomLeft, BottomCenter, etc.)
-- [x] Add `justification: TextJustification` field to `Text`
-- [x] Parse justification from geometry block (offset 67)
-- [x] Write justification to geometry block
-
-## Layers
-
-### Mid Layers - Implemented ✓
-
-- [x] Mid layers: `MidLayer1` through `MidLayer30` (IDs 2-31)
-
-### Internal Planes - Implemented ✓
-
-- [x] Internal planes: `InternalPlane1` through `InternalPlane16` (IDs 39-54)
-- [x] Added to `Layer` enum in `src/altium/pcblib/primitives.rs`
-- [x] Added to `layer_from_id()` in reader.rs
-- [x] Added to `layer_to_id()` in writer.rs
-
-### Drill Layers - Implemented ✓
-
-- [x] `DrillGuide` (ID 55)
-- [x] `DrillDrawing` (ID 73)
-
-### Mechanical Layers - Implemented ✓
-
-- [x] Mechanical 1-16 (IDs 57-72)
-- [x] Mechanical 2-7 aliased to component layers (TopAssembly, BottomAssembly, etc.)
-
-### Special Layers - Implemented ✓
-
-- [x] `ConnectLayer` (ID 75)
-- [x] `BackgroundLayer` (ID 76)
-- [x] `DRCErrorLayer` (ID 77)
-- [x] `HighlightLayer` (ID 78)
-- [x] `GridColor1` (ID 79)
-- [x] `GridColor10` (ID 80)
-- [x] `PadHoleLayer` (ID 81)
-- [x] `ViaHoleLayer` (ID 82)
-- [x] `TopPadMaster` (ID 83)
-- [x] `BottomPadMaster` (ID 84)
-- [x] `DRCDetailLayer` (ID 85)
-
-## PcbFlags - Implemented ✓
-
-- [x] Add `PcbFlags` struct or bitflags to primitives
-- [x] Add flags field to all primitives (Pad, Track, Arc, Region, Fill, Text)
-- [x] Parse flags from common header bytes 1-2 (reader.rs)
-- [x] Write flags to common header (writer.rs)
-
-Flag bits supported:
-
-- [x] `LOCKED` (0x0001)
-- [x] `POLYGON` (0x0002)
-- [x] `KEEPOUT` (0x0004)
-- [x] `TENTING_TOP` (0x0008)
-- [x] `TENTING_BOTTOM` (0x0010)
-
-Note: Text primitive uses byte 1 for `TextKind` instead of flags, so flags are always empty for Text.
-
-## OLE Streams - Implemented ✓
-
-### Storage Stream
-
-- [x] Parse `UniqueIdPrimitiveInformation` mappings from `/Storage` stream (stub implemented, logs found entries)
-- [x] Use mappings to link primitives to unique IDs
-    - Added `unique_id: Option<String>` field to all PcbLib primitives
-    - Implemented `parse_unique_id_stream()` to parse `/{FootprintName}/UniqueIDPrimitiveInformation/Data`
-    - Implemented `apply_unique_ids()` to assign parsed IDs to primitives by type and index
-    - Implemented `encode_unique_id_stream()` to write unique IDs back when saving
-    - Added 5 roundtrip tests for parsing, encoding, and application
-
-### FileHeader Improvements
-
-- [x] Parse `CompCount` field (number of components)
-- [x] Parse `LibRef{N}` fields (component names by index)
-- [x] Parse `CompDescr{N}` fields (component descriptions)
-- [x] Write complete FileHeader with all fields
-- [x] Add `LibraryMetadata` struct for storing parsed header data
-- [x] Add `metadata()` accessor method to `PcbLib`
-
-## Code Quality
-
-### Error Handling - Implemented ✓
-
-- [x] Return `Result` from `parse_pad()`, `parse_track()`, etc. instead of `Option`
-- [x] Add specific error types for parse failures
-- [x] Improve error messages with offset information
-
-Note: All parse functions now return `ParseResult<T>` which is `Result<(T, usize), AltiumError>`.
-Error messages include the primitive type, block number, and byte offset where parsing failed.
-
-### Testing - Mostly Complete
-
-- [x] Add roundtrip tests for Via primitive
-- [x] Add tests for WideStrings parsing
-- [x] Add tests for 3D model parsing and embedding
-- [x] Add tests for pad hole shapes, mask expansion (basic features)
-- [x] Add tests for advanced pad features (stack modes, per-layer data)
-- [x] Add tests for all layer ID mappings
-- [ ] Add integration tests with real Altium library files (blocked: requires sample .PcbLib/.SchLib files)
-
-Note: Tests added for `PadStackMode` (Simple, TopMiddleBottom, FullStack), per-layer pad data
-(sizes, shapes, corner radii, offsets), and comprehensive layer ID mapping tests covering
-all copper layers, mid layers, mask layers, internal planes, mechanical layers, and special layers.
-
-### Documentation - Implemented ✓
-
-- [x] Add doc comments to all public types in primitives.rs
-- [x] Document coordinate system in primitives.rs module docs
-- [x] Add examples to Pad, Track, Arc struct docs
-
-Note: Module documentation includes coordinate system diagram (origin, X/Y axes, rotation direction),
-layer recommendations table, and internal units explanation. Doc examples with `cargo test` verification
-for Pad::smd, Pad::through_hole, Track::new, and Arc::circle.
-
-## SchLib Primitives
-
-### Bezier (RECORD=5) - Implemented ✓
-
-- [x] Add `Bezier` struct to `src/altium/schlib/primitives.rs`
-- [x] Add `beziers: Vec<Bezier>` field to `Symbol` struct
-- [x] Parse Bezier from RECORD=5 text records
-- [x] Write Bezier to RECORD=5 text records
-- [x] Add roundtrip tests
-
-### Polygon (RECORD=7) - Implemented ✓
-
-- [x] Add `Polygon` struct to `src/altium/schlib/primitives.rs`
-- [x] Add `polygons: Vec<Polygon>` field to `Symbol` struct
-- [x] Parse Polygon from RECORD=7 text records
-- [x] Write Polygon to RECORD=7 text records
-- [x] Add roundtrip tests
-
-### RoundRect (RECORD=10) - Implemented ✓
-
-- [x] Add `RoundRect` struct to `src/altium/schlib/primitives.rs`
-- [x] Add `round_rects: Vec<RoundRect>` field to `Symbol` struct
-- [x] Parse RoundRect from RECORD=10 text records
-- [x] Write RoundRect to RECORD=10 text records
-- [x] Add roundtrip tests
-
-### EllipticalArc (RECORD=11) - Implemented ✓
-
-- [x] Add `EllipticalArc` struct to `src/altium/schlib/primitives.rs`
-- [x] Add `elliptical_arcs: Vec<EllipticalArc>` field to `Symbol` struct
-- [x] Parse EllipticalArc from RECORD=11 text records (with fractional radius support)
-- [x] Write EllipticalArc to RECORD=11 text records
-- [x] Add roundtrip tests
-
-## Low Priority / Future
-
-- [x] Support reading/writing SchLib files (Bezier, Polygon, RoundRect, EllipticalArc, Label primitives added, roundtrip tests pass)
+- [ ] Add integration tests with real Altium library files (requires sample .PcbLib/.SchLib files)
 - [ ] Support component variants (board-level feature, not library)
 - [ ] Support net information (board-level feature, not library)
-- [x] Optimize binary parsing with zero-copy where possible
-    - Binary data already uses zero-copy slices (`read_block` returns `&[u8]`)
-    - String allocation is necessary for encoding conversion (Windows-1252 to UTF-8)
-    - Full zero-copy would require lifetime parameters on all structs, significantly complicating the API for minimal benefit with typical library sizes (< 10MB)
-    - Current approach balances simplicity with efficiency

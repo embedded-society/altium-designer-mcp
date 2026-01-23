@@ -419,14 +419,24 @@ fn encode_footprint_model(model: &FootprintModel, owner_index: usize) -> String 
 }
 
 /// Generates a random 8-character unique ID (similar to Altium's format).
+///
+/// Uses a combination of system time and an atomic counter to ensure uniqueness
+/// even when called multiple times in rapid succession.
 fn generate_unique_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
-    let seed = SystemTime::now()
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let time_seed = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
 
-    // Simple pseudo-random based on time
+    // Combine time with incrementing counter for uniqueness
+    let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let seed = time_seed.wrapping_add(u128::from(counter).wrapping_mul(0x9E37_79B9_7F4A_7C15));
+
     let chars: Vec<char> = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".chars().collect();
     let mut id = String::with_capacity(8);
     let mut n = seed;

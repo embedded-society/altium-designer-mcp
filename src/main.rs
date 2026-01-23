@@ -35,6 +35,7 @@ struct Args {
 }
 
 /// Determines the log level from CLI arguments.
+#[allow(clippy::match_same_arms)] // Explicit "warn" arm for clarity
 fn get_log_level(verbose: u8, quiet: bool, config_level: &str) -> Level {
     if quiet {
         return Level::ERROR;
@@ -45,8 +46,9 @@ fn get_log_level(verbose: u8, quiet: bool, config_level: &str) -> Level {
             "trace" => Level::TRACE,
             "debug" => Level::DEBUG,
             "info" => Level::INFO,
+            "warn" => Level::WARN,
             "error" => Level::ERROR,
-            _ => Level::WARN,
+            _ => Level::WARN, // Default to warn for unknown levels
         },
         1 => Level::INFO,
         2 => Level::DEBUG,

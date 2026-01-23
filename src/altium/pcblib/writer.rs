@@ -1027,7 +1027,6 @@ fn build_component_body_params(body: &ComponentBody) -> String {
         mm_to_mil(body.overall_height)
     ));
     params.push("BODYPROJECTION=0".to_string());
-    params.push("ARCRESOLUTION=0.5mil".to_string());
     params.push("BODYCOLOR3D=8421504".to_string());
     params.push("BODYOPACITY3D=1.000".to_string());
     params.push("TEXTURECENTERX=0mil".to_string());
