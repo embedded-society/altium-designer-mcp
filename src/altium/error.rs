@@ -85,6 +85,15 @@ pub enum AltiumError {
         #[source]
         source: Option<io::Error>,
     },
+
+    /// Wrong file type (e.g., opened `PcbLib` as `SchLib` or vice versa).
+    #[error("Wrong file type: expected {expected}, got {actual}")]
+    WrongFileType {
+        /// Expected file type.
+        expected: String,
+        /// Actual file type detected.
+        actual: String,
+    },
 }
 
 impl AltiumError {
@@ -133,6 +142,14 @@ impl AltiumError {
             source,
         }
     }
+
+    /// Creates a wrong file type error.
+    pub fn wrong_file_type(expected: impl Into<String>, actual: impl Into<String>) -> Self {
+        Self::WrongFileType {
+            expected: expected.into(),
+            actual: actual.into(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -143,5 +160,14 @@ mod tests {
     fn error_display() {
         let err = AltiumError::missing_stream("Data");
         assert_eq!(err.to_string(), "Missing stream: Data");
+    }
+
+    #[test]
+    fn wrong_file_type_error_display() {
+        let err = AltiumError::wrong_file_type("PcbLib", "SchLib (Schematic Library)");
+        assert_eq!(
+            err.to_string(),
+            "Wrong file type: expected PcbLib, got SchLib (Schematic Library)"
+        );
     }
 }

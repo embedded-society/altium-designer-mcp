@@ -239,8 +239,8 @@ impl PcbLib {
 
         let mut library = Self::new();
 
-        // Read FileHeader for library metadata
-        library.metadata = Self::read_file_header(&mut cfb);
+        // Read FileHeader for library metadata (validates file type)
+        library.metadata = Self::read_file_header(&mut cfb)?;
 
         // Read Storage stream for UniqueIdPrimitiveInformation (if present)
         // Note: This is currently a stub - the format is not fully documented
@@ -312,28 +312,32 @@ impl PcbLib {
     /// - `CompCount`: Number of components
     /// - `LibRef{N}`: Component names (0-indexed)
     /// - `CompDescr{N}`: Component descriptions
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file is not a valid `PcbLib` (wrong file type).
     fn read_file_header<F: std::io::Read + std::io::Seek>(
         cfb: &mut cfb::CompoundFile<F>,
-    ) -> LibraryMetadata {
+    ) -> AltiumResult<LibraryMetadata> {
         let mut metadata = LibraryMetadata::default();
 
         let header_path = std::path::Path::new("/FileHeader");
         if !cfb.is_stream(header_path) {
-            return metadata;
+            return Ok(metadata);
         }
 
         let Ok(mut stream) = cfb.open_stream(header_path) else {
-            return metadata;
+            return Ok(metadata);
         };
 
         let mut data = Vec::new();
         if std::io::Read::read_to_end(&mut stream, &mut data).is_err() {
-            return metadata;
+            return Ok(metadata);
         }
 
         // FileHeader is ASCII text with pipe-delimited key=value pairs
         let Ok(text) = String::from_utf8(data) else {
-            return metadata;
+            return Ok(metadata);
         };
 
         // Parse key=value pairs
@@ -371,6 +375,17 @@ impl PcbLib {
             }
         }
 
+        // Validate file type - must be a PCB library
+        if !metadata.header.is_empty() && !metadata.header.contains("PCB Library") {
+            // Detect what type it actually is for a helpful error message
+            let actual_type = if metadata.header.contains("Schematic Library") {
+                "SchLib (Schematic Library)"
+            } else {
+                &metadata.header
+            };
+            return Err(AltiumError::wrong_file_type("PcbLib", actual_type));
+        }
+
         tracing::debug!(
             header = %metadata.header,
             count = metadata.component_count,
@@ -378,7 +393,7 @@ impl PcbLib {
             "Parsed FileHeader"
         );
 
-        metadata
+        Ok(metadata)
     }
 
     /// Reads the `/Storage` stream for `UniqueIdPrimitiveInformation` mappings.
@@ -1717,5 +1732,37 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].primitive_index, 1);
         assert_eq!(entries[0].unique_id, "ONLYTHIS");
+    }
+
+    #[test]
+    fn wrong_file_type_schlib_as_pcblib() {
+        use std::io::Cursor;
+
+        // Create a SchLib file in memory
+        let mut buffer = Cursor::new(Vec::new());
+        {
+            let mut cfb = cfb::CompoundFile::create(&mut buffer).expect("create cfb");
+
+            // Write a SchLib FileHeader (ASCII, just pipe-delimited - PcbLib expects ASCII format)
+            let header = "|HEADER=Protel for Windows - Schematic Library Editor Binary File Version 5.0|COMPCOUNT=0|";
+            let mut stream = cfb.create_stream("/FileHeader").expect("create stream");
+            std::io::Write::write_all(&mut stream, header.as_bytes()).expect("write header");
+        }
+
+        // Try to read it as PcbLib - should fail with WrongFileType
+        buffer.set_position(0);
+        let result = PcbLib::read_from(buffer, std::path::Path::new("test.PcbLib"));
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        let err_str = err.to_string();
+        assert!(
+            err_str.contains("Wrong file type"),
+            "Expected 'Wrong file type' error, got: {err_str}"
+        );
+        assert!(
+            err_str.contains("expected PcbLib"),
+            "Expected 'expected PcbLib' in error, got: {err_str}"
+        );
     }
 }

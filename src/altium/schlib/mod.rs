@@ -384,6 +384,10 @@ struct FileHeader {
 }
 
 /// Reads the `FileHeader` stream.
+///
+/// # Errors
+///
+/// Returns an error if the file is not a valid `SchLib` (wrong file type).
 fn read_file_header<R: Read + Seek>(cfb: &mut CompoundFile<R>) -> AltiumResult<FileHeader> {
     let mut stream = cfb
         .open_stream("/FileHeader")
@@ -410,6 +414,19 @@ fn read_file_header<R: Read + Seek>(cfb: &mut CompoundFile<R>) -> AltiumResult<F
     for part in text.split('|') {
         if let Some((key, value)) = part.split_once('=') {
             props.insert(key.to_lowercase(), value.to_string());
+        }
+    }
+
+    // Validate file type - must be a Schematic Library
+    if let Some(header) = props.get("header") {
+        if !header.contains("Schematic Library") {
+            // Detect what type it actually is for a helpful error message
+            let actual_type = if header.contains("PCB Library") {
+                "PcbLib (PCB Footprint Library)"
+            } else {
+                header
+            };
+            return Err(AltiumError::wrong_file_type("SchLib", actual_type));
         }
     }
 
@@ -821,5 +838,44 @@ mod tests {
         assert!((ea2.secondary_radius - 10.25).abs() < 0.001);
         assert_eq!(ea2.line_width, 2);
         assert_eq!(ea2.color, 0x00_FF_00);
+    }
+
+    #[test]
+    fn wrong_file_type_pcblib_as_schlib() {
+        // Create a PcbLib file in memory (using SchLib format with length prefix)
+        let mut buffer = Cursor::new(Vec::new());
+        {
+            let mut cfb = cfb::CompoundFile::create(&mut buffer).expect("create cfb");
+
+            // Write a FileHeader with PcbLib header string (but SchLib format with length prefix)
+            let header_text = "|HEADER=Protel for Windows - PCB Library|COMPCOUNT=0|";
+            let header_bytes = header_text.as_bytes();
+
+            // SchLib format: [length:4 LE][text]
+            #[allow(clippy::cast_possible_truncation)]
+            let length = header_bytes.len() as u32;
+            let mut header_data = Vec::with_capacity(4 + header_bytes.len());
+            header_data.extend_from_slice(&length.to_le_bytes());
+            header_data.extend_from_slice(header_bytes);
+
+            let mut stream = cfb.create_stream("/FileHeader").expect("create stream");
+            std::io::Write::write_all(&mut stream, &header_data).expect("write header");
+        }
+
+        // Try to read it as SchLib - should fail with WrongFileType
+        buffer.set_position(0);
+        let result = SchLib::read(&mut buffer);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        let err_str = err.to_string();
+        assert!(
+            err_str.contains("Wrong file type"),
+            "Expected 'Wrong file type' error, got: {err_str}"
+        );
+        assert!(
+            err_str.contains("expected SchLib"),
+            "Expected 'expected SchLib' in error, got: {err_str}"
+        );
     }
 }
