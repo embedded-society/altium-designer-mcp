@@ -143,10 +143,15 @@ Write footprints to an Altium `.PcbLib` file. The AI provides primitive definiti
             "regions": [
                 { "vertices": [{"x": -1.45, "y": -0.73}, {"x": 1.45, "y": -0.73}, {"x": 1.45, "y": 0.73}, {"x": -1.45, "y": 0.73}], "layer": "Top Courtyard" }
             ]
-        }]
+        }],
+        "append": false
     }
 }
 ```
+
+| Parameter | Description |
+|-----------|-------------|
+| `append` | If `true`, add footprints to existing file; if `false`, create new file (default: `false`) |
 
 ### `read_schlib`
 
@@ -184,10 +189,15 @@ Write symbols to an Altium `.SchLib` file. The AI provides primitive definitions
     "name": "write_schlib",
     "arguments": {
         "filepath": "./MySymbols.SchLib",
-        "symbols": [...]
+        "symbols": [...],
+        "append": false
     }
 }
 ```
+
+| Parameter | Description |
+|-----------|-------------|
+| `append` | If `true`, add symbols to existing file; if `false`, create new file (default: `false`) |
 
 ### `list_components`
 
