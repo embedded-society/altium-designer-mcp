@@ -161,12 +161,35 @@ claude mcp list
 
 You should see the Altium tools listed:
 
-- `read_pcblib`
-- `write_pcblib`
-- `read_schlib`
-- `write_schlib`
-- `list_components`
-- `extract_style`
+**Core Tools:**
+
+- `read_pcblib` — Read footprints from a PcbLib file
+- `write_pcblib` — Write footprints to a PcbLib file
+- `read_schlib` — Read symbols from a SchLib file
+- `write_schlib` — Write symbols to a SchLib file
+- `list_components` — List component names in a library
+- `extract_style` — Extract styling information from a library
+
+**Library Management:**
+
+- `delete_component` — Delete components from a library
+- `copy_component` — Duplicate a component within a library
+- `validate_library` — Check a library for common issues
+- `export_library` — Export library to JSON or CSV format
+- `diff_libraries` — Compare two library versions
+
+**Batch Operations:**
+
+- `batch_update` — Perform library-wide updates (track widths, layer renaming)
+
+**SchLib Tools:**
+
+- `manage_schlib_parameters` — Manage component parameters (Value, Manufacturer, etc.)
+- `manage_schlib_footprints` — Manage footprint links in symbols
+
+**Visualisation:**
+
+- `render_footprint` — Generate ASCII art preview of a footprint
 
 ---
 
