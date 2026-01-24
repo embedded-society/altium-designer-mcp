@@ -478,6 +478,7 @@ impl McpServer {
             "delete_component" => self.call_delete_component(&params.arguments),
             "validate_library" => self.call_validate_library(&params.arguments),
             "export_library" => self.call_export_library(&params.arguments),
+            "import_library" => self.call_import_library(&params.arguments),
             "extract_step_model" => self.call_extract_step_model(&params.arguments),
             "diff_libraries" => self.call_diff_libraries(&params.arguments),
             "batch_update" => self.call_batch_update(&params.arguments),
@@ -919,6 +920,33 @@ impl McpServer {
                         }
                     },
                     "required": ["filepath", "format"]
+                }),
+            },
+            ToolDefinition {
+                name: "import_library".to_string(),
+                description: Some(
+                    "Import components from JSON data into an Altium library file. Accepts JSON \
+                     in the format produced by export_library, enabling round-trip workflows. \
+                     Auto-detects library type (PcbLib/SchLib) from the JSON data."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "output_path": {
+                            "type": "string",
+                            "description": "Path where the new library file will be created (.PcbLib or .SchLib)"
+                        },
+                        "json_data": {
+                            "type": "object",
+                            "description": "JSON data containing components to import. Should have 'file_type' (PcbLib/SchLib) and 'footprints' or 'symbols' array."
+                        },
+                        "append": {
+                            "type": "boolean",
+                            "description": "If true, append to existing library instead of overwriting. Default: false"
+                        }
+                    },
+                    "required": ["output_path", "json_data"]
                 }),
             },
             ToolDefinition {
@@ -3639,6 +3667,211 @@ impl McpServer {
 
             ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
         }
+    }
+
+    // ==================== Library Import ====================
+
+    /// Imports components from JSON data into an Altium library file.
+    #[allow(clippy::too_many_lines)]
+    fn call_import_library(&self, arguments: &Value) -> ToolCallResult {
+        let Some(output_path) = arguments.get("output_path").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: output_path");
+        };
+
+        // Validate output path
+        if let Err(e) = self.validate_path(output_path) {
+            return ToolCallResult::error(e);
+        }
+
+        let Some(json_data) = arguments.get("json_data") else {
+            return ToolCallResult::error("Missing required parameter: json_data");
+        };
+
+        let append = arguments
+            .get("append")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+        // Detect file type from JSON data or output path extension
+        let file_type = json_data
+            .get("file_type")
+            .and_then(Value::as_str)
+            .map(str::to_lowercase);
+
+        let ext = std::path::Path::new(output_path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_lowercase);
+
+        // Determine library type - prefer JSON file_type, fall back to extension
+        let library_type = match (file_type.as_deref(), ext.as_deref()) {
+            (Some("pcblib"), _) | (None, Some("pcblib")) => "pcblib",
+            (Some("schlib"), _) | (None, Some("schlib")) => "schlib",
+            _ => {
+                return ToolCallResult::error(
+                    "Cannot determine library type. Provide 'file_type' in JSON or use .PcbLib/.SchLib extension.",
+                );
+            }
+        };
+
+        match library_type {
+            "pcblib" => Self::import_pcblib(output_path, json_data, append),
+            "schlib" => Self::import_schlib(output_path, json_data, append),
+            _ => unreachable!(),
+        }
+    }
+
+    /// Imports footprints from JSON into a `PcbLib` file.
+    fn import_pcblib(output_path: &str, json_data: &Value, append: bool) -> ToolCallResult {
+        use crate::altium::pcblib::{Footprint, PcbLib};
+
+        // Get footprints array
+        let Some(footprints_json) = json_data.get("footprints").and_then(Value::as_array) else {
+            return ToolCallResult::error("JSON data must contain 'footprints' array");
+        };
+
+        // If append mode and file exists, read existing library; otherwise create new
+        let mut library = if append && std::path::Path::new(output_path).exists() {
+            match PcbLib::read(output_path) {
+                Ok(lib) => lib,
+                Err(e) => {
+                    return ToolCallResult::error(format!(
+                        "Failed to read existing library for append: {e}"
+                    ));
+                }
+            }
+        } else {
+            PcbLib::new()
+        };
+
+        let mut imported_count = 0;
+
+        // Parse and add each footprint
+        for (idx, fp_json) in footprints_json.iter().enumerate() {
+            let name = fp_json
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("Unnamed");
+
+            // Check for duplicate
+            if library.get(name).is_some() {
+                return ToolCallResult::error(format!(
+                    "Component '{name}' already exists in library"
+                ));
+            }
+
+            // Use write_pcblib parsing logic via serde
+            match serde_json::from_value::<Footprint>(fp_json.clone()) {
+                Ok(footprint) => {
+                    library.add(footprint);
+                    imported_count += 1;
+                }
+                Err(e) => {
+                    return ToolCallResult::error(format!(
+                        "Failed to parse footprint {idx} ('{name}'): {e}"
+                    ));
+                }
+            }
+        }
+
+        // Write the library
+        if let Err(e) = library.write(output_path) {
+            return ToolCallResult::error(format!("Failed to write library: {e}"));
+        }
+
+        let total_count = library.len();
+        let result = json!({
+            "status": "success",
+            "output_path": output_path,
+            "file_type": "PcbLib",
+            "imported_count": imported_count,
+            "total_count": total_count,
+            "append": append,
+            "message": if append {
+                format!("Imported {imported_count} footprints (library now has {total_count} total)")
+            } else {
+                format!("Created library with {imported_count} footprints")
+            },
+        });
+
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Imports symbols from JSON into a `SchLib` file.
+    fn import_schlib(output_path: &str, json_data: &Value, append: bool) -> ToolCallResult {
+        use crate::altium::schlib::Symbol;
+        use crate::altium::SchLib;
+
+        // Get symbols array
+        let Some(symbols_json) = json_data.get("symbols").and_then(Value::as_array) else {
+            return ToolCallResult::error("JSON data must contain 'symbols' array");
+        };
+
+        // If append mode and file exists, read existing library; otherwise create new
+        let mut library = if append && std::path::Path::new(output_path).exists() {
+            match SchLib::open(output_path) {
+                Ok(lib) => lib,
+                Err(e) => {
+                    return ToolCallResult::error(format!(
+                        "Failed to read existing library for append: {e}"
+                    ));
+                }
+            }
+        } else {
+            SchLib::new()
+        };
+
+        let mut imported_count = 0;
+
+        // Parse and add each symbol
+        for (idx, sym_json) in symbols_json.iter().enumerate() {
+            let name = sym_json
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("Unnamed");
+
+            // Check for duplicate
+            if library.get(name).is_some() {
+                return ToolCallResult::error(format!(
+                    "Component '{name}' already exists in library"
+                ));
+            }
+
+            // Parse symbol via serde
+            match serde_json::from_value::<Symbol>(sym_json.clone()) {
+                Ok(symbol) => {
+                    library.add_symbol(symbol);
+                    imported_count += 1;
+                }
+                Err(e) => {
+                    return ToolCallResult::error(format!(
+                        "Failed to parse symbol {idx} ('{name}'): {e}"
+                    ));
+                }
+            }
+        }
+
+        // Write the library
+        if let Err(e) = library.save(output_path) {
+            return ToolCallResult::error(format!("Failed to write library: {e}"));
+        }
+
+        let total_count = library.len();
+        let result = json!({
+            "status": "success",
+            "output_path": output_path,
+            "file_type": "SchLib",
+            "imported_count": imported_count,
+            "total_count": total_count,
+            "append": append,
+            "message": if append {
+                format!("Imported {imported_count} symbols (library now has {total_count} total)")
+            } else {
+                format!("Created library with {imported_count} symbols")
+            },
+        });
+
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
 
     // ==================== STEP Model Extraction ====================
