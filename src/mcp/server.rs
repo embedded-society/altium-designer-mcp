@@ -488,6 +488,7 @@ impl McpServer {
                 self.call_copy_component_cross_library(&params.arguments)
             }
             "merge_libraries" => self.call_merge_libraries(&params.arguments),
+            "search_components" => self.call_search_components(&params.arguments),
             "render_footprint" => self.call_render_footprint(&params.arguments),
             "render_symbol" => self.call_render_symbol(&params.arguments),
             "manage_schlib_parameters" => self.call_manage_schlib_parameters(&params.arguments),
@@ -1189,6 +1190,35 @@ impl McpServer {
                         }
                     },
                     "required": ["source_filepaths", "target_filepath"]
+                }),
+            },
+            ToolDefinition {
+                name: "search_components".to_string(),
+                description: Some(
+                    "Search for components across multiple Altium libraries using regex or glob patterns. \
+                     Returns matching component names with their source library paths. Supports both \
+                     `.PcbLib` (footprints) and `.SchLib` (symbols) files."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepaths": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Array of library file paths to search (.PcbLib or .SchLib)"
+                        },
+                        "pattern": {
+                            "type": "string",
+                            "description": "Search pattern to match component names"
+                        },
+                        "pattern_type": {
+                            "type": "string",
+                            "enum": ["glob", "regex"],
+                            "description": "Pattern type: 'glob' (wildcards like * and ?) or 'regex' (regular expressions). Default: 'glob'"
+                        }
+                    },
+                    "required": ["filepaths", "pattern"]
                 }),
             },
             ToolDefinition {
@@ -5730,6 +5760,161 @@ impl McpServer {
         });
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Searches for components across multiple libraries using regex or glob patterns.
+    fn call_search_components(&self, arguments: &Value) -> ToolCallResult {
+        let Some(filepaths) = arguments.get("filepaths").and_then(Value::as_array) else {
+            return ToolCallResult::error("Missing required parameter: filepaths");
+        };
+
+        let paths: Vec<&str> = filepaths.iter().filter_map(Value::as_str).collect();
+
+        if paths.is_empty() {
+            return ToolCallResult::error("filepaths must contain at least one path");
+        }
+
+        let Some(pattern) = arguments.get("pattern").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: pattern");
+        };
+
+        let pattern_type = arguments
+            .get("pattern_type")
+            .and_then(Value::as_str)
+            .unwrap_or("glob");
+
+        if !["glob", "regex"].contains(&pattern_type) {
+            return ToolCallResult::error("pattern_type must be one of: 'glob', 'regex'");
+        }
+
+        // Validate all paths
+        for path in &paths {
+            if let Err(e) = self.validate_path(path) {
+                return ToolCallResult::error(e);
+            }
+        }
+
+        // Convert glob to regex if needed
+        let regex_pattern = if pattern_type == "glob" {
+            Self::glob_to_regex(pattern)
+        } else {
+            pattern.to_string()
+        };
+
+        // Compile the regex
+        let regex = match regex::Regex::new(&format!("(?i)^{regex_pattern}$")) {
+            Ok(r) => r,
+            Err(e) => return ToolCallResult::error(format!("Invalid pattern: {e}")),
+        };
+
+        let mut matches: Vec<Value> = Vec::new();
+        let mut searched_count = 0;
+        let mut errors: Vec<String> = Vec::new();
+
+        for path in &paths {
+            let ext = std::path::Path::new(path)
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(str::to_lowercase);
+
+            match ext.as_deref() {
+                Some("pcblib") => match Self::search_pcblib(path, &regex) {
+                    Ok((names, count)) => {
+                        for name in names {
+                            matches.push(json!({
+                                "name": name,
+                                "library": path,
+                                "type": "PcbLib"
+                            }));
+                        }
+                        searched_count += count;
+                    }
+                    Err(e) => errors.push(format!("{path}: {e}")),
+                },
+                Some("schlib") => match Self::search_schlib(path, &regex) {
+                    Ok((names, count)) => {
+                        for name in names {
+                            matches.push(json!({
+                                "name": name,
+                                "library": path,
+                                "type": "SchLib"
+                            }));
+                        }
+                        searched_count += count;
+                    }
+                    Err(e) => errors.push(format!("{path}: {e}")),
+                },
+                Some(ext) => errors.push(format!("{path}: Unsupported file type '.{ext}'")),
+                None => errors.push(format!("{path}: No file extension")),
+            }
+        }
+
+        let result = json!({
+            "status": if errors.is_empty() { "success" } else { "partial" },
+            "pattern": pattern,
+            "pattern_type": pattern_type,
+            "libraries_searched": paths.len(),
+            "components_searched": searched_count,
+            "matches_found": matches.len(),
+            "matches": matches,
+            "errors": if errors.is_empty() { Value::Null } else { json!(errors) },
+            "message": format!(
+                "Found {} matches for '{}' across {} libraries ({} components searched)",
+                matches.len(),
+                pattern,
+                paths.len(),
+                searched_count
+            ),
+        });
+
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Converts a glob pattern to a regex pattern.
+    fn glob_to_regex(glob: &str) -> String {
+        let mut regex = String::with_capacity(glob.len() * 2);
+        for c in glob.chars() {
+            match c {
+                '*' => regex.push_str(".*"),
+                '?' => regex.push('.'),
+                '.' | '+' | '^' | '$' | '(' | ')' | '[' | ']' | '{' | '}' | '|' | '\\' => {
+                    regex.push('\\');
+                    regex.push(c);
+                }
+                _ => regex.push(c),
+            }
+        }
+        regex
+    }
+
+    /// Searches a `PcbLib` for component names matching the regex.
+    fn search_pcblib(path: &str, regex: &regex::Regex) -> Result<(Vec<String>, usize), String> {
+        use crate::altium::PcbLib;
+
+        let library = PcbLib::read(path).map_err(|e| format!("Failed to read: {e}"))?;
+        let total = library.len();
+        let matching: Vec<String> = library
+            .footprints()
+            .filter(|fp| regex.is_match(&fp.name))
+            .map(|fp| fp.name.clone())
+            .collect();
+
+        Ok((matching, total))
+    }
+
+    /// Searches a `SchLib` for component names matching the regex.
+    fn search_schlib(path: &str, regex: &regex::Regex) -> Result<(Vec<String>, usize), String> {
+        use crate::altium::SchLib;
+
+        let library = SchLib::open(path).map_err(|e| format!("Failed to read: {e}"))?;
+        let total = library.len();
+        let matching: Vec<String> = library
+            .iter()
+            .filter(|(name, _)| regex.is_match(name))
+            .map(|(name, _)| name.clone())
+            .collect();
+
+        Ok((matching, total))
     }
 
     // ==================== Rendering Tools ====================

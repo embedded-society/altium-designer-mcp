@@ -1912,3 +1912,175 @@ fn test_schlib_merge_libraries() {
     assert!(result.get("SYM_A").is_some(), "SYM_A should exist");
     assert!(result.get("SYM_B").is_some(), "SYM_B should exist");
 }
+
+// =============================================================================
+// Search Components Tests
+// =============================================================================
+
+/// Tests glob pattern search in `PcbLib`.
+#[test]
+fn test_pcblib_search_glob() {
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let file_path = temp_dir.path().join("searchable.PcbLib");
+
+    // Create library with multiple footprints
+    let mut lib = PcbLib::new();
+    lib.add(Footprint::new("SOIC-8"));
+    lib.add(Footprint::new("SOIC-16"));
+    lib.add(Footprint::new("TSSOP-8"));
+    lib.add(Footprint::new("QFN-24"));
+    lib.write(&file_path).expect("Failed to write library");
+
+    // Test glob pattern matching
+    let library = PcbLib::read(&file_path).expect("Failed to read library");
+    let pattern = regex::Regex::new("(?i)^SOIC-.*$").expect("Failed to compile regex");
+    let matches: Vec<String> = library
+        .footprints()
+        .filter(|fp| pattern.is_match(&fp.name))
+        .map(|fp| fp.name.clone())
+        .collect();
+
+    assert_eq!(matches.len(), 2, "Should find 2 SOIC footprints");
+    assert!(matches.contains(&"SOIC-8".to_string()));
+    assert!(matches.contains(&"SOIC-16".to_string()));
+}
+
+/// Tests regex pattern search in `PcbLib`.
+#[test]
+fn test_pcblib_search_regex() {
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let file_path = temp_dir.path().join("searchable.PcbLib");
+
+    // Create library with multiple footprints
+    let mut lib = PcbLib::new();
+    lib.add(Footprint::new("SOIC-8"));
+    lib.add(Footprint::new("SOIC-16"));
+    lib.add(Footprint::new("TSSOP-8"));
+    lib.add(Footprint::new("QFN-24"));
+    lib.write(&file_path).expect("Failed to write library");
+
+    // Test regex pattern matching (footprints ending with -8)
+    let library = PcbLib::read(&file_path).expect("Failed to read library");
+    let pattern = regex::Regex::new("(?i)^.*-8$").expect("Failed to compile regex");
+    let matches: Vec<String> = library
+        .footprints()
+        .filter(|fp| pattern.is_match(&fp.name))
+        .map(|fp| fp.name.clone())
+        .collect();
+
+    assert_eq!(matches.len(), 2, "Should find 2 footprints ending with -8");
+    assert!(matches.contains(&"SOIC-8".to_string()));
+    assert!(matches.contains(&"TSSOP-8".to_string()));
+}
+
+/// Tests search across multiple `PcbLib` files.
+#[test]
+fn test_pcblib_search_multiple_libraries() {
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let file1_path = temp_dir.path().join("lib1.PcbLib");
+    let file2_path = temp_dir.path().join("lib2.PcbLib");
+
+    // Create first library
+    let mut lib1 = PcbLib::new();
+    lib1.add(Footprint::new("RES_0402"));
+    lib1.add(Footprint::new("RES_0603"));
+    lib1.write(&file1_path).expect("Failed to write lib1");
+
+    // Create second library
+    let mut lib2 = PcbLib::new();
+    lib2.add(Footprint::new("CAP_0402"));
+    lib2.add(Footprint::new("RES_0805"));
+    lib2.write(&file2_path).expect("Failed to write lib2");
+
+    // Search for RES_* across both libraries
+    let pattern = regex::Regex::new("(?i)^RES_.*$").expect("Failed to compile regex");
+    let mut all_matches: Vec<String> = Vec::new();
+
+    for path in [&file1_path, &file2_path] {
+        let library = PcbLib::read(path).expect("Failed to read library");
+        let matches: Vec<String> = library
+            .footprints()
+            .filter(|fp| pattern.is_match(&fp.name))
+            .map(|fp| fp.name.clone())
+            .collect();
+        all_matches.extend(matches);
+    }
+
+    assert_eq!(
+        all_matches.len(),
+        3,
+        "Should find 3 RES_ footprints across libraries"
+    );
+    assert!(all_matches.contains(&"RES_0402".to_string()));
+    assert!(all_matches.contains(&"RES_0603".to_string()));
+    assert!(all_matches.contains(&"RES_0805".to_string()));
+}
+
+/// Tests search in `SchLib`.
+#[test]
+fn test_schlib_search() {
+    use altium_designer_mcp::altium::schlib::{Rectangle, Symbol};
+    use altium_designer_mcp::altium::SchLib;
+
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let file_path = temp_dir.path().join("searchable.SchLib");
+
+    // Create library with multiple symbols
+    let mut lib = SchLib::new();
+    let mut sym1 = Symbol::new("LM7805");
+    sym1.rectangles.push(Rectangle {
+        x1: -40,
+        y1: -20,
+        x2: 40,
+        y2: 20,
+        line_width: 1,
+        line_color: 0,
+        fill_color: 0,
+        filled: false,
+        owner_part_id: 1,
+    });
+    lib.add_symbol(sym1);
+
+    let mut sym2 = Symbol::new("LM7812");
+    sym2.rectangles.push(Rectangle {
+        x1: -40,
+        y1: -20,
+        x2: 40,
+        y2: 20,
+        line_width: 1,
+        line_color: 0,
+        fill_color: 0,
+        filled: false,
+        owner_part_id: 1,
+    });
+    lib.add_symbol(sym2);
+
+    let mut sym3 = Symbol::new("NE555");
+    sym3.rectangles.push(Rectangle {
+        x1: -40,
+        y1: -40,
+        x2: 40,
+        y2: 40,
+        line_width: 1,
+        line_color: 0,
+        fill_color: 0,
+        filled: false,
+        owner_part_id: 1,
+    });
+    lib.add_symbol(sym3);
+
+    lib.save(&file_path).expect("Failed to write library");
+
+    // Search for LM78* symbols
+    let library = SchLib::open(&file_path).expect("Failed to read library");
+    let pattern = regex::Regex::new("(?i)^LM78.*$").expect("Failed to compile regex");
+    let matches: Vec<String> = library
+        .iter()
+        .filter(|(name, _)| pattern.is_match(name))
+        .map(|(name, _)| name.clone())
+        .collect();
+
+    assert_eq!(matches.len(), 2, "Should find 2 LM78 symbols");
+    assert!(matches.contains(&"LM7805".to_string()));
+    assert!(matches.contains(&"LM7812".to_string()));
+}

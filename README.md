@@ -658,6 +658,58 @@ type (all PcbLib or all SchLib). Components are copied from each source into the
 }
 ```
 
+### `search_components`
+
+Search for components across multiple Altium libraries using regex or glob patterns. Returns
+matching component names with their source library paths. Supports both `.PcbLib` (footprints)
+and `.SchLib` (symbols) files.
+
+```json
+{
+    "name": "search_components",
+    "arguments": {
+        "filepaths": [
+            "./Resistors.PcbLib",
+            "./Capacitors.PcbLib",
+            "./ICs.PcbLib"
+        ],
+        "pattern": "SOIC-*",
+        "pattern_type": "glob"
+    }
+}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `filepaths` | Array of library file paths to search (.PcbLib or .SchLib) |
+| `pattern` | Search pattern to match component names |
+| `pattern_type` | Pattern type: `glob` (wildcards like `*` and `?`) or `regex`. Default: `glob` |
+
+**Glob Patterns:**
+
+- `*` matches any number of characters
+- `?` matches a single character
+- Search is case-insensitive
+
+**Example Response:**
+
+```json
+{
+    "status": "success",
+    "pattern": "SOIC-*",
+    "pattern_type": "glob",
+    "libraries_searched": 3,
+    "components_searched": 150,
+    "matches_found": 5,
+    "matches": [
+        { "name": "SOIC-8", "library": "./ICs.PcbLib", "type": "PcbLib" },
+        { "name": "SOIC-14", "library": "./ICs.PcbLib", "type": "PcbLib" },
+        { "name": "SOIC-16", "library": "./ICs.PcbLib", "type": "PcbLib" }
+    ],
+    "message": "Found 5 matches for 'SOIC-*' across 3 libraries (150 components searched)"
+}
+```
+
 ### `render_footprint`
 
 Render an ASCII art visualisation of a footprint from a PcbLib file. Shows pads, tracks,
