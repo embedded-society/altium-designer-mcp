@@ -307,6 +307,33 @@ To attach a STEP 3D model to a footprint, include the `step_model` property:
 
 The STEP file is read from disk and embedded in the PcbLib file during write.
 
+### Extracting Embedded STEP Models
+
+To extract embedded STEP models from a PcbLib, use `extract_step_model`:
+
+```json
+{
+    "name": "extract_step_model",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib",
+        "output_path": "./extracted_model.step",
+        "model": "RESC1608X55.step"
+    }
+}
+```
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `filepath` | Yes | Path to the PcbLib containing embedded models |
+| `output_path` | No | Path for extracted .step file (if omitted, returns base64) |
+| `model` | No | Model name or GUID (if omitted, lists available models) |
+
+This is useful for:
+
+- Inspecting embedded 3D models
+- Reusing models across libraries
+- Backing up 3D model data
+
 ---
 
 ## Standard Altium Layers
