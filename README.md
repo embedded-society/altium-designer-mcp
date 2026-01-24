@@ -549,6 +549,64 @@ different name but identical primitives. Useful for creating variants.
 
 Returns the new component count after copying.
 
+### `rename_component`
+
+Rename a component within an Altium library file. This is an atomic operation that changes
+the component's name while preserving all primitives and properties. More efficient than
+copy + delete for simple renames.
+
+```json
+{
+    "name": "rename_component",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib",
+        "old_name": "RESC0603_OLD",
+        "new_name": "RESC0603_NEW"
+    }
+}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `filepath` | Path to the library file (.PcbLib or .SchLib) |
+| `old_name` | Current name of the component to rename |
+| `new_name` | New name for the component |
+
+Returns the component count after renaming (unchanged).
+
+### `copy_component_cross_library`
+
+Copy a component from one Altium library to another. Both libraries must be the same type
+(PcbLib to PcbLib, or SchLib to SchLib). Useful for consolidating libraries or sharing
+components between projects.
+
+```json
+{
+    "name": "copy_component_cross_library",
+    "arguments": {
+        "source_filepath": "./SourceLibrary.PcbLib",
+        "target_filepath": "./TargetLibrary.PcbLib",
+        "component_name": "RESC0603_IPC_MEDIUM",
+        "new_name": "RESC0603_COPIED",
+        "description": "Copied from SourceLibrary"
+    }
+}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `source_filepath` | Path to the source library file (.PcbLib or .SchLib) |
+| `target_filepath` | Path to the target library file (must be same type as source) |
+| `component_name` | Name of the component to copy from the source library |
+| `new_name` | Optional new name for the component in the target library (defaults to original name) |
+| `description` | Optional new description for the component (defaults to original description) |
+
+**Behaviour:**
+
+- If the target file does not exist, it will be created
+- If the target file exists, the component will be added to it
+- If a component with the same name already exists in the target, an error is returned
+
 ### `render_footprint`
 
 Render an ASCII art visualisation of a footprint from a PcbLib file. Shows pads, tracks,

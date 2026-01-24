@@ -445,29 +445,21 @@ Components can be removed from existing libraries using `delete_component`:
 
 ### Renaming Components
 
-To rename a component, combine read, delete, and write operations:
+Use `rename_component` for atomic component renaming:
 
-```text
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ COMPONENT RENAME WORKFLOW                                                    │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  1. READ the existing component                                             │
-│     AI calls: read_pcblib { filepath, component_name: "OLD_NAME" }          │
-│     Capture all primitives                                                  │
-│                                                                             │
-│  2. DELETE the old component                                                │
-│     AI calls: delete_component { filepath, component_names: ["OLD_NAME"] }  │
-│                                                                             │
-│  3. WRITE with new name                                                     │
-│     AI calls: write_pcblib {                                                │
-│         filepath,                                                           │
-│         footprints: [{ name: "NEW_NAME", ...same primitives }],             │
-│         append: true                                                        │
-│     }                                                                       │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+```json
+{
+    "name": "rename_component",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib",
+        "old_name": "OLD_NAME",
+        "new_name": "NEW_NAME"
+    }
+}
 ```
+
+This is more efficient than the manual copy + delete approach and preserves all primitives
+and properties in a single atomic operation.
 
 ### Validating Libraries
 
@@ -775,6 +767,63 @@ Use `copy_component` to duplicate components for creating variants:
 - Create thermal variants (standard pads → extended pads)
 - Create test variants with exposed pins
 - Duplicate symbols for multi-part components
+
+### Copying Components Between Libraries
+
+Use `copy_component_cross_library` to copy components from one library to another:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ CROSS-LIBRARY COPY WORKFLOW                                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  COPY A FOOTPRINT TO ANOTHER LIBRARY                                        │
+│  AI calls: copy_component_cross_library {                                   │
+│      source_filepath: "./ComponentLib.PcbLib",                              │
+│      target_filepath: "./ProjectLib.PcbLib",                                │
+│      component_name: "RESC0603_IPC_MEDIUM"                                  │
+│  }                                                                          │
+│                                                                             │
+│  COPY WITH RENAME                                                           │
+│  AI calls: copy_component_cross_library {                                   │
+│      source_filepath: "./OldLib.PcbLib",                                    │
+│      target_filepath: "./NewLib.PcbLib",                                    │
+│      component_name: "OLD_FP_NAME",                                         │
+│      new_name: "NEW_FP_NAME",                                               │
+│      description: "Copied and renamed footprint"                            │
+│  }                                                                          │
+│                                                                             │
+│  COPY SYMBOL TO NEW LIBRARY                                                 │
+│  AI calls: copy_component_cross_library {                                   │
+│      source_filepath: "./MasterSchLib.SchLib",                              │
+│      target_filepath: "./ProjectSchLib.SchLib",                             │
+│      component_name: "Generic_Resistor"                                     │
+│  }                                                                          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Example Response:**
+
+```json
+{
+    "status": "success",
+    "source_filepath": "./ComponentLib.PcbLib",
+    "target_filepath": "./ProjectLib.PcbLib",
+    "file_type": "PcbLib",
+    "component_name": "RESC0603_IPC_MEDIUM",
+    "target_name": "RESC0603_IPC_MEDIUM",
+    "target_component_count": 5,
+    "message": "Copied 'RESC0603_IPC_MEDIUM' from './ComponentLib.PcbLib' to './ProjectLib.PcbLib'"
+}
+```
+
+**Common use cases:**
+
+- Consolidate components from multiple libraries into one
+- Share standard components between projects
+- Create project-specific libraries from master libraries
+- Migrate components during library reorganisation
 
 ### Previewing Footprints
 
