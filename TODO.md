@@ -149,17 +149,8 @@ This is likely due to internal unit conversion (mm ↔ mils) and is within accep
 
 ### High Value
 
-1. **Delete component from library**
-   - Currently no way to remove a component without rewriting entire library
-
-2. **Rename component**
-   - Would be useful for refactoring
-
-3. **Copy/duplicate component**
+1. **Copy/duplicate component**
    - Useful for creating variants
-
-4. **Validate library integrity**
-   - Check for common issues (missing pads, overlapping primitives, etc.)
 
 ### Medium Value
 
@@ -215,6 +206,4 @@ which doesn't impact functionality.
 
 Recommended next steps:
 
-1. Consider adding delete/rename operations for component management
-2. Add library integrity validation tool
-3. Add export to JSON/CSV for version control integration
+1. Add export to JSON/CSV for version control integration

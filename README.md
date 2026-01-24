@@ -230,6 +230,29 @@ Delete one or more components from an Altium library file. Works with both `.Pcb
 
 Returns per-component status (`deleted` or `not_found`) and updated component counts.
 
+### `validate_library`
+
+Validate an Altium library file for common issues. Works with both `.PcbLib` and `.SchLib` files.
+
+```json
+{
+    "name": "validate_library",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib"
+    }
+}
+```
+
+Checks for:
+
+- Empty components (no pads/pins)
+- Duplicate designators within a component
+- Invalid coordinates (NaN, Infinity)
+- Zero or negative dimensions
+- Missing body graphics (SchLib)
+
+Returns status (`valid`, `warnings`, or `invalid`) with a list of issues found.
+
 ---
 
 ## Primitive Types

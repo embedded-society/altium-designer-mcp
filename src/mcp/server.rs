@@ -469,6 +469,7 @@ impl McpServer {
             "extract_style" => self.call_extract_style(&params.arguments),
             // Library management tools
             "delete_component" => self.call_delete_component(&params.arguments),
+            "validate_library" => self.call_validate_library(&params.arguments),
             // Unknown tool
             _ => ToolCallResult::error(format!("Unknown tool: {}", params.name)),
         };
@@ -839,6 +840,25 @@ impl McpServer {
                         }
                     },
                     "required": ["filepath", "component_names"]
+                }),
+            },
+            ToolDefinition {
+                name: "validate_library".to_string(),
+                description: Some(
+                    "Validate an Altium library file for common issues. Checks for: empty components \
+                     (no pads/pins), duplicate designators, invalid coordinates, zero-size primitives, \
+                     and other integrity problems. Returns a list of warnings and errors."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepath": {
+                            "type": "string",
+                            "description": "Path to the .PcbLib or .SchLib file"
+                        }
+                    },
+                    "required": ["filepath"]
                 }),
             },
         ]
@@ -2727,6 +2747,330 @@ impl McpServer {
             "remaining_count": library.len(),
             "results": results,
         });
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    // ==================== Library Validation Tools ====================
+
+    /// Validates an Altium library file for common issues.
+    ///
+    /// Checks for empty components, duplicate designators, invalid coordinates,
+    /// zero-size primitives, and other integrity problems.
+    fn call_validate_library(&self, arguments: &Value) -> ToolCallResult {
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        // Validate path is within allowed directories
+        if let Err(e) = self.validate_path(filepath) {
+            return ToolCallResult::error(e);
+        }
+
+        // Determine file type from extension
+        let path = std::path::Path::new(filepath);
+        let extension = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_lowercase);
+
+        match extension.as_deref() {
+            Some("pcblib") => Self::validate_pcblib(filepath),
+            Some("schlib") => Self::validate_schlib(filepath),
+            _ => {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": "Unknown file type. Expected .PcbLib or .SchLib extension.",
+                });
+                ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
+            }
+        }
+    }
+
+    /// Validates a `PcbLib` file.
+    #[allow(clippy::too_many_lines)]
+    fn validate_pcblib(filepath: &str) -> ToolCallResult {
+        use crate::altium::PcbLib;
+        use std::collections::HashSet;
+
+        // Read the library
+        let library = match PcbLib::read(filepath) {
+            Ok(lib) => lib,
+            Err(e) => {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": e.to_string(),
+                });
+                return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
+            }
+        };
+
+        let mut issues: Vec<Value> = Vec::new();
+        let component_count = library.len();
+
+        // Check for empty library
+        if component_count == 0 {
+            issues.push(json!({
+                "severity": "warning",
+                "component": null,
+                "issue": "Library is empty (no footprints)"
+            }));
+        }
+
+        // Validate each footprint
+        for fp in library.footprints() {
+            let name = &fp.name;
+
+            // Check for empty name
+            if name.is_empty() {
+                issues.push(json!({
+                    "severity": "error",
+                    "component": name,
+                    "issue": "Footprint has empty name"
+                }));
+            }
+
+            // Check for no pads
+            if fp.pads.is_empty() {
+                issues.push(json!({
+                    "severity": "warning",
+                    "component": name,
+                    "issue": "Footprint has no pads"
+                }));
+            }
+
+            // Check for duplicate pad designators
+            let mut seen_designators: HashSet<&str> = HashSet::new();
+            for pad in &fp.pads {
+                if !seen_designators.insert(&pad.designator) {
+                    issues.push(json!({
+                        "severity": "error",
+                        "component": name,
+                        "issue": format!("Duplicate pad designator: '{}'", pad.designator)
+                    }));
+                }
+
+                // Check for empty designator
+                if pad.designator.is_empty() {
+                    issues.push(json!({
+                        "severity": "error",
+                        "component": name,
+                        "issue": "Pad has empty designator"
+                    }));
+                }
+
+                // Check for zero or negative dimensions
+                if pad.width <= 0.0 || pad.height <= 0.0 {
+                    issues.push(json!({
+                        "severity": "error",
+                        "component": name,
+                        "issue": format!("Pad '{}' has invalid dimensions (width: {}, height: {})",
+                            pad.designator, pad.width, pad.height)
+                    }));
+                }
+
+                // Check for invalid coordinates
+                if !pad.x.is_finite() || !pad.y.is_finite() {
+                    issues.push(json!({
+                        "severity": "error",
+                        "component": name,
+                        "issue": format!("Pad '{}' has invalid coordinates (x: {}, y: {})",
+                            pad.designator, pad.x, pad.y)
+                    }));
+                }
+            }
+
+            // Check tracks for invalid values
+            for (i, track) in fp.tracks.iter().enumerate() {
+                if track.width <= 0.0 {
+                    issues.push(json!({
+                        "severity": "error",
+                        "component": name,
+                        "issue": format!("Track {} has invalid width: {}", i, track.width)
+                    }));
+                }
+                if !track.x1.is_finite()
+                    || !track.y1.is_finite()
+                    || !track.x2.is_finite()
+                    || !track.y2.is_finite()
+                {
+                    issues.push(json!({
+                        "severity": "error",
+                        "component": name,
+                        "issue": format!("Track {} has invalid coordinates", i)
+                    }));
+                }
+            }
+
+            // Check arcs for invalid values
+            for (i, arc) in fp.arcs.iter().enumerate() {
+                if arc.radius <= 0.0 {
+                    issues.push(json!({
+                        "severity": "error",
+                        "component": name,
+                        "issue": format!("Arc {} has invalid radius: {}", i, arc.radius)
+                    }));
+                }
+                if !arc.x.is_finite() || !arc.y.is_finite() {
+                    issues.push(json!({
+                        "severity": "error",
+                        "component": name,
+                        "issue": format!("Arc {} has invalid centre coordinates", i)
+                    }));
+                }
+            }
+
+            // Check regions for minimum vertices
+            for (i, region) in fp.regions.iter().enumerate() {
+                if region.vertices.len() < 3 {
+                    issues.push(json!({
+                        "severity": "error",
+                        "component": name,
+                        "issue": format!("Region {} has fewer than 3 vertices", i)
+                    }));
+                }
+            }
+        }
+
+        let error_count = issues.iter().filter(|i| i["severity"] == "error").count();
+        let warning_count = issues.iter().filter(|i| i["severity"] == "warning").count();
+
+        let result = json!({
+            "status": if error_count > 0 { "invalid" } else if warning_count > 0 { "warnings" } else { "valid" },
+            "filepath": filepath,
+            "file_type": "PcbLib",
+            "component_count": component_count,
+            "error_count": error_count,
+            "warning_count": warning_count,
+            "issues": issues,
+        });
+
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Validates a `SchLib` file.
+    fn validate_schlib(filepath: &str) -> ToolCallResult {
+        use crate::altium::SchLib;
+        use std::collections::HashSet;
+
+        // Read the library
+        let library = match SchLib::open(filepath) {
+            Ok(lib) => lib,
+            Err(e) => {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": e.to_string(),
+                });
+                return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
+            }
+        };
+
+        let mut issues: Vec<Value> = Vec::new();
+        let component_count = library.len();
+
+        // Check for empty library
+        if component_count == 0 {
+            issues.push(json!({
+                "severity": "warning",
+                "component": null,
+                "issue": "Library is empty (no symbols)"
+            }));
+        }
+
+        // Validate each symbol
+        for (name, symbol) in library.iter() {
+            // Check for empty name
+            if name.is_empty() {
+                issues.push(json!({
+                    "severity": "error",
+                    "component": name,
+                    "issue": "Symbol has empty name"
+                }));
+            }
+
+            // Check for no pins
+            if symbol.pins.is_empty() {
+                issues.push(json!({
+                    "severity": "warning",
+                    "component": name,
+                    "issue": "Symbol has no pins"
+                }));
+            }
+
+            // Check for duplicate pin designators
+            let mut seen_designators: HashSet<&str> = HashSet::new();
+            for pin in &symbol.pins {
+                if !seen_designators.insert(&pin.designator) {
+                    issues.push(json!({
+                        "severity": "error",
+                        "component": name,
+                        "issue": format!("Duplicate pin designator: '{}'", pin.designator)
+                    }));
+                }
+
+                // Check for empty designator
+                if pin.designator.is_empty() {
+                    issues.push(json!({
+                        "severity": "error",
+                        "component": name,
+                        "issue": "Pin has empty designator"
+                    }));
+                }
+
+                // Check for zero or negative pin length
+                if pin.length <= 0 {
+                    issues.push(json!({
+                        "severity": "warning",
+                        "component": name,
+                        "issue": format!("Pin '{}' has zero or negative length: {}",
+                            pin.designator, pin.length)
+                    }));
+                }
+            }
+
+            // Check rectangles for inverted corners
+            for (i, rect) in symbol.rectangles.iter().enumerate() {
+                if rect.x1 > rect.x2 || rect.y1 > rect.y2 {
+                    issues.push(json!({
+                        "severity": "warning",
+                        "component": name,
+                        "issue": format!("Rectangle {} has inverted corners (x1={}, y1={}, x2={}, y2={})",
+                            i, rect.x1, rect.y1, rect.x2, rect.y2)
+                    }));
+                }
+            }
+
+            // Check for symbols with no body (no rectangles, lines, or other graphics)
+            let has_body = !symbol.rectangles.is_empty()
+                || !symbol.lines.is_empty()
+                || !symbol.polylines.is_empty()
+                || !symbol.arcs.is_empty()
+                || !symbol.ellipses.is_empty();
+
+            if !has_body && !symbol.pins.is_empty() {
+                issues.push(json!({
+                    "severity": "warning",
+                    "component": name,
+                    "issue": "Symbol has pins but no body graphics (rectangles, lines, etc.)"
+                }));
+            }
+        }
+
+        let error_count = issues.iter().filter(|i| i["severity"] == "error").count();
+        let warning_count = issues.iter().filter(|i| i["severity"] == "warning").count();
+
+        let result = json!({
+            "status": if error_count > 0 { "invalid" } else if warning_count > 0 { "warnings" } else { "valid" },
+            "filepath": filepath,
+            "file_type": "SchLib",
+            "component_count": component_count,
+            "error_count": error_count,
+            "warning_count": warning_count,
+            "issues": issues,
+        });
+
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
 }

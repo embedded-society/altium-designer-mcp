@@ -413,6 +413,47 @@ To rename a component, combine read, delete, and write operations:
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+### Validating Libraries
+
+Use `validate_library` to check for common issues before using a library:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ LIBRARY VALIDATION WORKFLOW                                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  1. VALIDATE THE LIBRARY                                                    │
+│     AI calls: validate_library { filepath }                                 │
+│     Returns: status (valid/warnings/invalid) and list of issues             │
+│                                                                             │
+│  2. REVIEW ISSUES                                                           │
+│     • Errors: Must be fixed (duplicate designators, invalid dimensions)     │
+│     • Warnings: Should be reviewed (empty components, missing graphics)     │
+│                                                                             │
+│  3. FIX ISSUES (if needed)                                                  │
+│     • Delete problematic components                                         │
+│     • Re-create with correct parameters                                     │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Example Response (with issues):**
+
+```json
+{
+    "status": "warnings",
+    "filepath": "./MyLibrary.PcbLib",
+    "file_type": "PcbLib",
+    "component_count": 5,
+    "error_count": 0,
+    "warning_count": 2,
+    "issues": [
+        { "severity": "warning", "component": "TEST_FP", "issue": "Footprint has no pads" },
+        { "severity": "warning", "component": "OLD_RES", "issue": "Footprint has no pads" }
+    ]
+}
+```
+
 ---
 
 ## Tips for AI Assistants
