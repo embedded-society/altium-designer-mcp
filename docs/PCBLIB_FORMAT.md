@@ -473,3 +473,4 @@ The following features are not fully understood or implemented:
 - [AltiumSharp](https://github.com/issus/AltiumSharp) - C# library for Altium files (MIT)
 - [pyAltiumLib](https://github.com/ChrisHoyer/pyAltiumLib) - Python library for reading Altium files
 - [python-altium](https://github.com/vadmium/python-altium) - Altium format documentation
+- Sample analysis: `scripts/analyze_pcblib.py`
