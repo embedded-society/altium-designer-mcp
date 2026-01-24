@@ -226,6 +226,7 @@ Returns statistics about track widths, pad shapes, pin lengths, colours, and lay
 | Primitive | Description |
 |-----------|-------------|
 | **Pad** | SMD or through-hole pad with designator, position, size, shape, layer |
+| **Via** | Vertical interconnect with layer span, hole size, and thermal relief |
 | **Track** | Line segment on any layer (silkscreen, assembly, etc.) |
 | **Arc** | Arc or circle on any layer |
 | **Region** | Filled polygon (courtyard, copper pour) |
@@ -239,25 +240,44 @@ Returns statistics about track widths, pad shapes, pin lengths, colours, and lay
 |-----------|-------------|
 | **Pin** | Component pin with name, designator, electrical type, orientation |
 | **Rectangle** | Filled or unfilled rectangle (component body) |
+| **RoundRect** | Rounded rectangle with corner radii |
 | **Line** | Single line segment |
 | **Polyline** | Multiple connected line segments |
+| **Polygon** | Filled polygon with border and fill colours |
 | **Arc** | Arc or circle |
+| **Ellipse** | Ellipse or circle (filled or unfilled) |
+| **EllipticalArc** | Elliptical arc segment with fractional radii |
+| **Bezier** | Cubic Bezier curve (4 control points) |
 | **Label** | Text label |
 | **Parameter** | Component parameter (Value, Part Number, etc.) |
 | **FootprintModel** | Reference to a footprint in a PcbLib |
 
 ### Standard Altium Layers
 
+Common layers for footprints (each has a Bottom equivalent):
+
 | Layer | Usage |
 |-------|-------|
-| Top Layer | Copper pads |
-| Multi-Layer | Through-hole pads |
+| Top Layer | Copper pads (SMD) |
+| Bottom Layer | Bottom copper pads |
+| Multi-Layer | Through-hole pads (all copper layers) |
 | Top Overlay | Silkscreen |
-| Top Paste | Solder paste |
-| Top Solder | Solder mask |
-| Top Assembly | Assembly outline |
-| Top 3D Body | 3D body outline |
-| Top Courtyard | Courtyard (IPC-7351) |
+| Top Paste | Solder paste stencil |
+| Top Solder | Solder mask openings |
+| Top Assembly | Assembly outline (documentation) |
+| Top Courtyard | Courtyard boundary (IPC-7351) |
+| Top 3D Body | 3D model outline |
+
+Additional layers supported:
+
+| Layer | Usage |
+|-------|-------|
+| Mid-Layer 1–30 | Internal copper layers |
+| Internal Plane 1–16 | Power/ground planes |
+| Mechanical 1–16 | User-defined mechanical layers |
+| Drill Guide | Drill hole markers |
+| Drill Drawing | Drill chart/table |
+| Keep-Out Layer | Routing exclusion zones |
 
 ---
 
