@@ -4,7 +4,6 @@
 
 | Feature | Current Workaround | Impact |
 |---------|-------------------|--------|
-| `rename_component` | copy + delete (2 operations) | Clunky for simple renames |
 | `import_library` (from JSON) | Manual `write_pcblib`/`write_schlib` | Can't round-trip exported data back in |
 | `merge_libraries` | Manual component-by-component | Common need when combining projects |
 

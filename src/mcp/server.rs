@@ -482,6 +482,7 @@ impl McpServer {
             "diff_libraries" => self.call_diff_libraries(&params.arguments),
             "batch_update" => self.call_batch_update(&params.arguments),
             "copy_component" => self.call_copy_component(&params.arguments),
+            "rename_component" => self.call_rename_component(&params.arguments),
             "copy_component_cross_library" => {
                 self.call_copy_component_cross_library(&params.arguments)
             }
@@ -1068,6 +1069,33 @@ impl McpServer {
                         }
                     },
                     "required": ["filepath", "source_name", "target_name"]
+                }),
+            },
+            ToolDefinition {
+                name: "rename_component".to_string(),
+                description: Some(
+                    "Rename a component within an Altium library file. This is an atomic operation \
+                     that changes the component's name while preserving all primitives and properties. \
+                     More efficient than copy + delete for simple renames."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepath": {
+                            "type": "string",
+                            "description": "Path to the Altium library file (.PcbLib or .SchLib)"
+                        },
+                        "old_name": {
+                            "type": "string",
+                            "description": "Current name of the component to rename"
+                        },
+                        "new_name": {
+                            "type": "string",
+                            "description": "New name for the component"
+                        }
+                    },
+                    "required": ["filepath", "old_name", "new_name"]
                 }),
             },
             ToolDefinition {
@@ -4754,6 +4782,141 @@ impl McpServer {
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
 
+    // ==================== Component Rename ====================
+
+    /// Renames a component within an Altium library file.
+    fn call_rename_component(&self, arguments: &Value) -> ToolCallResult {
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        let Some(old_name) = arguments.get("old_name").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: old_name");
+        };
+
+        let Some(new_name) = arguments.get("new_name").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: new_name");
+        };
+
+        // Validate path is within allowed directories
+        if let Err(e) = self.validate_path(filepath) {
+            return ToolCallResult::error(e);
+        }
+
+        // Validate new name
+        if let Err(e) = Self::validate_ole_name(new_name) {
+            return ToolCallResult::error(e);
+        }
+
+        // Check for no-op rename
+        if old_name == new_name {
+            return ToolCallResult::error("old_name and new_name are identical");
+        }
+
+        // Determine file type from extension
+        let ext = std::path::Path::new(filepath)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_lowercase);
+
+        match ext.as_deref() {
+            Some("pcblib") => Self::rename_pcblib_component(filepath, old_name, new_name),
+            Some("schlib") => Self::rename_schlib_component(filepath, old_name, new_name),
+            Some(ext) => ToolCallResult::error(format!(
+                "Unsupported file type: .{ext}. Use .PcbLib or .SchLib"
+            )),
+            None => ToolCallResult::error("File has no extension. Use .PcbLib or .SchLib"),
+        }
+    }
+
+    /// Renames a footprint within a `PcbLib` file.
+    fn rename_pcblib_component(filepath: &str, old_name: &str, new_name: &str) -> ToolCallResult {
+        use crate::altium::PcbLib;
+
+        // Read the library
+        let mut library = match PcbLib::read(filepath) {
+            Ok(lib) => lib,
+            Err(e) => return ToolCallResult::error(format!("Failed to read library: {e}")),
+        };
+
+        // Check if new name already exists
+        if library.get(new_name).is_some() {
+            return ToolCallResult::error(format!(
+                "Component '{new_name}' already exists in library"
+            ));
+        }
+
+        // Find and remove the source component
+        let Some(mut footprint) = library.remove(old_name) else {
+            return ToolCallResult::error(format!("Component '{old_name}' not found in library"));
+        };
+
+        // Rename and add back
+        footprint.name = new_name.to_string();
+        library.add(footprint);
+
+        // Write the updated library
+        if let Err(e) = library.write(filepath) {
+            return ToolCallResult::error(format!("Failed to write library: {e}"));
+        }
+
+        let result = json!({
+            "status": "success",
+            "filepath": filepath,
+            "file_type": "PcbLib",
+            "old_name": old_name,
+            "new_name": new_name,
+            "component_count": library.len(),
+        });
+
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Renames a symbol within a `SchLib` file.
+    fn rename_schlib_component(filepath: &str, old_name: &str, new_name: &str) -> ToolCallResult {
+        use crate::altium::SchLib;
+
+        // Read the library
+        let mut library = match SchLib::open(filepath) {
+            Ok(lib) => lib,
+            Err(e) => return ToolCallResult::error(format!("Failed to read library: {e}")),
+        };
+
+        // Check if new name already exists
+        if library.get(new_name).is_some() {
+            return ToolCallResult::error(format!(
+                "Component '{new_name}' already exists in library"
+            ));
+        }
+
+        // Find and remove the source component
+        let Some(mut symbol) = library.remove(old_name) else {
+            return ToolCallResult::error(format!("Component '{old_name}' not found in library"));
+        };
+
+        // Rename and add back
+        symbol.name = new_name.to_string();
+        library.add_symbol(symbol);
+
+        // Write the updated library
+        if let Err(e) = library.save(filepath) {
+            return ToolCallResult::error(format!("Failed to write library: {e}"));
+        }
+
+        let result = json!({
+            "status": "success",
+            "filepath": filepath,
+            "file_type": "SchLib",
+            "old_name": old_name,
+            "new_name": new_name,
+            "component_count": library.len(),
+        });
+
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    // ==================== Cross-Library Copy ====================
+
     /// Copies a component from one Altium library to another.
     fn call_copy_component_cross_library(&self, arguments: &Value) -> ToolCallResult {
         let Some(source_filepath) = arguments.get("source_filepath").and_then(Value::as_str) else {
@@ -4987,6 +5150,8 @@ impl McpServer {
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
+
+    // ==================== Rendering Tools ====================
 
     /// Renders an ASCII art visualisation of a footprint.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
