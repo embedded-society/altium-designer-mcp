@@ -1092,6 +1092,20 @@ impl PcbLib {
         }
     }
 
+    /// Updates a footprint in-place, preserving its position in the library.
+    ///
+    /// The footprint is matched by the `name` parameter. The replacement footprint's
+    /// name does not need to match (allowing renames).
+    ///
+    /// Returns the old footprint if found, or `None` if no footprint with that name exists.
+    pub fn update(&mut self, name: &str, replacement: Footprint) -> Option<Footprint> {
+        if let Some(idx) = self.footprints.iter().position(|f| f.name == name) {
+            Some(std::mem::replace(&mut self.footprints[idx], replacement))
+        } else {
+            None
+        }
+    }
+
     /// Reorders footprints according to the given name order.
     ///
     /// Footprints are reordered to match the order of names in `new_order`.

@@ -700,6 +700,52 @@ relative order.
 }
 ```
 
+### `update_component`
+
+Update a component in-place within an Altium library file, preserving its position. For PcbLib
+files, provide a `footprint` object. For SchLib files, provide a `symbol` object. The component
+is matched by the `component_name` parameter.
+
+```json
+{
+    "name": "update_component",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib",
+        "component_name": "RESC0402X20N",
+        "footprint": {
+            "name": "RESC0402X20N",
+            "description": "Updated resistor 0402",
+            "pads": [
+                {"designator": "1", "x": -0.5, "y": 0, "width": 0.5, "height": 0.5, "layer": "TopLayer"},
+                {"designator": "2", "x": 0.5, "y": 0, "width": 0.5, "height": 0.5, "layer": "TopLayer"}
+            ]
+        }
+    }
+}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `filepath` | Path to the .PcbLib or .SchLib file |
+| `component_name` | Name of the component to update (must exist) |
+| `footprint` | For PcbLib: footprint data (same format as `write_pcblib`) |
+| `symbol` | For SchLib: symbol data (same format as `write_schlib`) |
+
+**Example Response:**
+
+```json
+{
+    "status": "success",
+    "filepath": "./MyLibrary.PcbLib",
+    "file_type": "PcbLib",
+    "component_name": "RESC0402X20N",
+    "new_name": "RESC0402X20N",
+    "renamed": false,
+    "component_count": 5,
+    "message": "Updated component 'RESC0402X20N' in './MyLibrary.PcbLib'"
+}
+```
+
 ### `search_components`
 
 Search for components across multiple Altium libraries using regex or glob patterns. Returns

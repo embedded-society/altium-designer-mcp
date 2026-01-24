@@ -928,6 +928,51 @@ Use `reorder_components` to control the order of components in a library file (.
 - Prioritise frequently used components at the top
 - Match ordering conventions required by team standards
 
+### Updating Components In-Place
+
+Use `update_component` to replace a component while preserving its position in the library:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ COMPONENT UPDATE WORKFLOW                                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  UPDATE FOOTPRINT IN-PLACE                                                  │
+│  AI calls: update_component {                                               │
+│      filepath: "./Passives.PcbLib",                                         │
+│      component_name: "RESC0402X20N",                                        │
+│      footprint: {                                                           │
+│          name: "RESC0402X20N",                                              │
+│          description: "Updated 0402 resistor",                              │
+│          pads: [ ... ]                                                      │
+│      }                                                                      │
+│  }                                                                          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Example Response:**
+
+```json
+{
+    "status": "success",
+    "filepath": "./Passives.PcbLib",
+    "file_type": "PcbLib",
+    "component_name": "RESC0402X20N",
+    "new_name": "RESC0402X20N",
+    "renamed": false,
+    "component_count": 8,
+    "message": "Updated component 'RESC0402X20N' in './Passives.PcbLib'"
+}
+```
+
+**Common use cases:**
+
+- Update a footprint's pad dimensions or positions
+- Modify component descriptions
+- Replace outdated components with new versions
+- Fix errors in existing components without changing library order
+
 ### Searching Components
 
 Use `search_components` to find components across multiple libraries using glob or regex patterns:

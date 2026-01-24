@@ -1,11 +1,5 @@
 # TODO
 
-## Nice-to-Haves (Quality of Life)
-
-| Feature | Why It Helps |
-|---------|--------------|
-| `update_component` (in-place replace) | Currently must delete + write or rewrite entire library |
-
 ## Documentation/UX Polish
 
 | Item | Notes |

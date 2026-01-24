@@ -199,6 +199,19 @@ impl SchLib {
         self.symbols.shift_remove(name)
     }
 
+    /// Updates a symbol in-place, preserving its position in the library.
+    ///
+    /// The symbol is matched by the `name` parameter. The replacement symbol
+    /// will be stored under the same key, preserving position. If you need to
+    /// rename the symbol, use `rename` after updating.
+    ///
+    /// Returns the old symbol if found, or `None` if no symbol with that name exists.
+    pub fn update(&mut self, name: &str, replacement: Symbol) -> Option<Symbol> {
+        self.symbols
+            .get_mut(name)
+            .map(|old| std::mem::replace(old, replacement))
+    }
+
     /// Returns a list of symbol names in order.
     #[must_use]
     pub fn names(&self) -> Vec<String> {

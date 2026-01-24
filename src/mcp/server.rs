@@ -489,6 +489,7 @@ impl McpServer {
             }
             "merge_libraries" => self.call_merge_libraries(&params.arguments),
             "reorder_components" => self.call_reorder_components(&params.arguments),
+            "update_component" => self.call_update_component(&params.arguments),
             "search_components" => self.call_search_components(&params.arguments),
             "get_component" => self.call_get_component(&params.arguments),
             "render_footprint" => self.call_render_footprint(&params.arguments),
@@ -1219,6 +1220,37 @@ impl McpServer {
                         }
                     },
                     "required": ["filepath", "component_order"]
+                }),
+            },
+            ToolDefinition {
+                name: "update_component".to_string(),
+                description: Some(
+                    "Update a component in-place within an Altium library file, preserving its position. \
+                     For PcbLib, provide a footprint object. For SchLib, provide a symbol object. The \
+                     component is matched by name."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepath": {
+                            "type": "string",
+                            "description": "Path to the .PcbLib or .SchLib file"
+                        },
+                        "component_name": {
+                            "type": "string",
+                            "description": "Name of the component to update (must exist in library)"
+                        },
+                        "footprint": {
+                            "type": "object",
+                            "description": "For PcbLib: footprint data (same format as write_pcblib)"
+                        },
+                        "symbol": {
+                            "type": "object",
+                            "description": "For SchLib: symbol data (same format as write_schlib)"
+                        }
+                    },
+                    "required": ["filepath", "component_name"]
                 }),
             },
             ToolDefinition {
@@ -6002,6 +6034,294 @@ impl McpServer {
                     String::new()
                 } else {
                     format!(" ({} components appended at end)", not_requested.len())
+                }
+            ),
+        });
+
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Updates a component in-place within an Altium library file.
+    fn call_update_component(&self, arguments: &Value) -> ToolCallResult {
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        // Validate path is within allowed directories
+        if let Err(e) = self.validate_path(filepath) {
+            return ToolCallResult::error(e);
+        }
+
+        let Some(component_name) = arguments.get("component_name").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: component_name");
+        };
+
+        // Determine file type from extension
+        let path = std::path::Path::new(filepath);
+        let extension = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_lowercase);
+
+        match extension.as_deref() {
+            Some("pcblib") => {
+                let Some(fp_json) = arguments.get("footprint") else {
+                    return ToolCallResult::error(
+                        "Missing required parameter: footprint (required for .PcbLib files)",
+                    );
+                };
+                Self::update_pcblib_component(filepath, component_name, fp_json)
+            }
+            Some("schlib") => {
+                let Some(sym_json) = arguments.get("symbol") else {
+                    return ToolCallResult::error(
+                        "Missing required parameter: symbol (required for .SchLib files)",
+                    );
+                };
+                Self::update_schlib_component(filepath, component_name, sym_json)
+            }
+            _ => ToolCallResult::error("Unknown file type. Expected .PcbLib or .SchLib extension."),
+        }
+    }
+
+    /// Updates a footprint in-place within a `PcbLib` file.
+    fn update_pcblib_component(
+        filepath: &str,
+        component_name: &str,
+        fp_json: &Value,
+    ) -> ToolCallResult {
+        use crate::altium::pcblib::{Footprint, PcbLib};
+
+        // Read the library
+        let mut library = match PcbLib::read(filepath) {
+            Ok(lib) => lib,
+            Err(e) => return ToolCallResult::error(format!("Failed to read library: {e}")),
+        };
+
+        // Check component exists
+        if library.get(component_name).is_none() {
+            let available: Vec<_> = library.names().into_iter().take(10).collect();
+            return ToolCallResult::error(format!(
+                "Component '{component_name}' not found in library. Available: {}{}",
+                available.join(", "),
+                if library.len() > 10 { "..." } else { "" }
+            ));
+        }
+
+        // Parse the replacement footprint
+        let name = fp_json
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or(component_name);
+        let mut footprint = Footprint::new(name);
+
+        if let Some(desc) = fp_json.get("description").and_then(Value::as_str) {
+            footprint.description = desc.to_string();
+        }
+
+        // Parse pads
+        if let Some(pads) = fp_json.get("pads").and_then(Value::as_array) {
+            for (i, pad_json) in pads.iter().enumerate() {
+                match Self::parse_pad(pad_json) {
+                    Ok(pad) => footprint.add_pad(pad),
+                    Err(e) => return ToolCallResult::error(format!("Pad {i}: {e}")),
+                }
+            }
+        }
+
+        // Parse tracks
+        if let Some(tracks) = fp_json.get("tracks").and_then(Value::as_array) {
+            for (i, track_json) in tracks.iter().enumerate() {
+                match Self::parse_track(track_json) {
+                    Ok(track) => footprint.add_track(track),
+                    Err(e) => return ToolCallResult::error(format!("Track {i}: {e}")),
+                }
+            }
+        }
+
+        // Parse arcs
+        if let Some(arcs) = fp_json.get("arcs").and_then(Value::as_array) {
+            for (i, arc_json) in arcs.iter().enumerate() {
+                match Self::parse_arc(arc_json) {
+                    Ok(arc) => footprint.add_arc(arc),
+                    Err(e) => return ToolCallResult::error(format!("Arc {i}: {e}")),
+                }
+            }
+        }
+
+        // Parse regions
+        if let Some(regions) = fp_json.get("regions").and_then(Value::as_array) {
+            for region_json in regions {
+                if let Some(region) = Self::parse_region(region_json) {
+                    footprint.add_region(region);
+                }
+            }
+        }
+
+        // Parse text
+        if let Some(texts) = fp_json.get("texts").and_then(Value::as_array) {
+            for text_json in texts {
+                if let Some(text) = Self::parse_text(text_json) {
+                    footprint.add_text(text);
+                }
+            }
+        }
+
+        // Perform the update
+        let old = library.update(component_name, footprint);
+
+        // Write the library back
+        if let Err(e) = library.write(filepath) {
+            return ToolCallResult::error(format!("Failed to write library: {e}"));
+        }
+
+        let result = json!({
+            "status": "success",
+            "filepath": filepath,
+            "file_type": "PcbLib",
+            "component_name": component_name,
+            "new_name": name,
+            "renamed": name != component_name,
+            "old_description": old.as_ref().map(|f| &f.description),
+            "component_count": library.len(),
+            "message": format!(
+                "Updated component '{component_name}' in '{filepath}'{}",
+                if name == component_name {
+                    String::new()
+                } else {
+                    format!(" (renamed to '{name}')")
+                }
+            ),
+        });
+
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Updates a symbol in-place within a `SchLib` file.
+    fn update_schlib_component(
+        filepath: &str,
+        component_name: &str,
+        sym_json: &Value,
+    ) -> ToolCallResult {
+        use crate::altium::schlib::{SchLib, Symbol};
+
+        // Read the library
+        let mut library = match SchLib::open(filepath) {
+            Ok(lib) => lib,
+            Err(e) => return ToolCallResult::error(format!("Failed to read library: {e}")),
+        };
+
+        // Check component exists
+        if library.get(component_name).is_none() {
+            let available: Vec<_> = library.names().into_iter().take(10).collect();
+            return ToolCallResult::error(format!(
+                "Component '{component_name}' not found in library. Available: {}{}",
+                available.join(", "),
+                if library.len() > 10 { "..." } else { "" }
+            ));
+        }
+
+        // Parse the replacement symbol
+        let name = sym_json
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or(component_name);
+        let mut symbol = Symbol::new(name);
+
+        if let Some(desc) = sym_json.get("description").and_then(Value::as_str) {
+            symbol.description = desc.to_string();
+        }
+
+        if let Some(designator) = sym_json.get("designator").and_then(Value::as_str) {
+            symbol.designator = designator.to_string();
+        }
+
+        // Parse pins
+        if let Some(pins) = sym_json.get("pins").and_then(Value::as_array) {
+            for pin_json in pins {
+                if let Some(pin) = Self::parse_schlib_pin(pin_json) {
+                    symbol.pins.push(pin);
+                }
+            }
+        }
+
+        // Parse rectangles
+        if let Some(rects) = sym_json.get("rectangles").and_then(Value::as_array) {
+            for rect_json in rects {
+                if let Some(rect) = Self::parse_schlib_rectangle(rect_json) {
+                    symbol.rectangles.push(rect);
+                }
+            }
+        }
+
+        // Parse lines
+        if let Some(lines) = sym_json.get("lines").and_then(Value::as_array) {
+            for line_json in lines {
+                if let Some(line) = Self::parse_schlib_line(line_json) {
+                    symbol.lines.push(line);
+                }
+            }
+        }
+
+        // Parse polylines
+        if let Some(polylines) = sym_json.get("polylines").and_then(Value::as_array) {
+            for polyline_json in polylines {
+                if let Some(polyline) = Self::parse_schlib_polyline(polyline_json) {
+                    symbol.polylines.push(polyline);
+                }
+            }
+        }
+
+        // Parse arcs
+        if let Some(arcs) = sym_json.get("arcs").and_then(Value::as_array) {
+            for arc_json in arcs {
+                if let Some(arc) = Self::parse_schlib_arc(arc_json) {
+                    symbol.arcs.push(arc);
+                }
+            }
+        }
+
+        // Parse ellipses
+        if let Some(ellipses) = sym_json.get("ellipses").and_then(Value::as_array) {
+            for ellipse_json in ellipses {
+                if let Some(ellipse) = Self::parse_schlib_ellipse(ellipse_json) {
+                    symbol.ellipses.push(ellipse);
+                }
+            }
+        }
+
+        // Parse parameters
+        if let Some(params) = sym_json.get("parameters").and_then(Value::as_array) {
+            for param_json in params {
+                if let Some(param) = Self::parse_schlib_parameter(param_json) {
+                    symbol.parameters.push(param);
+                }
+            }
+        }
+
+        // Perform the update
+        let old = library.update(component_name, symbol);
+
+        // Write the library back
+        if let Err(e) = library.save(filepath) {
+            return ToolCallResult::error(format!("Failed to write library: {e}"));
+        }
+
+        let result = json!({
+            "status": "success",
+            "filepath": filepath,
+            "file_type": "SchLib",
+            "component_name": component_name,
+            "new_name": name,
+            "renamed": name != component_name,
+            "old_description": old.as_ref().map(|s| &s.description),
+            "component_count": library.len(),
+            "message": format!(
+                "Updated component '{component_name}' in '{filepath}'{}",
+                if name == component_name {
+                    String::new()
+                } else {
+                    " (note: name in library key unchanged, use rename_component to change key)".to_string()
                 }
             ),
         });
