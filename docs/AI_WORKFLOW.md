@@ -291,6 +291,19 @@ The AI provides complete primitive definitions. The tool writes them.
 }
 ```
 
+### Via
+
+```json
+{
+    "x": 0,
+    "y": 0,
+    "diameter": 0.6,
+    "hole_size": 0.3,
+    "from_layer": "Top Layer",
+    "to_layer": "Bottom Layer"
+}
+```
+
 ### Track
 
 ```json

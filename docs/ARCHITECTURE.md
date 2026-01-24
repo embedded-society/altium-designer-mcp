@@ -97,6 +97,7 @@ The AI provides complete primitive definitions. The tool writes them.
 | Primitive | Properties |
 |-----------|------------|
 | **Pad** | designator, x, y, width, height, shape, layer, hole_size, rotation |
+| **Via** | x, y, diameter, hole_size, from_layer, to_layer |
 | **Track** | x1, y1, x2, y2, width, layer |
 | **Arc** | x, y, radius, start_angle, end_angle, width, layer |
 | **Region** | vertices[], layer |
@@ -107,16 +108,7 @@ The AI provides complete primitive definitions. The tool writes them.
 
 ### Standard Altium Layers
 
-| Layer | Typical Usage |
-|-------|---------------|
-| Top Layer | Copper pads |
-| Multi-Layer | Through-hole pads (all layers) |
-| Top Overlay | Silkscreen |
-| Top Paste | Solder paste |
-| Top Solder | Solder mask |
-| Top Assembly | Assembly outline |
-| Top 3D Body | 3D body outline |
-| Top Courtyard | Courtyard (IPC-7351) |
+See [README.md § Standard Altium Layers](../README.md#standard-altium-layers) for the complete layer reference.
 
 ---
 

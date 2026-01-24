@@ -76,13 +76,13 @@ Text records contain pipe-delimited key=value pairs:
 |----|------|--------|-------------|
 | 1 | Component | ✓ | Symbol header (name, description, part count) |
 | 2 | Pin | TODO | Pin (text format, rarely used — binary preferred) |
-| 4 | Label | TODO | Text label |
-| 5 | Bezier | TODO | Bezier curve |
+| 4 | Label | ✓ | Text label |
+| 5 | Bezier | ✓ | Bezier curve |
 | 6 | Polyline | ✓ | Multiple connected line segments |
-| 7 | Polygon | TODO | Filled polygon |
+| 7 | Polygon | ✓ | Filled polygon |
 | 8 | Ellipse | ✓ | Ellipse or circle |
-| 10 | RoundRectangle | TODO | Rounded rectangle |
-| 11 | EllipticalArc | TODO | Elliptical arc |
+| 10 | RoundRectangle | ✓ | Rounded rectangle |
+| 11 | EllipticalArc | ✓ | Elliptical arc |
 | 12 | Arc | ✓ | Circular arc |
 | 13 | Line | ✓ | Single line segment |
 | 14 | Rectangle | ✓ | Rectangle shape |
@@ -344,11 +344,6 @@ The following features are not fully understood or implemented:
 
 | Feature | Status |
 |---------|--------|
-| Label (RECORD=4) | Documented above, implementation pending |
-| Bezier (RECORD=5) | TODO: Bezier curve primitive |
-| Polygon (RECORD=7) | TODO: Filled polygon (similar to Polyline) |
-| RoundRectangle (RECORD=10) | TODO: Rectangle with corner radius |
-| EllipticalArc (RECORD=11) | TODO: Elliptical arc primitive |
 | ImplementationList (RECORD=44) | Container for model list (parsed but not used) |
 | ModelDatafileLink (RECORD=46) | TODO: Simulation model reference |
 | ModelDatafileEntity (RECORD=47) | TODO: Simulation model entity |

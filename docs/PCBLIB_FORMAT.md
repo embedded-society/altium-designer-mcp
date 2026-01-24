@@ -462,7 +462,6 @@ The following features are not fully understood or implemented:
 
 | Feature | Status |
 |---------|--------|
-| Via primitive (0x03) | Documented above, implementation pending |
 | WideStrings stream | TODO: Format known, parsing not implemented |
 | 3D model embedding | TODO: zlib-compressed STEP, parsing not implemented |
 | Pad hole shapes | Documented: Round(0), Square(1), Slot(2) |
