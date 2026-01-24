@@ -147,16 +147,13 @@ This is likely due to internal unit conversion (mm ↔ mils) and is within accep
 
 ## Nice-to-Have Features
 
-1. **Preview/render footprint**
-   - ASCII art or SVG visualisation
-
-2. **Parameter management for SchLib**
+1. **Parameter management for SchLib**
    - Add/modify component parameters (Value, Manufacturer, etc.)
 
-3. **Footprint link management**
+2. **Footprint link management**
    - Add/remove footprint links from schematic symbols
 
-4. **Support for multi-part symbols**
+3. **Support for multi-part symbols**
    - Currently `part_count` is read but not writable
 
 ---
@@ -186,4 +183,4 @@ which doesn't impact functionality.
 
 Recommended next steps:
 
-1. Add preview/render footprint functionality (ASCII art or SVG visualisation)
+1. Add parameter management for SchLib (Value, Manufacturer, etc.)

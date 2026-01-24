@@ -474,6 +474,7 @@ impl McpServer {
             "diff_libraries" => self.call_diff_libraries(&params.arguments),
             "batch_update" => self.call_batch_update(&params.arguments),
             "copy_component" => self.call_copy_component(&params.arguments),
+            "render_footprint" => self.call_render_footprint(&params.arguments),
             // Unknown tool
             _ => ToolCallResult::error(format!("Unknown tool: {}", params.name)),
         };
@@ -988,6 +989,40 @@ impl McpServer {
                         }
                     },
                     "required": ["filepath", "source_name", "target_name"]
+                }),
+            },
+            ToolDefinition {
+                name: "render_footprint".to_string(),
+                description: Some(
+                    "Render an ASCII art visualisation of a footprint from a PcbLib file. Shows pads, \
+                     tracks, and other primitives in a simple text format for quick preview."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepath": {
+                            "type": "string",
+                            "description": "Path to the Altium PcbLib file"
+                        },
+                        "component_name": {
+                            "type": "string",
+                            "description": "Name of the footprint to render"
+                        },
+                        "scale": {
+                            "type": "number",
+                            "description": "Characters per mm (default: 2.0). Higher = more detail"
+                        },
+                        "max_width": {
+                            "type": "integer",
+                            "description": "Maximum width in characters (default: 80)"
+                        },
+                        "max_height": {
+                            "type": "integer",
+                            "description": "Maximum height in characters (default: 40)"
+                        }
+                    },
+                    "required": ["filepath", "component_name"]
                 }),
             },
         ]
@@ -4194,6 +4229,285 @@ impl McpServer {
         });
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Renders an ASCII art visualisation of a footprint.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn call_render_footprint(&self, arguments: &Value) -> ToolCallResult {
+        use crate::altium::PcbLib;
+
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        let Some(component_name) = arguments.get("component_name").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: component_name");
+        };
+
+        // Validate path is within allowed directories
+        if let Err(e) = self.validate_path(filepath) {
+            return ToolCallResult::error(e);
+        }
+
+        // Parse optional parameters
+        let scale = arguments
+            .get("scale")
+            .and_then(Value::as_f64)
+            .unwrap_or(2.0);
+        let max_width = arguments
+            .get("max_width")
+            .and_then(Value::as_u64)
+            .unwrap_or(80) as usize;
+        let max_height = arguments
+            .get("max_height")
+            .and_then(Value::as_u64)
+            .unwrap_or(40) as usize;
+
+        if scale <= 0.0 {
+            return ToolCallResult::error("scale must be greater than 0");
+        }
+
+        // Read the library
+        let library = match PcbLib::read(filepath) {
+            Ok(lib) => lib,
+            Err(e) => return ToolCallResult::error(format!("Failed to read library: {e}")),
+        };
+
+        // Find the footprint
+        let Some(footprint) = library.get(component_name) else {
+            return ToolCallResult::error(format!(
+                "Footprint '{component_name}' not found in library"
+            ));
+        };
+
+        // Render the footprint
+        let ascii_art = Self::render_footprint_ascii(footprint, scale, max_width, max_height);
+
+        let result = json!({
+            "status": "success",
+            "filepath": filepath,
+            "component_name": component_name,
+            "scale": scale,
+            "render": ascii_art,
+        });
+
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Renders a footprint as ASCII art.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss,
+        clippy::similar_names,
+        clippy::too_many_lines,
+        clippy::float_cmp,
+        clippy::needless_range_loop
+    )]
+    fn render_footprint_ascii(
+        footprint: &crate::altium::pcblib::Footprint,
+        scale: f64,
+        max_width: usize,
+        max_height: usize,
+    ) -> String {
+        use std::fmt::Write;
+
+        // Find bounding box
+        let (mut min_x, mut max_x, mut min_y, mut max_y) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
+
+        for pad in &footprint.pads {
+            let half_w = pad.width / 2.0;
+            let half_h = pad.height / 2.0;
+            min_x = min_x.min(pad.x - half_w);
+            max_x = max_x.max(pad.x + half_w);
+            min_y = min_y.min(pad.y - half_h);
+            max_y = max_y.max(pad.y + half_h);
+        }
+
+        for track in &footprint.tracks {
+            min_x = min_x.min(track.x1.min(track.x2) - track.width / 2.0);
+            max_x = max_x.max(track.x1.max(track.x2) + track.width / 2.0);
+            min_y = min_y.min(track.y1.min(track.y2) - track.width / 2.0);
+            max_y = max_y.max(track.y1.max(track.y2) + track.width / 2.0);
+        }
+
+        for arc in &footprint.arcs {
+            min_x = min_x.min(arc.x - arc.radius);
+            max_x = max_x.max(arc.x + arc.radius);
+            min_y = min_y.min(arc.y - arc.radius);
+            max_y = max_y.max(arc.y + arc.radius);
+        }
+
+        // Handle empty footprint
+        if min_x == f64::MAX {
+            return "Empty footprint (no primitives)".to_string();
+        }
+
+        // Add margin
+        let margin = 0.5;
+        min_x -= margin;
+        max_x += margin;
+        min_y -= margin;
+        max_y += margin;
+
+        // Calculate canvas size
+        let width_mm = max_x - min_x;
+        let height_mm = max_y - min_y;
+        let mut canvas_width = (width_mm * scale).ceil() as usize;
+        let mut canvas_height = (height_mm * scale).ceil() as usize;
+
+        // Clamp to max dimensions
+        if canvas_width > max_width {
+            canvas_width = max_width;
+        }
+        if canvas_height > max_height {
+            canvas_height = max_height;
+        }
+
+        // Ensure minimum size
+        canvas_width = canvas_width.max(10);
+        canvas_height = canvas_height.max(5);
+
+        // Calculate actual scale after clamping
+        let actual_scale_x = canvas_width as f64 / width_mm;
+        let actual_scale_y = canvas_height as f64 / height_mm;
+
+        // Create canvas (y is inverted for display)
+        let mut canvas = vec![vec![' '; canvas_width]; canvas_height];
+
+        // Helper to convert coordinates
+        let to_canvas = |x: f64, y: f64| -> (usize, usize) {
+            let cx = ((x - min_x) * actual_scale_x).round() as usize;
+            let cy =
+                canvas_height.saturating_sub(1) - ((y - min_y) * actual_scale_y).round() as usize;
+            (cx.min(canvas_width - 1), cy.min(canvas_height - 1))
+        };
+
+        // Draw tracks (as lines)
+        for track in &footprint.tracks {
+            Self::draw_line(
+                &mut canvas,
+                to_canvas(track.x1, track.y1),
+                to_canvas(track.x2, track.y2),
+                '-',
+            );
+        }
+
+        // Draw arcs (simplified as circles at centre)
+        for arc in &footprint.arcs {
+            let (cx, cy) = to_canvas(arc.x, arc.y);
+            if cx < canvas_width && cy < canvas_height {
+                canvas[cy][cx] = 'o';
+            }
+        }
+
+        // Draw pads (as rectangles with designator)
+        for pad in &footprint.pads {
+            let half_w = pad.width / 2.0;
+            let half_h = pad.height / 2.0;
+            let (x1, y1) = to_canvas(pad.x - half_w, pad.y - half_h);
+            let (x2, y2) = to_canvas(pad.x + half_w, pad.y + half_h);
+
+            // Fill pad area
+            let (min_cy, max_cy) = (y1.min(y2), y1.max(y2));
+            let (min_cx, max_cx) = (x1.min(x2), x1.max(x2));
+
+            for cy in min_cy..=max_cy {
+                for cx in min_cx..=max_cx {
+                    if cy < canvas_height && cx < canvas_width {
+                        canvas[cy][cx] = '#';
+                    }
+                }
+            }
+
+            // Place designator at centre
+            let (cx, cy) = to_canvas(pad.x, pad.y);
+            if cx < canvas_width && cy < canvas_height {
+                let designator_char = pad.designator.chars().next().unwrap_or('#');
+                canvas[cy][cx] = designator_char;
+            }
+        }
+
+        // Draw origin crosshair
+        let (ox, oy) = to_canvas(0.0, 0.0);
+        if ox < canvas_width && oy < canvas_height {
+            canvas[oy][ox] = '+';
+        }
+
+        // Build output string
+        let mut output = String::new();
+        let _ = writeln!(
+            output,
+            "Footprint: {} ({:.2} x {:.2} mm)",
+            footprint.name,
+            width_mm - margin * 2.0,
+            height_mm - margin * 2.0
+        );
+        let _ = writeln!(
+            output,
+            "Pads: {}, Tracks: {}, Arcs: {}",
+            footprint.pads.len(),
+            footprint.tracks.len(),
+            footprint.arcs.len()
+        );
+        output.push_str(&"-".repeat(canvas_width + 2));
+        output.push('\n');
+
+        for row in &canvas {
+            output.push('|');
+            for &ch in row {
+                output.push(ch);
+            }
+            output.push('|');
+            output.push('\n');
+        }
+
+        output.push_str(&"-".repeat(canvas_width + 2));
+        output.push('\n');
+        output.push_str("Legend: # = pad, - = track, o = arc, + = origin\n");
+
+        output
+    }
+
+    /// Draws a line on the canvas using Bresenham's algorithm.
+    #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+    fn draw_line(
+        canvas: &mut [Vec<char>],
+        (x0, y0): (usize, usize),
+        (x1, y1): (usize, usize),
+        ch: char,
+    ) {
+        let dx = (x1 as isize - x0 as isize).abs();
+        let dy = (y1 as isize - y0 as isize).abs();
+        let sx: isize = if x0 < x1 { 1 } else { -1 };
+        let sy: isize = if y0 < y1 { 1 } else { -1 };
+        let mut err = dx - dy;
+
+        let mut x = x0 as isize;
+        let mut y = y0 as isize;
+
+        let height = canvas.len();
+        let width = if height > 0 { canvas[0].len() } else { 0 };
+
+        loop {
+            if (x as usize) < width && (y as usize) < height {
+                canvas[y as usize][x as usize] = ch;
+            }
+
+            if x == x1 as isize && y == y1 as isize {
+                break;
+            }
+
+            let e2 = 2 * err;
+            if e2 > -dy {
+                err -= dy;
+                x += sx;
+            }
+            if e2 < dx {
+                err += dx;
+                y += sy;
+            }
+        }
     }
 }
 

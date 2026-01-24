@@ -635,6 +635,53 @@ Use `copy_component` to duplicate components for creating variants:
 - Create test variants with exposed pins
 - Duplicate symbols for multi-part components
 
+### Previewing Footprints
+
+Use `render_footprint` to generate an ASCII art visualisation for quick preview:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ FOOTPRINT PREVIEW WORKFLOW                                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  RENDER A FOOTPRINT                                                         │
+│  AI calls: render_footprint {                                               │
+│      filepath: "./MyLibrary.PcbLib",                                        │
+│      component_name: "RESC0603_IPC_MEDIUM",                                 │
+│      scale: 2.0,                                                            │
+│      max_width: 60                                                          │
+│  }                                                                          │
+│                                                                             │
+│  Returns ASCII art showing:                                                 │
+│  • Pads (#) with designator at centre                                       │
+│  • Tracks (-) as lines                                                      │
+│  • Arcs (o) as circles                                                      │
+│  • Origin (+) crosshair                                                     │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Example Output:**
+
+```text
+Footprint: RESC0603 (2.60 x 1.20 mm)
+Pads: 2, Tracks: 4, Arcs: 0
+--------------------------------------------------------------
+|                                                            |
+|          ------                ------                      |
+|         |  1   |      +       |  2   |                     |
+|          ------                ------                      |
+|                                                            |
+--------------------------------------------------------------
+Legend: # = pad, - = track, o = arc, + = origin
+```
+
+**Use cases:**
+
+- Verify footprint geometry before creating
+- Debug layout issues
+- Document footprints in text format
+
 ---
 
 ## Tips for AI Assistants

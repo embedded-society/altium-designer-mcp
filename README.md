@@ -377,6 +377,34 @@ different name but identical primitives. Useful for creating variants.
 
 Returns the new component count after copying.
 
+### `render_footprint`
+
+Render an ASCII art visualisation of a footprint from a PcbLib file. Shows pads, tracks,
+and other primitives in a simple text format for quick preview.
+
+```json
+{
+    "name": "render_footprint",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib",
+        "component_name": "RESC0603_IPC_MEDIUM",
+        "scale": 2.0,
+        "max_width": 80,
+        "max_height": 40
+    }
+}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `filepath` | Path to the PcbLib file |
+| `component_name` | Name of the footprint to render |
+| `scale` | Characters per mm (default: 2.0) |
+| `max_width` | Maximum width in characters (default: 80) |
+| `max_height` | Maximum height in characters (default: 40) |
+
+Returns ASCII art with legend: `#` = pad, `-` = track, `o` = arc, `+` = origin.
+
 ---
 
 ## Primitive Types
