@@ -82,6 +82,7 @@ This document summarises the findings from extensive testing of the `altium-desi
 - All pin orientations work: `left`, `right`, `up`, `down`
 - All electrical types work: `input`, `output`, `bidirectional`, `passive`, `power`
 - Electrical type names are consistent (uses `bidirectional` throughout)
+- Multi-part symbols supported via `part_count` and `owner_part_id`
 
 ---
 
@@ -119,42 +120,15 @@ This is likely due to internal unit conversion (mm ↔ mils) and is within accep
 
 ---
 
-## Issues Found
+## Known Limitations
 
-### Critical
-
-*None*
-
-### Medium Priority
-
-1. ~~**`rounded_rectangle` pad shape not preserved**~~ **FIXED**
-   - Now correctly round-trips with default 50% corner radius
-
-2. **Component name truncation in list_components**
+1. **Component name truncation in list_components**
    - Some names appear truncated (e.g., `GENERIC_MLCC_CAP_0402_IPC_MEDIU` instead of `MEDIUM`)
    - This is an Altium format limitation (31 byte OLE storage limit)
 
-### Low Priority
-
-1. **Floating-point precision artifacts**
+2. **Floating-point precision artifacts**
    - Values like `1.0` become `1.000001`
    - Cosmetic issue, doesn't affect functionality
-
-2. ~~**`bidirectional` ↔ `input_output` alias inconsistency**~~ **FIXED**
-   - Now uses `bidirectional` consistently (accepts `input_output` as alias for backwards compatibility)
-
----
-
-## Nice-to-Have Features
-
-1. ~~**Parameter management for SchLib**~~ **IMPLEMENTED**
-   - `manage_schlib_parameters` tool with list/get/set/add/delete operations
-
-2. ~~**Footprint link management**~~ **IMPLEMENTED**
-   - `manage_schlib_footprints` tool with list/add/remove operations
-
-3. ~~**Support for multi-part symbols**~~ **IMPLEMENTED**
-   - `write_schlib` now accepts `part_count` and `owner_part_id` for multi-part symbols
 
 ---
 
@@ -174,15 +148,9 @@ The following test files were created during testing and can be safely deleted:
 The `altium-designer-mcp` server is **production-ready** for all common use cases. It provides reliable
 read/write operations for Altium library files with comprehensive error handling and validation.
 
-All pad shapes including `rounded_rectangle` now round-trip correctly. Pin electrical types use
+All pad shapes including `rounded_rectangle` round-trip correctly. Pin electrical types use
 consistent naming (`bidirectional`). Input validation catches common errors like zero-size pads,
 empty designators, and duplicate component names.
 
 The only remaining cosmetic issue is minor floating-point precision artifacts from mm↔mils conversion,
 which doesn't impact functionality.
-
-All Nice-to-Have features have been implemented:
-
-1. ~~Parameter management for SchLib~~ ✓
-2. ~~Footprint link management~~ ✓
-3. ~~Multi-part symbol support~~ ✓
