@@ -44,10 +44,7 @@ fn write_text_record(data: &mut Vec<u8>, content: &str) {
 /// - Pin coordinates (x, y, length) exceed the i16 range (±32767)
 /// - Pin name, designator, or description exceeds 255 bytes
 #[allow(clippy::too_many_lines)] // Complex binary format requires detailed validation and encoding
-fn write_binary_pin(
-    data: &mut Vec<u8>,
-    pin: &Pin,
-) -> crate::altium::error::AltiumResult<()> {
+fn write_binary_pin(data: &mut Vec<u8>, pin: &Pin) -> crate::altium::error::AltiumResult<()> {
     use crate::altium::error::AltiumError;
 
     // Validation constants

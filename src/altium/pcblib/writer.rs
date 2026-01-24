@@ -287,9 +287,7 @@ fn write_common_header(data: &mut Vec<u8>, layer: Layer, flags: PcbFlags) {
 /// # Errors
 ///
 /// Returns an error if any string (footprint name, pad designator, text) exceeds 255 bytes.
-pub fn encode_data_stream(
-    footprint: &Footprint,
-) -> crate::altium::error::AltiumResult<Vec<u8>> {
+pub fn encode_data_stream(footprint: &Footprint) -> crate::altium::error::AltiumResult<Vec<u8>> {
     let mut data = Vec::new();
 
     // Write name block: [block_len:4][str_len:1][name:str_len]
@@ -1124,9 +1122,9 @@ pub fn compress_model_data(data: &[u8]) -> crate::altium::error::AltiumResult<Ve
     encoder.write_all(data).map_err(|e| {
         AltiumError::compression_error("Failed to write data to zlib encoder", Some(e))
     })?;
-    encoder.finish().map_err(|e| {
-        AltiumError::compression_error("Failed to finish zlib compression", Some(e))
-    })
+    encoder
+        .finish()
+        .map_err(|e| AltiumError::compression_error("Failed to finish zlib compression", Some(e)))
 }
 
 /// Encodes the `/Library/Models/Header` stream.
@@ -1368,7 +1366,10 @@ mod tests {
         let long_string = "A".repeat(256);
         let result = write_string_block(&mut data, &long_string, "test_field");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("exceeds maximum of 255 bytes"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("exceeds maximum of 255 bytes"));
     }
 
     #[test]

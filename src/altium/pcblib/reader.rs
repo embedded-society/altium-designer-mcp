@@ -128,7 +128,10 @@ fn decode_ascii_codes(encoded: &str) -> String {
                 c as char
             } else {
                 // Non-ASCII byte - use replacement character and log warning
-                tracing::warn!(byte = c, "Non-ASCII byte in ENCODEDTEXT, replacing with U+FFFD");
+                tracing::warn!(
+                    byte = c,
+                    "Non-ASCII byte in ENCODEDTEXT, replacing with U+FFFD"
+                );
                 '\u{FFFD}'
             }
         })
