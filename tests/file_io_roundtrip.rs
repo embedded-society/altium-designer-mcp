@@ -4,8 +4,8 @@
 //! with all data preserved through the full OLE compound document format.
 
 use altium_designer_mcp::altium::pcblib::{
-    Arc, Fill, Footprint, Layer, Pad, PadShape, PadStackMode, PcbLib, Region, Text, TextKind,
-    Track, Via,
+    Arc, Fill, Footprint, Layer, Pad, PadShape, PadStackMode, PcbFlags, PcbLib, Region, Text,
+    TextJustification, TextKind, Track, Via,
 };
 use altium_designer_mcp::altium::schlib::{
     Pin, PinElectricalType, PinOrientation, Rectangle, SchLib, Symbol,
@@ -113,8 +113,8 @@ fn pcblib_file_roundtrip_all_primitives() {
         kind: TextKind::Stroke,
         rotation: 0.0,
         stroke_font: None,
-        justification: Default::default(),
-        flags: Default::default(),
+        justification: TextJustification::default(),
+        flags: PcbFlags::default(),
         unique_id: None,
     };
     fp.add_text(text);
