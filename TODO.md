@@ -1,9 +1,5 @@
 # TODO
 
-## Future Enhancements
-
-- [ ] **Bulk parameter update**: Set parameters across multiple symbols at once
-
 ## Known Limitations
 
 - **Floating-point precision**: Minor artifacts from mm↔mils conversion (cosmetic, doesn't affect functionality)
