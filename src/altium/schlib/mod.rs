@@ -157,6 +157,11 @@ impl SchLib {
         self.symbols.iter()
     }
 
+    /// Returns a mutable iterator over all symbols.
+    pub fn symbols_mut(&mut self) -> impl Iterator<Item = &mut Symbol> {
+        self.symbols.values_mut()
+    }
+
     /// Returns the number of symbols in the library.
     #[must_use]
     pub fn len(&self) -> usize {

@@ -65,6 +65,12 @@ bitflags = { version = "2.6", features = ["serde"] }
 # Character encoding (for Windows-1252 in legacy Altium files)
 encoding_rs = "0.8"
 
+# UUID generation (for 3D model GUIDs)
+uuid = { version = "1.11", features = ["v4"] }
+
+# Regex for pattern matching (batch_update symbol filter)
+regex = "1.11"
+
 [dev-dependencies]
 # Async testing utilities
 tokio-test = "0.4"

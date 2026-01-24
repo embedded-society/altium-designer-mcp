@@ -1972,8 +1972,10 @@ use std::io::Read as IoRead;
 /// A mapping of model GUID to stream index.
 ///
 /// The `/Library/Models/Data` stream contains entries that map GUIDs to
-/// the numeric index of the model stream (e.g., `/Library/Models/0`).
-pub type ModelIndex = HashMap<String, usize>;
+/// the numeric index of the model stream (e.g., `/Library/Models/0`) and the model name.
+///
+/// The value is a tuple of (`stream_index`, `model_name`).
+pub type ModelIndex = HashMap<String, (usize, String)>;
 
 /// Parses the `/Library/Models/Data` stream to extract GUID-to-index mapping.
 ///
@@ -2000,9 +2002,10 @@ pub fn parse_model_data_stream(data: &[u8]) -> ModelIndex {
     };
 
     // Parse pipe-delimited key=value pairs
-    // Format: |RECORD0={GUID}|NAME0=filename.step|RECORD1={GUID2}|...
-    let mut current_index: Option<usize> = None;
-    let mut current_guid: Option<String> = None;
+    // Format: |RECORD0={GUID}|NAME0=filename.step|RECORD1={GUID2}|NAME1=...
+    // We need to collect all RECORD{N} and NAME{N} entries, then match them by index
+    let mut records: HashMap<usize, String> = HashMap::new(); // index -> GUID
+    let mut names: HashMap<usize, String> = HashMap::new(); // index -> name
 
     for pair in text.split('|') {
         if pair.is_empty() {
@@ -2010,23 +2013,22 @@ pub fn parse_model_data_stream(data: &[u8]) -> ModelIndex {
         }
 
         if let Some((key, value)) = pair.split_once('=') {
-            // Look for RECORD{N}={GUID} pattern
             if let Some(idx_str) = key.strip_prefix("RECORD") {
                 if let Ok(idx) = idx_str.parse::<usize>() {
-                    // If we had a previous entry, store it
-                    if let (Some(prev_idx), Some(guid)) = (current_index, current_guid.take()) {
-                        index.insert(guid, prev_idx);
-                    }
-                    current_index = Some(idx);
-                    current_guid = Some(value.to_string());
+                    records.insert(idx, value.to_string());
+                }
+            } else if let Some(idx_str) = key.strip_prefix("NAME") {
+                if let Ok(idx) = idx_str.parse::<usize>() {
+                    names.insert(idx, value.to_string());
                 }
             }
         }
     }
 
-    // Store the last entry
-    if let (Some(idx), Some(guid)) = (current_index, current_guid) {
-        index.insert(guid, idx);
+    // Combine records and names into the final index
+    for (idx, guid) in records {
+        let name = names.get(&idx).cloned().unwrap_or_default();
+        index.insert(guid, (idx, name));
     }
 
     tracing::debug!(count = index.len(), "Parsed model index from Data stream");
@@ -2123,12 +2125,14 @@ pub fn parse_embedded_models(
 ) -> Vec<EmbeddedModel> {
     let mut models = Vec::new();
 
-    // Create reverse mapping: index -> GUID
-    let index_to_guid: HashMap<usize, &String> =
-        model_index.iter().map(|(guid, idx)| (*idx, guid)).collect();
+    // Create reverse mapping: index -> (GUID, name)
+    let index_to_info: HashMap<usize, (&String, &String)> = model_index
+        .iter()
+        .map(|(guid, (idx, name))| (*idx, (guid, name)))
+        .collect();
 
     for (idx, compressed) in model_data {
-        let Some(guid) = index_to_guid.get(idx) else {
+        let Some((guid, name)) = index_to_info.get(idx) else {
             tracing::debug!(index = idx, "Model stream has no GUID mapping");
             continue;
         };
@@ -2141,13 +2145,14 @@ pub fn parse_embedded_models(
 
         let model = EmbeddedModel {
             id: (*guid).clone(),
-            name: String::new(), // Name can be extracted from Data stream if needed
+            name: (*name).clone(),
             data: decompressed,
             compressed_size: compressed.len(),
         };
 
         tracing::debug!(
             guid = %guid,
+            name = %name,
             size = model.data.len(),
             "Parsed embedded model"
         );
@@ -2313,8 +2318,14 @@ mod tests {
         let index = parse_model_data_stream(data);
 
         assert_eq!(index.len(), 2);
-        assert_eq!(index.get("{GUID-1234}"), Some(&0));
-        assert_eq!(index.get("{GUID-5678}"), Some(&1));
+        assert_eq!(
+            index.get("{GUID-1234}"),
+            Some(&(0, "model1.step".to_string()))
+        );
+        assert_eq!(
+            index.get("{GUID-5678}"),
+            Some(&(1, "model2.step".to_string()))
+        );
     }
 
     #[test]
@@ -2330,7 +2341,7 @@ mod tests {
         let index = parse_model_data_stream(data);
 
         assert_eq!(index.len(), 1);
-        assert_eq!(index.get("{ABC-DEF}"), Some(&0));
+        assert_eq!(index.get("{ABC-DEF}"), Some(&(0, "test.step".to_string())));
     }
 
     #[test]
@@ -2392,10 +2403,10 @@ mod tests {
         use flate2::Compression;
         use std::io::Write;
 
-        // Create mock model index
+        // Create mock model index with (index, name) tuples
         let mut model_index = ModelIndex::new();
-        model_index.insert("{GUID-A}".to_string(), 0);
-        model_index.insert("{GUID-B}".to_string(), 1);
+        model_index.insert("{GUID-A}".to_string(), (0, "model_a.step".to_string()));
+        model_index.insert("{GUID-B}".to_string(), (1, "model_b.step".to_string()));
 
         // Create compressed model data
         let step_data_a = b"STEP model A content";
@@ -2419,9 +2430,11 @@ mod tests {
         // Find model A
         let model_a = models.iter().find(|m| m.id == "{GUID-A}").unwrap();
         assert_eq!(model_a.data, step_data_a);
+        assert_eq!(model_a.name, "model_a.step");
 
         // Find model B
         let model_b = models.iter().find(|m| m.id == "{GUID-B}").unwrap();
         assert_eq!(model_b.data, step_data_b);
+        assert_eq!(model_b.name, "model_b.step");
     }
 }

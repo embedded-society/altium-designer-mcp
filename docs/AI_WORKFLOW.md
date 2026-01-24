@@ -278,6 +278,35 @@ The AI provides complete primitive definitions. The tool writes them.
 }
 ```
 
+### step_model (3D Model Attachment)
+
+To attach a STEP 3D model to a footprint, include the `step_model` property:
+
+```json
+{
+    "name": "RESC1608X55N",
+    "description": "Chip resistor with 3D model",
+    "pads": [...],
+    "step_model": {
+        "filepath": "./models/RESC1608X55.step",
+        "x_offset": 0,
+        "y_offset": 0,
+        "z_offset": 0,
+        "rotation": 0
+    }
+}
+```
+
+| Property | Description |
+|----------|-------------|
+| `filepath` | Path to the .step file (will be embedded in the library) |
+| `x_offset` | X offset in mm (default: 0) |
+| `y_offset` | Y offset in mm (default: 0) |
+| `z_offset` | Z offset in mm (default: 0) |
+| `rotation` | Z rotation in degrees (default: 0) |
+
+The STEP file is read from disk and embedded in the PcbLib file during write.
+
 ---
 
 ## Standard Altium Layers
@@ -581,12 +610,43 @@ Use `batch_update` to perform library-wide updates efficiently:
 }
 ```
 
-**Supported operations:**
+**PcbLib operations:**
 
 | Operation | Description |
 |-----------|-------------|
 | `update_track_width` | Change track widths matching a value (with tolerance) |
 | `rename_layer` | Move primitives from one layer to another |
+
+**SchLib operations:**
+
+| Operation | Description |
+|-----------|-------------|
+| `update_parameters` | Set parameter values across multiple symbols |
+
+**Example: Update parameters across symbols (SchLib)**
+
+```json
+{
+    "name": "batch_update",
+    "arguments": {
+        "filepath": "./MyLibrary.SchLib",
+        "operation": "update_parameters",
+        "parameters": {
+            "param_name": "Manufacturer",
+            "param_value": "Texas Instruments",
+            "symbol_filter": "^LM.*",
+            "add_if_missing": true
+        }
+    }
+}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `param_name` | Name of the parameter to update |
+| `param_value` | New value to set |
+| `symbol_filter` | Optional regex to filter which symbols to update |
+| `add_if_missing` | If true, add the parameter to symbols that don't have it (default: false) |
 
 ### Copying Components
 

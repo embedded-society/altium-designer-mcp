@@ -180,7 +180,7 @@ You should see the Altium tools listed:
 
 **Batch Operations:**
 
-- `batch_update` — Perform library-wide updates (track widths, layer renaming)
+- `batch_update` — Perform library-wide updates (PcbLib: track widths, layer renaming; SchLib: parameter updates)
 
 **SchLib Tools:**
 

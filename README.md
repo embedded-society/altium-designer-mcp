@@ -324,8 +324,8 @@ Returns:
 
 ### `batch_update`
 
-Perform batch updates across all components in an Altium PcbLib file. Supports updating track widths
-and renaming layers library-wide.
+Perform batch updates across all components in an Altium library file. Supports PcbLib
+operations (track width updates, layer renames) and SchLib operations (parameter updates).
 
 ```json
 {
@@ -344,18 +344,24 @@ and renaming layers library-wide.
 
 | Parameter | Description |
 |-----------|-------------|
-| `filepath` | Path to the PcbLib file |
-| `operation` | One of: `update_track_width`, `rename_layer` |
+| `filepath` | Path to the PcbLib or SchLib file |
+| `operation` | One of: `update_track_width`, `rename_layer`, `update_parameters` |
 | `parameters` | Operation-specific parameters |
 
-**Operations:**
+**PcbLib Operations:**
 
 | Operation | Parameters | Description |
 |-----------|------------|-------------|
 | `update_track_width` | `from_width`, `to_width`, `tolerance` | Update all tracks matching `from_width` (±tolerance) to `to_width` |
 | `rename_layer` | `from_layer`, `to_layer` | Change all primitives from one layer to another |
 
-**Example: Rename layer**
+**SchLib Operations:**
+
+| Operation | Parameters | Description |
+|-----------|------------|-------------|
+| `update_parameters` | `param_name`, `param_value`, `symbol_filter`?, `add_if_missing`? | Update parameter values across symbols |
+
+**Example: Rename layer (PcbLib)**
 
 ```json
 {
@@ -372,6 +378,31 @@ and renaming layers library-wide.
 ```
 
 Layer names accept both spaced format (`Top Layer`) and camelCase (`TopLayer`).
+
+**Example: Update parameters across symbols (SchLib)**
+
+```json
+{
+    "name": "batch_update",
+    "arguments": {
+        "filepath": "./MySymbols.SchLib",
+        "operation": "update_parameters",
+        "parameters": {
+            "param_name": "Manufacturer",
+            "param_value": "Acme Corp",
+            "symbol_filter": "^RES.*",
+            "add_if_missing": true
+        }
+    }
+}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `param_name` | Name of the parameter to update |
+| `param_value` | New value for the parameter |
+| `symbol_filter` | Optional regex to filter which symbols to update |
+| `add_if_missing` | If true, add the parameter to symbols that don't have it (default: false) |
 
 ### `copy_component`
 
