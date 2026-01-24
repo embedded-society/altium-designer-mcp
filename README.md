@@ -347,6 +347,75 @@ Extract embedded STEP 3D models from an Altium .PcbLib file. Models are stored c
 }
 ```
 
+### `import_library`
+
+Import components into an Altium library from JSON data. This is the inverse of `export_library` —
+it accepts the same JSON format that `export_library` produces, enabling round-trip workflows.
+
+```json
+{
+    "name": "import_library",
+    "arguments": {
+        "output_path": "./NewLibrary.PcbLib",
+        "json_data": {
+            "file_type": "PcbLib",
+            "footprints": [...]
+        },
+        "append": false
+    }
+}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `output_path` | Path for the output library file (.PcbLib or .SchLib) |
+| `json_data` | JSON object containing the library data (same format as `export_library` output) |
+| `append` | If `true`, add components to existing file; if `false`, create new file (default: `false`) |
+
+**JSON format (PcbLib):**
+
+```json
+{
+    "file_type": "PcbLib",
+    "footprints": [
+        {
+            "name": "RESC1608X55N",
+            "description": "Chip resistor, 0603",
+            "pads": [...],
+            "tracks": [...],
+            "regions": [...]
+        }
+    ]
+}
+```
+
+**JSON format (SchLib):**
+
+```json
+{
+    "file_type": "SchLib",
+    "symbols": [
+        {
+            "name": "RESISTOR",
+            "description": "Generic resistor",
+            "pins": [...]
+        }
+    ]
+}
+```
+
+The library type is determined from:
+
+1. The `file_type` field in the JSON data (preferred)
+2. The output file extension (.PcbLib or .SchLib)
+
+**Use cases:**
+
+- Round-trip editing: export → modify JSON → import
+- Version control: store libraries as JSON, import when needed
+- Migration: convert between formats or merge data from external sources
+- Backup restoration: recreate libraries from JSON backups
+
 ### `diff_libraries`
 
 Compare two Altium library files and report differences. Both files must be the same type.
