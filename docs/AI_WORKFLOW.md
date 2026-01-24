@@ -825,6 +825,64 @@ Use `copy_component_cross_library` to copy components from one library to anothe
 - Create project-specific libraries from master libraries
 - Migrate components during library reorganisation
 
+### Merging Libraries
+
+Use `merge_libraries` to combine multiple libraries into one:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ LIBRARY MERGE WORKFLOW                                                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  MERGE MULTIPLE LIBRARIES                                                   │
+│  AI calls: merge_libraries {                                                │
+│      source_filepaths: [                                                    │
+│          "./ResistorLib.PcbLib",                                            │
+│          "./CapacitorLib.PcbLib",                                           │
+│          "./ConnectorLib.PcbLib"                                            │
+│      ],                                                                     │
+│      target_filepath: "./MasterLib.PcbLib",                                 │
+│      on_duplicate: "skip"                                                   │
+│  }                                                                          │
+│                                                                             │
+│  MERGE WITH AUTO-RENAME FOR DUPLICATES                                      │
+│  AI calls: merge_libraries {                                                │
+│      source_filepaths: ["./LibA.SchLib", "./LibB.SchLib"],                  │
+│      target_filepath: "./Combined.SchLib",                                  │
+│      on_duplicate: "rename"                                                 │
+│  }                                                                          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Example Response:**
+
+```json
+{
+    "status": "success",
+    "target_filepath": "./MasterLib.PcbLib",
+    "file_type": "PcbLib",
+    "sources_count": 3,
+    "merged_count": 150,
+    "skipped_count": 5,
+    "renamed_count": 0,
+    "final_count": 150,
+    "sources": [
+        { "source": "./ResistorLib.PcbLib", "merged": 50, "skipped": 0, "renamed": 0 },
+        { "source": "./CapacitorLib.PcbLib", "merged": 60, "skipped": 3, "renamed": 0 },
+        { "source": "./ConnectorLib.PcbLib", "merged": 40, "skipped": 2, "renamed": 0 }
+    ],
+    "message": "Merged 150 components from 3 sources into './MasterLib.PcbLib' (total: 150)"
+}
+```
+
+**Common use cases:**
+
+- Consolidate project libraries into a master library
+- Combine vendor-specific libraries into a unified library
+- Create backup/archive libraries from multiple sources
+- Merge team member contributions into a shared library
+
 ### Previewing Footprints
 
 Use `render_footprint` to generate an ASCII art visualisation for quick preview:
