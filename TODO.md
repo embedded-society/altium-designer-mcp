@@ -1,11 +1,5 @@
 # TODO
 
-## Missing Features (Would Unblock Workflows)
-
-| Feature | Current Workaround | Impact |
-|---------|-------------------|--------|
-| `merge_libraries` | Manual component-by-component | Common need when combining projects |
-
 ## Nice-to-Haves (Quality of Life)
 
 | Feature | Why It Helps |

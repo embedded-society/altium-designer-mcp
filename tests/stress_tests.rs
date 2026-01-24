@@ -1681,3 +1681,234 @@ fn test_schlib_json_roundtrip() {
     assert_eq!(sym.rectangles.len(), 1);
     assert_eq!(sym.pins.len(), 1);
 }
+
+// =============================================================================
+// Library Merge Tests
+// =============================================================================
+
+/// Tests merging multiple `PcbLib` files into one.
+#[test]
+fn test_pcblib_merge_libraries() {
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let source1_path = temp_dir.path().join("source1.PcbLib");
+    let source2_path = temp_dir.path().join("source2.PcbLib");
+    let target_path = temp_dir.path().join("merged.PcbLib");
+
+    // Create source library 1
+    let mut lib1 = PcbLib::new();
+    let mut fp1 = Footprint::new("FP_A");
+    fp1.description = "Footprint A".to_string();
+    fp1.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    lib1.add(fp1);
+    lib1.write(&source1_path).expect("Failed to write source1");
+
+    // Create source library 2
+    let mut lib2 = PcbLib::new();
+    let mut fp2 = Footprint::new("FP_B");
+    fp2.description = "Footprint B".to_string();
+    fp2.add_pad(Pad::smd("1", 0.0, 0.0, 0.5, 0.5));
+    lib2.add(fp2);
+    lib2.write(&source2_path).expect("Failed to write source2");
+
+    // Merge the libraries (simulating what the tool does)
+    let lib1 = PcbLib::read(&source1_path).expect("Failed to read source1");
+    let lib2 = PcbLib::read(&source2_path).expect("Failed to read source2");
+
+    let mut merged = PcbLib::new();
+    for fp in lib1.footprints() {
+        merged.add(fp.clone());
+    }
+    for fp in lib2.footprints() {
+        merged.add(fp.clone());
+    }
+    merged.write(&target_path).expect("Failed to write merged");
+
+    // Verify merged library
+    let result = PcbLib::read(&target_path).expect("Failed to read merged");
+    assert_eq!(result.len(), 2, "Merged library should have 2 footprints");
+    assert!(result.get("FP_A").is_some(), "FP_A should exist");
+    assert!(result.get("FP_B").is_some(), "FP_B should exist");
+}
+
+/// Tests merging with duplicate handling (skip).
+#[test]
+fn test_pcblib_merge_skip_duplicates() {
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let source1_path = temp_dir.path().join("source1.PcbLib");
+    let source2_path = temp_dir.path().join("source2.PcbLib");
+    let target_path = temp_dir.path().join("merged.PcbLib");
+
+    // Create source library 1 with FP_A
+    let mut lib1 = PcbLib::new();
+    let mut fp1 = Footprint::new("FP_A");
+    fp1.description = "Original FP_A".to_string();
+    fp1.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    lib1.add(fp1);
+    lib1.write(&source1_path).expect("Failed to write source1");
+
+    // Create source library 2 with duplicate FP_A and unique FP_B
+    let mut lib2 = PcbLib::new();
+    let mut dup_footprint = Footprint::new("FP_A");
+    dup_footprint.description = "Duplicate FP_A".to_string();
+    dup_footprint.add_pad(Pad::smd("1", 0.0, 0.0, 0.5, 0.5));
+    lib2.add(dup_footprint);
+    let mut unique_footprint = Footprint::new("FP_B");
+    unique_footprint.description = "Footprint B".to_string();
+    unique_footprint.add_pad(Pad::smd("1", 0.0, 0.0, 0.7, 0.7));
+    lib2.add(unique_footprint);
+    lib2.write(&source2_path).expect("Failed to write source2");
+
+    // Merge with skip duplicates
+    let lib1 = PcbLib::read(&source1_path).expect("Failed to read source1");
+    let lib2 = PcbLib::read(&source2_path).expect("Failed to read source2");
+
+    let mut merged = PcbLib::new();
+    for fp in lib1.footprints() {
+        merged.add(fp.clone());
+    }
+    for fp in lib2.footprints() {
+        if merged.get(&fp.name).is_none() {
+            // Skip duplicates
+            merged.add(fp.clone());
+        }
+    }
+    merged.write(&target_path).expect("Failed to write merged");
+
+    // Verify: should have 2 footprints, FP_A from source1
+    let result = PcbLib::read(&target_path).expect("Failed to read merged");
+    assert_eq!(result.len(), 2);
+    let original = result.get("FP_A").expect("FP_A should exist");
+    assert_eq!(original.description, "Original FP_A"); // From source1, not source2
+    assert!(result.get("FP_B").is_some());
+}
+
+/// Tests merging with duplicate handling (rename).
+#[test]
+fn test_pcblib_merge_rename_duplicates() {
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let source1_path = temp_dir.path().join("source1.PcbLib");
+    let source2_path = temp_dir.path().join("source2.PcbLib");
+    let target_path = temp_dir.path().join("merged.PcbLib");
+
+    // Create source library 1 with FP_A
+    let mut lib1 = PcbLib::new();
+    let mut fp1 = Footprint::new("FP_A");
+    fp1.description = "Original FP_A".to_string();
+    fp1.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    lib1.add(fp1);
+    lib1.write(&source1_path).expect("Failed to write source1");
+
+    // Create source library 2 with duplicate FP_A
+    let mut lib2 = PcbLib::new();
+    let mut fp2 = Footprint::new("FP_A");
+    fp2.description = "Duplicate FP_A".to_string();
+    fp2.add_pad(Pad::smd("1", 0.0, 0.0, 0.5, 0.5));
+    lib2.add(fp2);
+    lib2.write(&source2_path).expect("Failed to write source2");
+
+    // Merge with rename duplicates
+    let lib1 = PcbLib::read(&source1_path).expect("Failed to read source1");
+    let lib2 = PcbLib::read(&source2_path).expect("Failed to read source2");
+
+    let mut merged = PcbLib::new();
+    for fp in lib1.footprints() {
+        merged.add(fp.clone());
+    }
+    for fp in lib2.footprints() {
+        let mut fp_to_add = fp.clone();
+        if merged.get(&fp.name).is_some() {
+            // Rename duplicate
+            let mut counter = 1;
+            let mut new_name = format!("{}_{}", fp.name, counter);
+            while merged.get(&new_name).is_some() {
+                counter += 1;
+                new_name = format!("{}_{}", fp.name, counter);
+            }
+            fp_to_add.name = new_name;
+        }
+        merged.add(fp_to_add);
+    }
+    merged.write(&target_path).expect("Failed to write merged");
+
+    // Verify: should have 2 footprints, FP_A and FP_A_1
+    let result = PcbLib::read(&target_path).expect("Failed to read merged");
+    assert_eq!(result.len(), 2);
+    assert!(result.get("FP_A").is_some());
+    assert!(result.get("FP_A_1").is_some());
+    assert_eq!(result.get("FP_A").unwrap().description, "Original FP_A");
+    assert_eq!(result.get("FP_A_1").unwrap().description, "Duplicate FP_A");
+}
+
+/// Tests merging multiple `SchLib` files into one.
+#[test]
+fn test_schlib_merge_libraries() {
+    use altium_designer_mcp::altium::schlib::{
+        Pin, PinElectricalType, PinOrientation, Rectangle, Symbol,
+    };
+    use altium_designer_mcp::altium::SchLib;
+
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let source1_path = temp_dir.path().join("source1.SchLib");
+    let source2_path = temp_dir.path().join("source2.SchLib");
+    let target_path = temp_dir.path().join("merged.SchLib");
+
+    // Create source library 1
+    let mut lib1 = SchLib::new();
+    let mut sym1 = Symbol::new("SYM_A");
+    sym1.description = "Symbol A".to_string();
+    sym1.designator = "U".to_string();
+    sym1.rectangles.push(Rectangle {
+        x1: -40,
+        y1: -40,
+        x2: 40,
+        y2: 40,
+        line_width: 1,
+        line_color: 0x0000_0000,
+        fill_color: 0x0000_FFFF,
+        filled: true,
+        owner_part_id: 1,
+    });
+    lib1.add_symbol(sym1);
+    lib1.save(&source1_path).expect("Failed to write source1");
+
+    // Create source library 2
+    let mut lib2 = SchLib::new();
+    let mut sym2 = Symbol::new("SYM_B");
+    sym2.description = "Symbol B".to_string();
+    sym2.designator = "R".to_string();
+    sym2.pins.push(Pin {
+        name: "1".to_string(),
+        designator: "1".to_string(),
+        x: -40,
+        y: 0,
+        length: 20,
+        orientation: PinOrientation::Right,
+        electrical_type: PinElectricalType::Passive,
+        hidden: false,
+        show_name: true,
+        show_designator: true,
+        description: String::new(),
+        owner_part_id: 1,
+    });
+    lib2.add_symbol(sym2);
+    lib2.save(&source2_path).expect("Failed to write source2");
+
+    // Merge the libraries
+    let lib1 = SchLib::open(&source1_path).expect("Failed to read source1");
+    let lib2 = SchLib::open(&source2_path).expect("Failed to read source2");
+
+    let mut merged = SchLib::new();
+    for (_, sym) in lib1.iter() {
+        merged.add_symbol(sym.clone());
+    }
+    for (_, sym) in lib2.iter() {
+        merged.add_symbol(sym.clone());
+    }
+    merged.save(&target_path).expect("Failed to write merged");
+
+    // Verify merged library
+    let result = SchLib::open(&target_path).expect("Failed to read merged");
+    assert_eq!(result.len(), 2, "Merged library should have 2 symbols");
+    assert!(result.get("SYM_A").is_some(), "SYM_A should exist");
+    assert!(result.get("SYM_B").is_some(), "SYM_B should exist");
+}

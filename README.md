@@ -607,6 +607,57 @@ components between projects.
 - If the target file exists, the component will be added to it
 - If a component with the same name already exists in the target, an error is returned
 
+### `merge_libraries`
+
+Merge multiple Altium libraries into a single library. All source libraries must be the same
+type (all PcbLib or all SchLib). Components are copied from each source into the target library.
+
+```json
+{
+    "name": "merge_libraries",
+    "arguments": {
+        "source_filepaths": [
+            "./LibraryA.PcbLib",
+            "./LibraryB.PcbLib",
+            "./LibraryC.PcbLib"
+        ],
+        "target_filepath": "./MergedLibrary.PcbLib",
+        "on_duplicate": "skip"
+    }
+}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `source_filepaths` | Array of paths to source library files (.PcbLib or .SchLib) |
+| `target_filepath` | Path to the target library file (will be created or appended to) |
+| `on_duplicate` | How to handle duplicate names: `skip` (ignore), `error` (fail), `rename` (auto-suffix). Default: `error` |
+
+**Behaviour:**
+
+- If the target file does not exist, it will be created
+- If the target file exists, components will be appended to it
+- Duplicate handling options:
+    - `error`: Fail immediately if a duplicate is found (default)
+    - `skip`: Silently ignore duplicates, keeping the first occurrence
+    - `rename`: Auto-rename duplicates with `_1`, `_2`, etc. suffixes
+
+**Example Response:**
+
+```json
+{
+    "status": "success",
+    "target_filepath": "./MergedLibrary.PcbLib",
+    "file_type": "PcbLib",
+    "sources_count": 3,
+    "merged_count": 45,
+    "skipped_count": 2,
+    "renamed_count": 0,
+    "final_count": 45,
+    "message": "Merged 45 components from 3 sources into './MergedLibrary.PcbLib' (total: 45)"
+}
+```
+
 ### `render_footprint`
 
 Render an ASCII art visualisation of a footprint from a PcbLib file. Shows pads, tracks,

@@ -487,6 +487,7 @@ impl McpServer {
             "copy_component_cross_library" => {
                 self.call_copy_component_cross_library(&params.arguments)
             }
+            "merge_libraries" => self.call_merge_libraries(&params.arguments),
             "render_footprint" => self.call_render_footprint(&params.arguments),
             "render_symbol" => self.call_render_symbol(&params.arguments),
             "manage_schlib_parameters" => self.call_manage_schlib_parameters(&params.arguments),
@@ -1159,6 +1160,35 @@ impl McpServer {
                         }
                     },
                     "required": ["source_filepath", "target_filepath", "component_name"]
+                }),
+            },
+            ToolDefinition {
+                name: "merge_libraries".to_string(),
+                description: Some(
+                    "Merge multiple Altium libraries into a single library. All source libraries must \
+                     be the same type (all PcbLib or all SchLib). Components are copied from each \
+                     source into the target library."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "source_filepaths": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Array of paths to source library files (.PcbLib or .SchLib)"
+                        },
+                        "target_filepath": {
+                            "type": "string",
+                            "description": "Path to the target library file (will be created or appended to)"
+                        },
+                        "on_duplicate": {
+                            "type": "string",
+                            "enum": ["skip", "error", "rename"],
+                            "description": "How to handle duplicate component names: 'skip' (ignore duplicates), 'error' (fail on duplicates), 'rename' (auto-rename with suffix). Default: 'error'"
+                        }
+                    },
+                    "required": ["source_filepaths", "target_filepath"]
                 }),
             },
             ToolDefinition {
@@ -5378,6 +5408,324 @@ impl McpServer {
                 } else {
                     format!(" as '{target_name}'")
                 }
+            ),
+        });
+
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Merges multiple Altium libraries into a single library.
+    fn call_merge_libraries(&self, arguments: &Value) -> ToolCallResult {
+        let Some(source_filepaths) = arguments.get("source_filepaths").and_then(Value::as_array)
+        else {
+            return ToolCallResult::error("Missing required parameter: source_filepaths");
+        };
+
+        let source_paths: Vec<&str> = source_filepaths.iter().filter_map(Value::as_str).collect();
+
+        if source_paths.is_empty() {
+            return ToolCallResult::error("source_filepaths must contain at least one path");
+        }
+
+        let Some(target_filepath) = arguments.get("target_filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: target_filepath");
+        };
+
+        let on_duplicate = arguments
+            .get("on_duplicate")
+            .and_then(Value::as_str)
+            .unwrap_or("error");
+
+        // Validate on_duplicate parameter
+        if !["skip", "error", "rename"].contains(&on_duplicate) {
+            return ToolCallResult::error("on_duplicate must be one of: 'skip', 'error', 'rename'");
+        }
+
+        // Validate all paths
+        for path in &source_paths {
+            if let Err(e) = self.validate_path(path) {
+                return ToolCallResult::error(e);
+            }
+        }
+        if let Err(e) = self.validate_path(target_filepath) {
+            return ToolCallResult::error(e);
+        }
+
+        // Determine file types from extensions
+        let source_exts: Vec<Option<String>> = source_paths
+            .iter()
+            .map(|p| {
+                std::path::Path::new(p)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(str::to_lowercase)
+            })
+            .collect();
+
+        let target_ext = std::path::Path::new(target_filepath)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_lowercase);
+
+        // Check that all files have the same type
+        let first_ext = &source_exts[0];
+        for (i, ext) in source_exts.iter().enumerate() {
+            if ext != first_ext {
+                return ToolCallResult::error(format!(
+                    "All source libraries must be the same type. '{}' has type {:?}, but first source has type {:?}",
+                    source_paths[i],
+                    ext.as_deref().unwrap_or("unknown"),
+                    first_ext.as_deref().unwrap_or("unknown")
+                ));
+            }
+        }
+
+        // Check target matches source type
+        if target_ext != *first_ext {
+            return ToolCallResult::error(format!(
+                "Target library type must match source libraries. Sources: {:?}, Target: {:?}",
+                first_ext.as_deref().unwrap_or("unknown"),
+                target_ext.as_deref().unwrap_or("unknown")
+            ));
+        }
+
+        match first_ext.as_deref() {
+            Some("pcblib") => {
+                Self::merge_pcblib_libraries(&source_paths, target_filepath, on_duplicate)
+            }
+            Some("schlib") => {
+                Self::merge_schlib_libraries(&source_paths, target_filepath, on_duplicate)
+            }
+            Some(ext) => ToolCallResult::error(format!(
+                "Unsupported file type: .{ext}. Use .PcbLib or .SchLib"
+            )),
+            None => ToolCallResult::error("Files have no extension. Use .PcbLib or .SchLib"),
+        }
+    }
+
+    /// Merges multiple `PcbLib` files into one.
+    fn merge_pcblib_libraries(
+        source_paths: &[&str],
+        target_filepath: &str,
+        on_duplicate: &str,
+    ) -> ToolCallResult {
+        use crate::altium::PcbLib;
+
+        // Read or create target library
+        let mut target_library = if std::path::Path::new(target_filepath).exists() {
+            match PcbLib::read(target_filepath) {
+                Ok(lib) => lib,
+                Err(e) => {
+                    return ToolCallResult::error(format!("Failed to read target library: {e}"))
+                }
+            }
+        } else {
+            PcbLib::new()
+        };
+
+        let initial_count = target_library.len();
+        let mut merged_count = 0;
+        let mut skipped_count = 0;
+        let mut renamed_count = 0;
+        let mut source_details: Vec<Value> = Vec::new();
+
+        for source_path in source_paths {
+            let source_library = match PcbLib::read(source_path) {
+                Ok(lib) => lib,
+                Err(e) => {
+                    return ToolCallResult::error(format!(
+                        "Failed to read source library '{source_path}': {e}"
+                    ))
+                }
+            };
+
+            let mut source_merged = 0;
+            let mut source_skipped = 0;
+            let mut source_renamed = 0;
+
+            for footprint in source_library.footprints() {
+                let original_name = footprint.name.clone();
+                let mut fp_to_add = footprint.clone();
+
+                if target_library.get(&original_name).is_some() {
+                    match on_duplicate {
+                        "skip" => {
+                            source_skipped += 1;
+                            skipped_count += 1;
+                            continue;
+                        }
+                        "error" => {
+                            return ToolCallResult::error(format!(
+                                "Duplicate component name '{original_name}' from '{source_path}'. Use on_duplicate: 'skip' or 'rename' to handle duplicates."
+                            ));
+                        }
+                        "rename" => {
+                            // Find a unique name
+                            let mut counter = 1;
+                            let mut new_name = format!("{original_name}_{counter}");
+                            while target_library.get(&new_name).is_some() {
+                                counter += 1;
+                                new_name = format!("{original_name}_{counter}");
+                            }
+                            fp_to_add.name = new_name;
+                            source_renamed += 1;
+                            renamed_count += 1;
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+
+                target_library.add(fp_to_add);
+                source_merged += 1;
+                merged_count += 1;
+            }
+
+            source_details.push(json!({
+                "source": source_path,
+                "merged": source_merged,
+                "skipped": source_skipped,
+                "renamed": source_renamed,
+            }));
+        }
+
+        // Write the merged library
+        if let Err(e) = target_library.write(target_filepath) {
+            return ToolCallResult::error(format!("Failed to write target library: {e}"));
+        }
+
+        let result = json!({
+            "status": "success",
+            "target_filepath": target_filepath,
+            "file_type": "PcbLib",
+            "sources_count": source_paths.len(),
+            "initial_count": initial_count,
+            "merged_count": merged_count,
+            "skipped_count": skipped_count,
+            "renamed_count": renamed_count,
+            "final_count": target_library.len(),
+            "sources": source_details,
+            "message": format!(
+                "Merged {} components from {} sources into '{}' (total: {})",
+                merged_count,
+                source_paths.len(),
+                target_filepath,
+                target_library.len()
+            ),
+        });
+
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Merges multiple `SchLib` files into one.
+    fn merge_schlib_libraries(
+        source_paths: &[&str],
+        target_filepath: &str,
+        on_duplicate: &str,
+    ) -> ToolCallResult {
+        use crate::altium::SchLib;
+
+        // Read or create target library
+        let mut target_library = if std::path::Path::new(target_filepath).exists() {
+            match SchLib::open(target_filepath) {
+                Ok(lib) => lib,
+                Err(e) => {
+                    return ToolCallResult::error(format!("Failed to read target library: {e}"))
+                }
+            }
+        } else {
+            SchLib::new()
+        };
+
+        let initial_count = target_library.len();
+        let mut merged_count = 0;
+        let mut skipped_count = 0;
+        let mut renamed_count = 0;
+        let mut source_details: Vec<Value> = Vec::new();
+
+        for source_path in source_paths {
+            let source_library = match SchLib::open(source_path) {
+                Ok(lib) => lib,
+                Err(e) => {
+                    return ToolCallResult::error(format!(
+                        "Failed to read source library '{source_path}': {e}"
+                    ))
+                }
+            };
+
+            let mut source_merged = 0;
+            let mut source_skipped = 0;
+            let mut source_renamed = 0;
+
+            // Collect symbols to avoid borrowing issues
+            let symbols: Vec<_> = source_library.iter().map(|(_, s)| s.clone()).collect();
+
+            for symbol in symbols {
+                let original_name = symbol.name.clone();
+                let mut sym_to_add = symbol;
+
+                if target_library.get(&original_name).is_some() {
+                    match on_duplicate {
+                        "skip" => {
+                            source_skipped += 1;
+                            skipped_count += 1;
+                            continue;
+                        }
+                        "error" => {
+                            return ToolCallResult::error(format!(
+                                "Duplicate component name '{original_name}' from '{source_path}'. Use on_duplicate: 'skip' or 'rename' to handle duplicates."
+                            ));
+                        }
+                        "rename" => {
+                            // Find a unique name
+                            let mut counter = 1;
+                            let mut new_name = format!("{original_name}_{counter}");
+                            while target_library.get(&new_name).is_some() {
+                                counter += 1;
+                                new_name = format!("{original_name}_{counter}");
+                            }
+                            sym_to_add.name = new_name;
+                            source_renamed += 1;
+                            renamed_count += 1;
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+
+                target_library.add_symbol(sym_to_add);
+                source_merged += 1;
+                merged_count += 1;
+            }
+
+            source_details.push(json!({
+                "source": source_path,
+                "merged": source_merged,
+                "skipped": source_skipped,
+                "renamed": source_renamed,
+            }));
+        }
+
+        // Write the merged library
+        if let Err(e) = target_library.save(target_filepath) {
+            return ToolCallResult::error(format!("Failed to write target library: {e}"));
+        }
+
+        let result = json!({
+            "status": "success",
+            "target_filepath": target_filepath,
+            "file_type": "SchLib",
+            "sources_count": source_paths.len(),
+            "initial_count": initial_count,
+            "merged_count": merged_count,
+            "skipped_count": skipped_count,
+            "renamed_count": renamed_count,
+            "final_count": target_library.len(),
+            "sources": source_details,
+            "message": format!(
+                "Merged {} components from {} sources into '{}' (total: {})",
+                merged_count,
+                source_paths.len(),
+                target_filepath,
+                target_library.len()
             ),
         });
 
