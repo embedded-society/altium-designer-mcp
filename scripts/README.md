@@ -17,9 +17,9 @@ These files are used for:
 
 ## Analysis Scripts
 
-### Python Analysis (`analyze_pcblib.py`)
+### Python Analysis (`analyze_pcblib.py`, `analyze_schlib.py`)
 
-Analyzes the binary format of PcbLib files using pyaltiumlib and olefile.
+Analyzes the binary format of PcbLib and SchLib files using olefile.
 
 **Prerequisites:**
 
@@ -29,35 +29,42 @@ python -m venv .venv
 source .venv/bin/activate  # Linux/macOS
 # or: .venv\Scripts\activate  # Windows
 
-pip install pyaltiumlib olefile
+pip install olefile
 ```
 
 **Usage:**
 
 ```bash
-# Analyze the sample file
+# Analyze PcbLib sample file
 python analyze_pcblib.py
 
-# Analyze a specific file
+# Analyze a specific PcbLib file
 python analyze_pcblib.py /path/to/library.PcbLib
+
+# Analyze SchLib sample file
+python analyze_schlib.py
+
+# Analyze a specific SchLib file
+python analyze_schlib.py /path/to/library.SchLib
 ```
 
 **Output:**
 
 - OLE structure (streams and storages)
-- Footprint names and parameters
-- Primitive data (pads, tracks, arcs, etc.)
+- Component names and parameters
+- Primitive data (pads, tracks, pins, rectangles, etc.)
 - Binary format details for reverse engineering
 
-### Rust Analysis Test
+### Rust Analysis Tests
 
-The Rust analysis test (`tests/pcblib_analysis.rs`) provides similar functionality in Rust.
+The Rust analysis tests (`tests/pcblib_analysis.rs`, `tests/schlib_analysis.rs`) provide similar functionality in Rust.
 
 **Usage:**
 
 ```bash
 # From project root
 cargo test --test pcblib_analysis -- --ignored --nocapture
+cargo test --test schlib_analysis -- --ignored --nocapture
 ```
 
 ## Binary Format Reference
