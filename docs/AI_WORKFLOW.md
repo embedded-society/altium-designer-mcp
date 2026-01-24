@@ -682,6 +682,58 @@ Legend: # = pad, - = track, o = arc, + = origin
 - Debug layout issues
 - Document footprints in text format
 
+### Previewing Symbols
+
+Use `render_symbol` to generate an ASCII art visualisation of schematic symbols:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ SYMBOL PREVIEW WORKFLOW                                                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  RENDER A SYMBOL                                                            │
+│  AI calls: render_symbol {                                                  │
+│      filepath: "./MyLibrary.SchLib",                                        │
+│      component_name: "LM358",                                               │
+│      scale: 1.0,                                                            │
+│      max_width: 60,                                                         │
+│      part_id: 1                                                             │
+│  }                                                                          │
+│                                                                             │
+│  Returns ASCII art showing:                                                 │
+│  • Pins (1-9/*) with designator                                             │
+│  • Rectangles (|-+) as box outlines                                         │
+│  • Pin lines (~) extending from body                                        │
+│  • Arcs (o) and ellipses (O)                                                │
+│  • Origin (+) crosshair                                                     │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Example Output:**
+
+```text
+Symbol: LM358 (Part 1 of 2)
+Pins: 4, Rectangles: 1, Lines: 0
+--------------------------------------------------------------
+|                                                            |
+|        +--------+                                          |
+|   3 ~~~|        |                                          |
+|        |   +    |~~~ 1                                     |
+|   2 ~~~|        |                                          |
+|        +--------+                                          |
+|                                                            |
+--------------------------------------------------------------
+Legend: 1-9/* = pin, |-+ = rectangle, ~ = pin line, + = origin
+```
+
+**Use cases:**
+
+- Verify symbol pin placement before creating
+- Check multi-part symbol layouts
+- Debug pin orientation issues
+- Document symbols in text format
+
 ### Managing Symbol Parameters
 
 Use `manage_schlib_parameters` to read and modify component parameters like Value,

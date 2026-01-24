@@ -190,6 +190,7 @@ You should see the Altium tools listed:
 **Visualisation:**
 
 - `render_footprint` — Generate ASCII art preview of a footprint
+- `render_symbol` — Generate ASCII art preview of a schematic symbol
 
 ---
 
