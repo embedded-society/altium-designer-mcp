@@ -682,6 +682,69 @@ Legend: # = pad, - = track, o = arc, + = origin
 - Debug layout issues
 - Document footprints in text format
 
+### Managing Symbol Parameters
+
+Use `manage_schlib_parameters` to read and modify component parameters like Value,
+Manufacturer, Part Number, etc.:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PARAMETER MANAGEMENT WORKFLOW                                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  LIST ALL PARAMETERS                                                         │
+│  AI calls: manage_schlib_parameters {                                        │
+│      filepath: "./MyLibrary.SchLib",                                         │
+│      component_name: "LM358",                                                │
+│      operation: "list"                                                       │
+│  }                                                                          │
+│                                                                             │
+│  SET A PARAMETER VALUE                                                       │
+│  AI calls: manage_schlib_parameters {                                        │
+│      filepath: "./MyLibrary.SchLib",                                         │
+│      component_name: "LM358",                                                │
+│      operation: "set",                                                       │
+│      parameter_name: "Value",                                                │
+│      value: "LM358D"                                                         │
+│  }                                                                          │
+│                                                                             │
+│  ADD A NEW PARAMETER                                                         │
+│  AI calls: manage_schlib_parameters {                                        │
+│      filepath: "./MyLibrary.SchLib",                                         │
+│      component_name: "LM358",                                                │
+│      operation: "add",                                                       │
+│      parameter_name: "Manufacturer",                                         │
+│      value: "Texas Instruments"                                              │
+│  }                                                                          │
+│                                                                             │
+│  DELETE A PARAMETER                                                          │
+│  AI calls: manage_schlib_parameters {                                        │
+│      filepath: "./MyLibrary.SchLib",                                         │
+│      component_name: "LM358",                                                │
+│      operation: "delete",                                                    │
+│      parameter_name: "OldParameter"                                          │
+│  }                                                                          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Common parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `Value` | Component value (e.g., "10k", "100nF") |
+| `Manufacturer` | Component manufacturer |
+| `Part Number` | Manufacturer part number |
+| `Description` | Component description |
+| `Datasheet` | Link to datasheet |
+
+**Use cases:**
+
+- Populate component data from datasheets
+- Update values across library symbols
+- Add manufacturer and part number information
+- Clean up unused parameters
+
 ---
 
 ## Tips for AI Assistants

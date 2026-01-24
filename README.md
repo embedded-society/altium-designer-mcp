@@ -405,6 +405,44 @@ and other primitives in a simple text format for quick preview.
 
 Returns ASCII art with legend: `#` = pad, `-` = track, `o` = arc, `+` = origin.
 
+### `manage_schlib_parameters`
+
+Manage component parameters in Altium SchLib files. Supports listing, getting, setting,
+adding, and deleting parameters like Value, Manufacturer, Part Number, etc.
+
+```json
+{
+    "name": "manage_schlib_parameters",
+    "arguments": {
+        "filepath": "./MyLibrary.SchLib",
+        "component_name": "LM358",
+        "operation": "set",
+        "parameter_name": "Value",
+        "value": "LM358D"
+    }
+}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `filepath` | Path to the SchLib file |
+| `component_name` | Name of the symbol |
+| `operation` | Operation: `list`, `get`, `set`, `add`, `delete` |
+| `parameter_name` | Parameter name (required for get/set/add/delete) |
+| `value` | Parameter value (required for set/add) |
+| `hidden` | Whether parameter is hidden (optional for set/add) |
+| `x`, `y` | Position in schematic units (optional for add) |
+
+**Operations:**
+
+| Operation | Description |
+|-----------|-------------|
+| `list` | Returns all parameters for a symbol |
+| `get` | Returns a single parameter by name |
+| `set` | Updates an existing parameter's value |
+| `add` | Creates a new parameter |
+| `delete` | Removes a parameter |
+
 ---
 
 ## Primitive Types

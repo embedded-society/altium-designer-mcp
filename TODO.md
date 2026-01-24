@@ -147,8 +147,8 @@ This is likely due to internal unit conversion (mm ↔ mils) and is within accep
 
 ## Nice-to-Have Features
 
-1. **Parameter management for SchLib**
-   - Add/modify component parameters (Value, Manufacturer, etc.)
+1. ~~**Parameter management for SchLib**~~ **IMPLEMENTED**
+   - `manage_schlib_parameters` tool with list/get/set/add/delete operations
 
 2. **Footprint link management**
    - Add/remove footprint links from schematic symbols
@@ -183,4 +183,4 @@ which doesn't impact functionality.
 
 Recommended next steps:
 
-1. Add parameter management for SchLib (Value, Manufacturer, etc.)
+1. Add footprint link management for SchLib
