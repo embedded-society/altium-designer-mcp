@@ -939,6 +939,54 @@ Use `search_components` to find components across multiple libraries using glob 
 - Search for components by part number prefix (e.g., `LM78*`)
 - Audit libraries for naming consistency
 
+### Getting a Single Component
+
+Use `get_component` to retrieve a single component by exact name:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ GET COMPONENT WORKFLOW                                                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  GET FOOTPRINT FROM PCBLIB                                                  │
+│  AI calls: get_component {                                                  │
+│      filepath: "./MyLibrary.PcbLib",                                        │
+│      component_name: "SOIC-8"                                               │
+│  }                                                                          │
+│                                                                             │
+│  GET SYMBOL FROM SCHLIB                                                     │
+│  AI calls: get_component {                                                  │
+│      filepath: "./Components.SchLib",                                       │
+│      component_name: "LM7805"                                               │
+│  }                                                                          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Example Response:**
+
+```json
+{
+    "status": "success",
+    "filepath": "./MyLibrary.PcbLib",
+    "component_name": "SOIC-8",
+    "type": "PcbLib",
+    "component": {
+        "name": "SOIC-8",
+        "description": "8-pin SOIC package",
+        "pads": [...],
+        "tracks": [...]
+    },
+    "message": "Retrieved footprint 'SOIC-8' from './MyLibrary.PcbLib'"
+}
+```
+
+**Common use cases:**
+
+- Retrieve a specific component for inspection or modification
+- Get component data for comparison with another library
+- Extract component details for documentation
+
 ### Previewing Footprints
 
 Use `render_footprint` to generate an ASCII art visualisation for quick preview:
