@@ -1,10 +1,5 @@
 # TODO
 
-## Bugs
-
-- [ ] **3D STEP model not persisted**: `step_model` parameter in `write_pcblib` is accepted but data is not stored.
-      Read returns `model_3d: null`. Needs implementation of ComponentBody3D records for writing and parsing.
-
 ## Future Enhancements
 
 - [ ] **Bulk parameter update**: Set parameters across multiple symbols at once

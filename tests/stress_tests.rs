@@ -4,7 +4,7 @@
 //! overflow/underflow scenarios to find bugs.
 
 use altium_designer_mcp::altium::pcblib::{
-    Arc, ComponentBody, Fill, Footprint, Layer, Pad, PcbFlags, PcbLib, Region, Text,
+    Arc, ComponentBody, Fill, Footprint, Layer, Model3D, Pad, PcbFlags, PcbLib, Region, Text,
     TextJustification, TextKind, Track, Vertex, Via,
 };
 use altium_designer_mcp::altium::schlib::{Pin, PinOrientation, Rectangle, SchLib, Symbol};
@@ -138,7 +138,7 @@ fn test_empty_library() {
     let temp_dir = tempdir().expect("Failed to create temp dir");
     let file_path = temp_dir.path().join("empty_lib.PcbLib");
 
-    let lib = PcbLib::new();
+    let mut lib = PcbLib::new();
     lib.write(&file_path).expect("Failed to write");
 
     let read_lib = PcbLib::read(&file_path).expect("Failed to read");
@@ -941,5 +941,149 @@ fn test_pagination_edge_cases() {
         footprints.iter().take(0).count(),
         0,
         "Zero limit should return empty"
+    );
+}
+
+// =============================================================================
+// 3D Model Persistence Tests (model_3d -> ComponentBody -> model_3d roundtrip)
+// =============================================================================
+
+#[test]
+fn test_model_3d_persistence() {
+    use std::io::Write;
+
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let step_path = temp_dir.path().join("test_model.step");
+    let pcblib_path = temp_dir.path().join("model_3d_test.PcbLib");
+
+    // Create a minimal STEP file (valid header but empty content)
+    let step_content = br#"ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('Test STEP file'), '2;1');
+FILE_NAME('test_model.step', '2024-01-01T00:00:00', (''), (''), '', '', '');
+FILE_SCHEMA(('AUTOMOTIVE_DESIGN'));
+ENDSEC;
+DATA;
+ENDSEC;
+END-ISO-10303-21;
+"#;
+
+    {
+        let mut step_file = File::create(&step_path).expect("Failed to create STEP file");
+        step_file
+            .write_all(step_content)
+            .expect("Failed to write STEP file");
+    }
+
+    // Create a footprint with model_3d set
+    let mut lib = PcbLib::new();
+    let mut fp = Footprint::new("MODEL_3D_TEST");
+    fp.add_pad(Pad::smd("1", -0.5, 0.0, 0.6, 0.5));
+    fp.add_pad(Pad::smd("2", 0.5, 0.0, 0.6, 0.5));
+
+    // Set model_3d (the new persistence feature)
+    fp.model_3d = Some(Model3D {
+        filepath: step_path.to_string_lossy().to_string(),
+        x_offset: 0.0,
+        y_offset: 0.0,
+        z_offset: 0.5,  // 0.5mm standoff
+        rotation: 45.0, // 45 degree rotation
+    });
+
+    lib.add(fp);
+    lib.write(&pcblib_path).expect("Failed to write PcbLib");
+
+    // Read back and verify
+    let read_lib = PcbLib::read(&pcblib_path).expect("Failed to read PcbLib");
+    let read_fp = read_lib.get("MODEL_3D_TEST").expect("Footprint not found");
+
+    // Verify model_3d is populated (from ComponentBody)
+    assert!(
+        read_fp.model_3d.is_some(),
+        "model_3d should be populated after read"
+    );
+
+    let model = read_fp.model_3d.as_ref().unwrap();
+
+    // Filepath should be the model filename (not the original full path)
+    assert!(
+        model.filepath.contains("test_model.step"),
+        "Filepath should contain the model filename, got: {}",
+        model.filepath
+    );
+
+    // Z offset should be preserved
+    assert!(
+        (model.z_offset - 0.5).abs() < 0.01,
+        "Z offset should be ~0.5mm, got: {}",
+        model.z_offset
+    );
+
+    // Rotation should be preserved
+    assert!(
+        (model.rotation - 45.0).abs() < 0.01,
+        "Rotation should be ~45 degrees, got: {}",
+        model.rotation
+    );
+
+    // Verify component_bodies is also populated
+    assert_eq!(
+        read_fp.component_bodies.len(),
+        1,
+        "Should have 1 ComponentBody"
+    );
+    let body = &read_fp.component_bodies[0];
+    assert_eq!(body.model_name, "test_model.step");
+    assert!(body.embedded);
+}
+
+#[test]
+fn test_model_3d_embedded_data_persistence() {
+    use std::io::Write;
+
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let step_path = temp_dir.path().join("embedded_model.step");
+    let pcblib_path = temp_dir.path().join("embedded_test.PcbLib");
+
+    // Create a STEP file with recognizable content
+    let step_content = b"ISO-10303-21;HEADER;FILE_DESCRIPTION(('Embedded test'));ENDSEC;DATA;ENDSEC;END-ISO-10303-21;";
+
+    {
+        let mut step_file = File::create(&step_path).expect("Failed to create STEP file");
+        step_file
+            .write_all(step_content)
+            .expect("Failed to write STEP file");
+    }
+
+    // Create footprint with model_3d
+    let mut lib = PcbLib::new();
+    let mut fp = Footprint::new("EMBEDDED_TEST");
+    fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    fp.model_3d = Some(Model3D {
+        filepath: step_path.to_string_lossy().to_string(),
+        x_offset: 0.0,
+        y_offset: 0.0,
+        z_offset: 0.0,
+        rotation: 0.0,
+    });
+
+    lib.add(fp);
+    lib.write(&pcblib_path).expect("Failed to write");
+
+    // Read back
+    let read_lib = PcbLib::read(&pcblib_path).expect("Failed to read");
+
+    // Verify embedded model data
+    assert_eq!(read_lib.model_count(), 1, "Should have 1 embedded model");
+
+    let embedded = read_lib.models().next().expect("Should have model");
+    assert_eq!(embedded.name, "embedded_model.step");
+    assert!(embedded.size() > 0, "Embedded model should have data");
+
+    // Verify the model data is the decompressed STEP file
+    let model_text = embedded.as_string().expect("Model should be valid UTF-8");
+    assert!(
+        model_text.contains("Embedded test"),
+        "Model data should contain original content"
     );
 }

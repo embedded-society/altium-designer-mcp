@@ -111,7 +111,7 @@ fn test_pcblib_roundtrip() {
         return;
     }
 
-    let original = PcbLib::read(path).expect("Failed to read original PcbLib");
+    let mut original = PcbLib::read(path).expect("Failed to read original PcbLib");
     let original_count = original.len();
 
     // Write to temp file

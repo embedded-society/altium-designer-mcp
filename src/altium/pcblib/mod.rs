@@ -296,6 +296,9 @@ impl PcbLib {
             }
         }
 
+        // Populate model_3d from component_bodies for backward compatibility
+        library.populate_model_3d_from_component_bodies();
+
         tracing::info!(
             path = %path.display(),
             count = library.footprints.len(),
@@ -303,6 +306,43 @@ impl PcbLib {
         );
 
         Ok(library)
+    }
+
+    /// Populates `model_3d` field from `component_bodies` for backward compatibility.
+    ///
+    /// When reading a library, the 3D model data is stored in `component_bodies` as
+    /// `ComponentBody` primitives. This method extracts the first `ComponentBody`
+    /// and creates a `Model3D` reference for it, enabling backward compatibility
+    /// with code that uses the simpler `model_3d` field.
+    fn populate_model_3d_from_component_bodies(&mut self) {
+        for footprint in &mut self.footprints {
+            // Only populate if model_3d is None and there are component_bodies
+            if footprint.model_3d.is_none() && !footprint.component_bodies.is_empty() {
+                let body = &footprint.component_bodies[0];
+
+                // Try to find the corresponding EmbeddedModel to get the actual filepath
+                // If not found, use the model_name as the filepath
+                let filepath = self
+                    .models
+                    .iter()
+                    .find(|m| m.id == body.model_id)
+                    .map_or_else(|| body.model_name.clone(), |m| m.name.clone());
+
+                footprint.model_3d = Some(Model3D {
+                    filepath,
+                    x_offset: 0.0, // ComponentBody doesn't store X/Y offsets
+                    y_offset: 0.0,
+                    z_offset: body.z_offset,
+                    rotation: body.rotation_z,
+                });
+
+                tracing::trace!(
+                    footprint = %footprint.name,
+                    model_id = %body.model_id,
+                    "Populated model_3d from ComponentBody"
+                );
+            }
+        }
     }
 
     /// Reads the `FileHeader` stream and parses library metadata.
@@ -649,7 +689,7 @@ impl PcbLib {
     /// # Errors
     ///
     /// Returns an error if the file cannot be written.
-    pub fn write(&self, path: impl AsRef<std::path::Path>) -> AltiumResult<()> {
+    pub fn write(&mut self, path: impl AsRef<std::path::Path>) -> AltiumResult<()> {
         let path = path.as_ref();
         let file = std::fs::File::create(path).map_err(|e| AltiumError::file_write(path, e))?;
 
@@ -658,11 +698,14 @@ impl PcbLib {
 
     /// Writes the library to a writer.
     fn write_to(
-        &self,
+        &mut self,
         writer: impl std::io::Read + std::io::Write + std::io::Seek,
         path: &std::path::Path,
     ) -> AltiumResult<()> {
         use cfb::CompoundFile;
+
+        // Convert model_3d references to ComponentBody + EmbeddedModel before writing
+        self.prepare_3d_models_for_writing()?;
 
         let mut cfb = CompoundFile::create(writer)
             .map_err(|e| AltiumError::invalid_ole(format!("Failed to create OLE file: {e}")))?;
@@ -690,6 +733,68 @@ impl PcbLib {
             models = self.models.len(),
             "Wrote PcbLib"
         );
+
+        Ok(())
+    }
+
+    /// Converts `model_3d` references to `ComponentBody` + `EmbeddedModel` for writing.
+    ///
+    /// This method processes all footprints that have a `model_3d` field set:
+    /// 1. Reads the STEP file from disk (using the filepath)
+    /// 2. Creates an `EmbeddedModel` with a generated GUID
+    /// 3. Creates a `ComponentBody` referencing the model
+    /// 4. Adds the `ComponentBody` to the footprint's `component_bodies`
+    /// 5. Adds the `EmbeddedModel` to the library's `models` collection
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a STEP file cannot be read.
+    fn prepare_3d_models_for_writing(&mut self) -> AltiumResult<()> {
+        use uuid::Uuid;
+
+        for footprint in &mut self.footprints {
+            if let Some(ref model_3d) = footprint.model_3d {
+                // Read the STEP file
+                let step_data = std::fs::read(&model_3d.filepath).map_err(|e| {
+                    AltiumError::file_read(std::path::Path::new(&model_3d.filepath), e)
+                })?;
+
+                // Generate a GUID for the model
+                let guid = format!("{{{}}}", Uuid::new_v4().to_string().to_uppercase());
+
+                // Extract filename from path
+                let filename = std::path::Path::new(&model_3d.filepath)
+                    .file_name()
+                    .map_or_else(|| "model.step".to_string(), |n| n.to_string_lossy().to_string());
+
+                // Create EmbeddedModel
+                let embedded_model = EmbeddedModel::new(&guid, &filename, step_data);
+                self.models.push(embedded_model);
+
+                // Create ComponentBody referencing the model
+                let component_body = ComponentBody {
+                    model_id: guid,
+                    model_name: filename,
+                    embedded: true,
+                    rotation_x: 0.0,
+                    rotation_y: 0.0,
+                    rotation_z: model_3d.rotation,
+                    z_offset: model_3d.z_offset,
+                    overall_height: 0.0, // Could be calculated from STEP, but not implemented
+                    standoff_height: 0.0,
+                    layer: Layer::Top3DBody,
+                    unique_id: None,
+                };
+
+                footprint.component_bodies.push(component_body);
+
+                tracing::debug!(
+                    footprint = %footprint.name,
+                    filepath = %model_3d.filepath,
+                    "Converted model_3d to ComponentBody"
+                );
+            }
+        }
 
         Ok(())
     }
