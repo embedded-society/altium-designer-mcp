@@ -476,6 +476,7 @@ impl McpServer {
             "copy_component" => self.call_copy_component(&params.arguments),
             "render_footprint" => self.call_render_footprint(&params.arguments),
             "manage_schlib_parameters" => self.call_manage_schlib_parameters(&params.arguments),
+            "manage_schlib_footprints" => self.call_manage_schlib_footprints(&params.arguments),
             // Unknown tool
             _ => ToolCallResult::error(format!("Unknown tool: {}", params.name)),
         };
@@ -1070,6 +1071,42 @@ impl McpServer {
                         "y": {
                             "type": "integer",
                             "description": "Y position in schematic units (optional for add)"
+                        }
+                    },
+                    "required": ["filepath", "component_name", "operation"]
+                }),
+            },
+            // manage_schlib_footprints - Manage footprint links in symbols
+            ToolDefinition {
+                name: "manage_schlib_footprints".to_string(),
+                description: Some(
+                    "Manage footprint links in Altium SchLib symbols. Supports listing, adding, \
+                     and removing footprint references that link schematic symbols to PCB footprints."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepath": {
+                            "type": "string",
+                            "description": "Path to the Altium SchLib file"
+                        },
+                        "component_name": {
+                            "type": "string",
+                            "description": "Name of the symbol to manage footprints for"
+                        },
+                        "operation": {
+                            "type": "string",
+                            "enum": ["list", "add", "remove"],
+                            "description": "Operation to perform: list (all footprints), add (new footprint link), remove (delete footprint link)"
+                        },
+                        "footprint_name": {
+                            "type": "string",
+                            "description": "Footprint name (required for add, remove)"
+                        },
+                        "description": {
+                            "type": "string",
+                            "description": "Footprint description (optional for add)"
                         }
                     },
                     "required": ["filepath", "component_name", "operation"]
@@ -4823,6 +4860,162 @@ impl McpServer {
 
             _ => ToolCallResult::error(format!(
                 "Unknown operation: {operation}. Valid operations: list, get, set, add, delete"
+            )),
+        }
+    }
+
+    /// Manages footprint links in a `SchLib` symbol.
+    #[allow(clippy::too_many_lines)]
+    fn call_manage_schlib_footprints(&self, arguments: &Value) -> ToolCallResult {
+        use crate::altium::schlib::{FootprintModel, SchLib};
+
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        let Some(component_name) = arguments.get("component_name").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: component_name");
+        };
+
+        let Some(operation) = arguments.get("operation").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: operation");
+        };
+
+        // Validate path is within allowed directories
+        if let Err(e) = self.validate_path(filepath) {
+            return ToolCallResult::error(e);
+        }
+
+        // Validate file extension
+        let ext = std::path::Path::new(filepath)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_lowercase);
+
+        if ext.as_deref() != Some("schlib") {
+            return ToolCallResult::error("manage_schlib_footprints only supports SchLib files");
+        }
+
+        match operation {
+            "list" => {
+                // Read the library
+                let library = match SchLib::open(filepath) {
+                    Ok(lib) => lib,
+                    Err(e) => return ToolCallResult::error(format!("Failed to read library: {e}")),
+                };
+
+                // Find the symbol
+                let Some(symbol) = library.get(component_name) else {
+                    return ToolCallResult::error(format!(
+                        "Symbol '{component_name}' not found in library"
+                    ));
+                };
+
+                // List all footprints
+                let footprints: Vec<_> = symbol
+                    .footprints
+                    .iter()
+                    .map(|f| {
+                        json!({
+                            "name": f.name,
+                            "description": f.description,
+                        })
+                    })
+                    .collect();
+
+                let result = json!({
+                    "status": "success",
+                    "filepath": filepath,
+                    "component_name": component_name,
+                    "operation": "list",
+                    "footprints": footprints,
+                    "count": footprints.len(),
+                });
+
+                ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+            }
+
+            "add" | "remove" => {
+                let Some(footprint_name) = arguments.get("footprint_name").and_then(Value::as_str)
+                else {
+                    return ToolCallResult::error(format!(
+                        "Missing required parameter: footprint_name (required for {operation} operation)"
+                    ));
+                };
+
+                // Read the library
+                let mut library = match SchLib::open(filepath) {
+                    Ok(lib) => lib,
+                    Err(e) => return ToolCallResult::error(format!("Failed to read library: {e}")),
+                };
+
+                // Find the symbol (mutable)
+                let Some(symbol) = library.symbols.get_mut(component_name) else {
+                    return ToolCallResult::error(format!(
+                        "Symbol '{component_name}' not found in library"
+                    ));
+                };
+
+                let result = if operation == "add" {
+                    // Check if footprint already exists
+                    if symbol
+                        .footprints
+                        .iter()
+                        .any(|f| f.name.eq_ignore_ascii_case(footprint_name))
+                    {
+                        return ToolCallResult::error(format!(
+                            "Footprint '{footprint_name}' already linked to symbol '{component_name}'"
+                        ));
+                    }
+
+                    let mut footprint = FootprintModel::new(footprint_name);
+
+                    // Apply optional description
+                    if let Some(desc) = arguments.get("description").and_then(Value::as_str) {
+                        footprint.description = desc.to_string();
+                    }
+
+                    symbol.add_footprint(footprint);
+
+                    json!({
+                        "status": "success",
+                        "filepath": filepath,
+                        "component_name": component_name,
+                        "operation": "add",
+                        "footprint": footprint_name,
+                    })
+                } else {
+                    // Remove footprint
+                    let original_len = symbol.footprints.len();
+                    symbol
+                        .footprints
+                        .retain(|f| !f.name.eq_ignore_ascii_case(footprint_name));
+
+                    if symbol.footprints.len() == original_len {
+                        return ToolCallResult::error(format!(
+                            "Footprint '{footprint_name}' not found in symbol '{component_name}'"
+                        ));
+                    }
+
+                    json!({
+                        "status": "success",
+                        "filepath": filepath,
+                        "component_name": component_name,
+                        "operation": "remove",
+                        "removed_footprint": footprint_name,
+                    })
+                };
+
+                // Save the modified library
+                if let Err(e) = library.save(filepath) {
+                    return ToolCallResult::error(format!("Failed to save library: {e}"));
+                }
+
+                ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+            }
+
+            _ => ToolCallResult::error(format!(
+                "Unknown operation: {operation}. Valid operations: list, add, remove"
             )),
         }
     }

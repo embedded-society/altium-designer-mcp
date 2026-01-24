@@ -745,6 +745,48 @@ Manufacturer, Part Number, etc.:
 - Add manufacturer and part number information
 - Clean up unused parameters
 
+### Managing Footprint Links
+
+Use `manage_schlib_footprints` to link schematic symbols to PCB footprints:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ FOOTPRINT LINK MANAGEMENT WORKFLOW                                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  LIST LINKED FOOTPRINTS                                                      │
+│  AI calls: manage_schlib_footprints {                                        │
+│      filepath: "./MyLibrary.SchLib",                                         │
+│      component_name: "LM358",                                                │
+│      operation: "list"                                                       │
+│  }                                                                          │
+│                                                                             │
+│  ADD A FOOTPRINT LINK                                                        │
+│  AI calls: manage_schlib_footprints {                                        │
+│      filepath: "./MyLibrary.SchLib",                                         │
+│      component_name: "LM358",                                                │
+│      operation: "add",                                                       │
+│      footprint_name: "SOIC-8_3.9x4.9mm",                                     │
+│      description: "SOIC 8-pin package"                                       │
+│  }                                                                          │
+│                                                                             │
+│  REMOVE A FOOTPRINT LINK                                                     │
+│  AI calls: manage_schlib_footprints {                                        │
+│      filepath: "./MyLibrary.SchLib",                                         │
+│      component_name: "LM358",                                                │
+│      operation: "remove",                                                    │
+│      footprint_name: "DIP-8_W7.62mm"                                         │
+│  }                                                                          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Use cases:**
+
+- Link symbols to multiple package variants (SOIC, DIP, QFN)
+- Update footprint references when libraries change
+- Clean up obsolete footprint links
+
 ---
 
 ## Tips for AI Assistants

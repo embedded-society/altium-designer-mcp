@@ -443,6 +443,39 @@ adding, and deleting parameters like Value, Manufacturer, Part Number, etc.
 | `add` | Creates a new parameter |
 | `delete` | Removes a parameter |
 
+### `manage_schlib_footprints`
+
+Manage footprint links in Altium SchLib symbols. Supports listing, adding, and removing
+footprint references that link schematic symbols to PCB footprints.
+
+```json
+{
+    "name": "manage_schlib_footprints",
+    "arguments": {
+        "filepath": "./MyLibrary.SchLib",
+        "component_name": "LM358",
+        "operation": "add",
+        "footprint_name": "SOIC-8_3.9x4.9mm"
+    }
+}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `filepath` | Path to the SchLib file |
+| `component_name` | Name of the symbol |
+| `operation` | Operation: `list`, `add`, `remove` |
+| `footprint_name` | Footprint name (required for add/remove) |
+| `description` | Footprint description (optional for add) |
+
+**Operations:**
+
+| Operation | Description |
+|-----------|-------------|
+| `list` | Returns all linked footprints for a symbol |
+| `add` | Links a new footprint to the symbol |
+| `remove` | Removes a footprint link from the symbol |
+
 ---
 
 ## Primitive Types

@@ -150,8 +150,8 @@ This is likely due to internal unit conversion (mm ↔ mils) and is within accep
 1. ~~**Parameter management for SchLib**~~ **IMPLEMENTED**
    - `manage_schlib_parameters` tool with list/get/set/add/delete operations
 
-2. **Footprint link management**
-   - Add/remove footprint links from schematic symbols
+2. ~~**Footprint link management**~~ **IMPLEMENTED**
+   - `manage_schlib_footprints` tool with list/add/remove operations
 
 3. **Support for multi-part symbols**
    - Currently `part_count` is read but not writable
@@ -183,4 +183,4 @@ which doesn't impact functionality.
 
 Recommended next steps:
 
-1. Add footprint link management for SchLib
+1. Add support for multi-part symbols (writable `part_count`)
