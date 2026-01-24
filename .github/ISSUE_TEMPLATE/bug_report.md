@@ -17,7 +17,8 @@ A clear and concise description of what the bug is.
 - [ ] Checked existing issues to avoid duplicates
 - [ ] Included relevant file paths or library names (if applicable)
 
-If this is a **security vulnerability**, please report it privately via [GitHub Security Advisories](https://github.com/embedded-society/altium-designer-mcp/security/advisories/new).
+If this is a **security vulnerability**, please report it privately via
+[GitHub Security Advisories](https://github.com/embedded-society/altium-designer-mcp/security/advisories/new).
 
 ## Steps to Reproduce
 

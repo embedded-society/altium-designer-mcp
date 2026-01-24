@@ -165,7 +165,8 @@ serde = { version = "1.0", features = ["derive"] }
 
 ### Formatter
 
-Use [Even Better TOML](https://marketplace.visualstudio.com/items?itemName=tamasfe.even-better-toml) for VS Code. Column width is set to 170 characters (configured in `.vscode/settings.json`).
+Use [Even Better TOML](https://marketplace.visualstudio.com/items?itemName=tamasfe.even-better-toml) for VS Code.
+Column width is set to 170 characters (configured in `.vscode/settings.json`).
 
 ---
 

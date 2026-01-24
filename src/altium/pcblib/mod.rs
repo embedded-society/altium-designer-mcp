@@ -803,8 +803,7 @@ impl PcbLib {
         let _ = write!(header, "|COMPCOUNT={count}");
 
         // Component names and descriptions
-        for (idx, (footprint, ole_name)) in
-            self.footprints.iter().zip(ole_names.iter()).enumerate()
+        for (idx, (footprint, ole_name)) in self.footprints.iter().zip(ole_names.iter()).enumerate()
         {
             // LibRef uses the OLE-safe name (for storage path lookup)
             let _ = write!(header, "|LIBREF{idx}={ole_name}");

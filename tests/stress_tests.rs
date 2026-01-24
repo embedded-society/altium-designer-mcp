@@ -237,7 +237,8 @@ fn test_footprint_name_too_long_returns_error() {
 
     // This should succeed - the OLE storage uses a truncated name,
     // but the full name is preserved in the PATTERN field
-    lib.write(&file_path).expect("Long names should be supported");
+    lib.write(&file_path)
+        .expect("Long names should be supported");
 
     // Verify the full name is preserved on read
     let read_lib = PcbLib::read(&file_path).expect("Failed to read");
@@ -604,7 +605,8 @@ fn test_schlib_symbol_name_length_validation() {
 
     // Long names are now supported - the OLE storage uses a truncated name,
     // but the full name is preserved in the LibReference field
-    lib2.save(&file_path).expect("Long names should be supported");
+    lib2.save(&file_path)
+        .expect("Long names should be supported");
 
     // Verify the full name is preserved on read
     let read_lib = SchLib::open(&file_path).expect("Failed to read");

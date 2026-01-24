@@ -35,16 +35,16 @@ pip install olefile
 **Usage:**
 
 ```bash
-# Analyze PcbLib sample file
+# Analyse PcbLib sample file
 python analyze_pcblib.py
 
-# Analyze a specific PcbLib file
+# Analyse a specific PcbLib file
 python analyze_pcblib.py /path/to/library.PcbLib
 
-# Analyze SchLib sample file
+# Analyse SchLib sample file
 python analyze_schlib.py
 
-# Analyze a specific SchLib file
+# Analyse a specific SchLib file
 python analyze_schlib.py /path/to/library.SchLib
 ```
 
