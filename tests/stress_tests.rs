@@ -1198,3 +1198,211 @@ fn test_step_model_lookup_by_name_and_id() {
         "Model name should be preserved"
     );
 }
+
+// =============================================================================
+// Cross-Library Component Copy Tests
+// =============================================================================
+
+/// Tests copying a footprint from one `PcbLib` to another.
+#[test]
+fn test_pcblib_copy_cross_library() {
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let source_path = temp_dir.path().join("source.PcbLib");
+    let target_path = temp_dir.path().join("target.PcbLib");
+
+    // Create source library with a footprint
+    let mut source_lib = PcbLib::new();
+    let mut fp = Footprint::new("SOURCE_FP");
+    fp.description = "Source footprint".to_string();
+    fp.add_pad(Pad::smd("1", -0.5, 0.0, 0.6, 0.5));
+    fp.add_pad(Pad::smd("2", 0.5, 0.0, 0.6, 0.5));
+    fp.add_track(Track::new(-1.0, -0.5, 1.0, -0.5, 0.15, Layer::TopOverlay));
+    source_lib.add(fp);
+    source_lib
+        .write(&source_path)
+        .expect("Failed to write source");
+
+    // Simulate cross-library copy (same as the tool does)
+    let source_lib = PcbLib::read(&source_path).expect("Failed to read source");
+    let source = source_lib
+        .get("SOURCE_FP")
+        .expect("Source not found")
+        .clone();
+
+    let mut target_lib = PcbLib::new();
+    target_lib.add(source);
+    target_lib
+        .write(&target_path)
+        .expect("Failed to write target");
+
+    // Verify target library
+    let read_target = PcbLib::read(&target_path).expect("Failed to read target");
+    assert_eq!(read_target.len(), 1, "Target should have 1 footprint");
+    let fp = read_target.get("SOURCE_FP").expect("Footprint not found");
+    assert_eq!(fp.description, "Source footprint");
+    assert_eq!(fp.pads.len(), 2);
+    assert_eq!(fp.tracks.len(), 1);
+}
+
+/// Tests copying a footprint to an existing target library.
+#[test]
+fn test_pcblib_copy_cross_library_to_existing() {
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let source_path = temp_dir.path().join("source.PcbLib");
+    let target_path = temp_dir.path().join("target.PcbLib");
+
+    // Create source library
+    let mut source_lib = PcbLib::new();
+    let mut fp1 = Footprint::new("FP_A");
+    fp1.description = "Footprint A".to_string();
+    fp1.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    source_lib.add(fp1);
+    source_lib
+        .write(&source_path)
+        .expect("Failed to write source");
+
+    // Create target library with existing footprint
+    let mut target_lib = PcbLib::new();
+    let mut fp2 = Footprint::new("FP_B");
+    fp2.description = "Footprint B".to_string();
+    fp2.add_pad(Pad::smd("1", 0.0, 0.0, 0.5, 0.5));
+    target_lib.add(fp2);
+    target_lib
+        .write(&target_path)
+        .expect("Failed to write target");
+
+    // Copy from source to target
+    let source_lib = PcbLib::read(&source_path).expect("Failed to read source");
+    let source = source_lib.get("FP_A").expect("Source not found").clone();
+
+    let mut target_lib = PcbLib::read(&target_path).expect("Failed to read target");
+    target_lib.add(source);
+    target_lib
+        .write(&target_path)
+        .expect("Failed to write target");
+
+    // Verify target has both footprints
+    let read_target = PcbLib::read(&target_path).expect("Failed to read target");
+    assert_eq!(read_target.len(), 2, "Target should have 2 footprints");
+    assert!(read_target.get("FP_A").is_some(), "FP_A should exist");
+    assert!(read_target.get("FP_B").is_some(), "FP_B should exist");
+}
+
+/// Tests copying a footprint with rename.
+#[test]
+fn test_pcblib_copy_cross_library_with_rename() {
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let source_path = temp_dir.path().join("source.PcbLib");
+    let target_path = temp_dir.path().join("target.PcbLib");
+
+    // Create source library
+    let mut source_lib = PcbLib::new();
+    let mut fp = Footprint::new("ORIGINAL_NAME");
+    fp.description = "Original description".to_string();
+    fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    source_lib.add(fp);
+    source_lib
+        .write(&source_path)
+        .expect("Failed to write source");
+
+    // Copy with rename
+    let source_lib = PcbLib::read(&source_path).expect("Failed to read source");
+    let mut source = source_lib
+        .get("ORIGINAL_NAME")
+        .expect("Source not found")
+        .clone();
+    source.name = "NEW_NAME".to_string();
+    source.description = "New description".to_string();
+
+    let mut target_lib = PcbLib::new();
+    target_lib.add(source);
+    target_lib
+        .write(&target_path)
+        .expect("Failed to write target");
+
+    // Verify target has renamed footprint
+    let read_target = PcbLib::read(&target_path).expect("Failed to read target");
+    assert_eq!(read_target.len(), 1);
+    assert!(
+        read_target.get("ORIGINAL_NAME").is_none(),
+        "Old name should not exist"
+    );
+    assert!(
+        read_target.get("NEW_NAME").is_some(),
+        "New name should exist"
+    );
+    assert_eq!(
+        read_target.get("NEW_NAME").unwrap().description,
+        "New description"
+    );
+}
+
+/// Tests copying a symbol from one `SchLib` to another.
+#[test]
+fn test_schlib_copy_cross_library() {
+    use altium_designer_mcp::altium::schlib::{
+        Pin, PinElectricalType, PinOrientation, Rectangle, Symbol,
+    };
+    use altium_designer_mcp::altium::SchLib;
+
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let source_path = temp_dir.path().join("source.SchLib");
+    let target_path = temp_dir.path().join("target.SchLib");
+
+    // Create source library with a symbol
+    let mut source_lib = SchLib::new();
+    let mut sym = Symbol::new("SOURCE_SYM");
+    sym.description = "Source symbol".to_string();
+    sym.designator = "U".to_string();
+    sym.rectangles.push(Rectangle {
+        x1: -40,
+        y1: -40,
+        x2: 40,
+        y2: 40,
+        line_width: 1,
+        line_color: 0x0000_0000,
+        fill_color: 0x0000_FFFF,
+        filled: true,
+        owner_part_id: 1,
+    });
+    sym.pins.push(Pin {
+        name: "VCC".to_string(),
+        designator: "1".to_string(),
+        x: -40,
+        y: 0,
+        length: 20,
+        orientation: PinOrientation::Right,
+        electrical_type: PinElectricalType::Passive,
+        hidden: false,
+        show_name: true,
+        show_designator: true,
+        description: String::new(),
+        owner_part_id: 1,
+    });
+    source_lib.add_symbol(sym);
+    source_lib
+        .save(&source_path)
+        .expect("Failed to write source");
+
+    // Copy to target
+    let source_lib = SchLib::open(&source_path).expect("Failed to read source");
+    let source = source_lib
+        .get("SOURCE_SYM")
+        .expect("Source not found")
+        .clone();
+
+    let mut target_lib = SchLib::new();
+    target_lib.add_symbol(source);
+    target_lib
+        .save(&target_path)
+        .expect("Failed to write target");
+
+    // Verify target library
+    let read_target = SchLib::open(&target_path).expect("Failed to read target");
+    assert_eq!(read_target.len(), 1, "Target should have 1 symbol");
+    let sym = read_target.get("SOURCE_SYM").expect("Symbol not found");
+    assert_eq!(sym.description, "Source symbol");
+    assert_eq!(sym.designator, "U");
+    assert_eq!(sym.rectangles.len(), 1);
+    assert_eq!(sym.pins.len(), 1);
+}
