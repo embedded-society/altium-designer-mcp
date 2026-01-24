@@ -927,6 +927,17 @@ impl PcbLib {
         self.footprints.push(footprint);
     }
 
+    /// Removes a footprint from the library by name.
+    ///
+    /// Returns the removed footprint if found, or `None` if no footprint with that name exists.
+    pub fn remove(&mut self, name: &str) -> Option<Footprint> {
+        if let Some(idx) = self.footprints.iter().position(|f| f.name == name) {
+            Some(self.footprints.remove(idx))
+        } else {
+            None
+        }
+    }
+
     /// Returns the number of embedded 3D models in the library.
     #[must_use]
     pub fn model_count(&self) -> usize {

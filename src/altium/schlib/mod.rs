@@ -170,6 +170,13 @@ impl SchLib {
         self.symbols.insert(symbol.name.clone(), symbol);
     }
 
+    /// Removes a symbol from the library by name.
+    ///
+    /// Returns the removed symbol if found, or `None` if no symbol with that name exists.
+    pub fn remove(&mut self, name: &str) -> Option<Symbol> {
+        self.symbols.remove(name)
+    }
+
     /// Saves the library to a file.
     ///
     /// # Errors

@@ -210,6 +210,26 @@ Extract styling information from an existing library.
 
 Returns statistics about track widths, pad shapes, pin lengths, colours, and layer usage.
 
+### `delete_component`
+
+Delete one or more components from an Altium library file. Works with both `.PcbLib` and `.SchLib` files.
+
+```json
+{
+    "name": "delete_component",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib",
+        "component_names": ["OLD_FOOTPRINT", "UNUSED_COMPONENT"]
+    }
+}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `component_names` | Array of component names to delete |
+
+Returns per-component status (`deleted` or `not_found`) and updated component counts.
+
 ---
 
 ## Primitive Types

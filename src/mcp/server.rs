@@ -467,6 +467,8 @@ impl McpServer {
             "write_schlib" => self.call_write_schlib(&params.arguments),
             "list_components" => self.call_list_components(&params.arguments),
             "extract_style" => self.call_extract_style(&params.arguments),
+            // Library management tools
+            "delete_component" => self.call_delete_component(&params.arguments),
             // Unknown tool
             _ => ToolCallResult::error(format!("Unknown tool: {}", params.name)),
         };
@@ -812,6 +814,31 @@ impl McpServer {
                         "append": { "type": "boolean" }
                     },
                     "required": ["filepath", "symbols"]
+                }),
+            },
+            // === Library Management ===
+            ToolDefinition {
+                name: "delete_component".to_string(),
+                description: Some(
+                    "Delete one or more components from an Altium library file (.PcbLib or .SchLib). \
+                     The file type is auto-detected from the extension. Returns status for each \
+                     component: deleted, not_found, or error."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepath": {
+                            "type": "string",
+                            "description": "Path to the .PcbLib or .SchLib file"
+                        },
+                        "component_names": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Names of components to delete"
+                        }
+                    },
+                    "required": ["filepath", "component_names"]
                 }),
             },
         ]
@@ -2529,6 +2556,178 @@ impl McpServer {
             filled,
             owner_part_id,
         })
+    }
+
+    // ==================== Library Management Tools ====================
+
+    /// Deletes one or more components from a library file.
+    ///
+    /// Supports both `.PcbLib` and `.SchLib` files. The file type is auto-detected
+    /// from the extension. Returns per-component status (`deleted`, `not_found`, or `error`).
+    fn call_delete_component(&self, arguments: &Value) -> ToolCallResult {
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        // Validate path is within allowed directories
+        if let Err(e) = self.validate_path(filepath) {
+            return ToolCallResult::error(e);
+        }
+
+        let Some(component_names) = arguments.get("component_names").and_then(Value::as_array)
+        else {
+            return ToolCallResult::error("Missing required parameter: component_names");
+        };
+
+        let names: Vec<&str> = component_names.iter().filter_map(Value::as_str).collect();
+
+        if names.is_empty() {
+            return ToolCallResult::error("component_names array is empty or contains no strings");
+        }
+
+        // Determine file type from extension
+        let path = std::path::Path::new(filepath);
+        let extension = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_lowercase);
+
+        match extension.as_deref() {
+            Some("pcblib") => Self::delete_from_pcblib(filepath, &names),
+            Some("schlib") => Self::delete_from_schlib(filepath, &names),
+            _ => {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": "Unknown file type. Expected .PcbLib or .SchLib extension.",
+                });
+                ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
+            }
+        }
+    }
+
+    /// Deletes components from a `PcbLib` file.
+    fn delete_from_pcblib(filepath: &str, names: &[&str]) -> ToolCallResult {
+        use crate::altium::PcbLib;
+
+        // Read the library
+        let mut library = match PcbLib::read(filepath) {
+            Ok(lib) => lib,
+            Err(e) => {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": e.to_string(),
+                });
+                return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
+            }
+        };
+
+        let original_count = library.len();
+        let mut results: Vec<Value> = Vec::with_capacity(names.len());
+        let mut deleted_count = 0;
+
+        // Remove each component
+        for name in names {
+            if library.remove(name).is_some() {
+                results.push(json!({
+                    "name": name,
+                    "status": "deleted"
+                }));
+                deleted_count += 1;
+            } else {
+                results.push(json!({
+                    "name": name,
+                    "status": "not_found"
+                }));
+            }
+        }
+
+        // Only write if something was deleted
+        if deleted_count > 0 {
+            if let Err(e) = library.write(filepath) {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": format!("Failed to write library: {e}"),
+                    "results": results,
+                });
+                return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
+            }
+        }
+
+        let result = json!({
+            "status": "success",
+            "filepath": filepath,
+            "file_type": "PcbLib",
+            "original_count": original_count,
+            "deleted_count": deleted_count,
+            "remaining_count": library.len(),
+            "results": results,
+        });
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Deletes components from a `SchLib` file.
+    fn delete_from_schlib(filepath: &str, names: &[&str]) -> ToolCallResult {
+        use crate::altium::SchLib;
+
+        // Read the library
+        let mut library = match SchLib::open(filepath) {
+            Ok(lib) => lib,
+            Err(e) => {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": e.to_string(),
+                });
+                return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
+            }
+        };
+
+        let original_count = library.len();
+        let mut results: Vec<Value> = Vec::with_capacity(names.len());
+        let mut deleted_count = 0;
+
+        // Remove each component
+        for name in names {
+            if library.remove(name).is_some() {
+                results.push(json!({
+                    "name": name,
+                    "status": "deleted"
+                }));
+                deleted_count += 1;
+            } else {
+                results.push(json!({
+                    "name": name,
+                    "status": "not_found"
+                }));
+            }
+        }
+
+        // Only write if something was deleted
+        if deleted_count > 0 {
+            if let Err(e) = library.save(filepath) {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": format!("Failed to write library: {e}"),
+                    "results": results,
+                });
+                return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
+            }
+        }
+
+        let result = json!({
+            "status": "success",
+            "filepath": filepath,
+            "file_type": "SchLib",
+            "original_count": original_count,
+            "deleted_count": deleted_count,
+            "remaining_count": library.len(),
+            "results": results,
+        });
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
 }
 

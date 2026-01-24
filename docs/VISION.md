@@ -14,9 +14,10 @@ This document describes the architectural vision for altium-designer-mcp.
 │  ─────────────────                    ──────────────────────            │
 │  • IPC-7351B calculations             • Read .PcbLib/.SchLib files      │
 │  • Package layout decisions           • Write .PcbLib/.SchLib files     │
-│  • Style choices                      • Primitive placement             │
-│  • Datasheet interpretation           • STEP model attachment           │
-│  • Design rule knowledge              • OLE document handling           │
+│  • Style choices                      • Delete components from files    │
+│  • Datasheet interpretation           • Primitive placement             │
+│  • Design rule knowledge              • STEP model attachment           │
+│                                       • OLE document handling           │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```

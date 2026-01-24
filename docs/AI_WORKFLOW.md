@@ -341,6 +341,80 @@ The AI can create entire libraries efficiently:
 
 ---
 
+## Library Management
+
+### Deleting Components
+
+Components can be removed from existing libraries using `delete_component`:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ COMPONENT DELETION WORKFLOW                                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  1. LIST EXISTING COMPONENTS (optional)                                     │
+│     AI calls: list_components { filepath }                                  │
+│     Returns: ["RESC0402...", "RESC0603...", "OLD_FOOTPRINT", ...]           │
+│                                                                             │
+│  2. DELETE UNWANTED COMPONENTS                                              │
+│     AI calls: delete_component {                                            │
+│         filepath,                                                           │
+│         component_names: ["OLD_FOOTPRINT", "DEPRECATED_0402"]               │
+│     }                                                                       │
+│     Returns: per-component status (deleted/not_found)                       │
+│                                                                             │
+│  3. VERIFY (optional)                                                       │
+│     AI calls: list_components { filepath }                                  │
+│     Confirm components were removed                                         │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Example Response:**
+
+```json
+{
+    "status": "success",
+    "filepath": "./Passives.PcbLib",
+    "file_type": "PcbLib",
+    "original_count": 10,
+    "deleted_count": 2,
+    "remaining_count": 8,
+    "results": [
+        { "name": "OLD_FOOTPRINT", "status": "deleted" },
+        { "name": "DEPRECATED_0402", "status": "deleted" }
+    ]
+}
+```
+
+### Renaming Components
+
+To rename a component, combine read, delete, and write operations:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ COMPONENT RENAME WORKFLOW                                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  1. READ the existing component                                             │
+│     AI calls: read_pcblib { filepath, component_name: "OLD_NAME" }          │
+│     Capture all primitives                                                  │
+│                                                                             │
+│  2. DELETE the old component                                                │
+│     AI calls: delete_component { filepath, component_names: ["OLD_NAME"] }  │
+│                                                                             │
+│  3. WRITE with new name                                                     │
+│     AI calls: write_pcblib {                                                │
+│         filepath,                                                           │
+│         footprints: [{ name: "NEW_NAME", ...same primitives }],             │
+│         append: true                                                        │
+│     }                                                                       │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## Tips for AI Assistants
 
 ### 1. Apply IPC-7351B Correctly
