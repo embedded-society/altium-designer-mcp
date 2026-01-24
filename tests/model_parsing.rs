@@ -2,11 +2,24 @@
 
 use altium_designer_mcp::altium::pcblib::PcbLib;
 
+/// Default path to the sample `PcbLib` used in these tests.
+const DEFAULT_SAMPLE_PCBLIB_PATH: &str = "scripts/sample.PcbLib";
+
+/// Returns the path to the sample `PcbLib`, allowing override via the
+/// `PCB_LIB_SAMPLE_PATH` environment variable for configurability.
+fn get_sample_pcblib_path() -> String {
+    std::env::var("PCB_LIB_SAMPLE_PATH").unwrap_or_else(|_| DEFAULT_SAMPLE_PCBLIB_PATH.to_string())
+}
+
+/// Path used for testing file-not-found behaviour. This path should clearly
+/// never exist to avoid accidental conflicts with real files.
+const NONEXISTENT_PCBLIB_PATH: &str = "this_file_should_not_exist_123456789.PcbLib";
+
 #[test]
 #[ignore = "Requires sample.PcbLib with embedded 3D models"]
 fn test_model_parsing() {
-    let lib_path = "scripts/sample.PcbLib";
-    let lib = PcbLib::read(lib_path).expect("Failed to read sample.PcbLib");
+    let lib_path = get_sample_pcblib_path();
+    let lib = PcbLib::read(&lib_path).expect("Failed to read sample.PcbLib");
 
     println!("\n=== Testing 3D Model Parsing ===\n");
 
@@ -23,7 +36,11 @@ fn test_model_parsing() {
         if let Some(text) = model.as_string() {
             if text.starts_with("ISO-10303") {
                 println!("    Format: STEP (ISO 10303)");
+            } else {
+                println!("    Text representation available but not recognised as STEP");
             }
+        } else {
+            println!("    No textual representation available for this model");
         }
         println!();
     }
@@ -39,7 +56,16 @@ fn test_model_parsing() {
                 println!("    embedded: {}", body.embedded);
 
                 // Check if model is available
-                if lib.get_model(&body.model_id).is_some() {
+                let model_exists = lib.get_model(&body.model_id).is_some();
+                if body.embedded {
+                    // For embedded component bodies we expect the model to be present.
+                    assert!(
+                        model_exists,
+                        "Embedded model with id {} not found in library",
+                        body.model_id
+                    );
+                    println!("    => Embedded model found in library!");
+                } else if model_exists {
                     println!("    => Model found in library!");
                 } else {
                     println!("    => Model NOT found in library");
@@ -54,7 +80,7 @@ fn test_model_parsing_missing_file() {
     // This test ensures that the PcbLib::read API behaves sensibly when the
     // requested file is not present. It does not rely on any external files
     // and therefore can run in CI/CD environments.
-    let result = PcbLib::read("nonexistent_sample.PcbLib");
+    let result = PcbLib::read(NONEXISTENT_PCBLIB_PATH);
     assert!(
         result.is_err(),
         "PcbLib::read should fail when the input file does not exist"
