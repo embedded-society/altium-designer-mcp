@@ -182,6 +182,28 @@ Write symbols to an Altium `.SchLib` file. The AI provides primitive definitions
 |-----------|-------------|
 | `append` | If `true`, add symbols to existing file; if `false`, create new file (default: `false`) |
 
+**Symbol properties:**
+
+| Property | Description |
+|----------|-------------|
+| `name` | Symbol name (required) |
+| `description` | Symbol description |
+| `designator_prefix` | Designator prefix (e.g., "R", "U", "C") |
+| `part_count` | Number of parts for multi-part symbols (default: 1) |
+| `pins` | Array of pin definitions |
+
+**Pin properties:**
+
+| Property | Description |
+|----------|-------------|
+| `designator` | Pin number (required) |
+| `name` | Pin name (required) |
+| `x`, `y` | Position in schematic units (required) |
+| `length` | Pin length (required) |
+| `orientation` | `left`, `right`, `up`, `down` (required) |
+| `electrical_type` | `input`, `output`, `bidirectional`, `passive`, `power` |
+| `owner_part_id` | Part number for multi-part symbols (1-based, default: 1) |
+
 ### `list_components`
 
 List component names in an Altium library file.

@@ -153,8 +153,8 @@ This is likely due to internal unit conversion (mm ↔ mils) and is within accep
 2. ~~**Footprint link management**~~ **IMPLEMENTED**
    - `manage_schlib_footprints` tool with list/add/remove operations
 
-3. **Support for multi-part symbols**
-   - Currently `part_count` is read but not writable
+3. ~~**Support for multi-part symbols**~~ **IMPLEMENTED**
+   - `write_schlib` now accepts `part_count` and `owner_part_id` for multi-part symbols
 
 ---
 
@@ -181,6 +181,8 @@ empty designators, and duplicate component names.
 The only remaining cosmetic issue is minor floating-point precision artifacts from mm↔mils conversion,
 which doesn't impact functionality.
 
-Recommended next steps:
+All Nice-to-Have features have been implemented:
 
-1. Add support for multi-part symbols (writable `part_count`)
+1. ~~Parameter management for SchLib~~ ✓
+2. ~~Footprint link management~~ ✓
+3. ~~Multi-part symbol support~~ ✓

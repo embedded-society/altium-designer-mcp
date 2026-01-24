@@ -796,6 +796,7 @@ impl McpServer {
                                     "name": { "type": "string" },
                                     "description": { "type": "string" },
                                     "designator_prefix": { "type": "string", "description": "e.g., 'R' for resistors, 'U' for ICs" },
+                                    "part_count": { "type": "integer", "description": "Number of parts for multi-part symbols (e.g., 2 for dual op-amp). Default: 1" },
                                     "pins": {
                                         "type": "array",
                                         "items": {
@@ -807,7 +808,8 @@ impl McpServer {
                                                 "y": { "type": "number" },
                                                 "length": { "type": "number" },
                                                 "orientation": { "type": "string", "enum": ["left", "right", "up", "down"] },
-                                                "electrical_type": { "type": "string", "enum": ["input", "output", "bidirectional", "passive", "power"] }
+                                                "electrical_type": { "type": "string", "enum": ["input", "output", "bidirectional", "passive", "power"] },
+                                                "owner_part_id": { "type": "integer", "description": "Part number this pin belongs to (1-based). Default: 1" }
                                             },
                                             "required": ["designator", "name", "x", "y", "length", "orientation"]
                                         }
@@ -1610,6 +1612,14 @@ impl McpServer {
 
             if let Some(desig) = sym_json.get("designator_prefix").and_then(Value::as_str) {
                 symbol.designator = format!("{desig}?");
+            }
+
+            // Parse part_count for multi-part symbols (e.g., dual op-amp)
+            if let Some(part_count) = sym_json.get("part_count").and_then(Value::as_u64) {
+                #[allow(clippy::cast_possible_truncation)]
+                {
+                    symbol.part_count = part_count.clamp(1, 255) as u32;
+                }
             }
 
             // Parse pins
