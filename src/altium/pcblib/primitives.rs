@@ -186,7 +186,7 @@ fn is_default_hole_shape(shape: &HoleShape) -> bool {
 }
 
 impl Pad {
-    /// Creates a new SMD pad.
+    /// Creates a new SMD pad on the top layer.
     #[must_use]
     pub fn smd(designator: impl Into<String>, x: f64, y: f64, width: f64, height: f64) -> Self {
         Self {
@@ -196,7 +196,7 @@ impl Pad {
             width,
             height,
             shape: PadShape::RoundedRectangle,
-            layer: Layer::MultiLayer,
+            layer: Layer::TopLayer,
             hole_size: None,
             hole_shape: HoleShape::Round,
             rotation: 0.0,
