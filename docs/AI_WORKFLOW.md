@@ -484,6 +484,52 @@ RESC0603,Chip resistor 0603,2,4,0,1,2,no
 CAPC0402,Chip capacitor 0402,2,4,0,1,2,no
 ```
 
+### Comparing Libraries
+
+Use `diff_libraries` to compare two versions of a library:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ LIBRARY DIFF WORKFLOW                                                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  COMPARE TWO LIBRARY VERSIONS                                               │
+│  AI calls: diff_libraries {                                                 │
+│      filepath_a: "./OldLibrary.PcbLib",                                     │
+│      filepath_b: "./NewLibrary.PcbLib"                                      │
+│  }                                                                          │
+│                                                                             │
+│  Returns:                                                                   │
+│  • added: Components in new library only                                    │
+│  • removed: Components in old library only                                  │
+│  • modified: Components with changes (counts, descriptions)                 │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Example Response:**
+
+```json
+{
+    "status": "success",
+    "file_type": "PcbLib",
+    "summary": {
+        "components_in_a": 10,
+        "components_in_b": 12,
+        "added_count": 3,
+        "removed_count": 1,
+        "modified_count": 2,
+        "unchanged_count": 7
+    },
+    "added": ["RESC0201", "CAPC0201", "INDC0402"],
+    "removed": ["OLD_FOOTPRINT"],
+    "modified": [
+        { "name": "RESC0603", "changes": ["pad_count: 2 -> 4"] },
+        { "name": "CAPC0805", "changes": ["description: '' -> 'Updated'"] }
+    ]
+}
+```
+
 ---
 
 ## Tips for AI Assistants

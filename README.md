@@ -275,6 +275,31 @@ Export an Altium library to JSON or CSV format for version control, backup, or e
 
 **CSV format** returns a summary table with columns: name, description, pad/pin count, etc.
 
+### `diff_libraries`
+
+Compare two Altium library files and report differences. Both files must be the same type.
+
+```json
+{
+    "name": "diff_libraries",
+    "arguments": {
+        "filepath_a": "./OldLibrary.PcbLib",
+        "filepath_b": "./NewLibrary.PcbLib"
+    }
+}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `filepath_a` | Path to the first (base/old) library |
+| `filepath_b` | Path to the second (new/changed) library |
+
+Returns:
+
+- **added**: Components in B but not in A
+- **removed**: Components in A but not in B
+- **modified**: Components in both with changes (count differences, description changes)
+
 ---
 
 ## Primitive Types

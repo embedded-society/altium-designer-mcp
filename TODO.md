@@ -154,10 +154,7 @@ This is likely due to internal unit conversion (mm ↔ mils) and is within accep
 
 ### Medium Value
 
-1. **Diff two libraries**
-   - Compare components between library versions
-
-2. **Batch operations**
+1. **Batch operations**
    - Update track widths across all footprints
    - Rename layers
 
@@ -202,4 +199,4 @@ which doesn't impact functionality.
 
 Recommended next steps:
 
-1. Add library diff tool to compare components between versions
+1. Add batch operations for library-wide updates
