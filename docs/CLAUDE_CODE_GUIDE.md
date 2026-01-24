@@ -174,6 +174,7 @@ You should see the Altium tools listed:
 
 - `delete_component` — Delete components from a library
 - `copy_component` — Duplicate a component within a library
+- `rename_component` — Rename a component within a library
 - `validate_library` — Check a library for common issues
 - `export_library` — Export library to JSON or CSV format
 - `extract_step_model` — Extract embedded STEP 3D models from a PcbLib

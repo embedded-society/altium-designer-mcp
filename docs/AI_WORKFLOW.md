@@ -445,29 +445,21 @@ Components can be removed from existing libraries using `delete_component`:
 
 ### Renaming Components
 
-To rename a component, combine read, delete, and write operations:
+Use `rename_component` for atomic component renaming:
 
-```text
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ COMPONENT RENAME WORKFLOW                                                    │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  1. READ the existing component                                             │
-│     AI calls: read_pcblib { filepath, component_name: "OLD_NAME" }          │
-│     Capture all primitives                                                  │
-│                                                                             │
-│  2. DELETE the old component                                                │
-│     AI calls: delete_component { filepath, component_names: ["OLD_NAME"] }  │
-│                                                                             │
-│  3. WRITE with new name                                                     │
-│     AI calls: write_pcblib {                                                │
-│         filepath,                                                           │
-│         footprints: [{ name: "NEW_NAME", ...same primitives }],             │
-│         append: true                                                        │
-│     }                                                                       │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+```json
+{
+    "name": "rename_component",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib",
+        "old_name": "OLD_NAME",
+        "new_name": "NEW_NAME"
+    }
+}
 ```
+
+This is more efficient than the manual copy + delete approach and preserves all primitives
+and properties in a single atomic operation.
 
 ### Validating Libraries
 

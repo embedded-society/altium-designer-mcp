@@ -1198,3 +1198,121 @@ fn test_step_model_lookup_by_name_and_id() {
         "Model name should be preserved"
     );
 }
+
+// =============================================================================
+// Component Rename Tests
+// =============================================================================
+
+/// Tests renaming a footprint in a `PcbLib` file.
+#[test]
+fn test_pcblib_rename_component() {
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let file_path = temp_dir.path().join("rename_test.PcbLib");
+
+    // Create library with a footprint
+    let mut lib = PcbLib::new();
+    let mut fp = Footprint::new("OLD_NAME");
+    fp.description = "Test footprint".to_string();
+    fp.add_pad(Pad::smd("1", -0.5, 0.0, 0.6, 0.5));
+    fp.add_pad(Pad::smd("2", 0.5, 0.0, 0.6, 0.5));
+    fp.add_track(Track::new(-1.0, -0.5, 1.0, -0.5, 0.15, Layer::TopOverlay));
+    lib.add(fp);
+    lib.write(&file_path).expect("Failed to write");
+
+    // Read, rename, and write back (simulating rename_component tool)
+    let mut lib = PcbLib::read(&file_path).expect("Failed to read");
+    assert!(lib.get("OLD_NAME").is_some(), "Original should exist");
+
+    let mut footprint = lib.remove("OLD_NAME").expect("Should remove old");
+    footprint.name = "NEW_NAME".to_string();
+    lib.add(footprint);
+    lib.write(&file_path).expect("Failed to write renamed");
+
+    // Verify rename
+    let read_lib = PcbLib::read(&file_path).expect("Failed to read final");
+    assert_eq!(read_lib.len(), 1, "Should still have 1 component");
+    assert!(
+        read_lib.get("OLD_NAME").is_none(),
+        "Old name should not exist"
+    );
+    assert!(read_lib.get("NEW_NAME").is_some(), "New name should exist");
+
+    // Verify primitives preserved
+    let renamed = read_lib.get("NEW_NAME").unwrap();
+    assert_eq!(renamed.description, "Test footprint");
+    assert_eq!(renamed.pads.len(), 2);
+    assert_eq!(renamed.tracks.len(), 1);
+}
+
+/// Tests renaming a symbol in a `SchLib` file.
+#[test]
+fn test_schlib_rename_component() {
+    use altium_designer_mcp::altium::schlib::{
+        Pin, PinElectricalType, PinOrientation, Rectangle, Symbol,
+    };
+    use altium_designer_mcp::altium::SchLib;
+
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let file_path = temp_dir.path().join("rename_test.SchLib");
+
+    // Create library with a symbol
+    let mut lib = SchLib::new();
+    let mut sym = Symbol::new("OLD_SYMBOL");
+    sym.description = "Test symbol".to_string();
+    sym.designator = "U".to_string();
+    sym.rectangles.push(Rectangle {
+        x1: -40,
+        y1: -40,
+        x2: 40,
+        y2: 40,
+        line_width: 1,
+        line_color: 0x0000_0000,
+        fill_color: 0x0000_FFFF,
+        filled: true,
+        owner_part_id: 1,
+    });
+    sym.pins.push(Pin {
+        name: "VCC".to_string(),
+        designator: "1".to_string(),
+        x: -40,
+        y: 0,
+        length: 20,
+        orientation: PinOrientation::Right,
+        electrical_type: PinElectricalType::Passive,
+        hidden: false,
+        show_name: true,
+        show_designator: true,
+        description: String::new(),
+        owner_part_id: 1,
+    });
+    lib.add_symbol(sym);
+    lib.save(&file_path).expect("Failed to write");
+
+    // Read, rename, and write back
+    let mut lib = SchLib::open(&file_path).expect("Failed to read");
+    assert!(lib.get("OLD_SYMBOL").is_some(), "Original should exist");
+
+    let mut symbol = lib.remove("OLD_SYMBOL").expect("Should remove old");
+    symbol.name = "NEW_SYMBOL".to_string();
+    lib.add_symbol(symbol);
+    lib.save(&file_path).expect("Failed to write renamed");
+
+    // Verify rename
+    let read_lib = SchLib::open(&file_path).expect("Failed to read final");
+    assert_eq!(read_lib.len(), 1, "Should still have 1 component");
+    assert!(
+        read_lib.get("OLD_SYMBOL").is_none(),
+        "Old name should not exist"
+    );
+    assert!(
+        read_lib.get("NEW_SYMBOL").is_some(),
+        "New name should exist"
+    );
+
+    // Verify primitives preserved
+    let renamed = read_lib.get("NEW_SYMBOL").unwrap();
+    assert_eq!(renamed.description, "Test symbol");
+    assert_eq!(renamed.designator, "U");
+    assert_eq!(renamed.rectangles.len(), 1);
+    assert_eq!(renamed.pins.len(), 1);
+}

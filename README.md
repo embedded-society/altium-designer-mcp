@@ -480,6 +480,31 @@ different name but identical primitives. Useful for creating variants.
 
 Returns the new component count after copying.
 
+### `rename_component`
+
+Rename a component within an Altium library file. This is an atomic operation that changes
+the component's name while preserving all primitives and properties. More efficient than
+copy + delete for simple renames.
+
+```json
+{
+    "name": "rename_component",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib",
+        "old_name": "RESC0603_OLD",
+        "new_name": "RESC0603_NEW"
+    }
+}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `filepath` | Path to the library file (.PcbLib or .SchLib) |
+| `old_name` | Current name of the component to rename |
+| `new_name` | New name for the component |
+
+Returns the component count after renaming (unchanged).
+
 ### `render_footprint`
 
 Render an ASCII art visualisation of a footprint from a PcbLib file. Shows pads, tracks,
