@@ -4,7 +4,6 @@
 
 | Feature | Current Workaround | Impact |
 |---------|-------------------|--------|
-| `import_library` (from JSON) | Manual `write_pcblib`/`write_schlib` | Can't round-trip exported data back in |
 | `copy_component_cross_library` | Read from A, write to B manually | Tedious to consolidate libraries |
 | `merge_libraries` | Manual component-by-component | Common need when combining projects |
 

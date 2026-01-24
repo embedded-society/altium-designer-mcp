@@ -502,6 +502,60 @@ Use `validate_library` to check for common issues before using a library:
 }
 ```
 
+### Importing Libraries from JSON
+
+Use `import_library` to create libraries from JSON data. This is the inverse of `export_library`
+and accepts the same JSON format:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ LIBRARY IMPORT WORKFLOW                                                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ROUND-TRIP EDITING                                                         │
+│  1. AI calls: export_library { filepath, format: "json" }                   │
+│     Returns: JSON with complete component data                              │
+│  2. AI modifies the JSON data (add/remove/edit components)                  │
+│  3. AI calls: import_library { output_path, json_data, append: false }      │
+│     Creates: New library from modified JSON                                 │
+│                                                                             │
+│  IMPORT FROM EXTERNAL SOURCE                                                │
+│  AI calls: import_library {                                                 │
+│      output_path: "./NewLibrary.PcbLib",                                    │
+│      json_data: { "file_type": "PcbLib", "footprints": [...] },             │
+│      append: false                                                          │
+│  }                                                                          │
+│                                                                             │
+│  APPEND TO EXISTING LIBRARY                                                 │
+│  AI calls: import_library {                                                 │
+│      output_path: "./ExistingLibrary.PcbLib",                               │
+│      json_data: { "file_type": "PcbLib", "footprints": [...] },             │
+│      append: true                                                           │
+│  }                                                                          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Example Response:**
+
+```json
+{
+    "status": "success",
+    "filepath": "./NewLibrary.PcbLib",
+    "file_type": "PcbLib",
+    "components_imported": 5,
+    "total_components": 5,
+    "message": "Imported 5 footprints to './NewLibrary.PcbLib'"
+}
+```
+
+**Common use cases:**
+
+- Round-trip editing: export → modify → import
+- Version control: store as JSON, recreate libraries when needed
+- Migration: convert data from external sources
+- Backup restoration: recreate libraries from JSON backups
+
 ### Exporting Libraries
 
 Use `export_library` to export library contents for version control or external processing:

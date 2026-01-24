@@ -177,6 +177,7 @@ You should see the Altium tools listed:
 - `rename_component` — Rename a component within a library
 - `validate_library` — Check a library for common issues
 - `export_library` — Export library to JSON or CSV format
+- `import_library` — Import components from JSON data (inverse of export_library)
 - `extract_step_model` — Extract embedded STEP 3D models from a PcbLib
 - `diff_libraries` — Compare two library versions
 

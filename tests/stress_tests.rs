@@ -1316,3 +1316,160 @@ fn test_schlib_rename_component() {
     assert_eq!(renamed.rectangles.len(), 1);
     assert_eq!(renamed.pins.len(), 1);
 }
+
+// =============================================================================
+// Library Import/Export Round-trip Tests
+// =============================================================================
+
+/// Tests `PcbLib` round-trip through JSON export/import format.
+#[test]
+fn test_pcblib_json_roundtrip() {
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let original_path = temp_dir.path().join("original.PcbLib");
+    let imported_path = temp_dir.path().join("imported.PcbLib");
+
+    // Create original library
+    let mut lib = PcbLib::new();
+    let mut fp = Footprint::new("TEST_FP");
+    fp.description = "Test footprint for round-trip".to_string();
+    fp.add_pad(Pad::smd("1", -0.5, 0.0, 0.6, 0.5));
+    fp.add_pad(Pad::smd("2", 0.5, 0.0, 0.6, 0.5));
+    fp.add_track(Track::new(-1.0, -0.5, 1.0, -0.5, 0.15, Layer::TopOverlay));
+    lib.add(fp);
+    lib.write(&original_path).expect("Failed to write original");
+
+    // Simulate export: serialise to JSON format matching export_library output
+    let read_lib = PcbLib::read(&original_path).expect("Failed to read original");
+    let footprints_json: Vec<serde_json::Value> = read_lib
+        .footprints()
+        .map(|fp| {
+            serde_json::json!({
+                "name": fp.name,
+                "description": fp.description,
+                "pads": fp.pads,
+                "tracks": fp.tracks,
+                "arcs": fp.arcs,
+                "regions": fp.regions,
+                "text": fp.text,
+            })
+        })
+        .collect();
+
+    let export_json = serde_json::json!({
+        "file_type": "PcbLib",
+        "footprints": footprints_json,
+    });
+
+    // Simulate import: deserialise from JSON and write new library
+    let mut new_lib = PcbLib::new();
+    let footprints = export_json["footprints"].as_array().unwrap();
+    for fp_json in footprints {
+        let footprint: Footprint =
+            serde_json::from_value(fp_json.clone()).expect("Failed to parse");
+        new_lib.add(footprint);
+    }
+    new_lib
+        .write(&imported_path)
+        .expect("Failed to write imported");
+
+    // Verify round-trip
+    let final_lib = PcbLib::read(&imported_path).expect("Failed to read imported");
+    assert_eq!(final_lib.len(), 1);
+    let fp = final_lib.get("TEST_FP").expect("Footprint not found");
+    assert_eq!(fp.description, "Test footprint for round-trip");
+    assert_eq!(fp.pads.len(), 2);
+    assert_eq!(fp.tracks.len(), 1);
+}
+
+/// Tests `SchLib` round-trip through JSON export/import format.
+#[test]
+fn test_schlib_json_roundtrip() {
+    use altium_designer_mcp::altium::schlib::{
+        Pin, PinElectricalType, PinOrientation, Rectangle, Symbol,
+    };
+    use altium_designer_mcp::altium::SchLib;
+
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let original_path = temp_dir.path().join("original.SchLib");
+    let imported_path = temp_dir.path().join("imported.SchLib");
+
+    // Create original library
+    let mut lib = SchLib::new();
+    let mut sym = Symbol::new("TEST_SYM");
+    sym.description = "Test symbol for round-trip".to_string();
+    sym.designator = "U".to_string();
+    sym.rectangles.push(Rectangle {
+        x1: -40,
+        y1: -40,
+        x2: 40,
+        y2: 40,
+        line_width: 1,
+        line_color: 0x0000_0000,
+        fill_color: 0x0000_FFFF,
+        filled: true,
+        owner_part_id: 1,
+    });
+    sym.pins.push(Pin {
+        name: "VCC".to_string(),
+        designator: "1".to_string(),
+        x: -40,
+        y: 0,
+        length: 20,
+        orientation: PinOrientation::Right,
+        electrical_type: PinElectricalType::Passive,
+        hidden: false,
+        show_name: true,
+        show_designator: true,
+        description: String::new(),
+        owner_part_id: 1,
+    });
+    lib.add_symbol(sym);
+    lib.save(&original_path).expect("Failed to write original");
+
+    // Simulate export: serialise to JSON format matching export_library output
+    let read_lib = SchLib::open(&original_path).expect("Failed to read original");
+    let symbols_json: Vec<serde_json::Value> = read_lib
+        .iter()
+        .map(|(name, symbol)| {
+            serde_json::json!({
+                "name": name,
+                "description": symbol.description,
+                "designator": symbol.designator,
+                "pins": symbol.pins,
+                "rectangles": symbol.rectangles,
+                "lines": symbol.lines,
+                "polylines": symbol.polylines,
+                "arcs": symbol.arcs,
+                "ellipses": symbol.ellipses,
+                "labels": symbol.labels,
+                "parameters": symbol.parameters,
+                "footprints": symbol.footprints,
+            })
+        })
+        .collect();
+
+    let export_json = serde_json::json!({
+        "file_type": "SchLib",
+        "symbols": symbols_json,
+    });
+
+    // Simulate import: deserialise from JSON and write new library
+    let mut new_lib = SchLib::new();
+    let symbols = export_json["symbols"].as_array().unwrap();
+    for sym_json in symbols {
+        let symbol: Symbol = serde_json::from_value(sym_json.clone()).expect("Failed to parse");
+        new_lib.add_symbol(symbol);
+    }
+    new_lib
+        .save(&imported_path)
+        .expect("Failed to write imported");
+
+    // Verify round-trip
+    let final_lib = SchLib::open(&imported_path).expect("Failed to read imported");
+    assert_eq!(final_lib.len(), 1);
+    let sym = final_lib.get("TEST_SYM").expect("Symbol not found");
+    assert_eq!(sym.description, "Test symbol for round-trip");
+    assert_eq!(sym.designator, "U");
+    assert_eq!(sym.rectangles.len(), 1);
+    assert_eq!(sym.pins.len(), 1);
+}
