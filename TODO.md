@@ -4,7 +4,6 @@
 
 | Feature | Why It Helps |
 |---------|--------------|
-| `search_components` with regex/glob across multiple libraries | Finding components without knowing exact library |
 | `get_component` (single component by name without full read) | Faster than read + filter for large libraries |
 | `reorder_components` | Control component order in library (some teams care about this) |
 | `update_component` (in-place replace) | Currently must delete + write or rewrite entire library |

@@ -883,6 +883,62 @@ Use `merge_libraries` to combine multiple libraries into one:
 - Create backup/archive libraries from multiple sources
 - Merge team member contributions into a shared library
 
+### Searching Components
+
+Use `search_components` to find components across multiple libraries using glob or regex patterns:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ COMPONENT SEARCH WORKFLOW                                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  GLOB PATTERN SEARCH                                                        │
+│  AI calls: search_components {                                              │
+│      filepaths: [                                                           │
+│          "./Resistors.PcbLib",                                              │
+│          "./Capacitors.PcbLib",                                             │
+│          "./ICs.PcbLib"                                                     │
+│      ],                                                                     │
+│      pattern: "SOIC-*",                                                     │
+│      pattern_type: "glob"                                                   │
+│  }                                                                          │
+│                                                                             │
+│  REGEX PATTERN SEARCH                                                       │
+│  AI calls: search_components {                                              │
+│      filepaths: ["./Components.SchLib"],                                    │
+│      pattern: "LM78[0-9]{2}",                                               │
+│      pattern_type: "regex"                                                  │
+│  }                                                                          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Example Response:**
+
+```json
+{
+    "status": "success",
+    "pattern": "SOIC-*",
+    "pattern_type": "glob",
+    "libraries_searched": 3,
+    "components_searched": 150,
+    "matches_found": 5,
+    "matches": [
+        { "name": "SOIC-8", "library": "./ICs.PcbLib", "type": "PcbLib" },
+        { "name": "SOIC-14", "library": "./ICs.PcbLib", "type": "PcbLib" },
+        { "name": "SOIC-16", "library": "./ICs.PcbLib", "type": "PcbLib" }
+    ],
+    "message": "Found 5 matches for 'SOIC-*' across 3 libraries (150 components searched)"
+}
+```
+
+**Common use cases:**
+
+- Find all footprint variants (e.g., `RES_0402*` for all 0402 resistor sizes)
+- Locate components matching a package type (e.g., `*QFN*`)
+- Search for components by part number prefix (e.g., `LM78*`)
+- Audit libraries for naming consistency
+
 ### Previewing Footprints
 
 Use `render_footprint` to generate an ASCII art visualisation for quick preview:
