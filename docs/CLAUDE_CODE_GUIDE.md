@@ -175,6 +175,7 @@ You should see the Altium tools listed:
 - `delete_component` — Delete components from a library
 - `copy_component` — Duplicate a component within a library
 - `rename_component` — Rename a component within a library
+- `copy_component_cross_library` — Copy a component from one library to another
 - `validate_library` — Check a library for common issues
 - `export_library` — Export library to JSON or CSV format
 - `import_library` — Import components from JSON data (inverse of export_library)

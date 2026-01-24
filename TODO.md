@@ -4,7 +4,6 @@
 
 | Feature | Current Workaround | Impact |
 |---------|-------------------|--------|
-| `copy_component_cross_library` | Read from A, write to B manually | Tedious to consolidate libraries |
 | `merge_libraries` | Manual component-by-component | Common need when combining projects |
 
 ## Nice-to-Haves (Quality of Life)
