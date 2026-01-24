@@ -658,6 +658,48 @@ type (all PcbLib or all SchLib). Components are copied from each source into the
 }
 ```
 
+### `reorder_components`
+
+Reorder components in an Altium library file (.PcbLib or .SchLib). Specify the desired order as
+a list of component names. Components not in the list are placed at the end in their original
+relative order.
+
+```json
+{
+    "name": "reorder_components",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib",
+        "component_order": ["RESC1608X55N", "RESC0805X40N", "RESC0402X20N"]
+    }
+}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `filepath` | Path to the .PcbLib or .SchLib file |
+| `component_order` | Component names in desired order |
+
+**Behaviour:**
+
+- Components listed in `component_order` appear first, in the specified order
+- Components not in the list are appended at the end in their original relative order
+- Names in `component_order` that don't exist in the library are ignored
+
+**Example Response:**
+
+```json
+{
+    "status": "success",
+    "filepath": "./MyLibrary.PcbLib",
+    "component_count": 5,
+    "original_order": ["CAPC0402X20N", "RESC1608X55N", "RESC0805X40N", "RESC0402X20N", "INDC1005X55N"],
+    "new_order": ["RESC1608X55N", "RESC0805X40N", "RESC0402X20N", "CAPC0402X20N", "INDC1005X55N"],
+    "not_in_library": [],
+    "appended_at_end": ["CAPC0402X20N", "INDC1005X55N"],
+    "message": "Reordered 5 components in './MyLibrary.PcbLib' (2 components appended at end)"
+}
+```
+
 ### `search_components`
 
 Search for components across multiple Altium libraries using regex or glob patterns. Returns

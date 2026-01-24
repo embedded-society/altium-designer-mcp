@@ -1092,6 +1092,33 @@ impl PcbLib {
         }
     }
 
+    /// Reorders footprints according to the given name order.
+    ///
+    /// Footprints are reordered to match the order of names in `new_order`.
+    /// Names not present in the library are ignored. Footprints not mentioned
+    /// in `new_order` are placed at the end in their original relative order.
+    ///
+    /// Returns the new order of footprint names.
+    pub fn reorder(&mut self, new_order: &[&str]) -> Vec<String> {
+        // Build a position map for the desired order
+        let order_map: std::collections::HashMap<&str, usize> = new_order
+            .iter()
+            .enumerate()
+            .map(|(i, name)| (*name, i))
+            .collect();
+
+        // Sort footprints: those in order_map come first (by their position),
+        // then those not in the map (preserving relative order via stable sort)
+        let max_pos = new_order.len();
+        self.footprints.sort_by(|a, b| {
+            let pos_a = order_map.get(a.name.as_str()).copied().unwrap_or(max_pos);
+            let pos_b = order_map.get(b.name.as_str()).copied().unwrap_or(max_pos);
+            pos_a.cmp(&pos_b)
+        });
+
+        self.names()
+    }
+
     /// Returns the number of embedded 3D models in the library.
     #[must_use]
     pub fn model_count(&self) -> usize {
@@ -1155,6 +1182,30 @@ mod tests {
         assert_eq!(lib.names(), vec!["FP1", "FP2"]);
         assert!(lib.get("FP1").is_some());
         assert!(lib.get("FP3").is_none());
+    }
+
+    #[test]
+    fn library_reorder() {
+        let mut lib = PcbLib::new();
+
+        lib.add(Footprint::new("A"));
+        lib.add(Footprint::new("B"));
+        lib.add(Footprint::new("C"));
+        lib.add(Footprint::new("D"));
+
+        assert_eq!(lib.names(), vec!["A", "B", "C", "D"]);
+
+        // Reorder: C, A first; B, D should follow in original relative order
+        let new_order = lib.reorder(&["C", "A"]);
+        assert_eq!(new_order, vec!["C", "A", "B", "D"]);
+
+        // Reorder with non-existent names (should be ignored)
+        let new_order = lib.reorder(&["D", "X", "B"]);
+        assert_eq!(new_order, vec!["D", "B", "C", "A"]);
+
+        // Reorder to completely reverse
+        let new_order = lib.reorder(&["A", "C", "B", "D"]);
+        assert_eq!(new_order, vec!["A", "C", "B", "D"]);
     }
 
     #[test]

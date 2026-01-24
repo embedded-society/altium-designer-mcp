@@ -488,6 +488,7 @@ impl McpServer {
                 self.call_copy_component_cross_library(&params.arguments)
             }
             "merge_libraries" => self.call_merge_libraries(&params.arguments),
+            "reorder_components" => self.call_reorder_components(&params.arguments),
             "search_components" => self.call_search_components(&params.arguments),
             "get_component" => self.call_get_component(&params.arguments),
             "render_footprint" => self.call_render_footprint(&params.arguments),
@@ -1194,6 +1195,30 @@ impl McpServer {
                         }
                     },
                     "required": ["source_filepaths", "target_filepath"]
+                }),
+            },
+            ToolDefinition {
+                name: "reorder_components".to_string(),
+                description: Some(
+                    "Reorder components in an Altium library file (.PcbLib or .SchLib). Specify the \
+                     desired order as a list of component names. Components not in the list are placed \
+                     at the end in their original relative order."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepath": {
+                            "type": "string",
+                            "description": "Path to the .PcbLib or .SchLib file"
+                        },
+                        "component_order": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Component names in desired order"
+                        }
+                    },
+                    "required": ["filepath", "component_order"]
                 }),
             },
             ToolDefinition {
@@ -5789,6 +5814,201 @@ impl McpServer {
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
 
+    /// Reorders components in a `PcbLib` file.
+    ///
+    /// Components are reordered to match the specified order. Components not in the
+    /// order list are placed at the end in their original relative order. `SchLib` files
+    /// do not support reordering (unordered storage).
+    fn call_reorder_components(&self, arguments: &Value) -> ToolCallResult {
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        // Validate path is within allowed directories
+        if let Err(e) = self.validate_path(filepath) {
+            return ToolCallResult::error(e);
+        }
+
+        let Some(component_order) = arguments.get("component_order").and_then(Value::as_array)
+        else {
+            return ToolCallResult::error("Missing required parameter: component_order");
+        };
+
+        let order: Vec<&str> = component_order.iter().filter_map(Value::as_str).collect();
+
+        if order.is_empty() {
+            return ToolCallResult::error("component_order array is empty or contains no strings");
+        }
+
+        // Determine file type from extension
+        let path = std::path::Path::new(filepath);
+        let extension = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_lowercase);
+
+        match extension.as_deref() {
+            Some("pcblib") => Self::reorder_pcblib(filepath, &order),
+            Some("schlib") => Self::reorder_schlib(filepath, &order),
+            _ => {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": "Unknown file type. Expected .PcbLib or .SchLib extension.",
+                });
+                ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
+            }
+        }
+    }
+
+    /// Reorders components in a `PcbLib` file.
+    fn reorder_pcblib(filepath: &str, order: &[&str]) -> ToolCallResult {
+        use crate::altium::PcbLib;
+
+        // Read the library
+        let mut library = match PcbLib::read(filepath) {
+            Ok(lib) => lib,
+            Err(e) => {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": e.to_string(),
+                });
+                return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
+            }
+        };
+
+        let original_order = library.names();
+        let component_count = library.len();
+
+        // Perform the reordering
+        let new_order = library.reorder(order);
+
+        // Write the library back
+        if let Err(e) = library.write(filepath) {
+            let result = json!({
+                "status": "error",
+                "filepath": filepath,
+                "error": format!("Failed to write library: {}", e),
+            });
+            return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
+        }
+
+        // Determine which components were not in the requested order
+        let requested_set: std::collections::HashSet<&str> = order.iter().copied().collect();
+        let not_found: Vec<&str> = order
+            .iter()
+            .filter(|name| !original_order.contains(&(**name).to_string()))
+            .copied()
+            .collect();
+        let not_requested: Vec<String> = original_order
+            .iter()
+            .filter(|name| !requested_set.contains(name.as_str()))
+            .cloned()
+            .collect();
+
+        let result = json!({
+            "status": "success",
+            "filepath": filepath,
+            "component_count": component_count,
+            "original_order": original_order,
+            "new_order": new_order,
+            "not_in_library": not_found,
+            "appended_at_end": not_requested,
+            "message": format!(
+                "Reordered {} components in '{}'{}{}",
+                component_count,
+                filepath,
+                if not_found.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({} requested names not found)", not_found.len())
+                },
+                if not_requested.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({} components appended at end)", not_requested.len())
+                }
+            ),
+        });
+
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Reorders components in a `SchLib` file.
+    fn reorder_schlib(filepath: &str, order: &[&str]) -> ToolCallResult {
+        use crate::altium::SchLib;
+
+        // Read the library
+        let mut library = match SchLib::open(filepath) {
+            Ok(lib) => lib,
+            Err(e) => {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": e.to_string(),
+                });
+                return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
+            }
+        };
+
+        let original_order = library.names();
+        let component_count = library.len();
+
+        // Perform the reordering
+        let new_order = library.reorder(order);
+
+        // Write the library back
+        if let Err(e) = library.save(filepath) {
+            let result = json!({
+                "status": "error",
+                "filepath": filepath,
+                "error": format!("Failed to write library: {}", e),
+            });
+            return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
+        }
+
+        // Determine which components were not in the requested order
+        let requested_set: std::collections::HashSet<&str> = order.iter().copied().collect();
+        let not_found: Vec<&str> = order
+            .iter()
+            .filter(|name| !original_order.contains(&(**name).to_string()))
+            .copied()
+            .collect();
+        let not_requested: Vec<String> = original_order
+            .iter()
+            .filter(|name| !requested_set.contains(name.as_str()))
+            .cloned()
+            .collect();
+
+        let result = json!({
+            "status": "success",
+            "filepath": filepath,
+            "component_count": component_count,
+            "original_order": original_order,
+            "new_order": new_order,
+            "not_in_library": not_found,
+            "appended_at_end": not_requested,
+            "message": format!(
+                "Reordered {} components in '{}'{}{}",
+                component_count,
+                filepath,
+                if not_found.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({} requested names not found)", not_found.len())
+                },
+                if not_requested.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({} components appended at end)", not_requested.len())
+                }
+            ),
+        });
+
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
     /// Searches for components across multiple libraries using regex or glob patterns.
     fn call_search_components(&self, arguments: &Value) -> ToolCallResult {
         let Some(filepaths) = arguments.get("filepaths").and_then(Value::as_array) else {
@@ -6869,7 +7089,7 @@ impl McpServer {
                 };
 
                 // Find the symbol (mutable)
-                let Some(symbol) = library.symbols.get_mut(component_name) else {
+                let Some(symbol) = library.get_mut(component_name) else {
                     return ToolCallResult::error(format!(
                         "Symbol '{component_name}' not found in library"
                     ));
@@ -7102,7 +7322,7 @@ impl McpServer {
                 };
 
                 // Find the symbol (mutable)
-                let Some(symbol) = library.symbols.get_mut(component_name) else {
+                let Some(symbol) = library.get_mut(component_name) else {
                     return ToolCallResult::error(format!(
                         "Symbol '{component_name}' not found in library"
                     ));

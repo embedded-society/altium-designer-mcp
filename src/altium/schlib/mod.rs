@@ -49,6 +49,7 @@ pub mod reader;
 pub mod writer;
 
 use cfb::CompoundFile;
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Read, Seek, Write};
@@ -62,9 +63,9 @@ pub use primitives::*;
 #[derive(Debug, Default)]
 pub struct SchLib {
     /// Library file path (if loaded from file).
-    pub filepath: Option<String>,
-    /// Symbols in the library, keyed by name.
-    pub symbols: HashMap<String, Symbol>,
+    filepath: Option<String>,
+    /// Symbols in the library, keyed by name (insertion order preserved).
+    symbols: IndexMap<String, Symbol>,
 }
 
 impl SchLib {
@@ -146,10 +147,22 @@ impl SchLib {
         Ok(lib)
     }
 
+    /// Returns the file path this library was loaded from, if any.
+    #[must_use]
+    pub fn filepath(&self) -> Option<&str> {
+        self.filepath.as_deref()
+    }
+
     /// Gets a symbol by name.
     #[must_use]
     pub fn get(&self, name: &str) -> Option<&Symbol> {
         self.symbols.get(name)
+    }
+
+    /// Gets a mutable reference to a symbol by name.
+    #[must_use]
+    pub fn get_mut(&mut self, name: &str) -> Option<&mut Symbol> {
+        self.symbols.get_mut(name)
     }
 
     /// Returns an iterator over all symbols.
@@ -183,7 +196,40 @@ impl SchLib {
     ///
     /// Returns the removed symbol if found, or `None` if no symbol with that name exists.
     pub fn remove(&mut self, name: &str) -> Option<Symbol> {
-        self.symbols.remove(name)
+        self.symbols.shift_remove(name)
+    }
+
+    /// Returns a list of symbol names in order.
+    #[must_use]
+    pub fn names(&self) -> Vec<String> {
+        self.symbols.keys().cloned().collect()
+    }
+
+    /// Reorders symbols according to the given name order.
+    ///
+    /// Symbols are reordered to match the order of names in `new_order`.
+    /// Names not present in the library are ignored. Symbols not mentioned
+    /// in `new_order` are placed at the end in their original relative order.
+    ///
+    /// Returns the new order of symbol names.
+    pub fn reorder(&mut self, new_order: &[&str]) -> Vec<String> {
+        // Build a position map for the desired order
+        let order_map: std::collections::HashMap<&str, usize> = new_order
+            .iter()
+            .enumerate()
+            .map(|(i, name)| (*name, i))
+            .collect();
+
+        // Sort symbols: those in order_map come first (by their position),
+        // then those not in the map (preserving relative order via stable sort)
+        let max_pos = new_order.len();
+        self.symbols.sort_by(|a_key, _, b_key, _| {
+            let pos_a = order_map.get(a_key.as_str()).copied().unwrap_or(max_pos);
+            let pos_b = order_map.get(b_key.as_str()).copied().unwrap_or(max_pos);
+            pos_a.cmp(&pos_b)
+        });
+
+        self.names()
     }
 
     /// Saves the library to a file.

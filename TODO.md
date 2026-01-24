@@ -4,7 +4,6 @@
 
 | Feature | Why It Helps |
 |---------|--------------|
-| `reorder_components` | Control component order in library (some teams care about this) |
 | `update_component` (in-place replace) | Currently must delete + write or rewrite entire library |
 
 ## Documentation/UX Polish

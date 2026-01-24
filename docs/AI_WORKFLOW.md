@@ -883,6 +883,51 @@ Use `merge_libraries` to combine multiple libraries into one:
 - Create backup/archive libraries from multiple sources
 - Merge team member contributions into a shared library
 
+### Reordering Components
+
+Use `reorder_components` to control the order of components in a library file (.PcbLib or .SchLib):
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ COMPONENT REORDER WORKFLOW                                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  REORDER SPECIFIC COMPONENTS TO TOP                                         │
+│  AI calls: reorder_components {                                             │
+│      filepath: "./Passives.PcbLib",                                         │
+│      component_order: [                                                     │
+│          "RESC0402X20N",                                                    │
+│          "RESC0603X26N",                                                    │
+│          "RESC0805X40N",                                                    │
+│          "RESC1206X55N"                                                     │
+│      ]                                                                      │
+│  }                                                                          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Example Response:**
+
+```json
+{
+    "status": "success",
+    "filepath": "./Passives.PcbLib",
+    "component_count": 8,
+    "original_order": ["CAPC0402", "RESC0402X20N", "RESC0603X26N", "INDC0603", "RESC0805X40N", "CAPC0805", "RESC1206X55N", "INDC1206"],
+    "new_order": ["RESC0402X20N", "RESC0603X26N", "RESC0805X40N", "RESC1206X55N", "CAPC0402", "INDC0603", "CAPC0805", "INDC1206"],
+    "not_in_library": [],
+    "appended_at_end": ["CAPC0402", "INDC0603", "CAPC0805", "INDC1206"],
+    "message": "Reordered 8 components in './Passives.PcbLib' (4 components appended at end)"
+}
+```
+
+**Common use cases:**
+
+- Organise components by package size (smallest to largest)
+- Group related components together
+- Prioritise frequently used components at the top
+- Match ordering conventions required by team standards
+
 ### Searching Components
 
 Use `search_components` to find components across multiple libraries using glob or regex patterns:
