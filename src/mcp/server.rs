@@ -473,6 +473,7 @@ impl McpServer {
             "export_library" => self.call_export_library(&params.arguments),
             "diff_libraries" => self.call_diff_libraries(&params.arguments),
             "batch_update" => self.call_batch_update(&params.arguments),
+            "copy_component" => self.call_copy_component(&params.arguments),
             // Unknown tool
             _ => ToolCallResult::error(format!("Unknown tool: {}", params.name)),
         };
@@ -957,6 +958,36 @@ impl McpServer {
                         }
                     },
                     "required": ["filepath", "operation", "parameters"]
+                }),
+            },
+            ToolDefinition {
+                name: "copy_component".to_string(),
+                description: Some(
+                    "Copy/duplicate a component within an Altium library file. Creates a new component \
+                     with a different name but identical primitives. Useful for creating variants."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepath": {
+                            "type": "string",
+                            "description": "Path to the Altium library file (.PcbLib or .SchLib)"
+                        },
+                        "source_name": {
+                            "type": "string",
+                            "description": "Name of the component to copy"
+                        },
+                        "target_name": {
+                            "type": "string",
+                            "description": "Name for the new copied component"
+                        },
+                        "description": {
+                            "type": "string",
+                            "description": "Optional description for the new component (defaults to source description)"
+                        }
+                    },
+                    "required": ["filepath", "source_name", "target_name"]
                 }),
             },
         ]
@@ -3981,6 +4012,188 @@ impl McpServer {
         };
 
         Layer::parse(spaced)
+    }
+
+    /// Validates an OLE storage component name.
+    fn validate_ole_name(name: &str) -> Result<(), String> {
+        const MAX_OLE_NAME_LEN: usize = 31;
+        const INVALID_CHARS: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
+
+        if name.is_empty() {
+            return Err("Component name cannot be empty".to_string());
+        }
+        if name.len() > MAX_OLE_NAME_LEN {
+            return Err(format!(
+                "Component name '{name}' is too long ({} bytes). \
+                 Maximum length is {MAX_OLE_NAME_LEN} bytes due to OLE storage format limitations.",
+                name.len(),
+            ));
+        }
+        if let Some(c) = name.chars().find(|c| INVALID_CHARS.contains(c)) {
+            return Err(format!(
+                "Component name '{name}' contains invalid character '{c}'. \
+                 Names cannot contain: / \\ : * ? \" < > |",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Copies a component within an Altium library file.
+    fn call_copy_component(&self, arguments: &Value) -> ToolCallResult {
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        let Some(source_name) = arguments.get("source_name").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: source_name");
+        };
+
+        let Some(target_name) = arguments.get("target_name").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: target_name");
+        };
+
+        let description = arguments.get("description").and_then(Value::as_str);
+
+        // Validate path is within allowed directories
+        if let Err(e) = self.validate_path(filepath) {
+            return ToolCallResult::error(e);
+        }
+
+        // Validate target name
+        if let Err(e) = Self::validate_ole_name(target_name) {
+            return ToolCallResult::error(e);
+        }
+
+        // Determine file type from extension
+        let ext = std::path::Path::new(filepath)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_lowercase);
+
+        match ext.as_deref() {
+            Some("pcblib") => {
+                Self::copy_pcblib_component(filepath, source_name, target_name, description)
+            }
+            Some("schlib") => {
+                Self::copy_schlib_component(filepath, source_name, target_name, description)
+            }
+            Some(ext) => ToolCallResult::error(format!(
+                "Unsupported file type: .{ext}. Use .PcbLib or .SchLib"
+            )),
+            None => ToolCallResult::error("File has no extension. Use .PcbLib or .SchLib"),
+        }
+    }
+
+    /// Copies a footprint within a `PcbLib` file.
+    fn copy_pcblib_component(
+        filepath: &str,
+        source_name: &str,
+        target_name: &str,
+        description: Option<&str>,
+    ) -> ToolCallResult {
+        use crate::altium::PcbLib;
+
+        // Read the library
+        let mut library = match PcbLib::read(filepath) {
+            Ok(lib) => lib,
+            Err(e) => return ToolCallResult::error(format!("Failed to read library: {e}")),
+        };
+
+        // Check if target already exists
+        if library.get(target_name).is_some() {
+            return ToolCallResult::error(format!(
+                "Component '{target_name}' already exists in library"
+            ));
+        }
+
+        // Find the source component
+        let Some(source) = library.get(source_name) else {
+            return ToolCallResult::error(format!(
+                "Source component '{source_name}' not found in library"
+            ));
+        };
+
+        // Clone the footprint with new name
+        let mut new_footprint = source.clone();
+        new_footprint.name = target_name.to_string();
+        if let Some(desc) = description {
+            new_footprint.description = desc.to_string();
+        }
+
+        // Add the new footprint
+        library.add(new_footprint);
+
+        // Write the updated library
+        if let Err(e) = library.write(filepath) {
+            return ToolCallResult::error(format!("Failed to write library: {e}"));
+        }
+
+        let result = json!({
+            "status": "success",
+            "filepath": filepath,
+            "file_type": "PcbLib",
+            "source_name": source_name,
+            "target_name": target_name,
+            "component_count": library.len(),
+        });
+
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Copies a symbol within a `SchLib` file.
+    fn copy_schlib_component(
+        filepath: &str,
+        source_name: &str,
+        target_name: &str,
+        description: Option<&str>,
+    ) -> ToolCallResult {
+        use crate::altium::SchLib;
+
+        // Read the library
+        let mut library = match SchLib::open(filepath) {
+            Ok(lib) => lib,
+            Err(e) => return ToolCallResult::error(format!("Failed to read library: {e}")),
+        };
+
+        // Check if target already exists
+        if library.get(target_name).is_some() {
+            return ToolCallResult::error(format!(
+                "Component '{target_name}' already exists in library"
+            ));
+        }
+
+        // Find the source component
+        let Some(source) = library.get(source_name) else {
+            return ToolCallResult::error(format!(
+                "Source component '{source_name}' not found in library"
+            ));
+        };
+
+        // Clone the symbol with new name
+        let mut new_symbol = source.clone();
+        new_symbol.name = target_name.to_string();
+        if let Some(desc) = description {
+            new_symbol.description = desc.to_string();
+        }
+
+        // Add the new symbol
+        library.add_symbol(new_symbol);
+
+        // Write the updated library
+        if let Err(e) = library.save(filepath) {
+            return ToolCallResult::error(format!("Failed to write library: {e}"));
+        }
+
+        let result = json!({
+            "status": "success",
+            "filepath": filepath,
+            "file_type": "SchLib",
+            "source_name": source_name,
+            "target_name": target_name,
+            "component_count": library.len(),
+        });
+
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
 }
 

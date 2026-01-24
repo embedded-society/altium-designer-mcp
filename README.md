@@ -351,6 +351,32 @@ and renaming layers library-wide.
 
 Layer names accept both spaced format (`Top Layer`) and camelCase (`TopLayer`).
 
+### `copy_component`
+
+Copy/duplicate a component within an Altium library file. Creates a new component with a
+different name but identical primitives. Useful for creating variants.
+
+```json
+{
+    "name": "copy_component",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib",
+        "source_name": "RESC0603_IPC_MEDIUM",
+        "target_name": "RESC0603_IPC_MEDIUM_V2",
+        "description": "0603 resistor variant 2"
+    }
+}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `filepath` | Path to the library file (.PcbLib or .SchLib) |
+| `source_name` | Name of the component to copy |
+| `target_name` | Name for the new copied component |
+| `description` | Optional description for the new component |
+
+Returns the new component count after copying.
+
 ---
 
 ## Primitive Types

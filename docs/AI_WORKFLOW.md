@@ -588,6 +588,53 @@ Use `batch_update` to perform library-wide updates efficiently:
 | `update_track_width` | Change track widths matching a value (with tolerance) |
 | `rename_layer` | Move primitives from one layer to another |
 
+### Copying Components
+
+Use `copy_component` to duplicate components for creating variants:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ COMPONENT COPY WORKFLOW                                                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  DUPLICATE A FOOTPRINT                                                      │
+│  AI calls: copy_component {                                                 │
+│      filepath: "./MyLibrary.PcbLib",                                        │
+│      source_name: "RESC0603_IPC_MEDIUM",                                    │
+│      target_name: "RESC0603_IPC_MEDIUM_NARROW",                             │
+│      description: "0603 resistor - narrow variant"                          │
+│  }                                                                          │
+│                                                                             │
+│  DUPLICATE A SYMBOL                                                         │
+│  AI calls: copy_component {                                                 │
+│      filepath: "./MyLibrary.SchLib",                                        │
+│      source_name: "Generic_Resistor",                                       │
+│      target_name: "Generic_Resistor_2W"                                     │
+│  }                                                                          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Example Response:**
+
+```json
+{
+    "status": "success",
+    "filepath": "./MyLibrary.PcbLib",
+    "file_type": "PcbLib",
+    "source_name": "RESC0603_IPC_MEDIUM",
+    "target_name": "RESC0603_IPC_MEDIUM_NARROW",
+    "component_count": 15
+}
+```
+
+**Common use cases:**
+
+- Create density variants (Medium → Dense, Loose)
+- Create thermal variants (standard pads → extended pads)
+- Create test variants with exposed pins
+- Duplicate symbols for multi-part components
+
 ---
 
 ## Tips for AI Assistants

@@ -147,13 +147,6 @@ This is likely due to internal unit conversion (mm ↔ mils) and is within accep
 
 ## Nice-to-Have Features
 
-### High Value
-
-1. **Copy/duplicate component**
-   - Useful for creating variants
-
-### Low Value / Nice-to-Have
-
 1. **Preview/render footprint**
    - ASCII art or SVG visualisation
 
@@ -193,4 +186,4 @@ which doesn't impact functionality.
 
 Recommended next steps:
 
-1. Add copy/duplicate component functionality
+1. Add preview/render footprint functionality (ASCII art or SVG visualisation)
