@@ -4,7 +4,8 @@
 //! overflow/underflow scenarios to find bugs.
 
 use altium_designer_mcp::altium::pcblib::{
-    Arc, Fill, Footprint, Layer, Pad, PcbLib, Region, Text, TextKind, Track, Vertex, Via,
+    Arc, Fill, Footprint, Layer, Pad, PcbFlags, PcbLib, Region, Text, TextJustification, TextKind,
+    Track, Vertex, Via,
 };
 use altium_designer_mcp::altium::schlib::{Pin, PinOrientation, Rectangle, SchLib, Symbol};
 use std::fs::File;
@@ -154,14 +155,14 @@ fn test_footprint_with_many_primitives() {
 
     // Add 100 pads
     for i in 0..100 {
-        let x = (i % 10) as f64 * 2.54;
-        let y = (i / 10) as f64 * 2.54;
+        let x = f64::from(i % 10) * 2.54;
+        let y = f64::from(i / 10) * 2.54;
         fp.add_pad(Pad::smd(format!("{}", i + 1), x, y, 1.0, 1.0));
     }
 
     // Add 100 tracks
     for i in 0..100 {
-        let x = i as f64 * 0.5;
+        let x = f64::from(i) * 0.5;
         fp.add_track(Track::new(x, 0.0, x, 10.0, 0.2, Layer::TopOverlay));
     }
 
@@ -239,7 +240,7 @@ fn test_footprint_name_too_long_returns_error() {
     assert!(result.is_err());
 
     let err = result.unwrap_err();
-    let err_msg = format!("{}", err);
+    let err_msg = err.to_string();
     assert!(err_msg.contains("31 character limit"));
 }
 
@@ -259,6 +260,7 @@ fn test_pad_rotation_boundaries() {
     let rotations = [0.0, 45.0, 90.0, 180.0, 270.0, 359.9, -45.0, -90.0];
 
     for (i, &rot) in rotations.iter().enumerate() {
+        #[allow(clippy::cast_precision_loss)]
         let mut pad = Pad::smd(format!("{}", i + 1), i as f64 * 2.0, 0.0, 1.0, 0.5);
         pad.rotation = rot;
         fp.add_pad(pad);
@@ -328,7 +330,7 @@ fn test_complex_region() {
             Vertex { x: 0.0, y: 2.0 },
         ],
         layer: Layer::TopCourtyard,
-        flags: Default::default(),
+        flags: PcbFlags::default(),
         unique_id: None,
     };
     fp.add_region(region);
@@ -355,6 +357,7 @@ fn test_region_with_many_vertices() {
     let n = 36;
     let mut vertices = Vec::new();
     for i in 0..n {
+        #[allow(clippy::cast_precision_loss)]
         let angle = (i as f64) * 2.0 * std::f64::consts::PI / (n as f64);
         vertices.push(Vertex {
             x: angle.cos(),
@@ -365,7 +368,7 @@ fn test_region_with_many_vertices() {
     let region = Region {
         vertices,
         layer: Layer::TopCourtyard,
-        flags: Default::default(),
+        flags: PcbFlags::default(),
         unique_id: None,
     };
     fp.add_region(region);
@@ -396,7 +399,7 @@ fn test_symbol_with_many_pins() {
     // 64-pin IC
     for i in 0..64 {
         let side = i / 16;
-        let pos = (i % 16) as i32;
+        let pos = i % 16;
         let (x, y, orient) = match side {
             0 => (-50, pos * 10 - 75, PinOrientation::Left), // Left side
             1 => (pos * 10 - 75, 90, PinOrientation::Down),  // Top side
@@ -434,8 +437,8 @@ fn test_multiple_footprints_same_library() {
 
     // Add 20 different footprints
     for i in 0..20 {
-        let mut fp = Footprint::new(format!("FP_{:02}", i));
-        fp.description = format!("Footprint number {}", i);
+        let mut fp = Footprint::new(format!("FP_{i:02}"));
+        fp.description = format!("Footprint number {i}");
         fp.add_pad(Pad::smd("1", -0.5, 0.0, 0.6, 0.5));
         fp.add_pad(Pad::smd("2", 0.5, 0.0, 0.6, 0.5));
         fp.add_track(Track::new(-1.0, -0.5, 1.0, -0.5, 0.15, Layer::TopOverlay));
@@ -449,10 +452,10 @@ fn test_multiple_footprints_same_library() {
 
     // Verify each footprint
     for i in 0..20 {
-        let name = format!("FP_{:02}", i);
+        let name = format!("FP_{i:02}");
         let fp = read_lib
             .get(&name)
-            .expect(&format!("Footprint {} not found", name));
+            .unwrap_or_else(|| panic!("Footprint {name} not found"));
         assert_eq!(fp.pads.len(), 2);
         assert_eq!(fp.tracks.len(), 1);
     }
@@ -480,8 +483,8 @@ fn test_text_special_strings() {
         kind: TextKind::Stroke,
         rotation: 0.0,
         stroke_font: None,
-        justification: Default::default(),
-        flags: Default::default(),
+        justification: TextJustification::default(),
+        flags: PcbFlags::default(),
         unique_id: None,
     };
     fp.add_text(text1);
@@ -496,8 +499,8 @@ fn test_text_special_strings() {
         kind: TextKind::Stroke,
         rotation: 0.0,
         stroke_font: None,
-        justification: Default::default(),
-        flags: Default::default(),
+        justification: TextJustification::default(),
+        flags: PcbFlags::default(),
         unique_id: None,
     };
     fp.add_text(text2);
