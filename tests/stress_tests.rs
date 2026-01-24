@@ -957,7 +957,7 @@ fn test_model_3d_persistence() {
     let pcblib_path = temp_dir.path().join("model_3d_test.PcbLib");
 
     // Create a minimal STEP file (valid header but empty content)
-    let step_content = br#"ISO-10303-21;
+    let step_content = br"ISO-10303-21;
 HEADER;
 FILE_DESCRIPTION(('Test STEP file'), '2;1');
 FILE_NAME('test_model.step', '2024-01-01T00:00:00', (''), (''), '', '', '');
@@ -966,7 +966,7 @@ ENDSEC;
 DATA;
 ENDSEC;
 END-ISO-10303-21;
-"#;
+";
 
     {
         let mut step_file = File::create(&step_path).expect("Failed to create STEP file");

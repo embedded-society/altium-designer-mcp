@@ -823,7 +823,25 @@ impl McpServer {
                                     },
                                     "rectangles": { "type": "array" },
                                     "lines": { "type": "array" },
-                                    "text": { "type": "array" }
+                                    "text": { "type": "array" },
+                                    "parameters": {
+                                        "type": "array",
+                                        "description": "Symbol parameters (e.g., Value, Part Number)",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "name": { "type": "string", "description": "Parameter name (e.g., 'Value')" },
+                                                "value": { "type": "string", "description": "Parameter value (e.g., '10k'). Default: '*'" },
+                                                "x": { "type": "integer", "description": "X position. Default: 0" },
+                                                "y": { "type": "integer", "description": "Y position. Default: 0" },
+                                                "font_id": { "type": "integer", "description": "Font ID. Default: 1" },
+                                                "color": { "type": "integer", "description": "BGR colour. Default: 0x800000 (dark red)" },
+                                                "hidden": { "type": "boolean", "description": "Whether hidden. Default: false" },
+                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" }
+                                            },
+                                            "required": ["name"]
+                                        }
+                                    }
                                 },
                                 "required": ["name", "pins"]
                             }
@@ -927,7 +945,8 @@ impl McpServer {
                 name: "batch_update".to_string(),
                 description: Some(
                     "Perform batch updates across all components in an Altium library file. \
-                     Supports updating track widths and renaming layers. Only modifies PcbLib files."
+                     For PcbLib: update track widths, rename layers. \
+                     For SchLib: update parameter values across symbols."
                         .to_string(),
                 ),
                 input_schema: json!({
@@ -935,12 +954,12 @@ impl McpServer {
                     "properties": {
                         "filepath": {
                             "type": "string",
-                            "description": "Path to the Altium PcbLib file"
+                            "description": "Path to the Altium library file (.PcbLib or .SchLib)"
                         },
                         "operation": {
                             "type": "string",
-                            "enum": ["update_track_width", "rename_layer"],
-                            "description": "The batch operation to perform"
+                            "enum": ["update_track_width", "rename_layer", "update_parameters"],
+                            "description": "The batch operation to perform. PcbLib: update_track_width, rename_layer. SchLib: update_parameters."
                         },
                         "parameters": {
                             "type": "object",
@@ -965,6 +984,22 @@ impl McpServer {
                                 "tolerance": {
                                     "type": "number",
                                     "description": "For update_track_width: matching tolerance (default: 0.001 mm)"
+                                },
+                                "param_name": {
+                                    "type": "string",
+                                    "description": "For update_parameters: parameter name to update (e.g., 'Value')"
+                                },
+                                "param_value": {
+                                    "type": "string",
+                                    "description": "For update_parameters: new value for the parameter"
+                                },
+                                "symbol_filter": {
+                                    "type": "string",
+                                    "description": "For update_parameters: regex pattern to filter symbol names (optional)"
+                                },
+                                "add_if_missing": {
+                                    "type": "boolean",
+                                    "description": "For update_parameters: add parameter if not present (default: false)"
                                 }
                             }
                         }
@@ -3901,10 +3936,8 @@ impl McpServer {
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
 
-    /// Performs batch updates across all components in a `PcbLib` file.
+    /// Performs batch updates across all components in a library file.
     fn call_batch_update(&self, arguments: &Value) -> ToolCallResult {
-        use crate::altium::PcbLib;
-
         let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
             return ToolCallResult::error("Missing required parameter: filepath");
         };
@@ -3922,17 +3955,26 @@ impl McpServer {
             return ToolCallResult::error(e);
         }
 
-        // Only PcbLib files are supported
+        // Detect file type
         let ext = std::path::Path::new(filepath)
             .extension()
             .and_then(|e| e.to_str())
             .map(str::to_lowercase);
 
-        if ext.as_deref() != Some("pcblib") {
-            return ToolCallResult::error(
-                "batch_update only supports PcbLib files. SchLib batch operations are not yet implemented."
-            );
+        match ext.as_deref() {
+            Some("pcblib") => Self::batch_update_pcblib(filepath, operation, parameters),
+            Some("schlib") => Self::batch_update_schlib(filepath, operation, parameters),
+            _ => ToolCallResult::error("batch_update only supports .PcbLib and .SchLib files"),
         }
+    }
+
+    /// Performs batch updates on a `PcbLib` file.
+    fn batch_update_pcblib(
+        filepath: &str,
+        operation: &str,
+        parameters: &Value,
+    ) -> ToolCallResult {
+        use crate::altium::PcbLib;
 
         // Read the library
         let mut library = match PcbLib::read(filepath) {
@@ -3941,19 +3983,153 @@ impl McpServer {
         };
 
         // Perform the operation
-        let result = match operation {
+        match operation {
             "update_track_width" => {
                 Self::batch_update_track_width(&mut library, parameters, filepath)
             }
             "rename_layer" => Self::batch_rename_layer(&mut library, parameters, filepath),
-            _ => {
-                return ToolCallResult::error(format!(
-                    "Unknown operation: {operation}. Valid operations: update_track_width, rename_layer"
-                ));
+            _ => ToolCallResult::error(format!(
+                "Unknown PcbLib operation: {operation}. Valid: update_track_width, rename_layer"
+            )),
+        }
+    }
+
+    /// Performs batch updates on a `SchLib` file.
+    fn batch_update_schlib(
+        filepath: &str,
+        operation: &str,
+        parameters: &Value,
+    ) -> ToolCallResult {
+        use crate::altium::schlib::SchLib;
+
+        // Read the library
+        let mut library = match SchLib::open(filepath) {
+            Ok(lib) => lib,
+            Err(e) => return ToolCallResult::error(format!("Failed to read library: {e}")),
+        };
+
+        // Perform the operation
+        match operation {
+            "update_parameters" => {
+                Self::batch_update_schlib_parameters(&mut library, parameters, filepath)
+            }
+            _ => ToolCallResult::error(format!(
+                "Unknown SchLib operation: {operation}. Valid: update_parameters"
+            )),
+        }
+    }
+
+    /// Updates parameters across all symbols in a `SchLib`.
+    fn batch_update_schlib_parameters(
+        library: &mut crate::altium::schlib::SchLib,
+        parameters: &Value,
+        filepath: &str,
+    ) -> ToolCallResult {
+        use crate::altium::schlib::Parameter;
+        use regex::Regex;
+
+        let Some(param_name) = parameters.get("param_name").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: param_name");
+        };
+
+        let Some(param_value) = parameters.get("param_value").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: param_value");
+        };
+
+        let add_if_missing = parameters
+            .get("add_if_missing")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+        // Compile symbol filter regex if provided
+        let symbol_filter = parameters
+            .get("symbol_filter")
+            .and_then(Value::as_str)
+            .map(Regex::new)
+            .transpose();
+
+        let symbol_filter = match symbol_filter {
+            Ok(filter) => filter,
+            Err(e) => {
+                return ToolCallResult::error(format!("Invalid symbol_filter regex: {e}"));
             }
         };
 
-        result
+        let mut updates = Vec::new();
+        let mut symbols_updated = 0;
+        let mut params_updated = 0;
+        let mut params_added = 0;
+
+        // Update parameters across all symbols
+        for symbol in library.symbols_mut() {
+            // Check symbol filter
+            if let Some(ref filter) = symbol_filter {
+                if !filter.is_match(&symbol.name) {
+                    continue;
+                }
+            }
+
+            let mut updated_in_symbol = false;
+            let mut added_in_symbol = false;
+
+            // Try to find and update existing parameter
+            for param in &mut symbol.parameters {
+                if param.name == param_name {
+                    let old_value = param.value.clone();
+                    param.value = param_value.to_string();
+                    updates.push(json!({
+                        "symbol": symbol.name,
+                        "action": "updated",
+                        "old_value": old_value,
+                        "new_value": param_value
+                    }));
+                    params_updated += 1;
+                    updated_in_symbol = true;
+                    break;
+                }
+            }
+
+            // Add parameter if not found and add_if_missing is true
+            if !updated_in_symbol && add_if_missing {
+                let param = Parameter::new(param_name, param_value);
+                symbol.add_parameter(param);
+                updates.push(json!({
+                    "symbol": symbol.name,
+                    "action": "added",
+                    "new_value": param_value
+                }));
+                params_added += 1;
+                added_in_symbol = true;
+            }
+
+            if updated_in_symbol || added_in_symbol {
+                symbols_updated += 1;
+            }
+        }
+
+        // Write back if any updates were made
+        if symbols_updated > 0 {
+            if let Err(e) = library.save(filepath) {
+                return ToolCallResult::error(format!("Failed to write library: {e}"));
+            }
+        }
+
+        let result = json!({
+            "success": true,
+            "filepath": filepath,
+            "operation": "update_parameters",
+            "param_name": param_name,
+            "param_value": param_value,
+            "summary": {
+                "symbols_updated": symbols_updated,
+                "parameters_updated": params_updated,
+                "parameters_added": params_added,
+                "total_symbols": library.len()
+            },
+            "updates": updates
+        });
+
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
 
     /// Updates track widths across all footprints in a library.
