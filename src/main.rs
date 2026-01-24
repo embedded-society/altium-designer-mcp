@@ -8,7 +8,6 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use tracing::{error, info, Level};
-use tracing_subscriber::EnvFilter;
 
 use altium_designer_mcp::config;
 use altium_designer_mcp::mcp::server::McpServer;
@@ -58,10 +57,8 @@ fn get_log_level(verbose: u8, quiet: bool, config_level: &str) -> Level {
 
 /// Initialises the tracing subscriber for logging.
 fn init_tracing(level: Level) {
-    let filter = EnvFilter::from_default_env().add_directive(level.into());
-
     tracing_subscriber::fmt()
-        .with_env_filter(filter)
+        .with_max_level(level)
         .with_target(false)
         .with_writer(std::io::stderr)
         .init();

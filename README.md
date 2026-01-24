@@ -294,8 +294,6 @@ altium-designer-mcp [OPTIONS] [CONFIG_FILE]
 | `-h`, `--help` | Print help information |
 | `-V`, `--version` | Print version information |
 
-The `RUST_LOG` environment variable can also be used to control logging.
-
 ### Usage with Claude Desktop
 
 Add to your Claude Desktop MCP configuration:
