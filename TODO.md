@@ -1,23 +1,17 @@
 # TODO
 
+## Bugs
+
+- [ ] **3D STEP model not persisted**: `step_model` parameter in `write_pcblib` is accepted but data is not stored.
+      Read returns `model_3d: null`. Needs implementation of ComponentBody3D records for writing and parsing.
+
 ## Future Enhancements
 
-- [x] Add `render_symbol` tool for ASCII rendering of schematic symbols (parallel to `render_footprint`)
-- [x] Improve error messages with more descriptive failure reasons
-- [x] Add integration tests with real Altium library files (requires sample .PcbLib/.SchLib files)
+- [ ] **Bulk parameter update**: Set parameters across multiple symbols at once
 
-## Testing Gaps
+## To Investigate
 
-- [x] Verify `append: true` mode works correctly for `write_pcblib` and `write_schlib`
-- [x] Test multi-part schematic symbols (e.g., dual op-amps)
-- [x] Test 3D model attachment (`step_model` parameter)
-- [x] Stress test pagination (`limit`/`offset`) with large libraries
-
-## Documentation
-
-- [x] Clarify pin 1 indicator usage in `write_pcblib` (rectangular vs round pad shape)
-
----
+- [ ] **Pad layer defaults**: Created pads default to "Multi-Layer" instead of "Top Layer" for SMD components — verify if this is intentional behaviour or a bug
 
 ## Known Limitations
 
