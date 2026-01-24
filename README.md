@@ -701,6 +701,17 @@ For parametric 3D model generation, a dedicated mechanical MCP server is planned
 
 ---
 
+## Notes
+
+### Long Component Names
+
+Component names longer than 31 characters are supported. The OLE Compound File format limits
+storage names to 31 characters, so longer names are automatically truncated internally while
+the full name is preserved in component parameters. This is handled transparently — you can
+use any length component name and it will be preserved on read/write roundtrips.
+
+---
+
 ## Contributing
 
 Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
