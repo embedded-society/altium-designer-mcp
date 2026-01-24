@@ -221,18 +221,24 @@ impl McpServer {
         // canonicalize the parent directory and append the filename.
         let canonical_path = if path.exists() {
             path.canonicalize()
-                .map_err(|e| format!("Failed to resolve path: {e}"))?
+                .map_err(|e| format!("Failed to resolve path '{}': {e}", path.display()))?
         } else {
             // For new files, check the parent directory
-            let parent = path
-                .parent()
-                .ok_or_else(|| "Invalid path: no parent directory".to_string())?;
-            let filename = path
-                .file_name()
-                .ok_or_else(|| "Invalid path: no filename".to_string())?;
-            let canonical_parent = parent
-                .canonicalize()
-                .map_err(|e| format!("Failed to resolve parent directory: {e}"))?;
+            let parent = path.parent().ok_or_else(|| {
+                format!(
+                    "Invalid path '{}': no parent directory (cannot create file at root)",
+                    path.display()
+                )
+            })?;
+            let filename = path.file_name().ok_or_else(|| {
+                format!("Invalid path '{}': no filename specified", path.display())
+            })?;
+            let canonical_parent = parent.canonicalize().map_err(|e| {
+                format!(
+                    "Parent directory '{}' does not exist or is inaccessible: {e}",
+                    parent.display()
+                )
+            })?;
             canonical_parent.join(filename)
         };
 
@@ -475,6 +481,7 @@ impl McpServer {
             "batch_update" => self.call_batch_update(&params.arguments),
             "copy_component" => self.call_copy_component(&params.arguments),
             "render_footprint" => self.call_render_footprint(&params.arguments),
+            "render_symbol" => self.call_render_symbol(&params.arguments),
             "manage_schlib_parameters" => self.call_manage_schlib_parameters(&params.arguments),
             "manage_schlib_footprints" => self.call_manage_schlib_footprints(&params.arguments),
             // Unknown tool
@@ -1024,6 +1031,45 @@ impl McpServer {
                         "max_height": {
                             "type": "integer",
                             "description": "Maximum height in characters (default: 40)"
+                        }
+                    },
+                    "required": ["filepath", "component_name"]
+                }),
+            },
+            ToolDefinition {
+                name: "render_symbol".to_string(),
+                description: Some(
+                    "Render an ASCII art visualisation of a schematic symbol from a SchLib file. \
+                     Shows pins, rectangles, lines, and other primitives in a simple text format \
+                     for quick preview. Coordinates are in schematic units (10 units = 1 grid)."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepath": {
+                            "type": "string",
+                            "description": "Path to the Altium SchLib file"
+                        },
+                        "component_name": {
+                            "type": "string",
+                            "description": "Name of the symbol to render"
+                        },
+                        "scale": {
+                            "type": "number",
+                            "description": "Characters per 10 schematic units (default: 1.0). Higher = more detail"
+                        },
+                        "max_width": {
+                            "type": "integer",
+                            "description": "Maximum width in characters (default: 80)"
+                        },
+                        "max_height": {
+                            "type": "integer",
+                            "description": "Maximum height in characters (default: 40)"
+                        },
+                        "part_id": {
+                            "type": "integer",
+                            "description": "Part ID for multi-part symbols (default: 1, shows all parts if 0)"
                         }
                     },
                     "required": ["filepath", "component_name"]
@@ -4352,8 +4398,26 @@ impl McpServer {
 
         // Find the footprint
         let Some(footprint) = library.get(component_name) else {
+            let available: Vec<_> = library.footprints().take(5).map(|f| &f.name).collect();
+            let hint = if available.is_empty() {
+                "Library is empty".to_string()
+            } else {
+                format!(
+                    "Available footprints include: {}{}",
+                    available
+                        .iter()
+                        .map(|s| s.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    if library.len() > 5 {
+                        format!(" (and {} more)", library.len() - 5)
+                    } else {
+                        String::new()
+                    }
+                )
+            };
             return ToolCallResult::error(format!(
-                "Footprint '{component_name}' not found in library"
+                "Footprint '{component_name}' not found in library. {hint}"
             ));
         };
 
@@ -4585,6 +4649,406 @@ impl McpServer {
                 y += sy;
             }
         }
+    }
+
+    /// Renders an ASCII art visualisation of a schematic symbol.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn call_render_symbol(&self, arguments: &Value) -> ToolCallResult {
+        use crate::altium::SchLib;
+
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        let Some(component_name) = arguments.get("component_name").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: component_name");
+        };
+
+        // Validate path is within allowed directories
+        if let Err(e) = self.validate_path(filepath) {
+            return ToolCallResult::error(e);
+        }
+
+        // Parse optional parameters
+        let scale = arguments
+            .get("scale")
+            .and_then(Value::as_f64)
+            .unwrap_or(1.0);
+        let max_width = arguments
+            .get("max_width")
+            .and_then(Value::as_u64)
+            .unwrap_or(80) as usize;
+        let max_height = arguments
+            .get("max_height")
+            .and_then(Value::as_u64)
+            .unwrap_or(40) as usize;
+        let part_id = arguments
+            .get("part_id")
+            .and_then(Value::as_i64)
+            .unwrap_or(1) as i32;
+
+        if scale <= 0.0 {
+            return ToolCallResult::error("scale must be greater than 0");
+        }
+
+        // Read the library
+        let library = match SchLib::open(filepath) {
+            Ok(lib) => lib,
+            Err(e) => return ToolCallResult::error(format!("Failed to read library: {e}")),
+        };
+
+        // Find the symbol
+        let Some(symbol) = library.get(component_name) else {
+            let available: Vec<_> = library
+                .iter()
+                .take(5)
+                .map(|(name, _)| name.as_str())
+                .collect();
+            let hint = if available.is_empty() {
+                "Library is empty".to_string()
+            } else {
+                format!(
+                    "Available symbols include: {}{}",
+                    available.join(", "),
+                    if library.len() > 5 {
+                        format!(" (and {} more)", library.len() - 5)
+                    } else {
+                        String::new()
+                    }
+                )
+            };
+            return ToolCallResult::error(format!(
+                "Symbol '{component_name}' not found in library. {hint}"
+            ));
+        };
+
+        // Render the symbol
+        let ascii_art = Self::render_symbol_ascii(symbol, scale, max_width, max_height, part_id);
+
+        let result = json!({
+            "status": "success",
+            "filepath": filepath,
+            "component_name": component_name,
+            "scale": scale,
+            "part_id": part_id,
+            "render": ascii_art,
+        });
+
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Renders a schematic symbol as ASCII art.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss,
+        clippy::similar_names,
+        clippy::too_many_lines,
+        clippy::float_cmp,
+        clippy::needless_range_loop
+    )]
+    fn render_symbol_ascii(
+        symbol: &crate::altium::schlib::Symbol,
+        scale: f64,
+        max_width: usize,
+        max_height: usize,
+        part_id: i32,
+    ) -> String {
+        use crate::altium::schlib::PinOrientation;
+        use std::fmt::Write;
+
+        // Find bounding box (in schematic units)
+        let (mut min_x, mut max_x, mut min_y, mut max_y) = (i32::MAX, i32::MIN, i32::MAX, i32::MIN);
+
+        // Helper to check if primitive belongs to requested part
+        let matches_part = |owner_part_id: i32| -> bool {
+            part_id == 0 || owner_part_id == part_id || owner_part_id == 0
+        };
+
+        // Calculate bounding box from pins (include pin length)
+        for pin in &symbol.pins {
+            if !matches_part(pin.owner_part_id) {
+                continue;
+            }
+            let (px, py) = (pin.x, pin.y);
+            let (end_x, end_y) = match pin.orientation {
+                PinOrientation::Right => (px + pin.length, py),
+                PinOrientation::Left => (px - pin.length, py),
+                PinOrientation::Up => (px, py + pin.length),
+                PinOrientation::Down => (px, py - pin.length),
+            };
+            min_x = min_x.min(px).min(end_x);
+            max_x = max_x.max(px).max(end_x);
+            min_y = min_y.min(py).min(end_y);
+            max_y = max_y.max(py).max(end_y);
+        }
+
+        // Calculate bounding box from rectangles
+        for rect in &symbol.rectangles {
+            if !matches_part(rect.owner_part_id) {
+                continue;
+            }
+            min_x = min_x.min(rect.x1).min(rect.x2);
+            max_x = max_x.max(rect.x1).max(rect.x2);
+            min_y = min_y.min(rect.y1).min(rect.y2);
+            max_y = max_y.max(rect.y1).max(rect.y2);
+        }
+
+        // Calculate bounding box from lines
+        for line in &symbol.lines {
+            if !matches_part(line.owner_part_id) {
+                continue;
+            }
+            min_x = min_x.min(line.x1).min(line.x2);
+            max_x = max_x.max(line.x1).max(line.x2);
+            min_y = min_y.min(line.y1).min(line.y2);
+            max_y = max_y.max(line.y1).max(line.y2);
+        }
+
+        // Calculate bounding box from polylines
+        for polyline in &symbol.polylines {
+            if !matches_part(polyline.owner_part_id) {
+                continue;
+            }
+            for &(x, y) in &polyline.points {
+                min_x = min_x.min(x);
+                max_x = max_x.max(x);
+                min_y = min_y.min(y);
+                max_y = max_y.max(y);
+            }
+        }
+
+        // Calculate bounding box from arcs
+        for arc in &symbol.arcs {
+            if !matches_part(arc.owner_part_id) {
+                continue;
+            }
+            min_x = min_x.min(arc.x - arc.radius);
+            max_x = max_x.max(arc.x + arc.radius);
+            min_y = min_y.min(arc.y - arc.radius);
+            max_y = max_y.max(arc.y + arc.radius);
+        }
+
+        // Calculate bounding box from ellipses
+        for ellipse in &symbol.ellipses {
+            if !matches_part(ellipse.owner_part_id) {
+                continue;
+            }
+            min_x = min_x.min(ellipse.x - ellipse.radius_x);
+            max_x = max_x.max(ellipse.x + ellipse.radius_x);
+            min_y = min_y.min(ellipse.y - ellipse.radius_y);
+            max_y = max_y.max(ellipse.y + ellipse.radius_y);
+        }
+
+        // Handle empty symbol
+        if min_x == i32::MAX {
+            return "Empty symbol (no primitives)".to_string();
+        }
+
+        // Add margin (10 schematic units = 1 grid)
+        let margin = 10;
+        min_x -= margin;
+        max_x += margin;
+        min_y -= margin;
+        max_y += margin;
+
+        // Calculate canvas size (scale is chars per 10 schematic units)
+        let width_units = f64::from(max_x - min_x);
+        let height_units = f64::from(max_y - min_y);
+        let mut canvas_width = ((width_units / 10.0) * scale).ceil() as usize;
+        let mut canvas_height = ((height_units / 10.0) * scale).ceil() as usize;
+
+        // Clamp to max dimensions
+        canvas_width = canvas_width.clamp(10, max_width);
+        canvas_height = canvas_height.clamp(5, max_height);
+
+        // Calculate actual scale after clamping
+        let actual_scale_x = canvas_width as f64 / width_units;
+        let actual_scale_y = canvas_height as f64 / height_units;
+
+        // Create canvas (y is inverted for display)
+        let mut canvas = vec![vec![' '; canvas_width]; canvas_height];
+
+        // Helper to convert schematic coordinates to canvas coordinates
+        let to_canvas = |x: i32, y: i32| -> (usize, usize) {
+            let cx = (f64::from(x - min_x) * actual_scale_x).round() as usize;
+            let cy = canvas_height.saturating_sub(1)
+                - (f64::from(y - min_y) * actual_scale_y).round() as usize;
+            (cx.min(canvas_width - 1), cy.min(canvas_height - 1))
+        };
+
+        // Draw rectangles (as box outlines or filled)
+        for rect in &symbol.rectangles {
+            if !matches_part(rect.owner_part_id) {
+                continue;
+            }
+            let (x1, y1) = to_canvas(rect.x1, rect.y1);
+            let (x2, y2) = to_canvas(rect.x2, rect.y2);
+            let (min_cx, max_cx) = (x1.min(x2), x1.max(x2));
+            let (min_cy, max_cy) = (y1.min(y2), y1.max(y2));
+
+            // Draw top and bottom edges
+            for cx in min_cx..=max_cx {
+                if cx < canvas_width {
+                    if min_cy < canvas_height {
+                        canvas[min_cy][cx] = '-';
+                    }
+                    if max_cy < canvas_height {
+                        canvas[max_cy][cx] = '-';
+                    }
+                }
+            }
+            // Draw left and right edges
+            for cy in min_cy..=max_cy {
+                if cy < canvas_height {
+                    if min_cx < canvas_width {
+                        canvas[cy][min_cx] = '|';
+                    }
+                    if max_cx < canvas_width {
+                        canvas[cy][max_cx] = '|';
+                    }
+                }
+            }
+            // Draw corners
+            if min_cy < canvas_height && min_cx < canvas_width {
+                canvas[min_cy][min_cx] = '+';
+            }
+            if min_cy < canvas_height && max_cx < canvas_width {
+                canvas[min_cy][max_cx] = '+';
+            }
+            if max_cy < canvas_height && min_cx < canvas_width {
+                canvas[max_cy][min_cx] = '+';
+            }
+            if max_cy < canvas_height && max_cx < canvas_width {
+                canvas[max_cy][max_cx] = '+';
+            }
+        }
+
+        // Draw lines
+        for line in &symbol.lines {
+            if !matches_part(line.owner_part_id) {
+                continue;
+            }
+            Self::draw_line(
+                &mut canvas,
+                to_canvas(line.x1, line.y1),
+                to_canvas(line.x2, line.y2),
+                '-',
+            );
+        }
+
+        // Draw polylines
+        for polyline in &symbol.polylines {
+            if !matches_part(polyline.owner_part_id) {
+                continue;
+            }
+            for i in 0..polyline.points.len().saturating_sub(1) {
+                let (x1, y1) = polyline.points[i];
+                let (x2, y2) = polyline.points[i + 1];
+                Self::draw_line(&mut canvas, to_canvas(x1, y1), to_canvas(x2, y2), '-');
+            }
+        }
+
+        // Draw arcs (simplified as circles at centre)
+        for arc in &symbol.arcs {
+            if !matches_part(arc.owner_part_id) {
+                continue;
+            }
+            let (cx, cy) = to_canvas(arc.x, arc.y);
+            if cx < canvas_width && cy < canvas_height {
+                canvas[cy][cx] = 'o';
+            }
+        }
+
+        // Draw ellipses (simplified as circles at centre)
+        for ellipse in &symbol.ellipses {
+            if !matches_part(ellipse.owner_part_id) {
+                continue;
+            }
+            let (cx, cy) = to_canvas(ellipse.x, ellipse.y);
+            if cx < canvas_width && cy < canvas_height {
+                canvas[cy][cx] = 'O';
+            }
+        }
+
+        // Draw pins
+        for pin in &symbol.pins {
+            if !matches_part(pin.owner_part_id) {
+                continue;
+            }
+            let (px, py) = (pin.x, pin.y);
+            let (end_x, end_y) = match pin.orientation {
+                PinOrientation::Right => (px + pin.length, py),
+                PinOrientation::Left => (px - pin.length, py),
+                PinOrientation::Up => (px, py + pin.length),
+                PinOrientation::Down => (px, py - pin.length),
+            };
+
+            // Draw pin line
+            Self::draw_line(&mut canvas, to_canvas(px, py), to_canvas(end_x, end_y), '~');
+
+            // Draw connection point (at pin position, not end)
+            let (cx, cy) = to_canvas(px, py);
+            if cx < canvas_width && cy < canvas_height {
+                // Use designator first char or '*'
+                let pin_char = pin.designator.chars().next().unwrap_or('*');
+                canvas[cy][cx] = pin_char;
+            }
+        }
+
+        // Draw origin crosshair
+        let (ox, oy) = to_canvas(0, 0);
+        if ox < canvas_width && oy < canvas_height && canvas[oy][ox] == ' ' {
+            canvas[oy][ox] = '+';
+        }
+
+        // Count primitives for summary
+        let pin_count = symbol
+            .pins
+            .iter()
+            .filter(|p| matches_part(p.owner_part_id))
+            .count();
+        let rect_count = symbol
+            .rectangles
+            .iter()
+            .filter(|r| matches_part(r.owner_part_id))
+            .count();
+        let line_count = symbol
+            .lines
+            .iter()
+            .filter(|l| matches_part(l.owner_part_id))
+            .count();
+
+        // Build output string
+        let mut output = String::new();
+        let _ = writeln!(
+            output,
+            "Symbol: {} (part {}/{})",
+            symbol.name,
+            if part_id == 0 { 1 } else { part_id },
+            symbol.part_count
+        );
+        let _ = writeln!(
+            output,
+            "Pins: {pin_count}, Rectangles: {rect_count}, Lines: {line_count}"
+        );
+        output.push_str(&"-".repeat(canvas_width + 2));
+        output.push('\n');
+
+        for row in &canvas {
+            output.push('|');
+            for &ch in row {
+                output.push(ch);
+            }
+            output.push('|');
+            output.push('\n');
+        }
+
+        output.push_str(&"-".repeat(canvas_width + 2));
+        output.push('\n');
+        output.push_str("Legend: 1-9/* = pin, |-+ = rectangle, ~ = pin line, o = arc, O = ellipse, + = origin\n");
+
+        output
     }
 
     /// Manages parameters in a `SchLib` symbol.

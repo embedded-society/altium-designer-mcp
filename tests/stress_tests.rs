@@ -4,8 +4,8 @@
 //! overflow/underflow scenarios to find bugs.
 
 use altium_designer_mcp::altium::pcblib::{
-    Arc, Fill, Footprint, Layer, Pad, PcbFlags, PcbLib, Region, Text, TextJustification, TextKind,
-    Track, Vertex, Via,
+    Arc, ComponentBody, Fill, Footprint, Layer, Pad, PcbFlags, PcbLib, Region, Text,
+    TextJustification, TextKind, Track, Vertex, Via,
 };
 use altium_designer_mcp::altium::schlib::{Pin, PinOrientation, Rectangle, SchLib, Symbol};
 use std::fs::File;
@@ -619,4 +619,327 @@ fn test_schlib_symbol_name_length_validation() {
     let read_symbol = read_lib.get(&long_name).expect("Symbol not found");
     assert_eq!(read_symbol.name, long_name, "Full name should be preserved");
     assert_eq!(read_symbol.description, "Long name");
+}
+
+// =============================================================================
+// Append Mode Tests (simulating write_pcblib/write_schlib append: true)
+// =============================================================================
+
+#[test]
+fn test_pcblib_append_mode() {
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let file_path = temp_dir.path().join("append_test.PcbLib");
+
+    // Step 1: Create initial library with one footprint
+    let mut lib1 = PcbLib::new();
+    let mut fp1 = Footprint::new("FOOTPRINT_1");
+    fp1.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    lib1.add(fp1);
+    lib1.write(&file_path)
+        .expect("Failed to write initial library");
+
+    // Verify initial state
+    let check1 = PcbLib::read(&file_path).expect("Failed to read");
+    assert_eq!(check1.len(), 1, "Should have 1 footprint initially");
+
+    // Step 2: Simulate append mode - read existing, add new, write back
+    let mut lib2 = PcbLib::read(&file_path).expect("Failed to read for append");
+    let mut fp2 = Footprint::new("FOOTPRINT_2");
+    fp2.add_pad(Pad::smd("1", 0.0, 0.0, 0.8, 0.8));
+    lib2.add(fp2);
+    lib2.write(&file_path)
+        .expect("Failed to write appended library");
+
+    // Step 3: Verify both footprints are present
+    let final_lib = PcbLib::read(&file_path).expect("Failed to read final library");
+    assert_eq!(final_lib.len(), 2, "Should have 2 footprints after append");
+    assert!(
+        final_lib.get("FOOTPRINT_1").is_some(),
+        "Original footprint should be preserved"
+    );
+    assert!(
+        final_lib.get("FOOTPRINT_2").is_some(),
+        "Appended footprint should be present"
+    );
+}
+
+#[test]
+fn test_schlib_append_mode() {
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let file_path = temp_dir.path().join("append_test.SchLib");
+
+    // Step 1: Create initial library with one symbol
+    let mut lib1 = SchLib::new();
+    let mut sym1 = Symbol::new("SYMBOL_1");
+    sym1.add_pin(Pin::new("P1", "1", 0, 0, 10, PinOrientation::Left));
+    sym1.add_rectangle(Rectangle::new(-10, -5, 10, 5));
+    lib1.add_symbol(sym1);
+
+    let file = File::create(&file_path).expect("Failed to create file");
+    lib1.write(file).expect("Failed to write initial library");
+
+    // Verify initial state
+    let check1 = SchLib::open(&file_path).expect("Failed to read");
+    assert_eq!(check1.len(), 1, "Should have 1 symbol initially");
+
+    // Step 2: Simulate append mode - read existing, add new, write back
+    let mut lib2 = SchLib::open(&file_path).expect("Failed to read for append");
+    let mut sym2 = Symbol::new("SYMBOL_2");
+    sym2.add_pin(Pin::new("P1", "1", 0, 0, 10, PinOrientation::Left));
+    sym2.add_rectangle(Rectangle::new(-10, -5, 10, 5));
+    lib2.add_symbol(sym2);
+
+    let file = File::create(&file_path).expect("Failed to create file for write");
+    lib2.write(file).expect("Failed to write appended library");
+
+    // Step 3: Verify both symbols are present
+    let final_lib = SchLib::open(&file_path).expect("Failed to read final library");
+    assert_eq!(final_lib.len(), 2, "Should have 2 symbols after append");
+    assert!(
+        final_lib.get("SYMBOL_1").is_some(),
+        "Original symbol should be preserved"
+    );
+    assert!(
+        final_lib.get("SYMBOL_2").is_some(),
+        "Appended symbol should be present"
+    );
+}
+
+#[test]
+fn test_pcblib_append_multiple_footprints() {
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let file_path = temp_dir.path().join("append_multi.PcbLib");
+
+    // Start with empty library
+    let mut lib = PcbLib::new();
+
+    // Simulate multiple append operations
+    for i in 1..=5 {
+        let mut fp = Footprint::new(format!("FP_{i}"));
+        fp.description = format!("Footprint number {i}");
+        fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+        lib.add(fp);
+
+        // Write after each addition
+        lib.write(&file_path).expect("Failed to write");
+
+        // Read back for next iteration
+        lib = PcbLib::read(&file_path).expect("Failed to read");
+    }
+
+    // Final verification
+    let final_lib = PcbLib::read(&file_path).expect("Failed to read final");
+    assert_eq!(final_lib.len(), 5, "Should have 5 footprints after appends");
+
+    for i in 1..=5 {
+        assert!(
+            final_lib.get(&format!("FP_{i}")).is_some(),
+            "Footprint FP_{i} should exist"
+        );
+    }
+}
+
+// =============================================================================
+// 3D Model / ComponentBody Tests
+// =============================================================================
+
+#[test]
+fn test_component_body_roundtrip() {
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let file_path = temp_dir.path().join("component_body.PcbLib");
+
+    let mut lib = PcbLib::new();
+    let mut fp = Footprint::new("WITH_3D_MODEL");
+    fp.add_pad(Pad::smd("1", -0.5, 0.0, 0.6, 0.5));
+    fp.add_pad(Pad::smd("2", 0.5, 0.0, 0.6, 0.5));
+
+    // Add a ComponentBody with typical 3D model properties
+    let body = ComponentBody {
+        model_id: "TEST-MODEL-GUID".to_string(),
+        model_name: "RESC0603.step".to_string(),
+        embedded: false, // External reference (not embedded in library)
+        rotation_x: 0.0,
+        rotation_y: 0.0,
+        rotation_z: 0.0,
+        z_offset: 0.0,
+        overall_height: 0.35,
+        standoff_height: 0.0,
+        layer: Layer::TopLayer,
+        unique_id: None,
+    };
+    fp.component_bodies.push(body);
+
+    lib.add(fp);
+    lib.write(&file_path).expect("Failed to write");
+
+    // Read back and verify
+    let read_lib = PcbLib::read(&file_path).expect("Failed to read");
+    let read_fp = read_lib.get("WITH_3D_MODEL").expect("Footprint not found");
+
+    assert_eq!(read_fp.pads.len(), 2, "Should have 2 pads");
+    assert_eq!(
+        read_fp.component_bodies.len(),
+        1,
+        "Should have 1 component body"
+    );
+
+    let read_body = &read_fp.component_bodies[0];
+    assert_eq!(read_body.model_name, "RESC0603.step");
+    assert!((read_body.overall_height - 0.35).abs() < 0.001);
+}
+
+#[test]
+fn test_component_body_with_rotation() {
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let file_path = temp_dir.path().join("rotated_body.PcbLib");
+
+    let mut lib = PcbLib::new();
+    let mut fp = Footprint::new("ROTATED_MODEL");
+    fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+
+    // 3D model with rotation
+    let body = ComponentBody {
+        model_id: "ROTATED-GUID".to_string(),
+        model_name: "SOIC8.step".to_string(),
+        embedded: false,
+        rotation_x: 0.0,
+        rotation_y: 0.0,
+        rotation_z: 90.0, // Rotated 90 degrees
+        z_offset: 0.1,    // 0.1mm standoff
+        overall_height: 1.75,
+        standoff_height: 0.0,
+        layer: Layer::TopLayer,
+        unique_id: None,
+    };
+    fp.component_bodies.push(body);
+
+    lib.add(fp);
+    lib.write(&file_path).expect("Failed to write");
+
+    let read_lib = PcbLib::read(&file_path).expect("Failed to read");
+    let read_fp = read_lib.get("ROTATED_MODEL").expect("Footprint not found");
+
+    assert_eq!(read_fp.component_bodies.len(), 1);
+    let read_body = &read_fp.component_bodies[0];
+    assert!((read_body.rotation_z - 90.0).abs() < 0.001);
+    assert!((read_body.z_offset - 0.1).abs() < 0.001);
+}
+
+// =============================================================================
+// Large Library / Pagination Stress Tests
+// =============================================================================
+
+#[test]
+fn test_large_pcblib_pagination() {
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let file_path = temp_dir.path().join("large_library.PcbLib");
+
+    // Create a library with 100 footprints
+    let mut lib = PcbLib::new();
+    for i in 1..=100 {
+        let mut fp = Footprint::new(format!("FP_{i:03}"));
+        fp.description = format!("Footprint number {i}");
+        fp.add_pad(Pad::smd("1", -0.5, 0.0, 0.6, 0.5));
+        fp.add_pad(Pad::smd("2", 0.5, 0.0, 0.6, 0.5));
+        lib.add(fp);
+    }
+
+    lib.write(&file_path)
+        .expect("Failed to write large library");
+
+    // Verify total count
+    let read_lib = PcbLib::read(&file_path).expect("Failed to read");
+    assert_eq!(read_lib.len(), 100, "Should have 100 footprints");
+
+    // Test iteration with offset and limit (simulating pagination)
+    let footprints: Vec<_> = read_lib.footprints().collect();
+
+    // Page 1: first 10
+    assert_eq!(footprints.iter().take(10).count(), 10);
+
+    // Page 2: skip 10, take 10
+    assert_eq!(footprints.iter().skip(10).take(10).count(), 10);
+
+    // Last page: skip 90, take remaining
+    assert_eq!(footprints.iter().skip(90).count(), 10);
+
+    // Verify no duplicates across all footprints
+    let names: std::collections::HashSet<_> = footprints.iter().map(|fp| &fp.name).collect();
+    assert_eq!(names.len(), 100, "All footprint names should be unique");
+}
+
+#[test]
+fn test_large_schlib_pagination() {
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let file_path = temp_dir.path().join("large_schlib.SchLib");
+
+    // Create a library with 50 symbols
+    let mut lib = SchLib::new();
+    for i in 1..=50 {
+        let mut sym = Symbol::new(format!("SYM_{i:03}"));
+        sym.description = format!("Symbol number {i}");
+        sym.add_pin(Pin::new("P1", "1", -20, 0, 10, PinOrientation::Left));
+        sym.add_pin(Pin::new("P2", "2", 20, 0, 10, PinOrientation::Right));
+        sym.add_rectangle(Rectangle::new(-10, -5, 10, 5));
+        lib.add_symbol(sym);
+    }
+
+    let file = File::create(&file_path).expect("Failed to create file");
+    lib.write(file).expect("Failed to write large library");
+
+    // Verify total count
+    let read_lib = SchLib::open(&file_path).expect("Failed to read");
+    assert_eq!(read_lib.len(), 50, "Should have 50 symbols");
+
+    // Test iteration with pagination
+    let symbols: Vec<_> = read_lib.iter().collect();
+
+    // Page 1: first 10
+    assert_eq!(symbols.iter().take(10).count(), 10);
+
+    // Page 3: skip 20, take 10
+    assert_eq!(symbols.iter().skip(20).take(10).count(), 10);
+
+    // Verify all symbols are present
+    let names: std::collections::HashSet<_> =
+        symbols.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(names.len(), 50, "All symbol names should be unique");
+}
+
+#[test]
+fn test_pagination_edge_cases() {
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let file_path = temp_dir.path().join("edge_case.PcbLib");
+
+    // Create library with 5 footprints
+    let mut lib = PcbLib::new();
+    for i in 1..=5 {
+        let mut fp = Footprint::new(format!("FP_{i}"));
+        fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+        lib.add(fp);
+    }
+    lib.write(&file_path).expect("Failed to write");
+
+    let read_lib = PcbLib::read(&file_path).expect("Failed to read");
+    let footprints: Vec<_> = read_lib.footprints().collect();
+
+    // Edge case: offset beyond available items
+    assert!(
+        footprints.get(100).is_none(),
+        "Skipping past all items should return empty"
+    );
+
+    // Edge case: limit larger than available
+    assert_eq!(
+        footprints.iter().take(1000).count(),
+        5,
+        "Should return all available items"
+    );
+
+    // Edge case: zero limit
+    assert_eq!(
+        footprints.iter().take(0).count(),
+        0,
+        "Zero limit should return empty"
+    );
 }

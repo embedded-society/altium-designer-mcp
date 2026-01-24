@@ -427,6 +427,36 @@ and other primitives in a simple text format for quick preview.
 
 Returns ASCII art with legend: `#` = pad, `-` = track, `o` = arc, `+` = origin.
 
+### `render_symbol`
+
+Render an ASCII art visualisation of a schematic symbol from a SchLib file. Shows pins,
+rectangles, lines, and other primitives in a simple text format for quick preview.
+
+```json
+{
+    "name": "render_symbol",
+    "arguments": {
+        "filepath": "./MyLibrary.SchLib",
+        "component_name": "LM358",
+        "scale": 1.0,
+        "max_width": 80,
+        "max_height": 40,
+        "part_id": 1
+    }
+}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `filepath` | Path to the SchLib file |
+| `component_name` | Name of the symbol to render |
+| `scale` | Characters per 10 schematic units (default: 1.0) |
+| `max_width` | Maximum width in characters (default: 80) |
+| `max_height` | Maximum height in characters (default: 40) |
+| `part_id` | Part ID for multi-part symbols (default: 1, use 0 for all parts) |
+
+Returns ASCII art with legend: `1-9/*` = pin, `|-+` = rectangle, `~` = pin line, `o` = arc, `O` = ellipse, `+` = origin.
+
 ### `manage_schlib_parameters`
 
 Manage component parameters in Altium SchLib files. Supports listing, getting, setting,
@@ -506,7 +536,7 @@ footprint references that link schematic symbols to PCB footprints.
 
 | Primitive | Description |
 |-----------|-------------|
-| **Pad** | SMD or through-hole pad with designator, position, size, shape, layer |
+| **Pad** | SMD or through-hole pad with designator, position, size, shape, layer (see Pad Shapes below) |
 | **Via** | Vertical interconnect with layer span, hole size, and thermal relief |
 | **Track** | Line segment on any layer (silkscreen, assembly, etc.) |
 | **Arc** | Arc or circle on any layer |
@@ -514,6 +544,30 @@ footprint references that link schematic symbols to PCB footprints.
 | **Text** | Text string with font, size, position, layer |
 | **Fill** | Filled rectangle on any layer |
 | **ComponentBody** | 3D model reference (embedded STEP models) |
+
+#### Pad Shapes and Pin 1 Indicator
+
+The `shape` property on pads controls the copper shape. Use this to indicate pin 1:
+
+| Shape | Value | Usage |
+|-------|-------|-------|
+| Rectangle | `"rectangle"` | **Pin 1 indicator** — use for the first pad to distinguish it visually |
+| Rounded Rectangle | `"rounded_rectangle"` | Default for SMD pads (most common) |
+| Round | `"round"` | Circular pads, default for through-hole |
+| Oval | `"oval"` | Oblong pads for constrained spaces |
+
+**Example — marking pin 1 with a rectangular pad:**
+
+```json
+{
+    "pads": [
+        { "designator": "1", "x": -0.75, "y": 0, "width": 0.9, "height": 0.95, "shape": "rectangle" },
+        { "designator": "2", "x": 0.75, "y": 0, "width": 0.9, "height": 0.95, "shape": "rounded_rectangle" }
+    ]
+}
+```
+
+This follows the IPC-7351 convention where pin 1 has a distinct shape (typically rectangular or square corners) while other pads use rounded corners.
 
 ### Symbol Primitives (SchLib)
 
