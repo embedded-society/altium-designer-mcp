@@ -297,6 +297,22 @@ See [CONTRIBUTING.md § Development Setup](CONTRIBUTING.md#development-setup) fo
 
 The release binary will be at `target/release/altium-designer-mcp`.
 
+### Command-Line Usage
+
+```bash
+altium-designer-mcp [OPTIONS] [CONFIG_FILE]
+```
+
+| Option | Description |
+|--------|-------------|
+| `CONFIG_FILE` | Path to configuration file (optional, uses default location if omitted) |
+| `-v`, `--verbose` | Increase logging verbosity (`-v` info, `-vv` debug, `-vvv` trace) |
+| `-q`, `--quiet` | Decrease logging verbosity (only show errors) |
+| `-h`, `--help` | Print help information |
+| `-V`, `--version` | Print version information |
+
+The `RUST_LOG` environment variable can also be used to control logging.
+
 ### Usage with Claude Desktop
 
 Add to your Claude Desktop MCP configuration:
@@ -337,7 +353,7 @@ Configuration file location:
 
 | Option | Description |
 |--------|-------------|
-| `allowed_paths` | Array of directory paths where library files can be accessed |
+| `allowed_paths` | Array of directory paths where library files can be accessed (default: current directory) |
 | `logging.level` | Log level: trace, debug, info, warn, error (default: warn) |
 
 ---
