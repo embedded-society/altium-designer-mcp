@@ -765,7 +765,10 @@ impl PcbLib {
                 // Extract filename from path
                 let filename = std::path::Path::new(&model_3d.filepath)
                     .file_name()
-                    .map_or_else(|| "model.step".to_string(), |n| n.to_string_lossy().to_string());
+                    .map_or_else(
+                        || "model.step".to_string(),
+                        |n| n.to_string_lossy().to_string(),
+                    );
 
                 // Create EmbeddedModel
                 let embedded_model = EmbeddedModel::new(&guid, &filename, step_data);
