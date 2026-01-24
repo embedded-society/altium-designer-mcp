@@ -854,7 +854,10 @@ impl McpServer {
                                 "required": ["name", "pins"]
                             }
                         },
-                        "append": { "type": "boolean" }
+                        "append": {
+                            "type": "boolean",
+                            "description": "If true, append to existing file; if false, create new file"
+                        }
                     },
                     "required": ["filepath", "symbols"]
                 }),
