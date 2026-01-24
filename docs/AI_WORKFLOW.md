@@ -454,6 +454,36 @@ Use `validate_library` to check for common issues before using a library:
 }
 ```
 
+### Exporting Libraries
+
+Use `export_library` to export library contents for version control or external processing:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ LIBRARY EXPORT WORKFLOW                                                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  JSON EXPORT (full data)                                                    │
+│  AI calls: export_library { filepath, format: "json" }                      │
+│  Returns: Complete component data with all primitives                       │
+│  Use for: Backup, version control diffs, data migration                     │
+│                                                                             │
+│  CSV EXPORT (summary table)                                                 │
+│  AI calls: export_library { filepath, format: "csv" }                       │
+│  Returns: Summary table (name, description, counts)                         │
+│  Use for: Inventory, documentation, spreadsheet import                      │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Example CSV Output (PcbLib):**
+
+```csv
+name,description,pad_count,track_count,arc_count,region_count,text_count,has_3d_model
+RESC0603,Chip resistor 0603,2,4,0,1,2,no
+CAPC0402,Chip capacitor 0402,2,4,0,1,2,no
+```
+
 ---
 
 ## Tips for AI Assistants

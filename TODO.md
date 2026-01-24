@@ -154,14 +154,10 @@ This is likely due to internal unit conversion (mm ↔ mils) and is within accep
 
 ### Medium Value
 
-1. **Export to other formats**
-   - JSON export for backup/version control
-   - CSV export of component list with parameters
-
-2. **Diff two libraries**
+1. **Diff two libraries**
    - Compare components between library versions
 
-3. **Batch operations**
+2. **Batch operations**
    - Update track widths across all footprints
    - Rename layers
 
@@ -206,4 +202,4 @@ which doesn't impact functionality.
 
 Recommended next steps:
 
-1. Add export to JSON/CSV for version control integration
+1. Add library diff tool to compare components between versions

@@ -253,6 +253,28 @@ Checks for:
 
 Returns status (`valid`, `warnings`, or `invalid`) with a list of issues found.
 
+### `export_library`
+
+Export an Altium library to JSON or CSV format for version control, backup, or external processing.
+
+```json
+{
+    "name": "export_library",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib",
+        "format": "json"
+    }
+}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `format` | Export format: `json` for full data, `csv` for summary table |
+
+**JSON format** returns complete component data including all primitives.
+
+**CSV format** returns a summary table with columns: name, description, pad/pin count, etc.
+
 ---
 
 ## Primitive Types

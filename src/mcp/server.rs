@@ -470,6 +470,7 @@ impl McpServer {
             // Library management tools
             "delete_component" => self.call_delete_component(&params.arguments),
             "validate_library" => self.call_validate_library(&params.arguments),
+            "export_library" => self.call_export_library(&params.arguments),
             // Unknown tool
             _ => ToolCallResult::error(format!("Unknown tool: {}", params.name)),
         };
@@ -859,6 +860,30 @@ impl McpServer {
                         }
                     },
                     "required": ["filepath"]
+                }),
+            },
+            ToolDefinition {
+                name: "export_library".to_string(),
+                description: Some(
+                    "Export an Altium library to JSON or CSV format for version control, backup, \
+                     or external processing. JSON includes full component data; CSV provides a \
+                     summary table of component names and basic info."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepath": {
+                            "type": "string",
+                            "description": "Path to the .PcbLib or .SchLib file"
+                        },
+                        "format": {
+                            "type": "string",
+                            "enum": ["json", "csv"],
+                            "description": "Export format: 'json' for full data, 'csv' for summary table"
+                        }
+                    },
+                    "required": ["filepath", "format"]
                 }),
             },
         ]
@@ -3072,6 +3097,217 @@ impl McpServer {
         });
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    // ==================== Library Export Tools ====================
+
+    /// Exports an Altium library to JSON or CSV format.
+    fn call_export_library(&self, arguments: &Value) -> ToolCallResult {
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        // Validate path is within allowed directories
+        if let Err(e) = self.validate_path(filepath) {
+            return ToolCallResult::error(e);
+        }
+
+        let Some(format) = arguments.get("format").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: format");
+        };
+
+        let format_lower = format.to_lowercase();
+        if format_lower != "json" && format_lower != "csv" {
+            return ToolCallResult::error("Invalid format. Expected 'json' or 'csv'.");
+        }
+
+        // Determine file type from extension
+        let path = std::path::Path::new(filepath);
+        let extension = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_lowercase);
+
+        match extension.as_deref() {
+            Some("pcblib") => Self::export_pcblib(filepath, &format_lower),
+            Some("schlib") => Self::export_schlib(filepath, &format_lower),
+            _ => {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": "Unknown file type. Expected .PcbLib or .SchLib extension.",
+                });
+                ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
+            }
+        }
+    }
+
+    /// Exports a `PcbLib` file to JSON or CSV.
+    #[allow(clippy::too_many_lines)]
+    fn export_pcblib(filepath: &str, format: &str) -> ToolCallResult {
+        use crate::altium::PcbLib;
+
+        // Read the library
+        let library = match PcbLib::read(filepath) {
+            Ok(lib) => lib,
+            Err(e) => {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": e.to_string(),
+                });
+                return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
+            }
+        };
+
+        if format == "json" {
+            // Full JSON export
+            let footprints: Vec<Value> = library
+                .footprints()
+                .map(|fp| {
+                    json!({
+                        "name": fp.name,
+                        "description": fp.description,
+                        "pads": fp.pads,
+                        "tracks": fp.tracks,
+                        "arcs": fp.arcs,
+                        "regions": fp.regions,
+                        "text": fp.text,
+                        "model_3d": fp.model_3d,
+                    })
+                })
+                .collect();
+
+            let result = json!({
+                "status": "success",
+                "filepath": filepath,
+                "file_type": "PcbLib",
+                "format": "json",
+                "component_count": library.len(),
+                "footprints": footprints,
+            });
+
+            ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+        } else {
+            // CSV export - summary table
+            let mut csv_lines: Vec<String> = Vec::new();
+            csv_lines.push("name,description,pad_count,track_count,arc_count,region_count,text_count,has_3d_model".to_string());
+
+            for fp in library.footprints() {
+                let description = fp.description.replace(',', ";").replace('\n', " ");
+                let has_model = if fp.model_3d.is_some() { "yes" } else { "no" };
+                csv_lines.push(format!(
+                    "{},{},{},{},{},{},{},{}",
+                    fp.name,
+                    description,
+                    fp.pads.len(),
+                    fp.tracks.len(),
+                    fp.arcs.len(),
+                    fp.regions.len(),
+                    fp.text.len(),
+                    has_model
+                ));
+            }
+
+            let csv_content = csv_lines.join("\n");
+
+            let result = json!({
+                "status": "success",
+                "filepath": filepath,
+                "file_type": "PcbLib",
+                "format": "csv",
+                "component_count": library.len(),
+                "csv": csv_content,
+            });
+
+            ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+        }
+    }
+
+    /// Exports a `SchLib` file to JSON or CSV.
+    fn export_schlib(filepath: &str, format: &str) -> ToolCallResult {
+        use crate::altium::SchLib;
+
+        // Read the library
+        let library = match SchLib::open(filepath) {
+            Ok(lib) => lib,
+            Err(e) => {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": e.to_string(),
+                });
+                return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
+            }
+        };
+
+        if format == "json" {
+            // Full JSON export
+            let symbols: Vec<Value> = library
+                .iter()
+                .map(|(name, symbol)| {
+                    json!({
+                        "name": name,
+                        "description": symbol.description,
+                        "designator": symbol.designator,
+                        "pins": symbol.pins,
+                        "rectangles": symbol.rectangles,
+                        "lines": symbol.lines,
+                        "polylines": symbol.polylines,
+                        "arcs": symbol.arcs,
+                        "ellipses": symbol.ellipses,
+                        "labels": symbol.labels,
+                        "parameters": symbol.parameters,
+                        "footprints": symbol.footprints,
+                    })
+                })
+                .collect();
+
+            let result = json!({
+                "status": "success",
+                "filepath": filepath,
+                "file_type": "SchLib",
+                "format": "json",
+                "component_count": library.len(),
+                "symbols": symbols,
+            });
+
+            ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+        } else {
+            // CSV export - summary table
+            let mut csv_lines: Vec<String> = Vec::new();
+            csv_lines.push(
+                "name,description,designator,pin_count,rectangle_count,line_count,footprint_count"
+                    .to_string(),
+            );
+
+            for (name, symbol) in library.iter() {
+                let description = symbol.description.replace(',', ";").replace('\n', " ");
+                csv_lines.push(format!(
+                    "{},{},{},{},{},{},{}",
+                    name,
+                    description,
+                    symbol.designator,
+                    symbol.pins.len(),
+                    symbol.rectangles.len(),
+                    symbol.lines.len(),
+                    symbol.footprints.len()
+                ));
+            }
+
+            let csv_content = csv_lines.join("\n");
+
+            let result = json!({
+                "status": "success",
+                "filepath": filepath,
+                "file_type": "SchLib",
+                "format": "csv",
+                "component_count": library.len(),
+                "csv": csv_content,
+            });
+
+            ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+        }
     }
 }
 
