@@ -68,23 +68,6 @@ See [docs/VISION.md](docs/VISION.md) for the full architectural rationale.
 
 ---
 
-## Current Status
-
-**In Development** — MCP infrastructure functional, PcbLib and SchLib reader/writer implemented.
-
-| Feature | Status |
-|---------|--------|
-| MCP server with stdio transport | Working |
-| Tool definitions and JSON schemas | Working |
-| OLE compound document structure | Working |
-| Primitive types (Pad, Track, Arc, etc.) | Working |
-| PcbLib binary format parsing | Working |
-| PcbLib binary format encoding | Working |
-| SchLib binary format parsing | Working |
-| SchLib binary format encoding | Working |
-
----
-
 ## MCP Tools
 
 ### `read_pcblib`
@@ -389,7 +372,7 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## Licence
 
-Copyright (C) 2026 Matej Gomboc <https://github.com/MatejGomboc/altium-designer-mcp>.
+Copyright (C) 2026 The Embedded Society <https://github.com/embedded-society/altium-designer-mcp>.
 
 GNU General Public License v3.0 — see [LICENCE](LICENCE).
 

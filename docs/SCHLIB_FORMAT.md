@@ -72,27 +72,27 @@ Text records contain pipe-delimited key=value pairs:
 
 ### Record IDs (RECORD= field)
 
-| ID | Type | Status | Description |
-|----|------|--------|-------------|
-| 1 | Component | ✓ | Symbol header (name, description, part count) |
-| 2 | Pin | TODO | Pin (text format, rarely used — binary preferred) |
-| 4 | Label | ✓ | Text label |
-| 5 | Bezier | ✓ | Bezier curve |
-| 6 | Polyline | ✓ | Multiple connected line segments |
-| 7 | Polygon | ✓ | Filled polygon |
-| 8 | Ellipse | ✓ | Ellipse or circle |
-| 10 | RoundRectangle | ✓ | Rounded rectangle |
-| 11 | EllipticalArc | ✓ | Elliptical arc |
-| 12 | Arc | ✓ | Circular arc |
-| 13 | Line | ✓ | Single line segment |
-| 14 | Rectangle | ✓ | Rectangle shape |
-| 34 | Designator | ✓ | Component designator (R?, U?, etc.) |
-| 41 | Parameter | ✓ | Component parameter (Value, Part Number, etc.) |
-| 44 | ImplementationList | TODO | Start of model/footprint list |
-| 45 | Model | ✓ | Footprint model reference |
-| 46 | ModelDatafileLink | TODO | Model data file reference |
-| 47 | ModelDatafileEntity | TODO | Model data file entity |
-| 48 | Implementation | TODO | Implementation details |
+| ID | Type | Description |
+|----|------|-------------|
+| 1 | Component | Symbol header (name, description, part count) |
+| 2 | Pin | Pin (text format, rarely used — binary preferred) |
+| 4 | Label | Text label |
+| 5 | Bezier | Bezier curve |
+| 6 | Polyline | Multiple connected line segments |
+| 7 | Polygon | Filled polygon |
+| 8 | Ellipse | Ellipse or circle |
+| 10 | RoundRectangle | Rounded rectangle |
+| 11 | EllipticalArc | Elliptical arc |
+| 12 | Arc | Circular arc |
+| 13 | Line | Single line segment |
+| 14 | Rectangle | Rectangle shape |
+| 34 | Designator | Component designator (R?, U?, etc.) |
+| 41 | Parameter | Component parameter (Value, Part Number, etc.) |
+| 44 | ImplementationList | Start of model/footprint list |
+| 45 | Model | Footprint model reference |
+| 46 | ModelDatafileLink | Model data file reference |
+| 47 | ModelDatafileEntity | Model data file entity |
+| 48 | Implementation | Implementation details |
 
 ## Binary Pin Records (Type 1)
 
@@ -338,20 +338,16 @@ Some symbols have multiple parts (e.g., quad op-amp):
     - `-1` = belongs to all parts
     - `1+` = belongs to specific part
 
-## Known Limitations
+## Notes
 
-The following features are not fully understood or implemented:
-
-| Feature | Status |
-|---------|--------|
-| ImplementationList (RECORD=44) | Container for model list (parsed but not used) |
-| ModelDatafileLink (RECORD=46) | TODO: Simulation model reference |
-| ModelDatafileEntity (RECORD=47) | TODO: Simulation model entity |
-| Implementation (RECORD=48) | TODO: Additional implementation details |
-| Pin text format (RECORD=2) | Rarely used, binary format preferred |
-| Pin symbol decorations | Documented above (22 symbol types) |
-| Display modes | Stored in DisplayModeCount, primitives have OwnerPartDisplayMode |
-| Font storage | Fonts defined in FileHeader (FontName{N}, Size{N}) |
+- **ImplementationList (RECORD=44)**: Container for model list
+- **ModelDatafileLink (RECORD=46)**: Simulation model reference
+- **ModelDatafileEntity (RECORD=47)**: Simulation model entity
+- **Implementation (RECORD=48)**: Additional implementation details
+- **Pin text format (RECORD=2)**: Rarely used, binary format preferred
+- **Pin symbol decorations**: Documented above (22 symbol types)
+- **Display modes**: Stored in `DisplayModeCount`, primitives have `OwnerPartDisplayMode`
+- **Font storage**: Fonts defined in FileHeader (`FontName{N}`, `Size{N}`)
 
 ## References
 

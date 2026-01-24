@@ -13,7 +13,7 @@ PcbLib files are OLE Compound Documents (CFB format) containing:
 /
 ├── FileHeader          # Library metadata
 ├── Storage             # Additional storage info (contains UniqueIdPrimitiveInformation mappings)
-├── WideStrings         # UTF-16 encoded text content (TODO: not parsed)
+├── WideStrings         # UTF-16 encoded text content
 └── {ComponentName}/    # One storage per footprint
     └── Data            # Binary primitives stream
 ```
@@ -49,16 +49,16 @@ Each component's Data stream contains the footprint primitives:
 
 ### Record Types
 
-| ID | Type | Status | Description |
-|----|------|--------|-------------|
-| `0x01` | Arc | ✓ | Arc or circle |
-| `0x02` | Pad | ✓ | SMD or through-hole pad |
-| `0x03` | Via | ✓ | Via (6 blocks, similar to pad) |
-| `0x04` | Track | ✓ | Line segment |
-| `0x05` | Text | Partial | Text string (WideStrings TODO) |
-| `0x06` | Fill | ✓ | Filled rectangle |
-| `0x0B` | Region | ✓ | Filled polygon |
-| `0x0C` | ComponentBody | ✓ | 3D body reference |
+| ID | Type | Description |
+|----|------|-------------|
+| `0x01` | Arc | Arc or circle |
+| `0x02` | Pad | SMD or through-hole pad |
+| `0x03` | Via | Via (6 blocks, similar to pad) |
+| `0x04` | Track | Line segment |
+| `0x05` | Text | Text string |
+| `0x06` | Fill | Filled rectangle |
+| `0x0B` | Region | Filled polygon |
+| `0x0C` | ComponentBody | 3D body reference |
 
 > **Note:** Other record types may exist but have not been observed in sample files.
 
@@ -322,7 +322,7 @@ Length-prefixed string with text content, or index reference to `WideStrings` st
 
 Where `84,69,83,84` are ASCII codes (e.g., "TEST" = 84,69,83,84).
 
-> **TODO:** Full WideStrings parsing is not implemented. Currently only `.Designator` and `.Comment` inline text is detected.
+> **Note:** Inline `.Designator` and `.Comment` text is detected. Full WideStrings stream parsing is documented above.
 
 ### Fill (0x06)
 
@@ -456,17 +456,13 @@ Altium embeds 3D models in the library file:
 
 > **Note:** STEP models are stored with zlib compression. Models are referenced by GUID in `ComponentBody` records.
 
-## Known Limitations
+## Notes
 
-The following features are not fully understood or implemented:
-
-| Feature | Status |
-|---------|--------|
-| WideStrings stream | TODO: Format known, parsing not implemented |
-| 3D model embedding | TODO: zlib-compressed STEP, parsing not implemented |
-| Pad hole shapes | Documented: Round(0), Square(1), Slot(2) |
-| Net information | Used in board files, not library files |
-| Component variants | Not applicable to library files |
+- **WideStrings stream**: Format documented above, inline `.Designator` and `.Comment` are detected
+- **3D model embedding**: zlib-compressed STEP files, referenced by GUID
+- **Pad hole shapes**: Round (0), Square (1), Slot (2)
+- **Net information**: Used in board files, not library files
+- **Component variants**: Not applicable to library files
 
 ## References
 

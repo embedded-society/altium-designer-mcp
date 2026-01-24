@@ -9,7 +9,7 @@ repository = "https://github.com/embedded-society/altium-designer-mcp"
 readme = "README.md"
 keywords = ["mcp", "altium", "pcb", "eda", "footprint"]
 categories = ["development-tools", "command-line-utilities"]
-authors = ["MatejGomboc"]
+authors = ["The Embedded Society"]
 
 [lib]
 name = "altium_designer_mcp"
