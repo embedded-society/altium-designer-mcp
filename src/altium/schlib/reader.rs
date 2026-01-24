@@ -99,6 +99,12 @@ fn parse_text_record_from_string(symbol: &mut Symbol, text: &str) {
     match record_id {
         1 => {
             // Component header
+            // LibReference contains the full symbol name (may differ from OLE storage name)
+            if let Some(name) = props.get("libreference") {
+                if !name.is_empty() {
+                    symbol.name.clone_from(name);
+                }
+            }
             if let Some(desc) = props.get("componentdescription") {
                 symbol.description.clone_from(desc);
             }

@@ -644,8 +644,11 @@ impl PcbLib {
         let mut cfb = CompoundFile::create(writer)
             .map_err(|e| AltiumError::invalid_ole(format!("Failed to create OLE file: {e}")))?;
 
-        // Write FileHeader
-        self.write_file_header(&mut cfb)?;
+        // Generate OLE-safe names for all footprints (handles long names and collisions)
+        let ole_names = self.generate_ole_names();
+
+        // Write FileHeader with OLE names
+        self.write_file_header(&mut cfb, &ole_names)?;
 
         // Write WideStrings stream if there's text content
         self.write_wide_strings(&mut cfb)?;
@@ -653,9 +656,9 @@ impl PcbLib {
         // Write embedded 3D models if present
         self.write_models(&mut cfb)?;
 
-        // Write each footprint
-        for footprint in &self.footprints {
-            self.write_footprint(&mut cfb, footprint)?;
+        // Write each footprint using its OLE-safe name
+        for (footprint, ole_name) in self.footprints.iter().zip(ole_names.iter()) {
+            self.write_footprint(&mut cfb, footprint, ole_name)?;
         }
 
         tracing::info!(
@@ -666,6 +669,28 @@ impl PcbLib {
         );
 
         Ok(())
+    }
+
+    /// Generates OLE-safe names for all footprints.
+    ///
+    /// OLE Compound File names are limited to 31 characters. This method:
+    /// - Returns names as-is if they fit within the limit
+    /// - Truncates longer names and adds unique suffixes to avoid collisions
+    ///
+    /// The full footprint name is still stored in the PATTERN field.
+    fn generate_ole_names(&self) -> Vec<String> {
+        use std::collections::HashSet;
+
+        let mut used_names = HashSet::new();
+        let mut ole_names = Vec::with_capacity(self.footprints.len());
+
+        for footprint in &self.footprints {
+            let ole_name = super::generate_ole_name(&footprint.name, &used_names);
+            used_names.insert(ole_name.clone());
+            ole_names.push(ole_name);
+        }
+
+        ole_names
     }
 
     /// Writes the `WideStrings` stream if there's text content to store.
@@ -758,11 +783,12 @@ impl PcbLib {
     /// - `HEADER`: File type identifier
     /// - `WEIGHT`: Number of components (same as `CompCount`)
     /// - `CompCount`: Number of components
-    /// - `LibRef{N}`: Component names (0-indexed)
+    /// - `LibRef{N}`: OLE storage names (used for lookup)
     /// - `CompDescr{N}`: Component descriptions
     fn write_file_header<F: std::io::Read + std::io::Write + std::io::Seek>(
         &self,
         cfb: &mut cfb::CompoundFile<F>,
+        ole_names: &[String],
     ) -> AltiumResult<()> {
         use std::fmt::Write;
 
@@ -777,14 +803,11 @@ impl PcbLib {
         let _ = write!(header, "|COMPCOUNT={count}");
 
         // Component names and descriptions
-        for (idx, footprint) in self.footprints.iter().enumerate() {
-            // LibRef uses the footprint name (truncated to 31 chars for OLE compatibility)
-            let name = if footprint.name.len() > 31 {
-                &footprint.name[..31]
-            } else {
-                &footprint.name
-            };
-            let _ = write!(header, "|LIBREF{idx}={name}");
+        for (idx, (footprint, ole_name)) in
+            self.footprints.iter().zip(ole_names.iter()).enumerate()
+        {
+            // LibRef uses the OLE-safe name (for storage path lookup)
+            let _ = write!(header, "|LIBREF{idx}={ole_name}");
 
             // CompDescr uses the footprint description
             if !footprint.description.is_empty() {
@@ -804,24 +827,20 @@ impl PcbLib {
     }
 
     /// Writes a single footprint to the OLE document.
+    ///
+    /// # Arguments
+    ///
+    /// * `cfb` - The OLE compound file
+    /// * `footprint` - The footprint to write
+    /// * `ole_name` - The OLE-safe storage name (≤31 chars, unique)
     #[allow(clippy::unused_self)] // Method for consistency with other write methods
     fn write_footprint<F: std::io::Read + std::io::Write + std::io::Seek>(
         &self,
         cfb: &mut cfb::CompoundFile<F>,
         footprint: &Footprint,
+        ole_name: &str,
     ) -> AltiumResult<()> {
-        // OLE Compound File names are limited to 31 characters
-        const MAX_NAME_LEN: usize = 31;
-        if footprint.name.len() > MAX_NAME_LEN {
-            return Err(AltiumError::invalid_ole(format!(
-                "Footprint name '{}' exceeds {} character limit (length: {})",
-                footprint.name,
-                MAX_NAME_LEN,
-                footprint.name.len()
-            )));
-        }
-
-        let storage_path = format!("/{}", footprint.name);
+        let storage_path = format!("/{ole_name}");
 
         // Create storage for the footprint
         cfb.create_storage(&storage_path)

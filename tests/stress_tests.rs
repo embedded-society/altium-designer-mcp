@@ -228,20 +228,23 @@ fn test_footprint_name_too_long_returns_error() {
 
     let mut lib = PcbLib::new();
 
-    // This should return an error due to OLE name length limit (31 chars)
-    let too_long = "A".repeat(64);
-    let mut fp = Footprint::new(&too_long);
+    // Long names are now supported via OLE name truncation + PATTERN storage
+    let long_name = "A".repeat(64);
+    let mut fp = Footprint::new(&long_name);
     fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
 
     lib.add(fp);
 
-    // This should return an error, not panic
-    let result = lib.write(&file_path);
-    assert!(result.is_err());
+    // This should succeed - the OLE storage uses a truncated name,
+    // but the full name is preserved in the PATTERN field
+    lib.write(&file_path).expect("Long names should be supported");
 
-    let err = result.unwrap_err();
-    let err_msg = err.to_string();
-    assert!(err_msg.contains("31 character limit"));
+    // Verify the full name is preserved on read
+    let read_lib = PcbLib::read(&file_path).expect("Failed to read");
+    assert_eq!(read_lib.len(), 1);
+
+    let read_fp = read_lib.footprints().next().expect("Footprint not found");
+    assert_eq!(read_fp.name, long_name, "Full name should be preserved");
 }
 
 // =============================================================================
@@ -574,8 +577,8 @@ fn test_fills_various_sizes() {
     assert_eq!(read_fp.fills.len(), 3);
 }
 
-/// Tests that symbol names longer than 31 characters are rejected
-/// (OLE Compound File name limit)
+/// Tests that symbol names longer than 31 characters are now supported
+/// via OLE name truncation + `LibReference` storage
 #[test]
 fn test_schlib_symbol_name_length_validation() {
     use altium_designer_mcp::altium::schlib::{SchLib, Symbol};
@@ -592,20 +595,20 @@ fn test_schlib_symbol_name_length_validation() {
     lib.add_symbol(valid_symbol);
     assert!(lib.save(&file_path).is_ok(), "31-char name should be valid");
 
-    // Create a new lib with too-long name
+    // Create a new lib with long name - should now work with OLE truncation
     let mut lib2 = SchLib::new();
-    let invalid_name = "B".repeat(32);
-    let mut invalid_symbol = Symbol::new(&invalid_name);
-    invalid_symbol.description = "Too long".to_string();
-    lib2.add_symbol(invalid_symbol);
+    let long_name = "B".repeat(64);
+    let mut long_symbol = Symbol::new(&long_name);
+    long_symbol.description = "Long name".to_string();
+    lib2.add_symbol(long_symbol);
 
-    let result = lib2.save(&file_path);
-    assert!(result.is_err(), "32-char name should be rejected");
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("exceeds 31 character limit"),
-        "Error message should mention character limit"
-    );
+    // Long names are now supported - the OLE storage uses a truncated name,
+    // but the full name is preserved in the LibReference field
+    lib2.save(&file_path).expect("Long names should be supported");
+
+    // Verify the full name is preserved on read
+    let read_lib = SchLib::open(&file_path).expect("Failed to read");
+    let read_symbol = read_lib.get(&long_name).expect("Symbol not found");
+    assert_eq!(read_symbol.name, long_name, "Full name should be preserved");
+    assert_eq!(read_symbol.description, "Long name");
 }

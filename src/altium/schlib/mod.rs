@@ -136,7 +136,11 @@ impl SchLib {
                 .unwrap_or_default();
 
             reader::parse_data_stream(&mut symbol, &data);
-            lib.symbols.insert(comp_name, symbol);
+
+            // Use the symbol's actual name (from LibReference) as the key
+            // This handles long names that were truncated in the OLE storage path
+            let key = symbol.name.clone();
+            lib.symbols.insert(key, symbol);
         }
 
         Ok(lib)
@@ -194,17 +198,17 @@ impl SchLib {
     ///
     /// Returns an error if the library cannot be written.
     pub fn write<W: Read + Write + Seek>(&self, writer: W) -> AltiumResult<()> {
-        // OLE Compound File names are limited to 31 characters
-        const MAX_NAME_LEN: usize = 31;
-
         let mut cfb = CompoundFile::create(writer)
             .map_err(|e| AltiumError::invalid_ole(format!("Failed to create OLE file: {e}")))?;
 
         // Collect symbols for header
         let symbols: Vec<&Symbol> = self.symbols.values().collect();
 
-        // Write FileHeader stream
-        let header_data = writer::encode_file_header(&symbols);
+        // Generate OLE-safe names for all symbols (handles long names and collisions)
+        let ole_names = Self::generate_ole_names(&symbols);
+
+        // Write FileHeader stream with OLE names
+        let header_data = writer::encode_file_header(&symbols, &ole_names);
         let mut header_stream = cfb
             .create_stream("/FileHeader")
             .map_err(|e| AltiumError::invalid_ole(format!("Failed to create FileHeader: {e}")))?;
@@ -213,20 +217,12 @@ impl SchLib {
             .map_err(|e| AltiumError::invalid_ole(format!("Failed to write FileHeader: {e}")))?;
         drop(header_stream);
 
-        // Write each symbol's Data stream
-        for symbol in &symbols {
-            if symbol.name.len() > MAX_NAME_LEN {
-                return Err(AltiumError::invalid_ole(format!(
-                    "Symbol name '{}' exceeds {} character limit (length: {})",
-                    symbol.name,
-                    MAX_NAME_LEN,
-                    symbol.name.len()
-                )));
-            }
-            let stream_path = format!("/{}/Data", symbol.name);
+        // Write each symbol's Data stream using its OLE-safe name
+        for (symbol, ole_name) in symbols.iter().zip(ole_names.iter()) {
+            let stream_path = format!("/{ole_name}/Data");
 
             // Create the component directory first
-            let dir_path = format!("/{}", symbol.name);
+            let dir_path = format!("/{ole_name}");
             cfb.create_storage(&dir_path).map_err(|e| {
                 AltiumError::invalid_ole(format!("Failed to create storage {dir_path}: {e}"))
             })?;
@@ -245,6 +241,28 @@ impl SchLib {
             .map_err(|e| AltiumError::invalid_ole(format!("Failed to flush OLE file: {e}")))?;
 
         Ok(())
+    }
+
+    /// Generates OLE-safe names for all symbols.
+    ///
+    /// OLE Compound File names are limited to 31 characters. This method:
+    /// - Returns names as-is if they fit within the limit
+    /// - Truncates longer names and adds unique suffixes to avoid collisions
+    ///
+    /// The full symbol name is stored in the `LibReference` field in the Data stream.
+    fn generate_ole_names(symbols: &[&Symbol]) -> Vec<String> {
+        use std::collections::HashSet;
+
+        let mut used_names = HashSet::new();
+        let mut ole_names = Vec::with_capacity(symbols.len());
+
+        for symbol in symbols {
+            let ole_name = super::generate_ole_name(&symbol.name, &used_names);
+            used_names.insert(ole_name.clone());
+            ole_names.push(ole_name);
+        }
+
+        ole_names
     }
 }
 

@@ -650,8 +650,13 @@ pub fn encode_data_stream(symbol: &Symbol) -> crate::altium::error::AltiumResult
 }
 
 /// Encodes the `FileHeader` stream content.
+///
+/// # Arguments
+///
+/// * `symbols` - The symbols to encode
+/// * `ole_names` - OLE-safe storage names for each symbol (≤31 chars, unique)
 #[must_use]
-pub fn encode_file_header(symbols: &[&Symbol]) -> Vec<u8> {
+pub fn encode_file_header(symbols: &[&Symbol], ole_names: &[String]) -> Vec<u8> {
     let mut parts = vec![
         "HEADER=Protel for Windows - Schematic Library Editor Binary File Version 5.0".to_string(),
         "Weight=47".to_string(),
@@ -678,9 +683,10 @@ pub fn encode_file_header(symbols: &[&Symbol]) -> Vec<u8> {
         format!("CompCount={}", symbols.len()),
     ];
 
-    // Add component references
-    for (i, symbol) in symbols.iter().enumerate() {
-        parts.push(format!("LibRef{}={}", i, symbol.name));
+    // Add component references using OLE-safe names for storage lookup
+    for (i, (symbol, ole_name)) in symbols.iter().zip(ole_names.iter()).enumerate() {
+        // LibRef uses the OLE-safe name (for storage path lookup)
+        parts.push(format!("LibRef{i}={ole_name}"));
         parts.push(format!("CompDescr{}={}", i, symbol.description));
         parts.push(format!("PartCount{}={}", i, symbol.part_count + 1));
     }
@@ -762,8 +768,9 @@ mod tests {
     fn test_encode_file_header() {
         let symbol = Symbol::new("TEST_SYMBOL");
         let symbols = vec![&symbol];
+        let ole_names = vec!["TEST_SYMBOL".to_string()];
 
-        let data = encode_file_header(&symbols);
+        let data = encode_file_header(&symbols, &ole_names);
 
         // Should start with length
         assert!(data.len() > 4);
@@ -775,5 +782,20 @@ mod tests {
         assert!(text.contains("HEADER="));
         assert!(text.contains("CompCount=1"));
         assert!(text.contains("LibRef0=TEST_SYMBOL"));
+    }
+
+    #[test]
+    fn test_encode_file_header_long_name() {
+        let long_name = "A".repeat(64);
+        let symbol = Symbol::new(&long_name);
+        let symbols = vec![&symbol];
+        // OLE name is truncated
+        let ole_names = vec!["AAAAAAAAAAAAAAAAAAAAAAAAAAA~001".to_string()];
+
+        let data = encode_file_header(&symbols, &ole_names);
+
+        // LibRef should use the OLE-safe name
+        let text = String::from_utf8_lossy(&data[4..]);
+        assert!(text.contains("LibRef0=AAAAAAAAAAAAAAAAAAAAAAAAAAA~001"));
     }
 }

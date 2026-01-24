@@ -10,5 +10,4 @@
 
 ## Known Limitations
 
-- **Component name truncation**: Names limited to 31 bytes (Altium OLE format limitation)
 - **Floating-point precision**: Minor artifacts from mm↔mils conversion (cosmetic, doesn't affect functionality)
