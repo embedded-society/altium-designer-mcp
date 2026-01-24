@@ -71,14 +71,9 @@ When reporting a vulnerability, please include:
 
 ### Configuration
 
-The MCP server configuration file should be kept secure:
+The MCP server configuration file should be kept secure.
 
-**Config file location:**
-
-- **Linux/macOS:** `~/.altium-designer-mcp/config.json`
-- **Windows:** `%USERPROFILE%\.altium-designer-mcp\config.json`
-
-See `config/example-config.json` for the full structure.
+See [README.md § Configuration](README.md#configuration) for the config file location and structure.
 
 ### Library Path Security
 

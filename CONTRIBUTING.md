@@ -14,6 +14,7 @@ Thank you for your interest in contributing to altium-designer-mcp! This documen
 - [Commit Messages](#commit-messages)
 - [Testing](#testing)
 - [Documentation](#documentation)
+    - [Single Source of Truth](#single-source-of-truth)
 
 ---
 
@@ -245,6 +246,34 @@ cargo test module_name::
 - Update `CHANGELOG.md` for all notable changes
 - Update rustdoc comments when changing public APIs
 - Keep examples up to date and working
+
+### Single Source of Truth
+
+Avoid duplicating information across files. Each piece of information should have one canonical location.
+
+| Information | Canonical Source |
+|-------------|------------------|
+| British spelling | `CONTRIBUTING.md` § British Spelling |
+| Build commands | `CONTRIBUTING.md` § Development Setup |
+| Coding standards | `CONTRIBUTING.md` § Coding Standards |
+| Commit conventions | `CONTRIBUTING.md` § Commit Messages |
+| PR requirements | `CONTRIBUTING.md` § Pull Requests |
+| Security policy | `SECURITY.md` |
+| Formatting rules | `.editorconfig` and `STYLE.md` |
+| MCP tools reference | `README.md` § MCP Tools |
+| Primitive types | `README.md` § Primitive Types |
+| Altium layers | `README.md` § Standard Altium Layers |
+| Configuration options | `README.md` § Configuration |
+| Core principle/vision | `docs/VISION.md` |
+| Primitive JSON schemas | `docs/AI_WORKFLOW.md` § Primitive Types |
+| IPC standards reference | `docs/AI_WORKFLOW.md` § IPC Standards Reference |
+
+**Guidelines:**
+
+- Reference the canonical source instead of duplicating content
+- If information must appear in multiple places (e.g., PR template checklists), keep it minimal
+- When updating information, update the canonical source first
+- Cross-reference using `filename` § Section Name format
 
 ---
 

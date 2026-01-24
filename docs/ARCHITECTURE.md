@@ -90,25 +90,9 @@ src/
 
 ## Primitive Types
 
-The AI provides complete primitive definitions. The tool writes them.
+See [README.md § Primitive Types](../README.md#primitive-types) for the complete primitive reference.
 
-### Footprint Primitives
-
-| Primitive | Properties |
-|-----------|------------|
-| **Pad** | designator, x, y, width, height, shape, layer, hole_size, rotation |
-| **Via** | x, y, diameter, hole_size, from_layer, to_layer |
-| **Track** | x1, y1, x2, y2, width, layer |
-| **Arc** | x, y, radius, start_angle, end_angle, width, layer |
-| **Region** | vertices[], layer |
-| **Text** | x, y, text, height, layer, rotation |
-| **Fill** | x1, y1, x2, y2, layer, rotation |
-| **ComponentBody** | model_id, model_name, embedded, rotation_x/y/z, z_offset, overall_height, standoff_height, layer |
-| **Model3D** | filepath, x_offset, y_offset, z_offset, rotation |
-
-### Standard Altium Layers
-
-See [README.md § Standard Altium Layers](../README.md#standard-altium-layers) for the complete layer reference.
+See [README.md § Standard Altium Layers](../README.md#standard-altium-layers) for the layer reference.
 
 ---
 
@@ -165,21 +149,6 @@ See [README.md § MCP Tools](../README.md#mcp-tools) for the complete tool refer
 - Internal errors are logged but not exposed to users
 - Sensitive paths are sanitised in error messages
 - Stack traces are only shown in debug mode
-
----
-
-## Why This Architecture?
-
-Previous approach encoded IPC-7351B into calculators. This was over-engineered:
-
-| Old Approach | New Approach |
-|-------------|--------------|
-| Tool calculates pad sizes | AI calculates pad sizes |
-| Tool has package-specific code | Tool is package-agnostic |
-| Need to add code for each package | AI handles any package |
-| Complex codebase | Simple file I/O |
-
-The AI already knows IPC-7351B. We don't need to duplicate that knowledge.
 
 ---
 
