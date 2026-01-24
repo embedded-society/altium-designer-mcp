@@ -2084,3 +2084,133 @@ fn test_schlib_search() {
     assert!(matches.contains(&"LM7805".to_string()));
     assert!(matches.contains(&"LM7812".to_string()));
 }
+
+// =============================================================================
+// Get Component Tests
+// =============================================================================
+
+/// Tests getting a single footprint from a `PcbLib`.
+#[test]
+fn test_pcblib_get_component() {
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let file_path = temp_dir.path().join("components.PcbLib");
+
+    // Create library with multiple footprints
+    let mut lib = PcbLib::new();
+
+    let mut fp1 = Footprint::new("SOIC-8");
+    fp1.add_pad(Pad::smd("1", -1.27, 0.0, 0.6, 1.5));
+    lib.add(fp1);
+
+    let mut fp2 = Footprint::new("QFN-24");
+    fp2.add_pad(Pad::smd("1", -2.0, 0.0, 0.3, 0.8));
+    lib.add(fp2);
+
+    lib.write(&file_path).expect("Failed to write library");
+
+    // Read the library and get a specific component
+    let library = PcbLib::read(&file_path).expect("Failed to read library");
+    let footprint = library.get("SOIC-8").expect("Component not found");
+
+    assert_eq!(footprint.name, "SOIC-8");
+    assert_eq!(footprint.pads.len(), 1);
+    assert_eq!(footprint.pads[0].designator, "1");
+}
+
+/// Tests getting a component that doesn't exist.
+#[test]
+fn test_pcblib_get_component_not_found() {
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let file_path = temp_dir.path().join("components.PcbLib");
+
+    // Create library with one footprint
+    let mut lib = PcbLib::new();
+    lib.add(Footprint::new("SOIC-8"));
+    lib.write(&file_path).expect("Failed to write library");
+
+    // Try to get a non-existent component
+    let library = PcbLib::read(&file_path).expect("Failed to read library");
+    let result = library.get("NON_EXISTENT");
+
+    assert!(result.is_none(), "Should not find non-existent component");
+}
+
+/// Tests getting a single symbol from a `SchLib`.
+#[test]
+fn test_schlib_get_component() {
+    use altium_designer_mcp::altium::schlib::{
+        Pin, PinElectricalType, PinOrientation, Rectangle, Symbol,
+    };
+    use altium_designer_mcp::altium::SchLib;
+
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let file_path = temp_dir.path().join("components.SchLib");
+
+    // Create library with multiple symbols
+    let mut lib = SchLib::new();
+
+    let mut sym1 = Symbol::new("LM7805");
+    sym1.description = "5V Regulator".to_string();
+    sym1.rectangles.push(Rectangle {
+        x1: -40,
+        y1: -30,
+        x2: 40,
+        y2: 30,
+        line_width: 1,
+        line_color: 0,
+        fill_color: 0,
+        filled: false,
+        owner_part_id: 1,
+    });
+    sym1.pins.push(Pin {
+        name: "IN".to_string(),
+        designator: "1".to_string(),
+        x: -40,
+        y: 0,
+        length: 20,
+        orientation: PinOrientation::Right,
+        electrical_type: PinElectricalType::Input,
+        hidden: false,
+        show_name: true,
+        show_designator: true,
+        description: String::new(),
+        owner_part_id: 1,
+    });
+    lib.add_symbol(sym1);
+
+    let mut sym2 = Symbol::new("NE555");
+    sym2.description = "Timer IC".to_string();
+    lib.add_symbol(sym2);
+
+    lib.save(&file_path).expect("Failed to write library");
+
+    // Read the library and get a specific component
+    let library = SchLib::open(&file_path).expect("Failed to read library");
+    let symbol = library.get("LM7805").expect("Component not found");
+
+    assert_eq!(symbol.name, "LM7805");
+    assert_eq!(symbol.description, "5V Regulator");
+    assert_eq!(symbol.pins.len(), 1);
+    assert_eq!(symbol.pins[0].name, "IN");
+}
+
+/// Tests getting a symbol that doesn't exist.
+#[test]
+fn test_schlib_get_component_not_found() {
+    use altium_designer_mcp::altium::schlib::Symbol;
+    use altium_designer_mcp::altium::SchLib;
+
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let file_path = temp_dir.path().join("components.SchLib");
+
+    // Create library with one symbol
+    let mut lib = SchLib::new();
+    lib.add_symbol(Symbol::new("LM7805"));
+    lib.save(&file_path).expect("Failed to write library");
+
+    // Try to get a non-existent component
+    let library = SchLib::open(&file_path).expect("Failed to read library");
+    let result = library.get("NON_EXISTENT");
+
+    assert!(result.is_none(), "Should not find non-existent component");
+}

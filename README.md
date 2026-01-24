@@ -710,6 +710,57 @@ and `.SchLib` (symbols) files.
 }
 ```
 
+### `get_component`
+
+Get a single component by name from an Altium library. Returns the full component data
+(footprint or symbol) without needing to read and filter the entire library. Supports both
+`.PcbLib` (footprints) and `.SchLib` (symbols) files.
+
+```json
+{
+    "name": "get_component",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib",
+        "component_name": "SOIC-8"
+    }
+}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `filepath` | Path to the Altium library file (.PcbLib or .SchLib) |
+| `component_name` | Exact name of the component to retrieve |
+
+**Example Response (PcbLib):**
+
+```json
+{
+    "status": "success",
+    "filepath": "./MyLibrary.PcbLib",
+    "component_name": "SOIC-8",
+    "type": "PcbLib",
+    "component": {
+        "name": "SOIC-8",
+        "description": "8-pin SOIC package",
+        "pads": [...],
+        "tracks": [...]
+    },
+    "message": "Retrieved footprint 'SOIC-8' from './MyLibrary.PcbLib'"
+}
+```
+
+**Error Response (component not found):**
+
+```json
+{
+    "isError": true,
+    "content": [{
+        "type": "text",
+        "text": "Component 'SOIC-99' not found in library. Available components: SOIC-8, SOIC-14, SOIC-16 ... and 5 more"
+    }]
+}
+```
+
 ### `render_footprint`
 
 Render an ASCII art visualisation of a footprint from a PcbLib file. Shows pads, tracks,

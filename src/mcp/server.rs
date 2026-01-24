@@ -489,6 +489,7 @@ impl McpServer {
             }
             "merge_libraries" => self.call_merge_libraries(&params.arguments),
             "search_components" => self.call_search_components(&params.arguments),
+            "get_component" => self.call_get_component(&params.arguments),
             "render_footprint" => self.call_render_footprint(&params.arguments),
             "render_symbol" => self.call_render_symbol(&params.arguments),
             "manage_schlib_parameters" => self.call_manage_schlib_parameters(&params.arguments),
@@ -1222,6 +1223,29 @@ impl McpServer {
                         }
                     },
                     "required": ["filepaths", "pattern"]
+                }),
+            },
+            ToolDefinition {
+                name: "get_component".to_string(),
+                description: Some(
+                    "Get a single component by name from an Altium library. Returns the full component \
+                     data (footprint or symbol) without needing to read and filter the entire library. \
+                     Supports both `.PcbLib` (footprints) and `.SchLib` (symbols) files."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepath": {
+                            "type": "string",
+                            "description": "Path to the Altium library file (.PcbLib or .SchLib)"
+                        },
+                        "component_name": {
+                            "type": "string",
+                            "description": "Exact name of the component to retrieve"
+                        }
+                    },
+                    "required": ["filepath", "component_name"]
                 }),
             },
             ToolDefinition {
@@ -5918,6 +5942,112 @@ impl McpServer {
             .collect();
 
         Ok((matching, total))
+    }
+
+    /// Gets a single component by name from an Altium library.
+    fn call_get_component(&self, arguments: &Value) -> ToolCallResult {
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        let Some(component_name) = arguments.get("component_name").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: component_name");
+        };
+
+        // Validate path
+        if let Err(e) = self.validate_path(filepath) {
+            return ToolCallResult::error(e);
+        }
+
+        let ext = std::path::Path::new(filepath)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_lowercase);
+
+        match ext.as_deref() {
+            Some("pcblib") => Self::get_pcblib_component(filepath, component_name),
+            Some("schlib") => Self::get_schlib_component(filepath, component_name),
+            Some(ext) => ToolCallResult::error(format!(
+                "Unsupported file type: .{ext}. Use .PcbLib or .SchLib"
+            )),
+            None => ToolCallResult::error("File has no extension. Use .PcbLib or .SchLib"),
+        }
+    }
+
+    /// Gets a single footprint from a `PcbLib` file.
+    fn get_pcblib_component(filepath: &str, component_name: &str) -> ToolCallResult {
+        use crate::altium::PcbLib;
+
+        let library = match PcbLib::read(filepath) {
+            Ok(lib) => lib,
+            Err(e) => return ToolCallResult::error(format!("Failed to read library: {e}")),
+        };
+
+        let Some(footprint) = library.get(component_name) else {
+            let available: Vec<&str> = library.footprints().map(|fp| fp.name.as_str()).collect();
+            return ToolCallResult::error(format!(
+                "Component '{}' not found in library. Available components: {}",
+                component_name,
+                if available.len() <= 10 {
+                    available.join(", ")
+                } else {
+                    format!(
+                        "{} ... and {} more",
+                        available[..10].join(", "),
+                        available.len() - 10
+                    )
+                }
+            ));
+        };
+
+        let result = json!({
+            "status": "success",
+            "filepath": filepath,
+            "component_name": component_name,
+            "type": "PcbLib",
+            "component": footprint,
+            "message": format!("Retrieved footprint '{}' from '{}'", component_name, filepath),
+        });
+
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Gets a single symbol from a `SchLib` file.
+    fn get_schlib_component(filepath: &str, component_name: &str) -> ToolCallResult {
+        use crate::altium::SchLib;
+
+        let library = match SchLib::open(filepath) {
+            Ok(lib) => lib,
+            Err(e) => return ToolCallResult::error(format!("Failed to read library: {e}")),
+        };
+
+        let Some(symbol) = library.get(component_name) else {
+            let available: Vec<&str> = library.iter().map(|(name, _)| name.as_str()).collect();
+            return ToolCallResult::error(format!(
+                "Component '{}' not found in library. Available components: {}",
+                component_name,
+                if available.len() <= 10 {
+                    available.join(", ")
+                } else {
+                    format!(
+                        "{} ... and {} more",
+                        available[..10].join(", "),
+                        available.len() - 10
+                    )
+                }
+            ));
+        };
+
+        let result = json!({
+            "status": "success",
+            "filepath": filepath,
+            "component_name": component_name,
+            "type": "SchLib",
+            "component": symbol,
+            "message": format!("Retrieved symbol '{}' from '{}'", component_name, filepath),
+        });
+
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
 
     // ==================== Rendering Tools ====================

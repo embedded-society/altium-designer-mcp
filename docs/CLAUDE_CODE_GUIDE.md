@@ -178,6 +178,7 @@ You should see the Altium tools listed:
 - `copy_component_cross_library` — Copy a component from one library to another
 - `merge_libraries` — Merge multiple libraries into one
 - `search_components` — Search for components across multiple libraries
+- `get_component` — Get a single component by name from a library
 - `validate_library` — Check a library for common issues
 - `export_library` — Export library to JSON or CSV format
 - `import_library` — Import components from JSON data (inverse of export_library)
