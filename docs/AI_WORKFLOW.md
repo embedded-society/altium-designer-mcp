@@ -530,6 +530,64 @@ Use `diff_libraries` to compare two versions of a library:
 }
 ```
 
+### Batch Operations
+
+Use `batch_update` to perform library-wide updates efficiently:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ BATCH UPDATE WORKFLOW                                                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  UPDATE TRACK WIDTHS ACROSS ALL FOOTPRINTS                                  │
+│  AI calls: batch_update {                                                   │
+│      filepath: "./MyLibrary.PcbLib",                                        │
+│      operation: "update_track_width",                                       │
+│      parameters: {                                                          │
+│          from_width: 0.2,                                                   │
+│          to_width: 0.25,                                                    │
+│          tolerance: 0.001                                                   │
+│      }                                                                      │
+│  }                                                                          │
+│                                                                             │
+│  RENAME LAYERS ACROSS ALL FOOTPRINTS                                        │
+│  AI calls: batch_update {                                                   │
+│      filepath: "./MyLibrary.PcbLib",                                        │
+│      operation: "rename_layer",                                             │
+│      parameters: {                                                          │
+│          from_layer: "Mechanical 1",                                        │
+│          to_layer: "Mechanical 2"                                           │
+│      }                                                                      │
+│  }                                                                          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Example Response (track width update):**
+
+```json
+{
+    "status": "success",
+    "operation": "update_track_width",
+    "from_width": 0.2,
+    "to_width": 0.25,
+    "tolerance": 0.001,
+    "total_tracks_updated": 48,
+    "footprints_updated_count": 12,
+    "footprints_updated": [
+        { "name": "RESC0603", "tracks_updated": 4 },
+        { "name": "CAPC0805", "tracks_updated": 6 }
+    ]
+}
+```
+
+**Supported operations:**
+
+| Operation | Description |
+|-----------|-------------|
+| `update_track_width` | Change track widths matching a value (with tolerance) |
+| `rename_layer` | Move primitives from one layer to another |
+
 ---
 
 ## Tips for AI Assistants

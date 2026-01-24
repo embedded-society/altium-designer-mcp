@@ -152,12 +152,6 @@ This is likely due to internal unit conversion (mm ↔ mils) and is within accep
 1. **Copy/duplicate component**
    - Useful for creating variants
 
-### Medium Value
-
-1. **Batch operations**
-   - Update track widths across all footprints
-   - Rename layers
-
 ### Low Value / Nice-to-Have
 
 1. **Preview/render footprint**
@@ -199,4 +193,4 @@ which doesn't impact functionality.
 
 Recommended next steps:
 
-1. Add batch operations for library-wide updates
+1. Add copy/duplicate component functionality

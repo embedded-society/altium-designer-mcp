@@ -472,6 +472,7 @@ impl McpServer {
             "validate_library" => self.call_validate_library(&params.arguments),
             "export_library" => self.call_export_library(&params.arguments),
             "diff_libraries" => self.call_diff_libraries(&params.arguments),
+            "batch_update" => self.call_batch_update(&params.arguments),
             // Unknown tool
             _ => ToolCallResult::error(format!("Unknown tool: {}", params.name)),
         };
@@ -907,6 +908,55 @@ impl McpServer {
                         }
                     },
                     "required": ["filepath_a", "filepath_b"]
+                }),
+            },
+            ToolDefinition {
+                name: "batch_update".to_string(),
+                description: Some(
+                    "Perform batch updates across all components in an Altium library file. \
+                     Supports updating track widths and renaming layers. Only modifies PcbLib files."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepath": {
+                            "type": "string",
+                            "description": "Path to the Altium PcbLib file"
+                        },
+                        "operation": {
+                            "type": "string",
+                            "enum": ["update_track_width", "rename_layer"],
+                            "description": "The batch operation to perform"
+                        },
+                        "parameters": {
+                            "type": "object",
+                            "description": "Operation-specific parameters",
+                            "properties": {
+                                "from_width": {
+                                    "type": "number",
+                                    "description": "For update_track_width: the track width to match (in mm)"
+                                },
+                                "to_width": {
+                                    "type": "number",
+                                    "description": "For update_track_width: the new track width (in mm)"
+                                },
+                                "from_layer": {
+                                    "type": "string",
+                                    "description": "For rename_layer: the layer name to change from"
+                                },
+                                "to_layer": {
+                                    "type": "string",
+                                    "description": "For rename_layer: the layer name to change to"
+                                },
+                                "tolerance": {
+                                    "type": "number",
+                                    "description": "For update_track_width: matching tolerance (default: 0.001 mm)"
+                                }
+                            }
+                        }
+                    },
+                    "required": ["filepath", "operation", "parameters"]
                 }),
             },
         ]
@@ -3656,6 +3706,281 @@ impl McpServer {
         });
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Performs batch updates across all components in a `PcbLib` file.
+    fn call_batch_update(&self, arguments: &Value) -> ToolCallResult {
+        use crate::altium::PcbLib;
+
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        let Some(operation) = arguments.get("operation").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: operation");
+        };
+
+        let Some(parameters) = arguments.get("parameters") else {
+            return ToolCallResult::error("Missing required parameter: parameters");
+        };
+
+        // Validate path is within allowed directories
+        if let Err(e) = self.validate_path(filepath) {
+            return ToolCallResult::error(e);
+        }
+
+        // Only PcbLib files are supported
+        let ext = std::path::Path::new(filepath)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_lowercase);
+
+        if ext.as_deref() != Some("pcblib") {
+            return ToolCallResult::error(
+                "batch_update only supports PcbLib files. SchLib batch operations are not yet implemented."
+            );
+        }
+
+        // Read the library
+        let mut library = match PcbLib::read(filepath) {
+            Ok(lib) => lib,
+            Err(e) => return ToolCallResult::error(format!("Failed to read library: {e}")),
+        };
+
+        // Perform the operation
+        let result = match operation {
+            "update_track_width" => {
+                Self::batch_update_track_width(&mut library, parameters, filepath)
+            }
+            "rename_layer" => Self::batch_rename_layer(&mut library, parameters, filepath),
+            _ => {
+                return ToolCallResult::error(format!(
+                    "Unknown operation: {operation}. Valid operations: update_track_width, rename_layer"
+                ));
+            }
+        };
+
+        result
+    }
+
+    /// Updates track widths across all footprints in a library.
+    fn batch_update_track_width(
+        library: &mut crate::altium::PcbLib,
+        parameters: &Value,
+        filepath: &str,
+    ) -> ToolCallResult {
+        let Some(from_width) = parameters.get("from_width").and_then(Value::as_f64) else {
+            return ToolCallResult::error(
+                "Missing required parameter: parameters.from_width (number)",
+            );
+        };
+
+        let Some(to_width) = parameters.get("to_width").and_then(Value::as_f64) else {
+            return ToolCallResult::error(
+                "Missing required parameter: parameters.to_width (number)",
+            );
+        };
+
+        let tolerance = parameters
+            .get("tolerance")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.001);
+
+        if to_width <= 0.0 {
+            return ToolCallResult::error("to_width must be greater than 0");
+        }
+
+        let mut total_updated = 0usize;
+        let mut footprints_updated = Vec::new();
+
+        for fp in library.footprints_mut() {
+            let mut fp_count = 0usize;
+
+            for track in &mut fp.tracks {
+                if (track.width - from_width).abs() <= tolerance {
+                    track.width = to_width;
+                    fp_count += 1;
+                }
+            }
+
+            if fp_count > 0 {
+                footprints_updated.push(json!({
+                    "name": fp.name,
+                    "tracks_updated": fp_count,
+                }));
+                total_updated += fp_count;
+            }
+        }
+
+        // Write the updated library if any changes were made
+        if total_updated > 0 {
+            if let Err(e) = library.write(filepath) {
+                return ToolCallResult::error(format!("Failed to write updated library: {e}"));
+            }
+        }
+
+        let result = json!({
+            "status": "success",
+            "operation": "update_track_width",
+            "filepath": filepath,
+            "from_width": from_width,
+            "to_width": to_width,
+            "tolerance": tolerance,
+            "total_tracks_updated": total_updated,
+            "footprints_updated_count": footprints_updated.len(),
+            "footprints_updated": footprints_updated,
+        });
+
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Renames layers across all footprints in a library.
+    fn batch_rename_layer(
+        library: &mut crate::altium::PcbLib,
+        parameters: &Value,
+        filepath: &str,
+    ) -> ToolCallResult {
+        let Some(from_layer_str) = parameters.get("from_layer").and_then(Value::as_str) else {
+            return ToolCallResult::error(
+                "Missing required parameter: parameters.from_layer (string)",
+            );
+        };
+
+        let Some(to_layer_str) = parameters.get("to_layer").and_then(Value::as_str) else {
+            return ToolCallResult::error(
+                "Missing required parameter: parameters.to_layer (string)",
+            );
+        };
+
+        // Parse layer names (supports both "TopLayer" and "Top Layer" formats)
+        let Some(from_layer) = Self::parse_layer_name(from_layer_str) else {
+            return ToolCallResult::error(format!(
+                "Invalid from_layer: '{from_layer_str}'. Use format like 'Top Layer', 'Bottom Layer', \
+                 'Top Overlay', 'Mechanical 1', etc."
+            ));
+        };
+
+        let Some(to_layer) = Self::parse_layer_name(to_layer_str) else {
+            return ToolCallResult::error(format!(
+                "Invalid to_layer: '{to_layer_str}'. Use format like 'Top Layer', 'Bottom Layer', \
+                 'Top Overlay', 'Mechanical 1', etc."
+            ));
+        };
+
+        let mut total_updated = 0usize;
+        let mut footprints_updated = Vec::new();
+
+        for fp in library.footprints_mut() {
+            let mut fp_changes = json!({
+                "name": fp.name,
+                "tracks": 0,
+                "arcs": 0,
+                "regions": 0,
+                "text": 0,
+            });
+            let mut fp_total = 0usize;
+
+            // Update tracks
+            for track in &mut fp.tracks {
+                if track.layer == from_layer {
+                    track.layer = to_layer;
+                    fp_changes["tracks"] = json!(fp_changes["tracks"].as_u64().unwrap_or(0) + 1);
+                    fp_total += 1;
+                }
+            }
+
+            // Update arcs
+            for arc in &mut fp.arcs {
+                if arc.layer == from_layer {
+                    arc.layer = to_layer;
+                    fp_changes["arcs"] = json!(fp_changes["arcs"].as_u64().unwrap_or(0) + 1);
+                    fp_total += 1;
+                }
+            }
+
+            // Update regions
+            for region in &mut fp.regions {
+                if region.layer == from_layer {
+                    region.layer = to_layer;
+                    fp_changes["regions"] = json!(fp_changes["regions"].as_u64().unwrap_or(0) + 1);
+                    fp_total += 1;
+                }
+            }
+
+            // Update text
+            for text in &mut fp.text {
+                if text.layer == from_layer {
+                    text.layer = to_layer;
+                    fp_changes["text"] = json!(fp_changes["text"].as_u64().unwrap_or(0) + 1);
+                    fp_total += 1;
+                }
+            }
+
+            if fp_total > 0 {
+                fp_changes["total"] = json!(fp_total);
+                footprints_updated.push(fp_changes);
+                total_updated += fp_total;
+            }
+        }
+
+        // Write the updated library if any changes were made
+        if total_updated > 0 {
+            if let Err(e) = library.write(filepath) {
+                return ToolCallResult::error(format!("Failed to write updated library: {e}"));
+            }
+        }
+
+        let result = json!({
+            "status": "success",
+            "operation": "rename_layer",
+            "filepath": filepath,
+            "from_layer": from_layer.as_str(),
+            "to_layer": to_layer.as_str(),
+            "total_primitives_updated": total_updated,
+            "footprints_updated_count": footprints_updated.len(),
+            "footprints_updated": footprints_updated,
+        });
+
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Parses a layer name string, supporting both camelCase and spaced formats.
+    fn parse_layer_name(s: &str) -> Option<crate::altium::pcblib::Layer> {
+        use crate::altium::pcblib::Layer;
+
+        // First try direct parsing (handles "Top Layer" format)
+        if let Some(layer) = Layer::parse(s) {
+            return Some(layer);
+        }
+
+        // Convert camelCase to spaced format and try again
+        let spaced = match s {
+            "TopLayer" => "Top Layer",
+            "BottomLayer" => "Bottom Layer",
+            "TopOverlay" => "Top Overlay",
+            "BottomOverlay" => "Bottom Overlay",
+            "TopPaste" => "Top Paste",
+            "BottomPaste" => "Bottom Paste",
+            "TopSolder" => "Top Solder",
+            "BottomSolder" => "Bottom Solder",
+            "MultiLayer" => "Multi-Layer",
+            "KeepOutLayer" | "KeepOut" => "Keep-Out Layer",
+            s if s.starts_with("MidLayer") => {
+                let num = s.strip_prefix("MidLayer")?;
+                return Layer::parse(&format!("Mid-Layer {num}"));
+            }
+            s if s.starts_with("Mechanical") => {
+                let num = s.strip_prefix("Mechanical")?;
+                return Layer::parse(&format!("Mechanical {num}"));
+            }
+            s if s.starts_with("InternalPlane") => {
+                let num = s.strip_prefix("InternalPlane")?;
+                return Layer::parse(&format!("Internal Plane {num}"));
+            }
+            _ => return None,
+        };
+
+        Layer::parse(spaced)
     }
 }
 

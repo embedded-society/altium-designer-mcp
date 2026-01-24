@@ -910,6 +910,11 @@ impl PcbLib {
         self.footprints.iter()
     }
 
+    /// Returns a mutable iterator over the footprints.
+    pub fn footprints_mut(&mut self) -> impl Iterator<Item = &mut Footprint> {
+        self.footprints.iter_mut()
+    }
+
     /// Returns a list of footprint names.
     #[must_use]
     pub fn names(&self) -> Vec<String> {

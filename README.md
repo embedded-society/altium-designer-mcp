@@ -300,6 +300,57 @@ Returns:
 - **removed**: Components in A but not in B
 - **modified**: Components in both with changes (count differences, description changes)
 
+### `batch_update`
+
+Perform batch updates across all components in an Altium PcbLib file. Supports updating track widths
+and renaming layers library-wide.
+
+```json
+{
+    "name": "batch_update",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib",
+        "operation": "update_track_width",
+        "parameters": {
+            "from_width": 0.2,
+            "to_width": 0.25,
+            "tolerance": 0.001
+        }
+    }
+}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `filepath` | Path to the PcbLib file |
+| `operation` | One of: `update_track_width`, `rename_layer` |
+| `parameters` | Operation-specific parameters |
+
+**Operations:**
+
+| Operation | Parameters | Description |
+|-----------|------------|-------------|
+| `update_track_width` | `from_width`, `to_width`, `tolerance` | Update all tracks matching `from_width` (±tolerance) to `to_width` |
+| `rename_layer` | `from_layer`, `to_layer` | Change all primitives from one layer to another |
+
+**Example: Rename layer**
+
+```json
+{
+    "name": "batch_update",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib",
+        "operation": "rename_layer",
+        "parameters": {
+            "from_layer": "Mechanical 1",
+            "to_layer": "Mechanical 2"
+        }
+    }
+}
+```
+
+Layer names accept both spaced format (`Top Layer`) and camelCase (`TopLayer`).
+
 ---
 
 ## Primitive Types
