@@ -154,15 +154,15 @@ fn test_footprint_with_many_primitives() {
     let mut fp = Footprint::new("MANY_PRIMITIVES");
 
     // Add 100 pads
-    for i in 0..100 {
-        let x = f64::from(i % 10) * 2.54;
-        let y = f64::from(i / 10) * 2.54;
-        fp.add_pad(Pad::smd(format!("{}", i + 1), x, y, 1.0, 1.0));
+    for pad_idx in 0..100 {
+        let x = f64::from(pad_idx % 10) * 2.54;
+        let y = f64::from(pad_idx / 10) * 2.54;
+        fp.add_pad(Pad::smd(format!("{}", pad_idx + 1), x, y, 1.0, 1.0));
     }
 
     // Add 100 tracks
-    for i in 0..100 {
-        let x = f64::from(i) * 0.5;
+    for track_idx in 0..100 {
+        let x = f64::from(track_idx) * 0.5;
         fp.add_track(Track::new(x, 0.0, x, 10.0, 0.2, Layer::TopOverlay));
     }
 
@@ -263,9 +263,15 @@ fn test_pad_rotation_boundaries() {
     // Test various rotation values
     let rotations = [0.0, 45.0, 90.0, 180.0, 270.0, 359.9, -45.0, -90.0];
 
-    for (i, &rot) in rotations.iter().enumerate() {
+    for (pad_idx, &rot) in rotations.iter().enumerate() {
         #[allow(clippy::cast_precision_loss)]
-        let mut pad = Pad::smd(format!("{}", i + 1), i as f64 * 2.0, 0.0, 1.0, 0.5);
+        let mut pad = Pad::smd(
+            format!("{}", pad_idx + 1),
+            pad_idx as f64 * 2.0,
+            0.0,
+            1.0,
+            0.5,
+        );
         pad.rotation = rot;
         fp.add_pad(pad);
     }
@@ -360,9 +366,9 @@ fn test_region_with_many_vertices() {
     // Circle approximation with many vertices
     let n = 36;
     let mut vertices = Vec::new();
-    for i in 0..n {
+    for vertex_idx in 0..n {
         #[allow(clippy::cast_precision_loss)]
-        let angle = (i as f64) * 2.0 * std::f64::consts::PI / (n as f64);
+        let angle = (vertex_idx as f64) * 2.0 * std::f64::consts::PI / (n as f64);
         vertices.push(Vertex {
             x: angle.cos(),
             y: angle.sin(),
@@ -401,9 +407,9 @@ fn test_symbol_with_many_pins() {
     sym.designator = "U?".to_string();
 
     // 64-pin IC
-    for i in 0..64 {
-        let side = i / 16;
-        let pos = i % 16;
+    for pin_idx in 0..64 {
+        let side = pin_idx / 16;
+        let pos = pin_idx % 16;
         let (x, y, orient) = match side {
             0 => (-50, pos * 10 - 75, PinOrientation::Left), // Left side
             1 => (pos * 10 - 75, 90, PinOrientation::Down),  // Top side
@@ -411,8 +417,8 @@ fn test_symbol_with_many_pins() {
             _ => (75 - pos * 10, -50, PinOrientation::Up),   // Bottom side
         };
         sym.add_pin(Pin::new(
-            format!("P{}", i + 1),
-            format!("{}", i + 1),
+            format!("P{}", pin_idx + 1),
+            format!("{}", pin_idx + 1),
             x,
             y,
             10,

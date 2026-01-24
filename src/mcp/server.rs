@@ -59,7 +59,7 @@ pub struct ToolCapabilities {
     pub list_changed: bool,
 }
 
-#[allow(clippy::trivially_copy_pass_by_ref)] // serde requires &T signature
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde's skip_serializing_if requires a predicate fn(&T) -> bool, so we must take &bool here
 const fn is_false(b: &bool) -> bool {
     !*b
 }

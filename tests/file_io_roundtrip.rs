@@ -18,6 +18,14 @@ fn approx_eq(a: f64, b: f64, tolerance: f64) -> bool {
     (a - b).abs() < tolerance
 }
 
+// Geometry used in the simple footprint roundtrip test.
+const SIMPLE_PAD_1_X: f64 = -0.5;
+const SIMPLE_PAD_2_X: f64 = 0.5;
+const SIMPLE_PAD_Y: f64 = 0.0;
+const SIMPLE_PAD_WIDTH: f64 = 0.6;
+const SIMPLE_PAD_HEIGHT: f64 = 0.5;
+const COORD_TOLERANCE: f64 = 0.001;
+
 // =============================================================================
 // PcbLib File I/O Roundtrip Tests
 // =============================================================================
@@ -31,8 +39,20 @@ fn pcblib_file_roundtrip_simple_footprint() {
     let mut lib = PcbLib::new();
     let mut fp = Footprint::new("CHIP_0402");
     fp.description = "Test 0402 chip component".to_string();
-    fp.add_pad(Pad::smd("1", -0.5, 0.0, 0.6, 0.5));
-    fp.add_pad(Pad::smd("2", 0.5, 0.0, 0.6, 0.5));
+    fp.add_pad(Pad::smd(
+        "1",
+        SIMPLE_PAD_1_X,
+        SIMPLE_PAD_Y,
+        SIMPLE_PAD_WIDTH,
+        SIMPLE_PAD_HEIGHT,
+    ));
+    fp.add_pad(Pad::smd(
+        "2",
+        SIMPLE_PAD_2_X,
+        SIMPLE_PAD_Y,
+        SIMPLE_PAD_WIDTH,
+        SIMPLE_PAD_HEIGHT,
+    ));
     lib.add(fp);
 
     // Write to file
@@ -48,8 +68,16 @@ fn pcblib_file_roundtrip_simple_footprint() {
     assert_eq!(read_fp.pads.len(), 2);
     assert_eq!(read_fp.pads[0].designator, "1");
     assert_eq!(read_fp.pads[1].designator, "2");
-    assert!(approx_eq(read_fp.pads[0].x, -0.5, 0.001));
-    assert!(approx_eq(read_fp.pads[1].x, 0.5, 0.001));
+    assert!(approx_eq(
+        read_fp.pads[0].x,
+        SIMPLE_PAD_1_X,
+        COORD_TOLERANCE
+    ));
+    assert!(approx_eq(
+        read_fp.pads[1].x,
+        SIMPLE_PAD_2_X,
+        COORD_TOLERANCE
+    ));
 }
 
 #[test]
