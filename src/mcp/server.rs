@@ -3969,11 +3969,7 @@ impl McpServer {
     }
 
     /// Performs batch updates on a `PcbLib` file.
-    fn batch_update_pcblib(
-        filepath: &str,
-        operation: &str,
-        parameters: &Value,
-    ) -> ToolCallResult {
+    fn batch_update_pcblib(filepath: &str, operation: &str, parameters: &Value) -> ToolCallResult {
         use crate::altium::PcbLib;
 
         // Read the library
@@ -3995,11 +3991,7 @@ impl McpServer {
     }
 
     /// Performs batch updates on a `SchLib` file.
-    fn batch_update_schlib(
-        filepath: &str,
-        operation: &str,
-        parameters: &Value,
-    ) -> ToolCallResult {
+    fn batch_update_schlib(filepath: &str, operation: &str, parameters: &Value) -> ToolCallResult {
         use crate::altium::schlib::SchLib;
 
         // Read the library
