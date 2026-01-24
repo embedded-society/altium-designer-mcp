@@ -586,9 +586,32 @@ impl PcbLib {
     /// Important fields:
     /// - `PATTERN`: The full footprint name (may be longer than 31-char OLE storage limit)
     /// - `DESCRIPTION`: Footprint description
+    ///
+    /// # Format
+    ///
+    /// The stream may have two formats:
+    /// 1. With 4-byte length header: `[length:4 LE][text:length]`
+    /// 2. Raw ASCII text: `|PATTERN=...|DESCRIPTION=...|`
     fn parse_parameters(footprint: &mut Footprint, data: &[u8]) {
-        // Parameters are typically ASCII key=value pairs separated by |
-        if let Ok(text) = String::from_utf8(data.to_vec()) {
+        // Detect whether stream has a 4-byte length header or is raw text.
+        // With header: first 4 bytes are u32 LE length, followed by pipe-delimited text.
+        // Raw text: starts directly with '|' character.
+        let text_data = if data.len() >= 4 {
+            let potential_len = u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as usize;
+            // Valid header if: length is plausible AND text would start with '|'
+            if potential_len > 0
+                && potential_len <= data.len().saturating_sub(4)
+                && data.get(4) == Some(&b'|')
+            {
+                &data[4..]
+            } else {
+                data
+            }
+        } else {
+            data
+        };
+
+        if let Ok(text) = String::from_utf8(text_data.to_vec()) {
             for pair in text.split('|') {
                 if let Some((key, value)) = pair.split_once('=') {
                     match key.to_uppercase().as_str() {

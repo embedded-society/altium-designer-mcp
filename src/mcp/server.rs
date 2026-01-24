@@ -1239,21 +1239,13 @@ impl McpServer {
         }
 
         // Validate footprint names
-        // OLE storage names are limited to 31 characters and cannot contain certain chars
-        #[allow(clippy::items_after_statements)]
-        const MAX_OLE_NAME_LEN: usize = 31;
+        // Note: OLE storage names are limited to 31 characters, but the library layer
+        // handles this by truncating storage names while preserving full names in PATTERN.
         #[allow(clippy::items_after_statements)]
         const INVALID_CHARS: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
         for name in &new_names {
             if name.is_empty() {
                 return ToolCallResult::error("Footprint name cannot be empty");
-            }
-            if name.len() > MAX_OLE_NAME_LEN {
-                return ToolCallResult::error(format!(
-                    "Footprint name '{name}' is too long ({} bytes). \
-                     Maximum length is {MAX_OLE_NAME_LEN} bytes due to OLE storage format limitations.",
-                    name.len(),
-                ));
             }
             if let Some(c) = name.chars().find(|c| INVALID_CHARS.contains(c)) {
                 return ToolCallResult::error(format!(
@@ -1545,21 +1537,13 @@ impl McpServer {
         }
 
         // Validate symbol names
-        // OLE storage names are limited to 31 characters and cannot contain certain chars
-        #[allow(clippy::items_after_statements)]
-        const MAX_OLE_NAME_LEN: usize = 31;
+        // Note: OLE storage names are limited to 31 characters, but the library layer
+        // handles this by truncating storage names while preserving full names in LIBREFERENCE.
         #[allow(clippy::items_after_statements)]
         const INVALID_CHARS: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
         for name in &new_names {
             if name.is_empty() {
                 return ToolCallResult::error("Symbol name cannot be empty");
-            }
-            if name.len() > MAX_OLE_NAME_LEN {
-                return ToolCallResult::error(format!(
-                    "Symbol name '{name}' is too long ({} bytes). \
-                     Maximum length is {MAX_OLE_NAME_LEN} bytes due to OLE storage format limitations.",
-                    name.len(),
-                ));
             }
             if let Some(c) = name.chars().find(|c| INVALID_CHARS.contains(c)) {
                 return ToolCallResult::error(format!(
@@ -4146,20 +4130,16 @@ impl McpServer {
         Layer::parse(spaced)
     }
 
-    /// Validates an OLE storage component name.
+    /// Validates a component name.
+    ///
+    /// Note: OLE storage names are limited to 31 characters, but the library layer
+    /// handles this by truncating storage names while preserving full names in
+    /// the PATTERN/LIBREFERENCE fields.
     fn validate_ole_name(name: &str) -> Result<(), String> {
-        const MAX_OLE_NAME_LEN: usize = 31;
         const INVALID_CHARS: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
 
         if name.is_empty() {
             return Err("Component name cannot be empty".to_string());
-        }
-        if name.len() > MAX_OLE_NAME_LEN {
-            return Err(format!(
-                "Component name '{name}' is too long ({} bytes). \
-                 Maximum length is {MAX_OLE_NAME_LEN} bytes due to OLE storage format limitations.",
-                name.len(),
-            ));
         }
         if let Some(c) = name.chars().find(|c| INVALID_CHARS.contains(c)) {
             return Err(format!(
