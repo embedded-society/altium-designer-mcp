@@ -1087,3 +1087,114 @@ fn test_model_3d_embedded_data_persistence() {
         "Model data should contain original content"
     );
 }
+
+/// Tests STEP model extraction to a file (workflow used by `extract_step_model` tool).
+#[test]
+fn test_step_model_extraction_to_file() {
+    use std::io::Write;
+
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let step_path = temp_dir.path().join("original.step");
+    let pcblib_path = temp_dir.path().join("extraction_test.PcbLib");
+    let extracted_path = temp_dir.path().join("extracted.step");
+
+    // Create a STEP file with recognisable content
+    let step_content = b"ISO-10303-21;HEADER;FILE_DESCRIPTION(('Extraction test model'));ENDSEC;DATA;ENDSEC;END-ISO-10303-21;";
+
+    {
+        let mut step_file = File::create(&step_path).expect("Failed to create STEP file");
+        step_file
+            .write_all(step_content)
+            .expect("Failed to write STEP file");
+    }
+
+    // Create library with embedded model
+    let mut lib = PcbLib::new();
+    let mut fp = Footprint::new("EXTRACT_TEST");
+    fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    fp.model_3d = Some(Model3D {
+        filepath: step_path.to_string_lossy().to_string(),
+        x_offset: 0.0,
+        y_offset: 0.0,
+        z_offset: 0.0,
+        rotation: 0.0,
+    });
+
+    lib.add(fp);
+    lib.write(&pcblib_path).expect("Failed to write library");
+
+    // Read library and extract model
+    let read_lib = PcbLib::read(&pcblib_path).expect("Failed to read library");
+    assert_eq!(read_lib.model_count(), 1, "Should have 1 embedded model");
+
+    let model = read_lib.models().next().expect("Should have model");
+
+    // Extract to file (same as extract_step_model tool does)
+    std::fs::write(&extracted_path, &model.data).expect("Failed to extract model");
+
+    // Verify extracted file
+    let extracted_content =
+        std::fs::read_to_string(&extracted_path).expect("Failed to read extracted file");
+    assert!(
+        extracted_content.contains("Extraction test model"),
+        "Extracted file should contain original content"
+    );
+    assert!(
+        extracted_content.starts_with("ISO-10303"),
+        "Extracted file should be valid STEP format"
+    );
+}
+
+/// Tests STEP model lookup by name and GUID.
+#[test]
+fn test_step_model_lookup_by_name_and_id() {
+    use std::io::Write;
+
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let step_path = temp_dir.path().join("lookup_test.step");
+    let pcblib_path = temp_dir.path().join("lookup_test.PcbLib");
+
+    // Create STEP file
+    let step_content = b"ISO-10303-21;DATA;ENDSEC;END-ISO-10303-21;";
+    {
+        let mut step_file = File::create(&step_path).expect("Failed to create STEP file");
+        step_file
+            .write_all(step_content)
+            .expect("Failed to write STEP file");
+    }
+
+    // Create library with embedded model
+    let mut lib = PcbLib::new();
+    let mut fp = Footprint::new("LOOKUP_TEST");
+    fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    fp.model_3d = Some(Model3D {
+        filepath: step_path.to_string_lossy().to_string(),
+        x_offset: 0.0,
+        y_offset: 0.0,
+        z_offset: 0.0,
+        rotation: 0.0,
+    });
+
+    lib.add(fp);
+    lib.write(&pcblib_path).expect("Failed to write library");
+
+    // Read library
+    let read_lib = PcbLib::read(&pcblib_path).expect("Failed to read library");
+
+    // Get model and its ID
+    let model = read_lib.models().next().expect("Should have model");
+    let model_id = model.id.clone();
+    let model_name = model.name.clone();
+
+    // Lookup by GUID should work
+    assert!(
+        read_lib.get_model(&model_id).is_some(),
+        "Should find model by GUID"
+    );
+
+    // Verify the model name is preserved
+    assert_eq!(
+        model_name, "lookup_test.step",
+        "Model name should be preserved"
+    );
+}

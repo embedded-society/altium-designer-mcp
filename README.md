@@ -297,6 +297,56 @@ Export an Altium library to JSON or CSV format for version control, backup, or e
 
 **CSV format** returns a summary table with columns: name, description, pad/pin count, etc.
 
+### `extract_step_model`
+
+Extract embedded STEP 3D models from an Altium .PcbLib file. Models are stored compressed inside the library; this tool extracts them to standalone .step files.
+
+```json
+{
+    "name": "extract_step_model",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib",
+        "output_path": "./extracted_model.step",
+        "model": "RESC1005X04L.step"
+    }
+}
+```
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `filepath` | Yes | Path to the .PcbLib file containing embedded 3D models |
+| `output_path` | No | Path where the extracted .step file will be saved. If omitted, returns base64-encoded data. |
+| `model` | No | Model name (e.g., `RESC1005X04L.step`) or GUID to extract. If omitted and only one model exists, extracts it automatically. If multiple models exist and no model specified, lists available models. |
+
+**Response (listing models):**
+
+```json
+{
+    "status": "list",
+    "filepath": "./MyLibrary.PcbLib",
+    "message": "Multiple models found. Specify 'model' parameter with name or ID to extract.",
+    "model_count": 3,
+    "models": [
+        { "id": "{GUID...}", "name": "model1.step", "size_bytes": 12345 },
+        { "id": "{GUID...}", "name": "model2.step", "size_bytes": 67890 }
+    ]
+}
+```
+
+**Response (extraction success):**
+
+```json
+{
+    "status": "success",
+    "filepath": "./MyLibrary.PcbLib",
+    "output_path": "./extracted_model.step",
+    "model_id": "{GUID...}",
+    "model_name": "RESC1005X04L.step",
+    "size_bytes": 12345,
+    "message": "STEP model extracted to './extracted_model.step'"
+}
+```
+
 ### `diff_libraries`
 
 Compare two Altium library files and report differences. Both files must be the same type.

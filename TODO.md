@@ -4,7 +4,6 @@
 
 | Feature | Current Workaround | Impact |
 |---------|-------------------|--------|
-| `extract_step_model` | Manual Python + olefile + zlib | Can't easily reuse/inspect embedded 3D models |
 | `rename_component` | copy + delete (2 operations) | Clunky for simple renames |
 | `import_library` (from JSON) | Manual `write_pcblib`/`write_schlib` | Can't round-trip exported data back in |
 | `copy_component_cross_library` | Read from A, write to B manually | Tedious to consolidate libraries |

@@ -13,6 +13,7 @@
 
 use std::path::PathBuf;
 
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -477,6 +478,7 @@ impl McpServer {
             "delete_component" => self.call_delete_component(&params.arguments),
             "validate_library" => self.call_validate_library(&params.arguments),
             "export_library" => self.call_export_library(&params.arguments),
+            "extract_step_model" => self.call_extract_step_model(&params.arguments),
             "diff_libraries" => self.call_diff_libraries(&params.arguments),
             "batch_update" => self.call_batch_update(&params.arguments),
             "copy_component" => self.call_copy_component(&params.arguments),
@@ -917,6 +919,34 @@ impl McpServer {
                         }
                     },
                     "required": ["filepath", "format"]
+                }),
+            },
+            ToolDefinition {
+                name: "extract_step_model".to_string(),
+                description: Some(
+                    "Extract embedded STEP 3D models from an Altium .PcbLib file. \
+                     Models are stored compressed inside the library and this tool extracts \
+                     them to standalone .step files. Use 'list' mode to see available models, \
+                     or specify a model name/ID to extract a specific model."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepath": {
+                            "type": "string",
+                            "description": "Path to the .PcbLib file containing embedded 3D models"
+                        },
+                        "output_path": {
+                            "type": "string",
+                            "description": "Path where the extracted .step file will be saved. If omitted, returns base64-encoded data."
+                        },
+                        "model": {
+                            "type": "string",
+                            "description": "Model name (e.g., 'RESC1005X04L.step') or GUID to extract. If omitted and only one model exists, extracts it automatically. If multiple models exist and no model specified, lists available models."
+                        }
+                    },
+                    "required": ["filepath"]
                 }),
             },
             ToolDefinition {
@@ -3609,6 +3639,170 @@ impl McpServer {
 
             ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
         }
+    }
+
+    // ==================== STEP Model Extraction ====================
+
+    /// Extracts embedded STEP 3D models from a `PcbLib` file.
+    #[allow(clippy::too_many_lines)]
+    fn call_extract_step_model(&self, arguments: &Value) -> ToolCallResult {
+        use crate::altium::PcbLib;
+
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        // Validate library path
+        if let Err(e) = self.validate_path(filepath) {
+            return ToolCallResult::error(e);
+        }
+
+        // Validate output path if provided
+        let output_path = arguments.get("output_path").and_then(Value::as_str);
+        if let Some(out_path) = output_path {
+            if let Err(e) = self.validate_path(out_path) {
+                return ToolCallResult::error(e);
+            }
+        }
+
+        let model_identifier = arguments.get("model").and_then(Value::as_str);
+
+        // Read the library
+        let library = match PcbLib::read(filepath) {
+            Ok(lib) => lib,
+            Err(e) => {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": e.to_string(),
+                });
+                return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
+            }
+        };
+
+        // Get all embedded models
+        let models: Vec<_> = library.models().collect();
+
+        if models.is_empty() {
+            let result = json!({
+                "status": "error",
+                "filepath": filepath,
+                "error": "No embedded 3D models found in this library.",
+            });
+            return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
+        }
+
+        // Find the model to extract
+        let target_model = if let Some(identifier) = model_identifier {
+            // Look up by name or GUID
+            models
+                .iter()
+                .find(|m| {
+                    m.name.eq_ignore_ascii_case(identifier)
+                        || m.id.eq_ignore_ascii_case(identifier)
+                        || m.id
+                            .trim_matches(|c| c == '{' || c == '}')
+                            .eq_ignore_ascii_case(identifier)
+                })
+                .copied()
+        } else if models.len() == 1 {
+            // Only one model, extract it
+            Some(models[0])
+        } else {
+            // Multiple models, list them
+            let model_list: Vec<Value> = models
+                .iter()
+                .map(|m| {
+                    json!({
+                        "id": m.id,
+                        "name": m.name,
+                        "size_bytes": m.data.len(),
+                    })
+                })
+                .collect();
+
+            let result = json!({
+                "status": "list",
+                "filepath": filepath,
+                "message": "Multiple models found. Specify 'model' parameter with name or ID to extract.",
+                "model_count": models.len(),
+                "models": model_list,
+            });
+            return ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap());
+        };
+
+        let Some(model) = target_model else {
+            let model_list: Vec<Value> = models
+                .iter()
+                .map(|m| {
+                    json!({
+                        "id": m.id,
+                        "name": m.name,
+                    })
+                })
+                .collect();
+
+            let result = json!({
+                "status": "error",
+                "filepath": filepath,
+                "error": format!("Model '{}' not found.", model_identifier.unwrap_or("")),
+                "available_models": model_list,
+            });
+            return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
+        };
+
+        // Extract the model - write to file or return as base64
+        Self::extract_model_output(filepath, output_path, model)
+    }
+
+    /// Helper to output extracted model data (to file or base64).
+    fn extract_model_output(
+        filepath: &str,
+        output_path: Option<&str>,
+        model: &crate::altium::pcblib::EmbeddedModel,
+    ) -> ToolCallResult {
+        output_path.map_or_else(
+            || {
+                // Return as base64
+                let base64_data = BASE64_STANDARD.encode(&model.data);
+                let result = json!({
+                    "status": "success",
+                    "filepath": filepath,
+                    "model_id": model.id,
+                    "model_name": model.name,
+                    "size_bytes": model.data.len(),
+                    "encoding": "base64",
+                    "data": base64_data,
+                });
+                ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+            },
+            |out_path| {
+                // Write to file
+                match std::fs::write(out_path, &model.data) {
+                    Ok(()) => {
+                        let result = json!({
+                            "status": "success",
+                            "filepath": filepath,
+                            "output_path": out_path,
+                            "model_id": model.id,
+                            "model_name": model.name,
+                            "size_bytes": model.data.len(),
+                            "message": format!("STEP model extracted to '{}'", out_path),
+                        });
+                        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+                    }
+                    Err(e) => {
+                        let result = json!({
+                            "status": "error",
+                            "filepath": filepath,
+                            "output_path": out_path,
+                            "error": format!("Failed to write file: {}", e),
+                        });
+                        ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap())
+                    }
+                }
+            },
+        )
     }
 
     // ==================== Library Diff Tools ====================

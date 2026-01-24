@@ -71,6 +71,9 @@ uuid = { version = "1.11", features = ["v4"] }
 # Regex for pattern matching (batch_update symbol filter)
 regex = "1.11"
 
+# Base64 encoding (for STEP model extraction)
+base64 = "0.22"
+
 [dev-dependencies]
 # Async testing utilities
 tokio-test = "0.4"
