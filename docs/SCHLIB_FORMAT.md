@@ -190,7 +190,7 @@ Derived from Rotated and Flipped flags:
 | ID | Type |
 |----|------|
 | 0 | Input |
-| 1 | InputOutput (Bidirectional) |
+| 1 | Bidirectional (InputOutput) |
 | 2 | Output |
 | 3 | OpenCollector |
 | 4 | Passive |

@@ -187,10 +187,12 @@ Pads have 6 blocks:
 
 | ID | Shape | Notes |
 |----|-------|-------|
-| 1 | Round | Circular pad |
+| 1 | Round / RoundedRectangle | Distinguished by corner_radius_percent (0 or 100 = Round, 1-99 = RoundedRectangle) |
 | 2 | Rectangular | Sharp corners |
 | 3 | Octagonal | 8-sided (often mapped to Oval) |
-| 9 | RoundedRectangle | Rectangular with rounded corners |
+
+> **Note:** Round and RoundedRectangle share shape ID 1. The distinction is made via the per-layer
+> corner_radius_percent field. RoundedRectangle pads require FullStack mode to preserve their shape.
 
 **Stack modes:**
 

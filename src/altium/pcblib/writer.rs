@@ -378,13 +378,34 @@ fn encode_pad_per_layer_data(pad: &Pad) -> Vec<u8> {
     }
 
     // 32 corner radius percentages - 32 bytes
-    let default_radius = pad.corner_radius_percent.unwrap_or(0);
+    // Default corner radius: 50% for RoundedRectangle, 0% otherwise
+    // This ensures RoundedRectangle pads round-trip correctly (they share shape ID 1 with Round)
+    let default_radius = pad.corner_radius_percent.unwrap_or_else(|| {
+        if pad.shape == PadShape::RoundedRectangle {
+            50
+        } else {
+            0
+        }
+    });
     for i in 0..32 {
+        // Get per-layer corner radius, or calculate default based on per-layer shape
         let radius = pad
             .per_layer_corner_radii
             .as_ref()
             .and_then(|radii| radii.get(i).copied())
-            .unwrap_or(default_radius);
+            .unwrap_or_else(|| {
+                // If per-layer shape is specified and is RoundedRectangle, use 50%
+                let layer_shape = pad
+                    .per_layer_shapes
+                    .as_ref()
+                    .and_then(|shapes| shapes.get(i).copied())
+                    .unwrap_or(pad.shape);
+                if layer_shape == PadShape::RoundedRectangle && default_radius == 0 {
+                    50
+                } else {
+                    default_radius
+                }
+            });
         block.push(radius);
     }
 
@@ -422,9 +443,11 @@ fn encode_pad(data: &mut Vec<u8>, pad: &Pad) -> crate::altium::error::AltiumResu
     // Write per-layer data when:
     // - stack mode is not Simple, OR
     // - corner radius is specified, OR
+    // - shape is RoundedRectangle (needs corner radius to distinguish from Round), OR
     // - any per-layer data fields are present
     let needs_per_layer_data = pad.stack_mode != PadStackMode::Simple
         || pad.corner_radius_percent.is_some()
+        || pad.shape == PadShape::RoundedRectangle
         || pad.per_layer_sizes.is_some()
         || pad.per_layer_shapes.is_some()
         || pad.per_layer_corner_radii.is_some()
@@ -509,13 +532,16 @@ fn encode_pad_geometry(pad: &Pad) -> Vec<u8> {
     block.push(hole_shape_to_id(pad.hole_shape));
 
     // Stack mode - offset 62
-    // Use pad's stack_mode, but upgrade to FullStack if corner radius is specified
-    let effective_stack_mode =
-        if pad.corner_radius_percent.is_some() && pad.stack_mode == PadStackMode::Simple {
-            PadStackMode::FullStack
-        } else {
-            pad.stack_mode
-        };
+    // Use pad's stack_mode, but upgrade to FullStack if:
+    // - corner radius is specified, OR
+    // - shape is RoundedRectangle (needs per-layer corner radius data to round-trip)
+    let effective_stack_mode = if pad.stack_mode == PadStackMode::Simple
+        && (pad.corner_radius_percent.is_some() || pad.shape == PadShape::RoundedRectangle)
+    {
+        PadStackMode::FullStack
+    } else {
+        pad.stack_mode
+    };
     block.push(pad_stack_mode_to_id(effective_stack_mode));
 
     // Offsets 63-85: Unknown/reserved data (23 bytes)

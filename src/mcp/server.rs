@@ -1958,6 +1958,7 @@ impl McpServer {
     // ==================== Primitive Parsing Helpers ====================
 
     /// Parses a pad from JSON.
+    #[allow(clippy::too_many_lines)] // Pad has many fields requiring individual parsing
     fn parse_pad(json: &Value) -> Result<crate::altium::pcblib::Pad, String> {
         use crate::altium::pcblib::{Layer, Pad, PadShape, PadStackMode, PcbFlags};
 
@@ -1965,6 +1966,12 @@ impl McpServer {
             .get("designator")
             .and_then(Value::as_str)
             .ok_or("Pad missing required field 'designator'")?;
+
+        // Validate designator is not empty
+        if designator.trim().is_empty() {
+            return Err("Pad designator cannot be empty".to_string());
+        }
+
         let x = json
             .get("x")
             .and_then(Value::as_f64)
@@ -1981,6 +1988,18 @@ impl McpServer {
             .get("height")
             .and_then(Value::as_f64)
             .ok_or("Pad missing required field 'height'")?;
+
+        // Validate pad dimensions are positive
+        if width <= 0.0 {
+            return Err(format!(
+                "Pad '{designator}' has invalid width {width}. Width must be greater than 0."
+            ));
+        }
+        if height <= 0.0 {
+            return Err(format!(
+                "Pad '{designator}' has invalid height {height}. Height must be greater than 0."
+            ));
+        }
 
         let shape_str = json
             .get("shape")
@@ -2254,7 +2273,7 @@ impl McpServer {
             |s| match s.to_lowercase().as_str() {
                 "input" => PinElectricalType::Input,
                 "output" => PinElectricalType::Output,
-                "bidirectional" | "io" | "input_output" => PinElectricalType::InputOutput,
+                "bidirectional" | "io" | "input_output" => PinElectricalType::Bidirectional,
                 "power" => PinElectricalType::Power,
                 "open_collector" => PinElectricalType::OpenCollector,
                 "open_emitter" => PinElectricalType::OpenEmitter,

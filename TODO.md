@@ -71,8 +71,8 @@ This document summarises the findings from extensive testing of the `altium-desi
 - **Status:** Working
 - Successfully creates footprints with all primitive types
 - Append mode works correctly
-- **Supported pad shapes:** `rectangle`, `round`, `oval`
-- **Note:** `rounded_rectangle` shape is accepted but becomes `round` when read back
+- **Supported pad shapes:** `rectangle`, `round`, `oval`, `rounded_rectangle`
+- All pad shapes round-trip correctly
 
 #### `write_schlib`
 
@@ -81,7 +81,7 @@ This document summarises the findings from extensive testing of the `altium-desi
 - `designator_prefix` correctly converted to designator (e.g., "U" → "U?")
 - All pin orientations work: `left`, `right`, `up`, `down`
 - All electrical types work: `input`, `output`, `bidirectional`, `passive`, `power`
-- **Note:** `bidirectional` becomes `input_output` when read back (internal alias)
+- Electrical type names are consistent (uses `bidirectional` throughout)
 
 ---
 
@@ -97,14 +97,14 @@ This document summarises the findings from extensive testing of the `altium-desi
 | Invalid layer name | Rejects with list of valid layers |
 | Offset past end of list | Returns empty array gracefully |
 
-#### Missing Validation (Potential Issues)
+#### Additional Validation (Implemented)
 
-| Check | Current Behaviour | Suggested |
-|-------|------------------|-----------|
-| Zero-size pads | Accepted | Warn or reject |
-| Empty pad designator | Accepted | Warn |
-| Non-existent component filter | Returns empty array | Could return warning |
-| Duplicate component names | Not tested | Should reject or warn |
+| Check | Behaviour |
+|-------|----------|
+| Zero-size pads | Rejected with clear error message |
+| Empty pad designator | Rejected with clear error message |
+| Duplicate component names | Rejected with clear error message |
+| Non-existent component filter | Returns empty array (expected behaviour) |
 
 ---
 
@@ -127,14 +127,12 @@ This is likely due to internal unit conversion (mm ↔ mils) and is within accep
 
 ### Medium Priority
 
-1. **`rounded_rectangle` pad shape not preserved**
-   - Input: `"shape": "rounded_rectangle"`
-   - Output: `"shape": "round"`
-   - Impact: Cannot create rounded rectangle pads via MCP
+1. ~~**`rounded_rectangle` pad shape not preserved**~~ **FIXED**
+   - Now correctly round-trips with default 50% corner radius
 
 2. **Component name truncation in list_components**
    - Some names appear truncated (e.g., `GENERIC_MLCC_CAP_0402_IPC_MEDIU` instead of `MEDIUM`)
-   - May be Altium format limitation (31 byte limit)
+   - This is an Altium format limitation (31 byte OLE storage limit)
 
 ### Low Priority
 
@@ -142,9 +140,8 @@ This is likely due to internal unit conversion (mm ↔ mils) and is within accep
    - Values like `1.0` become `1.000001`
    - Cosmetic issue, doesn't affect functionality
 
-2. **`bidirectional` ↔ `input_output` alias inconsistency**
-   - Write uses `bidirectional`, read returns `input_output`
-   - Should be normalised to one value
+2. ~~**`bidirectional` ↔ `input_output` alias inconsistency**~~ **FIXED**
+   - Now uses `bidirectional` consistently (accepts `input_output` as alias for backwards compatibility)
 
 ---
 
@@ -206,14 +203,18 @@ The following test files were created during testing and can be safely deleted:
 
 ## Conclusion
 
-The `altium-designer-mcp` server is **production-ready** for most use cases. It provides reliable
-read/write operations for Altium library files with good error handling and validation.
+The `altium-designer-mcp` server is **production-ready** for all common use cases. It provides reliable
+read/write operations for Altium library files with comprehensive error handling and validation.
 
-The main limitation is the `rounded_rectangle` pad shape not being preserved, which may affect some
-footprint designs. The floating-point precision artifacts are cosmetic and don't impact functionality.
+All pad shapes including `rounded_rectangle` now round-trip correctly. Pin electrical types use
+consistent naming (`bidirectional`). Input validation catches common errors like zero-size pads,
+empty designators, and duplicate component names.
+
+The only remaining cosmetic issue is minor floating-point precision artifacts from mm↔mils conversion,
+which doesn't impact functionality.
 
 Recommended next steps:
 
-1. Fix `rounded_rectangle` pad shape handling
-2. Normalise `bidirectional`/`input_output` naming
-3. Consider adding delete/rename operations for component management
+1. Consider adding delete/rename operations for component management
+2. Add library integrity validation tool
+3. Add export to JSON/CSV for version control integration

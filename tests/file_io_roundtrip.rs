@@ -315,7 +315,7 @@ fn schlib_file_roundtrip_pin_types() {
     sym.add_pin(pin_output);
 
     let mut pin_bidir = Pin::new("IO", "4", 40, -10, 10, PinOrientation::Right);
-    pin_bidir.electrical_type = PinElectricalType::InputOutput;
+    pin_bidir.electrical_type = PinElectricalType::Bidirectional;
     sym.add_pin(pin_bidir);
 
     sym.add_rectangle(Rectangle::new(-30, -20, 30, 30));
@@ -337,7 +337,7 @@ fn schlib_file_roundtrip_pin_types() {
     assert_eq!(p1.electrical_type, PinElectricalType::Passive);
     assert_eq!(p2.electrical_type, PinElectricalType::Input);
     assert_eq!(p3.electrical_type, PinElectricalType::Output);
-    assert_eq!(p4.electrical_type, PinElectricalType::InputOutput);
+    assert_eq!(p4.electrical_type, PinElectricalType::Bidirectional);
 }
 
 #[test]

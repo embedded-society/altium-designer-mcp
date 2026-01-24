@@ -1443,8 +1443,10 @@ mod tests {
     fn binary_roundtrip_pad_stack_modes() {
         let mut original = Footprint::new("ROUNDTRIP_STACK_MODES");
 
-        // Pad with Simple stack mode (default)
-        let pad_simple = Pad::smd("1", -2.54, 0.0, 1.0, 0.5);
+        // Pad with Simple stack mode (using Rectangle shape to avoid FullStack upgrade)
+        // Note: RoundedRectangle pads automatically get FullStack to preserve corner radius
+        let mut pad_simple = Pad::smd("1", -2.54, 0.0, 1.0, 0.5);
+        pad_simple.shape = PadShape::Rectangle;
         assert_eq!(pad_simple.stack_mode, PadStackMode::Simple);
         original.add_pad(pad_simple);
 
@@ -1474,7 +1476,7 @@ mod tests {
     fn binary_roundtrip_pad_corner_radius() {
         let mut original = Footprint::new("ROUNDTRIP_CORNER_RADIUS");
 
-        // SMD pad with corner radius
+        // SMD pad with explicit corner radius
         let mut pad_with_radius = Pad::smd("1", 0.0, 0.0, 2.0, 1.0);
         pad_with_radius.shape = PadShape::RoundedRectangle;
         pad_with_radius.corner_radius_percent = Some(25);
@@ -1482,23 +1484,32 @@ mod tests {
         pad_with_radius.stack_mode = PadStackMode::FullStack;
         original.add_pad(pad_with_radius);
 
-        // Pad without corner radius
-        let pad_no_radius = Pad::smd("2", 2.54, 0.0, 1.5, 0.8);
+        // RoundedRectangle pad without explicit corner radius gets default 50%
+        let pad_default_radius = Pad::smd("2", 2.54, 0.0, 1.5, 0.8);
+        original.add_pad(pad_default_radius);
+
+        // Rectangle pad (no corner radius needed)
+        let mut pad_no_radius = Pad::smd("3", 5.08, 0.0, 1.5, 0.8);
+        pad_no_radius.shape = PadShape::Rectangle;
         original.add_pad(pad_no_radius);
 
         let data = writer::encode_data_stream(&original).expect("encoding should succeed");
         let mut decoded = Footprint::new("ROUNDTRIP_CORNER_RADIUS");
         reader::parse_data_stream(&mut decoded, &data, None);
 
-        assert_eq!(decoded.pads.len(), 2);
+        assert_eq!(decoded.pads.len(), 3);
 
-        // Verify corner radius preserved
+        // Verify explicit corner radius preserved
         assert_eq!(decoded.pads[0].corner_radius_percent, Some(25));
         assert_eq!(decoded.pads[0].stack_mode, PadStackMode::FullStack);
 
-        // Verify no corner radius pad unchanged
-        assert_eq!(decoded.pads[1].corner_radius_percent, None);
-        assert_eq!(decoded.pads[1].stack_mode, PadStackMode::Simple);
+        // RoundedRectangle without explicit radius gets default 50%
+        assert_eq!(decoded.pads[1].corner_radius_percent, Some(50));
+        assert_eq!(decoded.pads[1].stack_mode, PadStackMode::FullStack);
+
+        // Rectangle pad has no corner radius
+        assert_eq!(decoded.pads[2].corner_radius_percent, None);
+        assert_eq!(decoded.pads[2].stack_mode, PadStackMode::Simple);
     }
 
     #[test]

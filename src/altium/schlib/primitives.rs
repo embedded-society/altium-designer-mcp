@@ -133,8 +133,9 @@ impl PinOrientation {
 pub enum PinElectricalType {
     /// Input pin.
     Input,
-    /// Bidirectional pin.
-    InputOutput,
+    /// Bidirectional pin (input/output).
+    #[serde(alias = "input_output")]
+    Bidirectional,
     /// Output pin.
     Output,
     /// Open collector output.
@@ -156,7 +157,7 @@ impl PinElectricalType {
     pub const fn from_id(id: u8) -> Self {
         match id {
             0 => Self::Input,
-            1 => Self::InputOutput,
+            1 => Self::Bidirectional,
             2 => Self::Output,
             3 => Self::OpenCollector,
             5 => Self::HiZ,
@@ -172,7 +173,7 @@ impl PinElectricalType {
     pub const fn to_id(self) -> u8 {
         match self {
             Self::Input => 0,
-            Self::InputOutput => 1,
+            Self::Bidirectional => 1,
             Self::Output => 2,
             Self::OpenCollector => 3,
             Self::Passive => 4,
