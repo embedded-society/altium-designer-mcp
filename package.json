@@ -1,0 +1,12 @@
+{
+    "name": "altium-designer-mcp",
+    "version": "0.1.0",
+    "private": true,
+    "description": "An AI-operated Altium Designer libraries editor.",
+    "scripts": {
+        "lint:md": "markdownlint-cli2 \"**/*.md\""
+    },
+    "devDependencies": {
+        "markdownlint-cli2": "^0.20.0"
+    }
+}
