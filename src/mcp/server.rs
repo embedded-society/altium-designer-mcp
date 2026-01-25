@@ -9208,8 +9208,7 @@ impl McpServer {
             }
         }
 
-        // Draw pins and collect designator mappings
-        let mut pin_mappings: Vec<(char, &str)> = Vec::new();
+        // Draw pins with up to 3-character designators
         for pin in &symbol.pins {
             if !matches_part(pin.owner_part_id) {
                 continue;
@@ -9225,21 +9224,42 @@ impl McpServer {
             // Draw pin line
             Self::draw_line(&mut canvas, to_canvas(px, py), to_canvas(end_x, end_y), '~');
 
-            // Draw connection point (at pin position, not end)
+            // Draw designator (up to 3 chars) at connection point
             let (cx, cy) = to_canvas(px, py);
-            if cx < canvas_width && cy < canvas_height {
-                // Convert designator to a display character:
-                // - Single char: use as-is
-                // - Numeric 1-9: use digit
-                // - Numeric 10-35: use A-Z
-                // - Numeric 36+: use '?'
-                // - Alphanumeric (BGA): use first char
-                let designator_char = Self::designator_to_char(&pin.designator);
-                canvas[cy][cx] = designator_char;
-                // Track designators that needed mapping for the legend
-                let first_char = pin.designator.chars().next().unwrap_or('#');
-                if designator_char != first_char || pin.designator.len() > 1 {
-                    pin_mappings.push((designator_char, &pin.designator));
+            if cy < canvas_height {
+                // Get designator truncated/padded to 3 chars
+                let desig: String = pin.designator.chars().take(3).collect();
+
+                // Place designator based on pin orientation
+                match pin.orientation {
+                    PinOrientation::Right => {
+                        // Pin points right, place designator to the left (inside symbol)
+                        for (i, ch) in desig.chars().enumerate() {
+                            let x = cx.saturating_sub(desig.len() - 1 - i);
+                            if x < canvas_width {
+                                canvas[cy][x] = ch;
+                            }
+                        }
+                    }
+                    PinOrientation::Left => {
+                        // Pin points left, place designator to the right (inside symbol)
+                        for (i, ch) in desig.chars().enumerate() {
+                            let x = cx + i;
+                            if x < canvas_width {
+                                canvas[cy][x] = ch;
+                            }
+                        }
+                    }
+                    PinOrientation::Up | PinOrientation::Down => {
+                        // Vertical pins: place designator horizontally centered
+                        let start_x = cx.saturating_sub(desig.len() / 2);
+                        for (i, ch) in desig.chars().enumerate() {
+                            let x = start_x + i;
+                            if x < canvas_width {
+                                canvas[cy][x] = ch;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -9294,31 +9314,7 @@ impl McpServer {
 
         output.push_str(&"-".repeat(canvas_width + 2));
         output.push('\n');
-        output.push_str("Legend: 1-9/A-Z = pin, |-+ = rectangle, ~ = pin line, o = arc, O = ellipse, + = origin\n");
-
-        // Add pin designator legend if any designators were truncated
-        if !pin_mappings.is_empty() {
-            // Sort by displayed character for consistent output
-            pin_mappings.sort_by(|a, b| a.0.cmp(&b.0));
-            // Group by displayed character (e.g., '1' might map to "10", "11", "12"...)
-            let mut current_char = '\0';
-            let mut groups: Vec<(char, Vec<&str>)> = Vec::new();
-            for (ch, desig) in &pin_mappings {
-                if *ch != current_char {
-                    groups.push((*ch, vec![desig]));
-                    current_char = *ch;
-                } else if let Some(last) = groups.last_mut() {
-                    last.1.push(desig);
-                }
-            }
-            output.push_str("Pin designators: ");
-            let mappings: Vec<String> = groups
-                .iter()
-                .map(|(ch, desigs)| format!("'{ch}'={}", desigs.join(",")))
-                .collect();
-            output.push_str(&mappings.join(" | "));
-            output.push('\n');
-        }
+        output.push_str("Legend: |-+ = rectangle, ~ = pin line, o = arc, O = ellipse, + = origin\n");
 
         output
     }
