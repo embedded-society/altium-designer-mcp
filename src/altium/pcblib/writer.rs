@@ -1347,22 +1347,6 @@ fn encode_unique_id_record(
     data.extend_from_slice(record_bytes);
 }
 
-/// Checks if a footprint has any primitives with unique IDs.
-#[allow(dead_code)]
-pub fn has_unique_ids(footprint: &Footprint) -> bool {
-    footprint.pads.iter().any(|p| p.unique_id.is_some())
-        || footprint.vias.iter().any(|v| v.unique_id.is_some())
-        || footprint.tracks.iter().any(|t| t.unique_id.is_some())
-        || footprint.arcs.iter().any(|a| a.unique_id.is_some())
-        || footprint.regions.iter().any(|r| r.unique_id.is_some())
-        || footprint.text.iter().any(|t| t.unique_id.is_some())
-        || footprint.fills.iter().any(|f| f.unique_id.is_some())
-        || footprint
-            .component_bodies
-            .iter()
-            .any(|b| b.unique_id.is_some())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
