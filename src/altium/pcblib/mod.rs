@@ -792,17 +792,56 @@ impl PcbLib {
             if let Some(ref model_3d) = footprint.model_3d {
                 let path = std::path::Path::new(&model_3d.filepath);
 
-                // Skip if the file doesn't exist - this happens when model_3d was
-                // populated from an existing ComponentBody during read (the filepath
-                // is just the model name, not an actual path). The ComponentBody
-                // already exists, so we don't need to create a duplicate.
-                if !path.exists() || !path.is_file() {
+                // Check if the filepath looks like an explicit path (has directory components)
+                // vs just a model name (which gets set during read from ComponentBody)
+                let is_explicit_path = path.parent().is_some_and(|p| !p.as_os_str().is_empty());
+
+                // If footprint already has component_bodies AND filepath is just a name
+                // (not an explicit path), skip to prevent Bug #2 (duplicate component bodies
+                // from accidentally matching a file with the same name as the model)
+                if !footprint.component_bodies.is_empty() && !is_explicit_path {
                     tracing::trace!(
                         footprint = %footprint.name,
+                        component_bodies = footprint.component_bodies.len(),
                         filepath = %model_3d.filepath,
-                        "Skipping model_3d - file not found (already has ComponentBody)"
+                        "Skipping model_3d - footprint already has ComponentBody and filepath is not explicit"
                     );
                     continue;
+                }
+
+                // Check if file exists
+                if !path.exists() || !path.is_file() {
+                    // If footprint has existing component_bodies, the model is already embedded
+                    // from a previous save - just skip (the filepath is stale)
+                    if !footprint.component_bodies.is_empty() {
+                        tracing::trace!(
+                            footprint = %footprint.name,
+                            filepath = %model_3d.filepath,
+                            "Skipping model_3d - file not found but ComponentBody exists"
+                        );
+                        continue;
+                    }
+
+                    // For NEW footprints, the file MUST exist - return error
+                    return Err(AltiumError::InvalidParameter {
+                        name: "step_model.filepath".to_string(),
+                        message: format!(
+                            "STEP file not found for footprint '{}': '{}'. \
+                             Provide a valid path or use embed: false for external reference.",
+                            footprint.name, model_3d.filepath
+                        ),
+                    });
+                }
+
+                // If we have component_bodies but user explicitly set a path that exists,
+                // they want to re-embed. Clear the old component_bodies first.
+                if !footprint.component_bodies.is_empty() {
+                    tracing::debug!(
+                        footprint = %footprint.name,
+                        old_bodies = footprint.component_bodies.len(),
+                        "Clearing old ComponentBodies for re-embedding from new path"
+                    );
+                    footprint.component_bodies.clear();
                 }
 
                 // Read the STEP file
