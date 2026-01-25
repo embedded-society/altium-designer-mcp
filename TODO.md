@@ -53,32 +53,28 @@ Minor artifacts from mm↔mils conversion. Does not affect functionality.
 
 ## Nice-to-Have Features
 
-### 1. Undo/Backup Functionality
-
-Before performing destructive operations (delete, update, merge), automatically create a backup of the original file.
-
-### 2. Dry-Run Mode
+### 1. Dry-Run Mode
 
 Add an optional `dry_run` parameter to destructive operations that would show what changes would be made without actually modifying files.
 
-### 3. Better 3D Model Handling
+### 2. Better 3D Model Handling
 
 - Option to extract model references as external files
 - Better error messages when models are missing
 
-### 4. Validation Before Write
+### 3. Validation Before Write
 
 Run `validate_library` automatically after write operations to catch corruption immediately.
 
-### 5. Batch Parameter Update for SchLib
+### 4. Batch Parameter Update for SchLib
 
 Similar to `batch_update` for PcbLib track widths, add ability to update parameters across all symbols in a SchLib (e.g., update all "Manufacturer" parameters).
 
-### 6. Component Comparison
+### 5. Component Comparison
 
 Add a tool to compare two specific components (not just libraries) and show detailed differences in pads, tracks, parameters, etc.
 
-### 7. Better Error Context
+### 6. Better Error Context
 
 When operations fail, provide more context about what was being processed and what state the file is in.
 

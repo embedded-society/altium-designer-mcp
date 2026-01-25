@@ -258,6 +258,44 @@ impl McpServer {
         Err("Access denied: path is outside the configured allowed directories".to_string())
     }
 
+    /// Creates a backup of an existing file before modification.
+    ///
+    /// Copies `filepath` to `filepath.bak`, overwriting any existing backup.
+    /// If the source file does not exist (new file creation), this is a no-op.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(Some(backup_path))` if a backup was created, `Ok(None)` if
+    /// the source file did not exist, or an error message if the backup failed.
+    fn create_backup(filepath: &str) -> Result<Option<String>, String> {
+        use std::path::Path;
+
+        let path = Path::new(filepath);
+
+        // No backup needed for new files
+        if !path.exists() {
+            return Ok(None);
+        }
+
+        let backup_path = format!("{filepath}.bak");
+
+        std::fs::copy(path, &backup_path).map_err(|e| {
+            format!(
+                "Failed to create backup of '{}': {e}",
+                path.file_name()
+                    .map_or_else(|| "file".to_string(), |n| n.to_string_lossy().into_owned())
+            )
+        })?;
+
+        tracing::debug!(
+            source = %filepath,
+            backup = %backup_path,
+            "Created backup before destructive operation"
+        );
+
+        Ok(Some(backup_path))
+    }
+
     /// Runs the MCP server main loop with graceful shutdown handling.
     ///
     /// # Errors
@@ -1741,6 +1779,11 @@ impl McpServer {
             library.add(footprint);
         }
 
+        // Create backup before destructive operation (if file exists)
+        if let Err(e) = Self::create_backup(filepath) {
+            return ToolCallResult::error(e);
+        }
+
         match library.save(filepath) {
             Ok(()) => {
                 let result = json!({
@@ -2039,6 +2082,11 @@ impl McpServer {
             }
 
             library.add(symbol);
+        }
+
+        // Create backup before destructive operation (if file exists)
+        if let Err(e) = Self::create_backup(filepath) {
+            return ToolCallResult::error(e);
         }
 
         match library.save(filepath) {
@@ -3260,6 +3308,17 @@ impl McpServer {
 
         // Only write if something was deleted
         if deleted_count > 0 {
+            // Create backup before destructive operation
+            if let Err(e) = Self::create_backup(filepath) {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": e,
+                    "results": results,
+                });
+                return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
+            }
+
             if let Err(e) = library.save(filepath) {
                 let result = json!({
                     "status": "error",
@@ -3322,6 +3381,17 @@ impl McpServer {
 
         // Only write if something was deleted
         if deleted_count > 0 {
+            // Create backup before destructive operation
+            if let Err(e) = Self::create_backup(filepath) {
+                let result = json!({
+                    "status": "error",
+                    "filepath": filepath,
+                    "error": e,
+                    "results": results,
+                });
+                return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
+            }
+
             if let Err(e) = library.save(filepath) {
                 let result = json!({
                     "status": "error",
@@ -3988,6 +4058,11 @@ impl McpServer {
             }
         }
 
+        // Create backup before destructive operation (if file exists)
+        if let Err(e) = Self::create_backup(output_path) {
+            return ToolCallResult::error(e);
+        }
+
         // Write the library
         if let Err(e) = library.save(output_path) {
             return ToolCallResult::error(format!("Failed to write library: {e}"));
@@ -4063,6 +4138,11 @@ impl McpServer {
                     ));
                 }
             }
+        }
+
+        // Create backup before destructive operation (if file exists)
+        if let Err(e) = Self::create_backup(output_path) {
+            return ToolCallResult::error(e);
         }
 
         // Write the library
@@ -4742,6 +4822,11 @@ impl McpServer {
 
         // Write back if any updates were made
         if symbols_updated > 0 {
+            // Create backup before destructive operation
+            if let Err(e) = Self::create_backup(filepath) {
+                return ToolCallResult::error(e);
+            }
+
             if let Err(e) = library.save(filepath) {
                 return ToolCallResult::error(format!("Failed to write library: {e}"));
             }
@@ -4816,6 +4901,11 @@ impl McpServer {
 
         // Write the updated library if any changes were made
         if total_updated > 0 {
+            // Create backup before destructive operation
+            if let Err(e) = Self::create_backup(filepath) {
+                return ToolCallResult::error(e);
+            }
+
             if let Err(e) = library.save(filepath) {
                 return ToolCallResult::error(format!("Failed to write updated library: {e}"));
             }
@@ -4927,6 +5017,11 @@ impl McpServer {
 
         // Write the updated library if any changes were made
         if total_updated > 0 {
+            // Create backup before destructive operation
+            if let Err(e) = Self::create_backup(filepath) {
+                return ToolCallResult::error(e);
+            }
+
             if let Err(e) = library.save(filepath) {
                 return ToolCallResult::error(format!("Failed to write updated library: {e}"));
             }
@@ -5090,6 +5185,11 @@ impl McpServer {
         // Add the new footprint
         library.add(new_footprint);
 
+        // Create backup before destructive operation
+        if let Err(e) = Self::create_backup(filepath) {
+            return ToolCallResult::error(e);
+        }
+
         // Write the updated library
         if let Err(e) = library.save(filepath) {
             return ToolCallResult::error(format!("Failed to write library: {e}"));
@@ -5145,6 +5245,11 @@ impl McpServer {
 
         // Add the new symbol
         library.add(new_symbol);
+
+        // Create backup before destructive operation
+        if let Err(e) = Self::create_backup(filepath) {
+            return ToolCallResult::error(e);
+        }
 
         // Write the updated library
         if let Err(e) = library.save(filepath) {
@@ -5236,6 +5341,11 @@ impl McpServer {
         footprint.name = new_name.to_string();
         library.add(footprint);
 
+        // Create backup before destructive operation
+        if let Err(e) = Self::create_backup(filepath) {
+            return ToolCallResult::error(e);
+        }
+
         // Write the updated library
         if let Err(e) = library.save(filepath) {
             return ToolCallResult::error(format!("Failed to write library: {e}"));
@@ -5278,6 +5388,11 @@ impl McpServer {
         // Rename and add back
         symbol.name = new_name.to_string();
         library.add(symbol);
+
+        // Create backup before destructive operation
+        if let Err(e) = Self::create_backup(filepath) {
+            return ToolCallResult::error(e);
+        }
 
         // Write the updated library
         if let Err(e) = library.save(filepath) {
@@ -5449,6 +5564,11 @@ impl McpServer {
         // Add the footprint to target library
         target_library.add(new_footprint);
 
+        // Create backup before destructive operation
+        if let Err(e) = Self::create_backup(target_filepath) {
+            return ToolCallResult::error(e);
+        }
+
         // Write the target library
         if let Err(e) = target_library.save(target_filepath) {
             return ToolCallResult::error(format!("Failed to write target library: {e}"));
@@ -5536,6 +5656,11 @@ impl McpServer {
 
         // Add the symbol to target library
         target_library.add(new_symbol);
+
+        // Create backup before destructive operation
+        if let Err(e) = Self::create_backup(target_filepath) {
+            return ToolCallResult::error(e);
+        }
 
         // Write the target library
         if let Err(e) = target_library.save(target_filepath) {
@@ -5740,6 +5865,11 @@ impl McpServer {
             }));
         }
 
+        // Create backup before destructive operation
+        if let Err(e) = Self::create_backup(target_filepath) {
+            return ToolCallResult::error(e);
+        }
+
         // Write the merged library
         if let Err(e) = target_library.save(target_filepath) {
             return ToolCallResult::error(format!("Failed to write target library: {e}"));
@@ -5856,6 +5986,11 @@ impl McpServer {
             }));
         }
 
+        // Create backup before destructive operation
+        if let Err(e) = Self::create_backup(target_filepath) {
+            return ToolCallResult::error(e);
+        }
+
         // Write the merged library
         if let Err(e) = target_library.save(target_filepath) {
             return ToolCallResult::error(format!("Failed to write target library: {e}"));
@@ -5954,12 +6089,17 @@ impl McpServer {
         // Perform the reordering
         let new_order = library.reorder(order);
 
+        // Create backup before destructive operation
+        if let Err(e) = Self::create_backup(filepath) {
+            return ToolCallResult::error(e);
+        }
+
         // Write the library back
         if let Err(e) = library.save(filepath) {
             let result = json!({
                 "status": "error",
                 "filepath": filepath,
-                "error": format!("Failed to write library: {}", e),
+                "error": format!("Failed to write library: {e}"),
             });
             return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
         }
@@ -6028,12 +6168,17 @@ impl McpServer {
         // Perform the reordering
         let new_order = library.reorder(order);
 
+        // Create backup before destructive operation
+        if let Err(e) = Self::create_backup(filepath) {
+            return ToolCallResult::error(e);
+        }
+
         // Write the library back
         if let Err(e) = library.save(filepath) {
             let result = json!({
                 "status": "error",
                 "filepath": filepath,
-                "error": format!("Failed to write library: {}", e),
+                "error": format!("Failed to write library: {e}"),
             });
             return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
         }
@@ -6208,6 +6353,11 @@ impl McpServer {
         // Perform the update
         let old = library.update(component_name, footprint);
 
+        // Create backup before destructive operation
+        if let Err(e) = Self::create_backup(filepath) {
+            return ToolCallResult::error(e);
+        }
+
         // Write the library back
         if let Err(e) = library.save(filepath) {
             return ToolCallResult::error(format!("Failed to write library: {e}"));
@@ -6339,6 +6489,11 @@ impl McpServer {
 
         // Perform the update
         let old = library.update(component_name, symbol);
+
+        // Create backup before destructive operation
+        if let Err(e) = Self::create_backup(filepath) {
+            return ToolCallResult::error(e);
+        }
 
         // Write the library back
         if let Err(e) = library.save(filepath) {
@@ -7578,6 +7733,11 @@ impl McpServer {
                     _ => unreachable!(),
                 };
 
+                // Create backup before destructive operation
+                if let Err(e) = Self::create_backup(filepath) {
+                    return ToolCallResult::error(e);
+                }
+
                 // Save the modified library
                 if let Err(e) = library.save(filepath) {
                     return ToolCallResult::error(format!("Failed to save library: {e}"));
@@ -7733,6 +7893,11 @@ impl McpServer {
                         "removed_footprint": footprint_name,
                     })
                 };
+
+                // Create backup before destructive operation
+                if let Err(e) = Self::create_backup(filepath) {
+                    return ToolCallResult::error(e);
+                }
 
                 // Save the modified library
                 if let Err(e) = library.save(filepath) {
