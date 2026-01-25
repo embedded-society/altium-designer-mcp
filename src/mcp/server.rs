@@ -1747,10 +1747,13 @@ impl McpServer {
             for name in &new_names {
                 if !seen.insert(*name) {
                     return ToolCallResult::error_with_context(
-                        ErrorContext::new("write_pcblib", format!("Duplicate footprint name: '{name}'"))
-                            .with_filepath(filepath)
-                            .with_component(*name)
-                            .with_details("Each footprint in the request must have a unique name"),
+                        ErrorContext::new(
+                            "write_pcblib",
+                            format!("Duplicate footprint name: '{name}'"),
+                        )
+                        .with_filepath(filepath)
+                        .with_component(*name)
+                        .with_details("Each footprint in the request must have a unique name"),
                     );
                 }
             }
@@ -1784,9 +1787,14 @@ impl McpServer {
                 Ok(lib) => lib,
                 Err(e) => {
                     return ToolCallResult::error_with_context(
-                        ErrorContext::new("write_pcblib", format!("Failed to read existing library: {e}"))
-                            .with_filepath(filepath)
-                            .with_details("The library file exists but could not be opened for appending"),
+                        ErrorContext::new(
+                            "write_pcblib",
+                            format!("Failed to read existing library: {e}"),
+                        )
+                        .with_filepath(filepath)
+                        .with_details(
+                            "The library file exists but could not be opened for appending",
+                        ),
                     );
                 }
             }
@@ -2071,10 +2079,13 @@ impl McpServer {
             for name in &new_names {
                 if !seen.insert(*name) {
                     return ToolCallResult::error_with_context(
-                        ErrorContext::new("write_schlib", format!("Duplicate symbol name: '{name}'"))
-                            .with_filepath(filepath)
-                            .with_component(*name)
-                            .with_details("Each symbol in the request must have a unique name"),
+                        ErrorContext::new(
+                            "write_schlib",
+                            format!("Duplicate symbol name: '{name}'"),
+                        )
+                        .with_filepath(filepath)
+                        .with_component(*name)
+                        .with_details("Each symbol in the request must have a unique name"),
                     );
                 }
             }
@@ -2108,9 +2119,14 @@ impl McpServer {
                 Ok(lib) => lib,
                 Err(e) => {
                     return ToolCallResult::error_with_context(
-                        ErrorContext::new("write_schlib", format!("Failed to read existing library: {e}"))
-                            .with_filepath(filepath)
-                            .with_details("The library file exists but could not be opened for appending"),
+                        ErrorContext::new(
+                            "write_schlib",
+                            format!("Failed to read existing library: {e}"),
+                        )
+                        .with_filepath(filepath)
+                        .with_details(
+                            "The library file exists but could not be opened for appending",
+                        ),
                     );
                 }
             }
@@ -5174,10 +5190,14 @@ impl McpServer {
 
         // Get components
         let Some(fp_a) = lib_a.get(name_a) else {
-            return ToolCallResult::error(format!("Component '{name_a}' not found in '{filepath_a}'"));
+            return ToolCallResult::error(format!(
+                "Component '{name_a}' not found in '{filepath_a}'"
+            ));
         };
         let Some(fp_b) = lib_b.get(name_b) else {
-            return ToolCallResult::error(format!("Component '{name_b}' not found in '{filepath_b}'"));
+            return ToolCallResult::error(format!(
+                "Component '{name_b}' not found in '{filepath_b}'"
+            ));
         };
 
         let mut differences: Vec<Value> = Vec::new();
@@ -5664,10 +5684,14 @@ impl McpServer {
 
         // Get components
         let Some(sym_a) = lib_a.get(name_a) else {
-            return ToolCallResult::error(format!("Component '{name_a}' not found in '{filepath_a}'"));
+            return ToolCallResult::error(format!(
+                "Component '{name_a}' not found in '{filepath_a}'"
+            ));
         };
         let Some(sym_b) = lib_b.get(name_b) else {
-            return ToolCallResult::error(format!("Component '{name_b}' not found in '{filepath_b}'"));
+            return ToolCallResult::error(format!(
+                "Component '{name_b}' not found in '{filepath_b}'"
+            ));
         };
 
         let mut differences: Vec<Value> = Vec::new();
@@ -8903,7 +8927,8 @@ impl McpServer {
             }
         }
 
-        // Draw pins
+        // Draw pins and collect designator mappings
+        let mut pin_mappings: Vec<(char, &str)> = Vec::new();
         for pin in &symbol.pins {
             if !matches_part(pin.owner_part_id) {
                 continue;
@@ -8925,6 +8950,10 @@ impl McpServer {
                 // Use designator first char or '*'
                 let pin_char = pin.designator.chars().next().unwrap_or('*');
                 canvas[cy][cx] = pin_char;
+                // Track multi-character designators for the legend
+                if pin.designator.len() > 1 {
+                    pin_mappings.push((pin_char, &pin.designator));
+                }
             }
         }
 
@@ -8979,6 +9008,30 @@ impl McpServer {
         output.push_str(&"-".repeat(canvas_width + 2));
         output.push('\n');
         output.push_str("Legend: 1-9/* = pin, |-+ = rectangle, ~ = pin line, o = arc, O = ellipse, + = origin\n");
+
+        // Add pin designator legend if any designators were truncated
+        if !pin_mappings.is_empty() {
+            // Sort by displayed character for consistent output
+            pin_mappings.sort_by(|a, b| a.0.cmp(&b.0));
+            // Group by displayed character (e.g., '1' might map to "10", "11", "12"...)
+            let mut current_char = '\0';
+            let mut groups: Vec<(char, Vec<&str>)> = Vec::new();
+            for (ch, desig) in &pin_mappings {
+                if *ch != current_char {
+                    groups.push((*ch, vec![desig]));
+                    current_char = *ch;
+                } else if let Some(last) = groups.last_mut() {
+                    last.1.push(desig);
+                }
+            }
+            output.push_str("Pin designators: ");
+            let mappings: Vec<String> = groups
+                .iter()
+                .map(|(ch, desigs)| format!("'{ch}'={}", desigs.join(",")))
+                .collect();
+            output.push_str(&mappings.join(" | "));
+            output.push('\n');
+        }
 
         output
     }
