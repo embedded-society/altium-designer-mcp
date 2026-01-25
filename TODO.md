@@ -63,7 +63,6 @@ Add an optional `dry_run` parameter to destructive operations that would show wh
 
 ### 3. Better 3D Model Handling
 
-- Support for copying embedded 3D models between libraries
 - Option to extract model references as external files
 - Better error messages when models are missing
 
