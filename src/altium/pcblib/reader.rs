@@ -2139,7 +2139,12 @@ pub fn parse_embedded_models(
 
         let decompressed = decompress_model_data(compressed);
         if decompressed.is_empty() {
-            tracing::debug!(guid = %guid, "Failed to decompress model");
+            tracing::warn!(
+                guid = %guid,
+                name = %name,
+                compressed_size = compressed.len(),
+                "Failed to decompress embedded 3D model — model will be missing from library"
+            );
             continue;
         }
 

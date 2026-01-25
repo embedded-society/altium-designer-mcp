@@ -513,7 +513,7 @@ impl PcbLib {
 
         // Read Header to get model count
         let header_path = models_storage.join("Header");
-        let _model_count = cfb
+        let model_count = cfb
             .is_stream(&header_path)
             .then(|| {
                 cfb.open_stream(&header_path).ok().and_then(|mut stream| {
@@ -549,9 +549,20 @@ impl PcbLib {
         // Read compressed model streams
         let mut model_data: Vec<(usize, Vec<u8>)> = Vec::new();
 
+        // Determine max index: use header count if available, otherwise use model_index size
+        let max_index = if model_count > 0 {
+            model_count
+        } else {
+            // Fall back to max index from model_index + 1
+            model_index
+                .values()
+                .map(|(idx, _)| *idx + 1)
+                .max()
+                .unwrap_or(0)
+        };
+
         // Model streams are numbered 0, 1, 2, ...
-        for idx in 0..100 {
-            // Reasonable upper limit
+        for idx in 0..max_index {
             let stream_path = models_storage.join(idx.to_string());
             if cfb.is_stream(&stream_path) {
                 if let Ok(mut stream) = cfb.open_stream(&stream_path) {
@@ -565,10 +576,8 @@ impl PcbLib {
                         model_data.push((idx, data));
                     }
                 }
-            } else {
-                // No more model streams
-                break;
             }
+            // Don't break early - indices might not be sequential
         }
 
         let models = reader::parse_embedded_models(&model_index, &model_data);

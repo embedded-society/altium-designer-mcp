@@ -5434,12 +5434,15 @@ impl McpServer {
         // Copy embedded 3D models from source to target library
         let mut models_copied = 0;
         for model_id in &embedded_model_ids {
-            if let Some(model) = source_library.get_model(model_id) {
-                // Only add if not already present in target
-                if target_library.get_model(model_id).is_none() {
-                    target_library.add_model(model.clone());
-                    models_copied += 1;
-                }
+            let Some(model) = source_library.get_model(model_id) else {
+                return ToolCallResult::error(format!(
+                    "Component '{component_name}' references missing embedded model: {model_id}"
+                ));
+            };
+            // Only add if not already present in target
+            if target_library.get_model(model_id).is_none() {
+                target_library.add_model(model.clone());
+                models_copied += 1;
             }
         }
 
