@@ -327,10 +327,11 @@ impl PcbLib {
 
                 // Try to find the corresponding EmbeddedModel to get the actual filepath
                 // If not found, use the model_name as the filepath
+                // Note: GUID matching is case-insensitive due to inconsistent casing in Altium files
                 let filepath = self
                     .models
                     .iter()
-                    .find(|m| m.id == body.model_id)
+                    .find(|m| m.id.eq_ignore_ascii_case(&body.model_id))
                     .map_or_else(|| body.model_name.clone(), |m| m.name.clone());
 
                 footprint.model_3d = Some(Model3D {
@@ -1192,9 +1193,12 @@ impl PcbLib {
     }
 
     /// Gets an embedded model by GUID.
+    ///
+    /// GUID matching is case-insensitive since Altium files may store GUIDs
+    /// with inconsistent casing between component body references and the model index.
     #[must_use]
     pub fn get_model(&self, id: &str) -> Option<&EmbeddedModel> {
-        self.models.iter().find(|m| m.id == id)
+        self.models.iter().find(|m| m.id.eq_ignore_ascii_case(id))
     }
 
     /// Adds an embedded 3D model to the library.
