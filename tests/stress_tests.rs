@@ -3041,3 +3041,272 @@ fn test_model_3d_skips_nonexistent_filepath() {
         "Should still have exactly 1 model (no duplicates)"
     );
 }
+
+// =============================================================================
+// Regression Tests for STEP Model Bugs
+// =============================================================================
+
+/// Regression test for Bug #1: `write_pcblib` silently fails to embed STEP models.
+/// When a new footprint specifies a non-existent STEP file, `save()` should return an error.
+#[test]
+fn test_regression_step_embedding_error_on_invalid_path() {
+    let temp_dir = test_temp_dir();
+    let pcblib_path = temp_dir.path().join("invalid_step.PcbLib");
+
+    let mut lib = PcbLib::new();
+    let mut fp = Footprint::new("FP_INVALID_STEP");
+    fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    fp.model_3d = Some(Model3D {
+        filepath: "/nonexistent/path/to/model.step".to_string(),
+        x_offset: 0.0,
+        y_offset: 0.0,
+        z_offset: 0.0,
+        rotation: 0.0,
+    });
+    lib.add(fp);
+
+    // Save should FAIL because the STEP file doesn't exist
+    let result = lib.save(&pcblib_path);
+    assert!(
+        result.is_err(),
+        "Save should fail when STEP file doesn't exist for new footprint"
+    );
+
+    let err = result.unwrap_err();
+    let err_msg = err.to_string();
+    assert!(
+        err_msg.contains("STEP file not found") || err_msg.contains("step_model"),
+        "Error should mention STEP file issue: {err_msg}"
+    );
+}
+
+/// Regression test for Bug #1: Verify STEP embedding works when file exists.
+#[test]
+fn test_regression_step_embedding_success_with_valid_path() {
+    use std::io::Write;
+
+    let temp_dir = test_temp_dir();
+    let step_path = temp_dir.path().join("valid_model.step");
+    let pcblib_path = temp_dir.path().join("valid_step.PcbLib");
+
+    // Create a valid STEP file
+    {
+        let mut f = File::create(&step_path).unwrap();
+        f.write_all(b"ISO-10303-21;HEADER;ENDSEC;DATA;ENDSEC;END-ISO-10303-21;")
+            .unwrap();
+    }
+
+    let mut lib = PcbLib::new();
+    let mut fp = Footprint::new("FP_VALID_STEP");
+    fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    fp.model_3d = Some(Model3D {
+        filepath: step_path.to_string_lossy().to_string(),
+        x_offset: 0.0,
+        y_offset: 0.0,
+        z_offset: 0.5,
+        rotation: 45.0,
+    });
+    lib.add(fp);
+
+    // Save should succeed
+    lib.save(&pcblib_path)
+        .expect("Save should succeed with valid STEP file");
+
+    // Verify the model was embedded
+    let read_lib = PcbLib::open(&pcblib_path).expect("Failed to read");
+    assert_eq!(read_lib.len(), 1, "Should have 1 footprint");
+    assert_eq!(read_lib.models().count(), 1, "Should have 1 embedded model");
+
+    let fp = read_lib.get("FP_VALID_STEP").unwrap();
+    assert!(
+        !fp.component_bodies.is_empty(),
+        "Footprint should have component_bodies"
+    );
+    assert!(fp.model_3d.is_some(), "Footprint should have model_3d");
+}
+
+/// Regression test for Bug #2: Delete should not move orphaned models to other components.
+/// After deleting a component, other components should NOT gain extra `component_bodies`.
+#[test]
+fn test_regression_delete_does_not_duplicate_component_bodies() {
+    use std::io::Write;
+
+    let temp_dir = test_temp_dir();
+    let step_a_path = temp_dir.path().join("model_a.step");
+    let step_b_path = temp_dir.path().join("model_b.step");
+    let pcblib_path = temp_dir.path().join("delete_test.PcbLib");
+
+    // Create two STEP files
+    for (path, content) in [
+        (&step_a_path, "ISO-10303-21;MODEL_A;END-ISO-10303-21;"),
+        (&step_b_path, "ISO-10303-21;MODEL_B;END-ISO-10303-21;"),
+    ] {
+        let mut f = File::create(path).unwrap();
+        f.write_all(content.as_bytes()).unwrap();
+    }
+
+    // Create library with FP_A (has STEP), FP_B (has STEP), FP_C (no STEP)
+    let mut lib = PcbLib::new();
+
+    let mut fp_a = Footprint::new("FP_A");
+    fp_a.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    fp_a.model_3d = Some(Model3D {
+        filepath: step_a_path.to_string_lossy().to_string(),
+        x_offset: 0.0,
+        y_offset: 0.0,
+        z_offset: 0.0,
+        rotation: 0.0,
+    });
+    lib.add(fp_a);
+
+    let mut fp_b = Footprint::new("FP_B");
+    fp_b.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    fp_b.model_3d = Some(Model3D {
+        filepath: step_b_path.to_string_lossy().to_string(),
+        x_offset: 0.0,
+        y_offset: 0.0,
+        z_offset: 0.0,
+        rotation: 0.0,
+    });
+    lib.add(fp_b);
+
+    let mut fp_c = Footprint::new("FP_C");
+    fp_c.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    lib.add(fp_c);
+
+    lib.save(&pcblib_path)
+        .expect("Failed to save initial library");
+
+    // Read back and verify initial state
+    let lib = PcbLib::open(&pcblib_path).expect("Failed to read");
+    assert_eq!(lib.len(), 3, "Should have 3 footprints");
+    assert_eq!(lib.models().count(), 2, "Should have 2 embedded models");
+
+    let fp_b = lib.get("FP_B").unwrap();
+    let fp_b_bodies_before = fp_b.component_bodies.len();
+    assert_eq!(
+        fp_b_bodies_before, 1,
+        "FP_B should have 1 component_body initially"
+    );
+
+    // Delete FP_A
+    let mut lib = PcbLib::open(&pcblib_path).expect("Failed to read");
+    lib.remove("FP_A");
+    lib.remove_orphaned_models();
+    lib.save(&pcblib_path).expect("Failed to save after delete");
+
+    // Read back and verify FP_B still has only 1 component_body
+    let lib = PcbLib::open(&pcblib_path).expect("Failed to read after delete");
+    assert_eq!(lib.len(), 2, "Should have 2 footprints after delete");
+    assert_eq!(
+        lib.models().count(),
+        1,
+        "Should have 1 embedded model after cleanup"
+    );
+
+    let fp_b = lib.get("FP_B").unwrap();
+    assert_eq!(
+        fp_b.component_bodies.len(),
+        1,
+        "FP_B should still have exactly 1 component_body (not duplicated)"
+    );
+
+    let fp_c = lib.get("FP_C").unwrap();
+    assert!(
+        fp_c.component_bodies.is_empty(),
+        "FP_C should still have no component_bodies"
+    );
+}
+
+/// Regression test: Verify that a file with same name as model doesn't cause duplication.
+/// This tests the specific scenario where a file "model.step" exists in current directory
+/// and matches the `model_3d.filepath` (which is set to model name during read).
+#[test]
+fn test_regression_same_name_file_does_not_duplicate() {
+    use std::io::Write;
+
+    let temp_dir = test_temp_dir();
+    let step_path = temp_dir.path().join("test_model.step");
+    let pcblib_path = temp_dir.path().join("same_name.PcbLib");
+
+    // Create a STEP file
+    {
+        let mut f = File::create(&step_path).unwrap();
+        f.write_all(b"ISO-10303-21;ORIGINAL;END-ISO-10303-21;")
+            .unwrap();
+    }
+
+    // Create and save library
+    let mut lib = PcbLib::new();
+    let mut fp = Footprint::new("FP_TEST");
+    fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    fp.model_3d = Some(Model3D {
+        filepath: step_path.to_string_lossy().to_string(),
+        x_offset: 0.0,
+        y_offset: 0.0,
+        z_offset: 0.0,
+        rotation: 0.0,
+    });
+    lib.add(fp);
+    lib.save(&pcblib_path).expect("Failed to save");
+
+    // Read back
+    let lib = PcbLib::open(&pcblib_path).expect("Failed to read");
+    let fp = lib.get("FP_TEST").unwrap();
+
+    // After reading, model_3d.filepath should be set to just the model name
+    // (e.g., "test_model.step" without directory)
+    if let Some(ref model_3d) = fp.model_3d {
+        // The filepath from read is just the model name
+        assert!(
+            !model_3d.filepath.contains(std::path::MAIN_SEPARATOR)
+                || model_3d.filepath == "test_model.step",
+            "After reading, filepath should be just model name: {}",
+            model_3d.filepath
+        );
+    }
+
+    // Now create a file with the SAME NAME in temp directory
+    // (simulating the bug scenario where a file matches the model name)
+    let same_name_path = temp_dir.path().join("test_model.step");
+    {
+        let mut f = File::create(&same_name_path).unwrap();
+        f.write_all(b"ISO-10303-21;DIFFERENT_CONTENT;END-ISO-10303-21;")
+            .unwrap();
+    }
+
+    // Change to temp directory to make the file findable by name alone
+    let original_dir = std::env::current_dir().unwrap();
+    std::env::set_current_dir(temp_dir.path()).unwrap();
+
+    // Re-read and save - should NOT create duplicate
+    let mut lib = PcbLib::open(&pcblib_path).expect("Failed to read");
+    assert_eq!(
+        lib.models().count(),
+        1,
+        "Should have 1 model before re-save"
+    );
+
+    let fp = lib.get("FP_TEST").unwrap();
+    let bodies_before = fp.component_bodies.len();
+
+    lib.save(&pcblib_path).expect("Failed to re-save");
+
+    // Restore original directory
+    std::env::set_current_dir(original_dir).unwrap();
+
+    // Verify no duplication
+    let lib = PcbLib::open(&pcblib_path).expect("Failed to read after re-save");
+    assert_eq!(
+        lib.models().count(),
+        1,
+        "Should still have 1 model (no duplicate from same-name file)"
+    );
+
+    let fp = lib.get("FP_TEST").unwrap();
+    assert_eq!(
+        fp.component_bodies.len(),
+        bodies_before,
+        "Should have same number of component_bodies (no duplication)"
+    );
+}
