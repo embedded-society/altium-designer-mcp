@@ -10889,4 +10889,277 @@ mod tests {
             "At least one backup should exist, pattern: {backup_pattern}"
         );
     }
+
+    // =========================================================================
+    // designator_to_char Unit Tests
+    // =========================================================================
+
+    #[test]
+    fn designator_to_char_single_digit() {
+        assert_eq!(McpServer::designator_to_char("1"), '1');
+        assert_eq!(McpServer::designator_to_char("5"), '5');
+        assert_eq!(McpServer::designator_to_char("9"), '9');
+    }
+
+    #[test]
+    fn designator_to_char_numeric_1_to_9() {
+        // Single digits should return themselves
+        for i in 1..=9 {
+            let ch = McpServer::designator_to_char(&i.to_string());
+            assert_eq!(ch, char::from_digit(i, 10).unwrap(), "Failed for {i}");
+        }
+    }
+
+    #[test]
+    fn designator_to_char_numeric_10_to_35() {
+        // 10-35 should map to A-Z
+        assert_eq!(McpServer::designator_to_char("10"), 'A');
+        assert_eq!(McpServer::designator_to_char("11"), 'B');
+        assert_eq!(McpServer::designator_to_char("26"), 'Q');
+        assert_eq!(McpServer::designator_to_char("35"), 'Z');
+    }
+
+    #[test]
+    fn designator_to_char_numeric_above_35() {
+        // 36+ should return '?'
+        assert_eq!(McpServer::designator_to_char("36"), '?');
+        assert_eq!(McpServer::designator_to_char("100"), '?');
+        assert_eq!(McpServer::designator_to_char("999"), '?');
+    }
+
+    #[test]
+    fn designator_to_char_alphanumeric_bga() {
+        // BGA-style (e.g., "A1", "B2") should use first character
+        assert_eq!(McpServer::designator_to_char("A1"), 'A');
+        assert_eq!(McpServer::designator_to_char("B2"), 'B');
+        assert_eq!(McpServer::designator_to_char("AA1"), 'A');
+    }
+
+    #[test]
+    fn designator_to_char_empty() {
+        assert_eq!(McpServer::designator_to_char(""), '#');
+    }
+
+    #[test]
+    fn designator_to_char_zero() {
+        assert_eq!(McpServer::designator_to_char("0"), '0');
+    }
+
+    // =========================================================================
+    // repair_library Tool Tests
+    // =========================================================================
+
+    #[test]
+    fn repair_library_dry_run() {
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("repair_test.PcbLib");
+        create_test_pcblib(&lib_path);
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepath": lib_path.to_string_lossy(),
+            "dry_run": true
+        });
+
+        let result = server.call_repair_library(&args);
+        assert!(
+            !result.is_error,
+            "Expected success, got: {}",
+            get_result_text(&result)
+        );
+
+        let text = get_result_text(&result);
+        assert!(
+            text.contains("dry_run"),
+            "Response should indicate dry run mode"
+        );
+    }
+
+    #[test]
+    fn repair_library_no_orphans() {
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("clean_lib.PcbLib");
+        create_test_pcblib(&lib_path);
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepath": lib_path.to_string_lossy(),
+            "dry_run": false
+        });
+
+        let result = server.call_repair_library(&args);
+        assert!(
+            !result.is_error,
+            "Expected success, got: {}",
+            get_result_text(&result)
+        );
+
+        let text = get_result_text(&result);
+        // A clean library should have 0 orphaned references removed
+        assert!(
+            text.contains("total_removed") || text.contains('0'),
+            "Response should show removal count"
+        );
+    }
+
+    #[test]
+    fn repair_library_unsupported_schlib() {
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("repair_test.SchLib");
+        create_test_schlib(&lib_path);
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepath": lib_path.to_string_lossy()
+        });
+
+        let result = server.call_repair_library(&args);
+        assert!(
+            result.is_error,
+            "SchLib repair should fail (not yet supported)"
+        );
+        assert!(
+            get_result_text(&result).contains("not yet supported")
+                || get_result_text(&result).contains("PcbLib"),
+            "Error should mention SchLib not supported"
+        );
+    }
+
+    // =========================================================================
+    // bulk_rename Tool Tests
+    // =========================================================================
+
+    #[test]
+    fn bulk_rename_dry_run_glob() {
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("rename_test.PcbLib");
+        create_test_pcblib(&lib_path);
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepath": lib_path.to_string_lossy(),
+            "pattern": "CHIP_*",
+            "replacement": "RES_",
+            "pattern_type": "glob",
+            "dry_run": true
+        });
+
+        let result = server.call_bulk_rename(&args);
+        assert!(
+            !result.is_error,
+            "Expected success, got: {}",
+            get_result_text(&result)
+        );
+
+        let text = get_result_text(&result);
+        assert!(
+            text.contains("dry_run"),
+            "Response should indicate dry run mode"
+        );
+        // Should show preview of renames
+        assert!(
+            text.contains("CHIP_0402") || text.contains("CHIP_0603"),
+            "Should preview matching components"
+        );
+    }
+
+    #[test]
+    fn bulk_rename_regex_with_capture() {
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("rename_regex.PcbLib");
+        create_test_pcblib(&lib_path);
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepath": lib_path.to_string_lossy(),
+            "pattern": "^CHIP_(.*)$",
+            "replacement": "RES_$1",
+            "pattern_type": "regex",
+            "dry_run": false
+        });
+
+        let result = server.call_bulk_rename(&args);
+        assert!(
+            !result.is_error,
+            "Expected success, got: {}",
+            get_result_text(&result)
+        );
+
+        // Verify components were renamed
+        let list_args = json!({ "filepath": lib_path.to_string_lossy() });
+        let list_result = server.call_list_components(&list_args);
+        let list_text = get_result_text(&list_result);
+
+        assert!(
+            list_text.contains("RES_0402") || list_text.contains("RES_0603"),
+            "Components should be renamed: {list_text}"
+        );
+        assert!(
+            !list_text.contains("CHIP_0402"),
+            "Old names should not exist: {list_text}"
+        );
+    }
+
+    #[test]
+    fn bulk_rename_no_matches() {
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("no_match.PcbLib");
+        create_test_pcblib(&lib_path);
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepath": lib_path.to_string_lossy(),
+            "pattern": "NONEXISTENT_*",
+            "replacement": "NEW_",
+            "pattern_type": "glob",
+            "dry_run": false
+        });
+
+        let result = server.call_bulk_rename(&args);
+        assert!(
+            !result.is_error,
+            "Expected success even with no matches, got: {}",
+            get_result_text(&result)
+        );
+
+        let text = get_result_text(&result);
+        // Should indicate no renames performed
+        assert!(
+            text.contains("renamed") || text.contains("[]"),
+            "Response should indicate results"
+        );
+    }
+
+    #[test]
+    fn bulk_rename_schlib() {
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("rename_schlib.SchLib");
+        create_test_schlib(&lib_path);
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepath": lib_path.to_string_lossy(),
+            "pattern": "^(.*)$",
+            "replacement": "SYM_$1",
+            "pattern_type": "regex",
+            "dry_run": false
+        });
+
+        let result = server.call_bulk_rename(&args);
+        assert!(
+            !result.is_error,
+            "Expected success, got: {}",
+            get_result_text(&result)
+        );
+
+        // Verify components were renamed
+        let list_args = json!({ "filepath": lib_path.to_string_lossy() });
+        let list_result = server.call_list_components(&list_args);
+        let list_text = get_result_text(&list_result);
+
+        assert!(
+            list_text.contains("SYM_RESISTOR") || list_text.contains("SYM_CAPACITOR"),
+            "Symbols should be renamed: {list_text}"
+        );
+    }
 }

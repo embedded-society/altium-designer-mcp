@@ -2637,3 +2637,407 @@ fn test_large_step_model_compression() {
         "Content should be preserved"
     );
 }
+
+// =============================================================================
+// STEP Model Orphan Cleanup Tests
+// =============================================================================
+
+/// Tests that `remove_orphaned_models()` removes models not referenced by any footprint.
+#[test]
+fn test_remove_orphaned_models_after_delete() {
+    use std::io::Write;
+
+    let temp_dir = test_temp_dir();
+    let step_path = temp_dir.path().join("orphan_test.step");
+    let pcblib_path = temp_dir.path().join("orphan_test.PcbLib");
+
+    // Create a simple STEP file
+    {
+        let mut step_file = File::create(&step_path).expect("Failed to create STEP file");
+        step_file
+            .write_all(b"ISO-10303-21;HEADER;ENDSEC;DATA;ENDSEC;END-ISO-10303-21;")
+            .expect("Failed to write STEP");
+    }
+
+    // Create library with two footprints sharing the same model
+    let mut lib = PcbLib::new();
+
+    let mut fp1 = Footprint::new("FP_WITH_MODEL");
+    fp1.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    fp1.model_3d = Some(Model3D {
+        filepath: step_path.to_string_lossy().to_string(),
+        x_offset: 0.0,
+        y_offset: 0.0,
+        z_offset: 0.0,
+        rotation: 0.0,
+    });
+    lib.add(fp1);
+
+    let mut fp2 = Footprint::new("FP_NO_MODEL");
+    fp2.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    lib.add(fp2);
+
+    lib.save(&pcblib_path).expect("Failed to save library");
+
+    // Verify model was embedded
+    let mut lib = PcbLib::open(&pcblib_path).expect("Failed to read library");
+    assert_eq!(lib.models().count(), 1, "Should have 1 embedded model");
+
+    // Delete the footprint that references the model
+    lib.remove("FP_WITH_MODEL");
+    assert_eq!(lib.len(), 1, "Should have 1 footprint remaining");
+
+    // Model should still exist (not yet cleaned up)
+    assert_eq!(
+        lib.models().count(),
+        1,
+        "Model should still exist before cleanup"
+    );
+
+    // Now clean up orphaned models
+    let removed = lib.remove_orphaned_models();
+    assert_eq!(removed, 1, "Should have removed 1 orphaned model");
+    assert_eq!(lib.models().count(), 0, "No models should remain");
+
+    // Save and verify persistence
+    lib.save(&pcblib_path)
+        .expect("Failed to save after cleanup");
+    let read_lib = PcbLib::open(&pcblib_path).expect("Failed to read cleaned library");
+    assert_eq!(
+        read_lib.models().count(),
+        0,
+        "Cleaned library should have no models"
+    );
+}
+
+/// Tests that `referenced_model_ids()` correctly identifies all referenced models.
+#[test]
+fn test_referenced_model_ids() {
+    let mut lib = PcbLib::new();
+
+    // Add footprint with component body referencing a model
+    let mut fp1 = Footprint::new("FP1");
+    fp1.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    let mut cb1 = ComponentBody::new("{ABC-123}", "model1.step");
+    cb1.embedded = true;
+    fp1.component_bodies.push(cb1);
+    lib.add(fp1);
+
+    // Add another footprint with different model reference
+    let mut fp2 = Footprint::new("FP2");
+    fp2.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    let mut cb2 = ComponentBody::new("{DEF-456}", "model2.step");
+    cb2.embedded = true;
+    fp2.component_bodies.push(cb2);
+    lib.add(fp2);
+
+    // Add footprint with external reference (should not be included)
+    let mut fp3 = Footprint::new("FP3");
+    fp3.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    let mut cb3 = ComponentBody::new("{EXT-789}", "external.step");
+    cb3.embedded = false; // External reference
+    fp3.component_bodies.push(cb3);
+    lib.add(fp3);
+
+    let referenced = lib.referenced_model_ids();
+    assert_eq!(
+        referenced.len(),
+        2,
+        "Should have 2 referenced embedded models"
+    );
+    assert!(
+        referenced.contains("{abc-123}"),
+        "Should contain ABC-123 (lowercase)"
+    );
+    assert!(
+        referenced.contains("{def-456}"),
+        "Should contain DEF-456 (lowercase)"
+    );
+    assert!(
+        !referenced.contains("{ext-789}"),
+        "Should NOT contain external reference"
+    );
+}
+
+/// Tests that `available_model_ids()` correctly lists all models in the library.
+#[test]
+fn test_available_model_ids() {
+    use altium_designer_mcp::altium::pcblib::EmbeddedModel;
+
+    let mut lib = PcbLib::new();
+
+    // Add some embedded models directly
+    lib.add_model(EmbeddedModel::new(
+        "{MODEL-001}",
+        "model1.step",
+        b"STEP data 1".to_vec(),
+    ));
+    lib.add_model(EmbeddedModel::new(
+        "{MODEL-002}",
+        "model2.step",
+        b"STEP data 2".to_vec(),
+    ));
+
+    let available = lib.available_model_ids();
+    assert_eq!(available.len(), 2, "Should have 2 available models");
+    assert!(
+        available.contains("{model-001}"),
+        "Should contain MODEL-001 (lowercase)"
+    );
+    assert!(
+        available.contains("{model-002}"),
+        "Should contain MODEL-002 (lowercase)"
+    );
+}
+
+/// Tests that `remove_orphaned_component_bodies()` removes references to non-existent models.
+#[test]
+fn test_remove_orphaned_component_bodies() {
+    use altium_designer_mcp::altium::pcblib::EmbeddedModel;
+
+    let mut lib = PcbLib::new();
+
+    // Add one actual model
+    lib.add_model(EmbeddedModel::new(
+        "{VALID-MODEL}",
+        "valid.step",
+        b"STEP data".to_vec(),
+    ));
+
+    // Add footprint with valid reference
+    let mut fp1 = Footprint::new("FP_VALID");
+    fp1.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    let mut cb_valid = ComponentBody::new("{VALID-MODEL}", "valid.step");
+    cb_valid.embedded = true;
+    fp1.component_bodies.push(cb_valid);
+    lib.add(fp1);
+
+    // Add footprint with orphaned reference (model doesn't exist)
+    let mut fp2 = Footprint::new("FP_ORPHAN");
+    fp2.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    let mut cb_orphan1 = ComponentBody::new("{MISSING-MODEL}", "missing.step");
+    cb_orphan1.embedded = true;
+    fp2.component_bodies.push(cb_orphan1);
+    // Add a second orphaned reference to same footprint
+    let mut cb_orphan2 = ComponentBody::new("{ANOTHER-MISSING}", "another.step");
+    cb_orphan2.embedded = true;
+    fp2.component_bodies.push(cb_orphan2);
+    lib.add(fp2);
+
+    // Add footprint with external reference (should be kept even without model data)
+    let mut fp3 = Footprint::new("FP_EXTERNAL");
+    fp3.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    let mut cb_external = ComponentBody::new("{EXTERNAL-REF}", "external.step");
+    cb_external.embedded = false; // External reference - no model data needed
+    fp3.component_bodies.push(cb_external);
+    lib.add(fp3);
+
+    // Verify initial state
+    let fp_valid = lib.get("FP_VALID").unwrap();
+    assert_eq!(fp_valid.component_bodies.len(), 1);
+    let fp_orphan = lib.get("FP_ORPHAN").unwrap();
+    assert_eq!(fp_orphan.component_bodies.len(), 2);
+    let fp_external = lib.get("FP_EXTERNAL").unwrap();
+    assert_eq!(fp_external.component_bodies.len(), 1);
+
+    // Remove orphaned component bodies
+    let results = lib.remove_orphaned_component_bodies();
+
+    // Should only affect FP_ORPHAN
+    assert_eq!(results.len(), 1, "Only one footprint should be affected");
+    assert_eq!(results[0].0, "FP_ORPHAN", "FP_ORPHAN should be affected");
+    assert_eq!(results[0].1, 2, "2 orphaned references should be removed");
+
+    // Verify final state
+    let fp_valid = lib.get("FP_VALID").unwrap();
+    assert_eq!(
+        fp_valid.component_bodies.len(),
+        1,
+        "Valid reference should remain"
+    );
+
+    let fp_orphan = lib.get("FP_ORPHAN").unwrap();
+    assert_eq!(
+        fp_orphan.component_bodies.len(),
+        0,
+        "Orphaned references should be removed"
+    );
+
+    let fp_external = lib.get("FP_EXTERNAL").unwrap();
+    assert_eq!(
+        fp_external.component_bodies.len(),
+        1,
+        "External reference should remain"
+    );
+}
+
+/// Tests that orphaned cleanup works correctly with case-insensitive GUID matching.
+#[test]
+fn test_orphan_cleanup_case_insensitive() {
+    use altium_designer_mcp::altium::pcblib::EmbeddedModel;
+
+    let mut lib = PcbLib::new();
+
+    // Add model with uppercase GUID
+    lib.add_model(EmbeddedModel::new(
+        "{ABC-DEF-123}",
+        "model.step",
+        b"STEP data".to_vec(),
+    ));
+
+    // Add footprint referencing with lowercase GUID
+    let mut fp = Footprint::new("FP_CASE_TEST");
+    fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    let mut cb = ComponentBody::new("{abc-def-123}", "model.step"); // lowercase
+    cb.embedded = true;
+    fp.component_bodies.push(cb);
+    lib.add(fp);
+
+    // Should find the reference (case-insensitive matching)
+    let results = lib.remove_orphaned_component_bodies();
+    assert!(
+        results.is_empty(),
+        "No orphans should be found (case-insensitive match)"
+    );
+
+    // Component body should still exist
+    let fp = lib.get("FP_CASE_TEST").unwrap();
+    assert_eq!(
+        fp.component_bodies.len(),
+        1,
+        "Component body should remain after case-insensitive match"
+    );
+}
+
+/// Tests that deleting a footprint and cleaning up models in sequence works correctly.
+#[test]
+fn test_delete_footprint_then_cleanup_models() {
+    use std::io::Write;
+
+    let temp_dir = test_temp_dir();
+    let step1_path = temp_dir.path().join("model1.step");
+    let step2_path = temp_dir.path().join("model2.step");
+    let pcblib_path = temp_dir.path().join("delete_cleanup.PcbLib");
+
+    // Create two STEP files
+    for (path, content) in [
+        (&step1_path, "ISO-10303-21;MODEL1;END-ISO-10303-21;"),
+        (&step2_path, "ISO-10303-21;MODEL2;END-ISO-10303-21;"),
+    ] {
+        let mut f = File::create(path).unwrap();
+        f.write_all(content.as_bytes()).unwrap();
+    }
+
+    // Create library with two footprints, each with its own model
+    let mut lib = PcbLib::new();
+
+    let mut fp1 = Footprint::new("FP1");
+    fp1.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    fp1.model_3d = Some(Model3D {
+        filepath: step1_path.to_string_lossy().to_string(),
+        x_offset: 0.0,
+        y_offset: 0.0,
+        z_offset: 0.0,
+        rotation: 0.0,
+    });
+    lib.add(fp1);
+
+    let mut fp2 = Footprint::new("FP2");
+    fp2.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    fp2.model_3d = Some(Model3D {
+        filepath: step2_path.to_string_lossy().to_string(),
+        x_offset: 0.0,
+        y_offset: 0.0,
+        z_offset: 0.0,
+        rotation: 0.0,
+    });
+    lib.add(fp2);
+
+    lib.save(&pcblib_path).expect("Failed to save");
+
+    // Read back
+    let mut lib = PcbLib::open(&pcblib_path).expect("Failed to read");
+    assert_eq!(lib.len(), 2, "Should have 2 footprints");
+    assert_eq!(lib.models().count(), 2, "Should have 2 models");
+
+    // Delete one footprint
+    lib.remove("FP1");
+    assert_eq!(lib.len(), 1, "Should have 1 footprint");
+    assert_eq!(lib.models().count(), 2, "Models still exist before cleanup");
+
+    // Cleanup orphaned models
+    let removed = lib.remove_orphaned_models();
+    assert_eq!(removed, 1, "Should remove 1 orphaned model");
+    assert_eq!(lib.models().count(), 1, "Should have 1 model remaining");
+
+    // Save and verify
+    lib.save(&pcblib_path)
+        .expect("Failed to save after cleanup");
+    let read_lib = PcbLib::open(&pcblib_path).expect("Failed to read cleaned library");
+    assert_eq!(read_lib.len(), 1, "Should have 1 footprint");
+    assert_eq!(read_lib.models().count(), 1, "Should have 1 model");
+
+    // Verify correct model remains
+    let model = read_lib.models().next().unwrap();
+    let content = model.as_string().unwrap();
+    assert!(
+        content.contains("MODEL2"),
+        "MODEL2 should remain (FP2's model)"
+    );
+}
+
+/// Tests that `model_3d` filepath skips non-existent files (prevents duplicate creation).
+#[test]
+fn test_model_3d_skips_nonexistent_filepath() {
+    use std::io::Write;
+
+    let temp_dir = test_temp_dir();
+    let step_path = temp_dir.path().join("real_model.step");
+    let pcblib_path = temp_dir.path().join("nonexistent_test.PcbLib");
+
+    // Create a real STEP file
+    {
+        let mut f = File::create(&step_path).unwrap();
+        f.write_all(b"ISO-10303-21;REAL;END-ISO-10303-21;").unwrap();
+    }
+
+    // Create library with model
+    let mut lib = PcbLib::new();
+    let mut fp = Footprint::new("FP_TEST");
+    fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    fp.model_3d = Some(Model3D {
+        filepath: step_path.to_string_lossy().to_string(),
+        x_offset: 0.0,
+        y_offset: 0.0,
+        z_offset: 0.0,
+        rotation: 0.0,
+    });
+    lib.add(fp);
+    lib.save(&pcblib_path).expect("Failed to save");
+
+    // Read back - this populates model_3d.filepath with the model NAME
+    let mut lib = PcbLib::open(&pcblib_path).expect("Failed to read");
+    let fp = lib.get("FP_TEST").unwrap();
+
+    // The filepath should now be the model name, not a real path
+    if let Some(model_3d) = &fp.model_3d {
+        // This should be the model name from component body, not the original path
+        assert!(
+            !model_3d.filepath.contains("real_model.step")
+                || !std::path::Path::new(&model_3d.filepath).exists(),
+            "Filepath should not be a readable file path after loading"
+        );
+    }
+
+    // Verify only 1 model exists
+    assert_eq!(lib.models().count(), 1, "Should have exactly 1 model");
+
+    // Save again - should not create duplicates
+    lib.save(&pcblib_path).expect("Failed to save again");
+    let read_lib = PcbLib::open(&pcblib_path).expect("Failed to read");
+    assert_eq!(
+        read_lib.models().count(),
+        1,
+        "Should still have exactly 1 model (no duplicates)"
+    );
+}
