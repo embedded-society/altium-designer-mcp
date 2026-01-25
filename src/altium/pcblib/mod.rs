@@ -691,14 +691,35 @@ impl PcbLib {
 
     /// Saves the library to a file.
     ///
+    /// Uses atomic write: writes to a temporary file first, then renames on success.
+    /// This prevents data loss if the write fails partway through.
+    ///
     /// # Errors
     ///
     /// Returns an error if the file cannot be written.
     pub fn save(&mut self, path: impl AsRef<std::path::Path>) -> AltiumResult<()> {
         let path = path.as_ref();
-        let file = std::fs::File::create(path).map_err(|e| AltiumError::file_write(path, e))?;
 
-        self.write_to(file, path)
+        // Create temp file path in the same directory (ensures same filesystem for rename)
+        let temp_path = path.with_extension("pcblib.tmp");
+
+        // Write to temp file
+        let file = std::fs::File::create(&temp_path)
+            .map_err(|e| AltiumError::file_write(&temp_path, e))?;
+
+        // Attempt to write; clean up temp file on failure
+        if let Err(e) = self.write_to(file, path) {
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(e);
+        }
+
+        // Atomically rename temp file to target (overwrites existing)
+        std::fs::rename(&temp_path, path).map_err(|e| {
+            let _ = std::fs::remove_file(&temp_path);
+            AltiumError::file_write(path, e)
+        })?;
+
+        Ok(())
     }
 
     /// Writes the library to a writer.

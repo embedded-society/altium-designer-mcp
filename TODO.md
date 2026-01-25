@@ -4,32 +4,7 @@
 
 ## Critical Issues
 
-### 1. `delete_component` Corrupts Library File
-
-**Severity:** CRITICAL
-**Status:** Reproducible
-
-**Description:**
-After executing `delete_component` on a PcbLib file, the library file becomes corrupted (0 bytes). This results in complete data loss.
-
-**Steps to Reproduce:**
-
-1. Create a library with multiple components using `write_pcblib`
-2. Execute `delete_component` to remove one component
-3. Attempt to read/list the library — fails with "Invalid CFB file (0 bytes is too small)"
-
-**Expected Behaviour:**
-The library should remain valid with the specified component(s) removed.
-
-**Actual Behaviour:**
-The library file is truncated to 0 bytes, destroying all data.
-
-**Impact:**
-This is a data-destroying bug. Users could lose entire libraries.
-
----
-
-### 2. `copy_component_cross_library` Fails with 3D Models
+### 1. `copy_component_cross_library` Fails with 3D Models
 
 **Severity:** High
 **Status:** Reproducible
@@ -57,7 +32,7 @@ None currently available.
 
 ## Minor Issues / Limitations
 
-### 3. No Embedded STEP Models Found
+### 2. No Embedded STEP Models Found
 
 **Severity:** Low
 **Status:** Limitation
@@ -74,7 +49,7 @@ The `extract_step_model` tool reports "No embedded 3D models found" for all test
 
 ---
 
-### 4. ASCII Render Pin Designator Truncation
+### 3. ASCII Render Pin Designator Truncation
 
 **Severity:** Very Low (cosmetic)
 **Status:** Known limitation
@@ -94,7 +69,7 @@ Minor — ASCII rendering is for quick preview only.
 
 ---
 
-### 5. Floating-Point Precision
+### 4. Floating-Point Precision
 
 **Severity:** Very Low (cosmetic)
 **Status:** Known limitation
@@ -108,8 +83,7 @@ Minor artifacts from mm↔mils conversion. Does not affect functionality.
 
 ### 1. Undo/Backup Functionality
 
-Before performing destructive operations (delete, update, merge), automatically create a backup of the original file. This would prevent
-data loss from bugs like Critical Issue #1.
+Before performing destructive operations (delete, update, merge), automatically create a backup of the original file.
 
 ### 2. Dry-Run Mode
 
@@ -125,19 +99,15 @@ Add an optional `dry_run` parameter to destructive operations that would show wh
 
 Run `validate_library` automatically after write operations to catch corruption immediately.
 
-### 5. Transaction/Atomic Operations
-
-Ensure write operations are atomic — if any part fails, the original file should remain unchanged.
-
-### 6. Batch Parameter Update for SchLib
+### 5. Batch Parameter Update for SchLib
 
 Similar to `batch_update` for PcbLib track widths, add ability to update parameters across all symbols in a SchLib (e.g., update all "Manufacturer" parameters).
 
-### 7. Component Comparison
+### 6. Component Comparison
 
 Add a tool to compare two specific components (not just libraries) and show detailed differences in pads, tracks, parameters, etc.
 
-### 8. Better Error Context
+### 7. Better Error Context
 
 When operations fail, provide more context about what was being processed and what state the file is in.
 
