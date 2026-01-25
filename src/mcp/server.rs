@@ -9228,12 +9228,18 @@ impl McpServer {
             // Draw connection point (at pin position, not end)
             let (cx, cy) = to_canvas(px, py);
             if cx < canvas_width && cy < canvas_height {
-                // Use designator first char or '*'
-                let pin_char = pin.designator.chars().next().unwrap_or('*');
-                canvas[cy][cx] = pin_char;
-                // Track multi-character designators for the legend
-                if pin.designator.len() > 1 {
-                    pin_mappings.push((pin_char, &pin.designator));
+                // Convert designator to a display character:
+                // - Single char: use as-is
+                // - Numeric 1-9: use digit
+                // - Numeric 10-35: use A-Z
+                // - Numeric 36+: use '?'
+                // - Alphanumeric (BGA): use first char
+                let designator_char = Self::designator_to_char(&pin.designator);
+                canvas[cy][cx] = designator_char;
+                // Track designators that needed mapping for the legend
+                let first_char = pin.designator.chars().next().unwrap_or('#');
+                if designator_char != first_char || pin.designator.len() > 1 {
+                    pin_mappings.push((designator_char, &pin.designator));
                 }
             }
         }
@@ -9288,7 +9294,7 @@ impl McpServer {
 
         output.push_str(&"-".repeat(canvas_width + 2));
         output.push('\n');
-        output.push_str("Legend: 1-9/* = pin, |-+ = rectangle, ~ = pin line, o = arc, O = ellipse, + = origin\n");
+        output.push_str("Legend: 1-9/A-Z = pin, |-+ = rectangle, ~ = pin line, o = arc, O = ellipse, + = origin\n");
 
         // Add pin designator legend if any designators were truncated
         if !pin_mappings.is_empty() {
