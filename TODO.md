@@ -2,37 +2,9 @@
 
 ---
 
-## Critical Issues
-
-### 1. `copy_component_cross_library` Fails with 3D Models
-
-**Severity:** High
-**Status:** Reproducible
-
-**Description:**
-When copying a component from one library to another, if the source component has a 3D STEP model reference, the operation fails with "Failed to read file: [modelname].step"
-
-**Error Message:**
-
-```text
-Failed to write target library: Failed to read file: res0603.step
-```
-
-**Expected Behaviour:**
-Either:
-
-- Copy the component without the 3D model reference, or
-- Copy the embedded 3D model along with the component, or
-- Provide a clear warning that 3D models will not be copied
-
-**Workaround:**
-None currently available.
-
----
-
 ## Minor Issues / Limitations
 
-### 2. No Embedded STEP Models Found
+### 1. No Embedded STEP Models Found
 
 **Severity:** Low
 **Status:** Limitation
@@ -49,7 +21,7 @@ The `extract_step_model` tool reports "No embedded 3D models found" for all test
 
 ---
 
-### 3. ASCII Render Pin Designator Truncation
+### 2. ASCII Render Pin Designator Truncation
 
 **Severity:** Very Low (cosmetic)
 **Status:** Known limitation
@@ -69,7 +41,7 @@ Minor — ASCII rendering is for quick preview only.
 
 ---
 
-### 4. Floating-Point Precision
+### 3. Floating-Point Precision
 
 **Severity:** Very Low (cosmetic)
 **Status:** Known limitation

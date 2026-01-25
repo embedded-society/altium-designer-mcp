@@ -5400,6 +5400,18 @@ impl McpServer {
             new_footprint.description = desc.to_string();
         }
 
+        // Clear model_3d reference - the STEP file path is relative to the source library
+        // and won't be valid in the target location. Users can re-attach 3D models later.
+        let had_model_3d = new_footprint.model_3d.take().is_some();
+
+        // Collect embedded model IDs referenced by this footprint
+        let embedded_model_ids: Vec<String> = new_footprint
+            .component_bodies
+            .iter()
+            .filter(|cb| cb.embedded)
+            .map(|cb| cb.model_id.clone())
+            .collect();
+
         // Read or create the target library
         let mut target_library = if std::path::Path::new(target_filepath).exists() {
             match PcbLib::open(target_filepath) {
@@ -5419,6 +5431,18 @@ impl McpServer {
             ));
         }
 
+        // Copy embedded 3D models from source to target library
+        let mut models_copied = 0;
+        for model_id in &embedded_model_ids {
+            if let Some(model) = source_library.get_model(model_id) {
+                // Only add if not already present in target
+                if target_library.get_model(model_id).is_none() {
+                    target_library.add_model(model.clone());
+                    models_copied += 1;
+                }
+            }
+        }
+
         // Add the footprint to target library
         target_library.add(new_footprint);
 
@@ -5427,7 +5451,7 @@ impl McpServer {
             return ToolCallResult::error(format!("Failed to write target library: {e}"));
         }
 
-        let result = json!({
+        let mut result = json!({
             "status": "success",
             "source_filepath": source_filepath,
             "target_filepath": target_filepath,
@@ -5435,6 +5459,7 @@ impl McpServer {
             "component_name": component_name,
             "target_name": target_name,
             "target_component_count": target_library.len(),
+            "embedded_models_copied": models_copied,
             "message": format!(
                 "Copied '{}' from '{}' to '{}'{}",
                 component_name,
@@ -5447,6 +5472,12 @@ impl McpServer {
                 }
             ),
         });
+
+        // Add warning if external 3D model reference was removed
+        if had_model_3d {
+            result["warning"] =
+                json!("External 3D model reference was removed (STEP file path not portable across libraries)");
+        }
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
