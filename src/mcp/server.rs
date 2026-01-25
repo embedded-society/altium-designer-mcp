@@ -173,6 +173,75 @@ impl ToolCallResult {
             is_error: true,
         }
     }
+
+    /// Creates a structured error with context.
+    ///
+    /// Returns a JSON-formatted error with operation context for better debugging.
+    #[must_use]
+    pub fn error_with_context(context: ErrorContext) -> Self {
+        let result = json!({
+            "status": "error",
+            "operation": context.operation,
+            "error": context.message,
+            "filepath": context.filepath,
+            "component": context.component,
+            "details": context.details,
+        });
+        Self {
+            content: vec![ToolContent::Text {
+                text: serde_json::to_string_pretty(&result).unwrap_or(context.message),
+            }],
+            is_error: true,
+        }
+    }
+}
+
+/// Context for structured error reporting.
+#[derive(Debug, Default)]
+pub struct ErrorContext {
+    /// The operation being performed (e.g., `write_pcblib`, `delete_component`).
+    pub operation: String,
+    /// The error message.
+    pub message: String,
+    /// The file path being operated on (if applicable).
+    pub filepath: Option<String>,
+    /// The component name being processed (if applicable).
+    pub component: Option<String>,
+    /// Additional details about what was happening.
+    pub details: Option<String>,
+}
+
+impl ErrorContext {
+    /// Creates a new error context for an operation.
+    #[must_use]
+    pub fn new(operation: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            operation: operation.into(),
+            message: message.into(),
+            ..Default::default()
+        }
+    }
+
+    /// Sets the filepath for this error context.
+    #[must_use]
+    pub fn with_filepath(mut self, filepath: impl Into<String>) -> Self {
+        self.filepath = Some(filepath.into());
+        self
+    }
+
+    /// Sets the component name for this error context.
+    #[must_use]
+    pub fn with_component(mut self, component: impl Into<String>) -> Self {
+        self.component = Some(component.into());
+        self
+    }
+
+    /// Sets additional details for this error context.
+    #[must_use]
+    pub fn with_details(mut self, details: impl Into<String>) -> Self {
+        self.details = Some(details.into());
+        self
+    }
 }
 
 /// The MCP server for Altium Designer library management.
@@ -1677,9 +1746,12 @@ impl McpServer {
             let mut seen = std::collections::HashSet::new();
             for name in &new_names {
                 if !seen.insert(*name) {
-                    return ToolCallResult::error(format!(
-                        "Duplicate footprint name in request: '{name}'"
-                    ));
+                    return ToolCallResult::error_with_context(
+                        ErrorContext::new("write_pcblib", format!("Duplicate footprint name: '{name}'"))
+                            .with_filepath(filepath)
+                            .with_component(*name)
+                            .with_details("Each footprint in the request must have a unique name"),
+                    );
                 }
             }
         }
@@ -1711,9 +1783,11 @@ impl McpServer {
             match PcbLib::open(filepath) {
                 Ok(lib) => lib,
                 Err(e) => {
-                    return ToolCallResult::error(format!(
-                        "Failed to read existing library for append: {e}"
-                    ));
+                    return ToolCallResult::error_with_context(
+                        ErrorContext::new("write_pcblib", format!("Failed to read existing library: {e}"))
+                            .with_filepath(filepath)
+                            .with_details("The library file exists but could not be opened for appending"),
+                    );
                 }
             }
         } else {
@@ -1750,9 +1824,12 @@ impl McpServer {
                     match Self::parse_pad(pad_json) {
                         Ok(pad) => footprint.add_pad(pad),
                         Err(e) => {
-                            return ToolCallResult::error(format!(
-                                "Footprint '{name}' pad {i}: {e}"
-                            ))
+                            return ToolCallResult::error_with_context(
+                                ErrorContext::new("write_pcblib", e)
+                                    .with_filepath(filepath)
+                                    .with_component(name)
+                                    .with_details(format!("Failed to parse pad at index {i}")),
+                            )
                         }
                     }
                 }
@@ -1764,9 +1841,12 @@ impl McpServer {
                     match Self::parse_track(track_json) {
                         Ok(track) => footprint.add_track(track),
                         Err(e) => {
-                            return ToolCallResult::error(format!(
-                                "Footprint '{name}' track {i}: {e}"
-                            ))
+                            return ToolCallResult::error_with_context(
+                                ErrorContext::new("write_pcblib", e)
+                                    .with_filepath(filepath)
+                                    .with_component(name)
+                                    .with_details(format!("Failed to parse track at index {i}")),
+                            )
                         }
                     }
                 }
@@ -1778,9 +1858,12 @@ impl McpServer {
                     match Self::parse_arc(arc_json) {
                         Ok(arc) => footprint.add_arc(arc),
                         Err(e) => {
-                            return ToolCallResult::error(format!(
-                                "Footprint '{name}' arc {i}: {e}"
-                            ))
+                            return ToolCallResult::error_with_context(
+                                ErrorContext::new("write_pcblib", e)
+                                    .with_filepath(filepath)
+                                    .with_component(name)
+                                    .with_details(format!("Failed to parse arc at index {i}")),
+                            )
                         }
                     }
                 }
@@ -1987,9 +2070,12 @@ impl McpServer {
             let mut seen = std::collections::HashSet::new();
             for name in &new_names {
                 if !seen.insert(*name) {
-                    return ToolCallResult::error(format!(
-                        "Duplicate symbol name in request: '{name}'"
-                    ));
+                    return ToolCallResult::error_with_context(
+                        ErrorContext::new("write_schlib", format!("Duplicate symbol name: '{name}'"))
+                            .with_filepath(filepath)
+                            .with_component(*name)
+                            .with_details("Each symbol in the request must have a unique name"),
+                    );
                 }
             }
         }
@@ -2021,9 +2107,11 @@ impl McpServer {
             match SchLib::open(filepath) {
                 Ok(lib) => lib,
                 Err(e) => {
-                    return ToolCallResult::error(format!(
-                        "Failed to read existing library for append: {e}"
-                    ));
+                    return ToolCallResult::error_with_context(
+                        ErrorContext::new("write_schlib", format!("Failed to read existing library: {e}"))
+                            .with_filepath(filepath)
+                            .with_details("The library file exists but could not be opened for appending"),
+                    );
                 }
             }
         } else {
