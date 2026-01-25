@@ -21,7 +21,7 @@
 //! - [`config`] — Configuration loading and validation
 //! - [`error`] — Error types
 //! - [`mcp`] — MCP protocol implementation
-//! - `altium` — Altium file format handling (TODO)
+//! - [`altium`] — Altium file format handling
 
 pub mod altium;
 pub mod config;
