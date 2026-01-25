@@ -195,6 +195,9 @@ pub struct LibraryMetadata {
 /// A `PcbLib` footprint library.
 #[derive(Debug, Clone, Default)]
 pub struct PcbLib {
+    /// Library file path (if loaded from file).
+    filepath: Option<String>,
+
     /// Footprints in the library.
     footprints: Vec<Footprint>,
 
@@ -215,16 +218,18 @@ impl PcbLib {
         Self::default()
     }
 
-    /// Reads a `PcbLib` from a file.
+    /// Opens a `PcbLib` from a file path.
     ///
     /// # Errors
     ///
     /// Returns an error if the file cannot be read or is not a valid `PcbLib`.
-    pub fn read(path: impl AsRef<std::path::Path>) -> AltiumResult<Self> {
+    pub fn open(path: impl AsRef<std::path::Path>) -> AltiumResult<Self> {
         let path = path.as_ref();
         let file = std::fs::File::open(path).map_err(|e| AltiumError::file_read(path, e))?;
 
-        Self::read_from(file, path)
+        let mut lib = Self::read_from(file, path)?;
+        lib.filepath = Some(path.display().to_string());
+        Ok(lib)
     }
 
     /// Reads a `PcbLib` from a reader.
@@ -684,12 +689,12 @@ impl PcbLib {
         reader::parse_data_stream(footprint, data, Some(wide_strings));
     }
 
-    /// Writes the library to a file.
+    /// Saves the library to a file.
     ///
     /// # Errors
     ///
     /// Returns an error if the file cannot be written.
-    pub fn write(&mut self, path: impl AsRef<std::path::Path>) -> AltiumResult<()> {
+    pub fn save(&mut self, path: impl AsRef<std::path::Path>) -> AltiumResult<()> {
         let path = path.as_ref();
         let file = std::fs::File::create(path).map_err(|e| AltiumError::file_write(path, e))?;
 
@@ -1055,12 +1060,12 @@ impl PcbLib {
     }
 
     /// Returns an iterator over the footprints.
-    pub fn footprints(&self) -> impl Iterator<Item = &Footprint> {
+    pub fn iter(&self) -> impl Iterator<Item = &Footprint> {
         self.footprints.iter()
     }
 
     /// Returns a mutable iterator over the footprints.
-    pub fn footprints_mut(&mut self) -> impl Iterator<Item = &mut Footprint> {
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Footprint> {
         self.footprints.iter_mut()
     }
 
@@ -1070,10 +1075,22 @@ impl PcbLib {
         self.footprints.iter().map(|f| f.name.clone()).collect()
     }
 
+    /// Returns the file path this library was loaded from, if any.
+    #[must_use]
+    pub fn filepath(&self) -> Option<&str> {
+        self.filepath.as_deref()
+    }
+
     /// Gets a footprint by name.
     #[must_use]
     pub fn get(&self, name: &str) -> Option<&Footprint> {
         self.footprints.iter().find(|f| f.name == name)
+    }
+
+    /// Gets a mutable reference to a footprint by name.
+    #[must_use]
+    pub fn get_mut(&mut self, name: &str) -> Option<&mut Footprint> {
+        self.footprints.iter_mut().find(|f| f.name == name)
     }
 
     /// Adds a footprint to the library.

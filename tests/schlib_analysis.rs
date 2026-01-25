@@ -10,8 +10,8 @@ fn analyze_sample_schlib() {
     println!("\n=== SchLib Analysis ===");
     println!("Symbols: {}", lib.len());
 
-    for (name, symbol) in lib.iter() {
-        println!("\n--- Symbol: {name} ---");
+    for symbol in lib.iter() {
+        println!("\n--- Symbol: {} ---", symbol.name);
         println!("  Description: {}", symbol.description);
         println!("  Designator: {}", symbol.designator);
         println!("  Part count: {}", symbol.part_count);

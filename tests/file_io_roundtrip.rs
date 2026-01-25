@@ -56,10 +56,10 @@ fn pcblib_file_roundtrip_simple_footprint() {
     lib.add(fp);
 
     // Write to file
-    lib.write(&file_path).expect("Failed to write PcbLib");
+    lib.save(&file_path).expect("Failed to write PcbLib");
 
     // Read back
-    let read_lib = PcbLib::read(&file_path).expect("Failed to read PcbLib");
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read PcbLib");
 
     // Verify
     assert_eq!(read_lib.len(), 1);
@@ -97,8 +97,8 @@ fn pcblib_file_roundtrip_multiple_footprints() {
     }
 
     // Write and read back
-    lib.write(&file_path).expect("Failed to write PcbLib");
-    let read_lib = PcbLib::read(&file_path).expect("Failed to read PcbLib");
+    lib.save(&file_path).expect("Failed to write PcbLib");
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read PcbLib");
 
     // Verify all footprints
     assert_eq!(read_lib.len(), 4);
@@ -156,8 +156,8 @@ fn pcblib_file_roundtrip_all_primitives() {
     lib.add(fp);
 
     // Write and read back
-    lib.write(&file_path).expect("Failed to write PcbLib");
-    let read_lib = PcbLib::read(&file_path).expect("Failed to read PcbLib");
+    lib.save(&file_path).expect("Failed to write PcbLib");
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read PcbLib");
 
     // Verify all primitives
     let read_fp = read_lib.get("ALL_PRIMITIVES").expect("Footprint not found");
@@ -201,8 +201,8 @@ fn pcblib_file_roundtrip_pad_shapes() {
     lib.add(fp);
 
     // Write and read back
-    lib.write(&file_path).expect("Failed to write PcbLib");
-    let read_lib = PcbLib::read(&file_path).expect("Failed to read PcbLib");
+    lib.save(&file_path).expect("Failed to write PcbLib");
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read PcbLib");
 
     let read_fp = read_lib.get("PAD_SHAPES").expect("Footprint not found");
     assert_eq!(read_fp.pads.len(), 4);
@@ -240,8 +240,8 @@ fn pcblib_file_roundtrip_layers() {
     lib.add(fp);
 
     // Write and read back
-    lib.write(&file_path).expect("Failed to write PcbLib");
-    let read_lib = PcbLib::read(&file_path).expect("Failed to read PcbLib");
+    lib.save(&file_path).expect("Failed to write PcbLib");
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read PcbLib");
 
     let read_fp = read_lib.get("LAYER_TEST").expect("Footprint not found");
     assert_eq!(read_fp.pads[0].layer, Layer::TopLayer);
@@ -273,7 +273,7 @@ fn schlib_file_roundtrip_simple_symbol() {
     // Add body rectangle
     sym.add_rectangle(Rectangle::new(-10, -5, 10, 5));
 
-    lib.add_symbol(sym);
+    lib.add(sym);
 
     // Write to file using File I/O
     let file = File::create(&file_path).expect("Failed to create file");
@@ -305,7 +305,7 @@ fn schlib_file_roundtrip_multiple_symbols() {
         sym.add_pin(Pin::new("1", "1", -20, 0, 10, PinOrientation::Left));
         sym.add_pin(Pin::new("2", "2", 20, 0, 10, PinOrientation::Right));
         sym.add_rectangle(Rectangle::new(-10, -5, 10, 5));
-        lib.add_symbol(sym);
+        lib.add(sym);
     }
 
     // Write and read back
@@ -347,7 +347,7 @@ fn schlib_file_roundtrip_pin_types() {
     sym.add_pin(pin_bidir);
 
     sym.add_rectangle(Rectangle::new(-30, -20, 30, 30));
-    lib.add_symbol(sym);
+    lib.add(sym);
 
     // Write and read back
     let file = File::create(&file_path).expect("Failed to create file");
@@ -384,7 +384,7 @@ fn schlib_file_roundtrip_pin_orientations() {
     sym.add_pin(Pin::new("D", "4", 0, -20, 10, PinOrientation::Down));
 
     sym.add_rectangle(Rectangle::new(-10, -10, 10, 10));
-    lib.add_symbol(sym);
+    lib.add(sym);
 
     // Write and read back
     let file = File::create(&file_path).expect("Failed to create file");

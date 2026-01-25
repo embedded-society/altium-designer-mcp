@@ -166,12 +166,12 @@ impl SchLib {
     }
 
     /// Returns an iterator over all symbols.
-    pub fn iter(&self) -> impl Iterator<Item = (&String, &Symbol)> {
-        self.symbols.iter()
+    pub fn iter(&self) -> impl Iterator<Item = &Symbol> {
+        self.symbols.values()
     }
 
     /// Returns a mutable iterator over all symbols.
-    pub fn symbols_mut(&mut self) -> impl Iterator<Item = &mut Symbol> {
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Symbol> {
         self.symbols.values_mut()
     }
 
@@ -188,7 +188,7 @@ impl SchLib {
     }
 
     /// Adds a symbol to the library.
-    pub fn add_symbol(&mut self, symbol: Symbol) {
+    pub fn add(&mut self, symbol: Symbol) {
         self.symbols.insert(symbol.name.clone(), symbol);
     }
 
@@ -592,7 +592,7 @@ mod tests {
 
         // Create library and add symbol
         let mut lib = SchLib::new();
-        lib.add_symbol(symbol);
+        lib.add(symbol);
 
         // Write to memory
         let mut buffer = Cursor::new(Vec::new());
@@ -675,7 +675,7 @@ mod tests {
 
         // Create library and write
         let mut lib = SchLib::new();
-        lib.add_symbol(symbol);
+        lib.add(symbol);
 
         let mut buffer = Cursor::new(Vec::new());
         lib.write(&mut buffer).expect("Failed to write SchLib");
@@ -727,7 +727,7 @@ mod tests {
 
         // Create library and write
         let mut lib = SchLib::new();
-        lib.add_symbol(symbol);
+        lib.add(symbol);
 
         let mut buffer = Cursor::new(Vec::new());
         lib.write(&mut buffer).expect("Failed to write SchLib");
@@ -790,7 +790,7 @@ mod tests {
 
         // Create library and write
         let mut lib = SchLib::new();
-        lib.add_symbol(symbol);
+        lib.add(symbol);
 
         let mut buffer = Cursor::new(Vec::new());
         lib.write(&mut buffer).expect("Failed to write SchLib");
@@ -839,7 +839,7 @@ mod tests {
 
         // Create library and write
         let mut lib = SchLib::new();
-        lib.add_symbol(symbol);
+        lib.add(symbol);
 
         let mut buffer = Cursor::new(Vec::new());
         lib.write(&mut buffer).expect("Failed to write SchLib");
@@ -891,7 +891,7 @@ mod tests {
 
         // Create library and write
         let mut lib = SchLib::new();
-        lib.add_symbol(symbol);
+        lib.add(symbol);
 
         let mut buffer = Cursor::new(Vec::new());
         lib.write(&mut buffer).expect("Failed to write SchLib");

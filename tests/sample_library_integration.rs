@@ -27,10 +27,10 @@ fn test_read_sample_pcblib() {
     let path = Path::new(SAMPLE_PCBLIB);
     assert!(path.exists(), "Sample file not found: {}", path.display());
 
-    let library = PcbLib::read(path).expect("Failed to read PcbLib");
+    let library = PcbLib::open(path).expect("Failed to read PcbLib");
 
     println!("PcbLib contains {} footprints:", library.len());
-    for fp in library.footprints() {
+    for fp in library.iter() {
         println!(
             "  - {} (pads: {}, tracks: {}, arcs: {})",
             fp.name,
@@ -52,9 +52,9 @@ fn test_pcblib_footprint_data_integrity() {
         return;
     }
 
-    let library = PcbLib::read(path).expect("Failed to read PcbLib");
+    let library = PcbLib::open(path).expect("Failed to read PcbLib");
 
-    for fp in library.footprints() {
+    for fp in library.iter() {
         // Each footprint should have a non-empty name
         assert!(!fp.name.is_empty(), "Footprint name should not be empty");
 
@@ -111,17 +111,17 @@ fn test_pcblib_roundtrip() {
         return;
     }
 
-    let mut original = PcbLib::read(path).expect("Failed to read original PcbLib");
+    let mut original = PcbLib::open(path).expect("Failed to read original PcbLib");
     let original_count = original.len();
 
     // Write to temp file
     let temp_dir = tempdir().expect("Failed to create temp dir");
     let temp_path = temp_dir.path().join("roundtrip.PcbLib");
 
-    original.write(&temp_path).expect("Failed to write PcbLib");
+    original.save(&temp_path).expect("Failed to write PcbLib");
 
     // Read back
-    let reread = PcbLib::read(&temp_path).expect("Failed to read roundtrip PcbLib");
+    let reread = PcbLib::open(&temp_path).expect("Failed to read roundtrip PcbLib");
 
     // Verify component count matches
     assert_eq!(
@@ -131,7 +131,7 @@ fn test_pcblib_roundtrip() {
     );
 
     // Verify all footprint names are preserved
-    for fp in original.footprints() {
+    for fp in original.iter() {
         assert!(
             reread.get(&fp.name).is_some(),
             "Footprint '{}' missing after roundtrip",
@@ -153,10 +153,10 @@ fn test_read_sample_schlib() {
     let library = SchLib::open(path).expect("Failed to read SchLib");
 
     println!("SchLib contains {} symbols:", library.len());
-    for (name, sym) in library.iter() {
+    for sym in library.iter() {
         println!(
             "  - {} (pins: {}, rectangles: {}, lines: {})",
-            name,
+            sym.name,
             sym.pins.len(),
             sym.rectangles.len(),
             sym.lines.len()
@@ -177,7 +177,8 @@ fn test_schlib_symbol_data_integrity() {
 
     let library = SchLib::open(path).expect("Failed to read SchLib");
 
-    for (name, sym) in library.iter() {
+    for sym in library.iter() {
+        let name = &sym.name;
         // Each symbol should have a non-empty name
         assert!(!name.is_empty(), "Symbol name should not be empty");
 
@@ -241,10 +242,11 @@ fn test_schlib_roundtrip() {
     );
 
     // Verify all symbol names are preserved
-    for (name, _) in original.iter() {
+    for sym in original.iter() {
         assert!(
-            reread.get(name).is_some(),
-            "Symbol '{name}' missing after roundtrip"
+            reread.get(&sym.name).is_some(),
+            "Symbol '{}' missing after roundtrip",
+            sym.name
         );
     }
 }
@@ -261,7 +263,7 @@ fn test_validate_sample_libraries() {
     let schlib_path = Path::new(SAMPLE_SCHLIB);
 
     if pcblib_path.exists() {
-        let lib = PcbLib::read(pcblib_path).expect("PcbLib should be valid");
+        let lib = PcbLib::open(pcblib_path).expect("PcbLib should be valid");
         println!("PcbLib validation passed: {} footprints", lib.len());
     }
 
@@ -280,10 +282,10 @@ fn test_render_sample_footprint_ascii() {
         return;
     }
 
-    let library = PcbLib::read(path).expect("Failed to read PcbLib");
+    let library = PcbLib::open(path).expect("Failed to read PcbLib");
 
     // Get first footprint
-    let footprints: Vec<_> = library.footprints().collect();
+    let footprints: Vec<_> = library.iter().collect();
     if let Some(fp) = footprints.first() {
         println!("\nASCII render of '{}':", fp.name);
         println!("Pads: {}, Tracks: {}", fp.pads.len(), fp.tracks.len());

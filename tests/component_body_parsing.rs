@@ -5,12 +5,12 @@ use altium_designer_mcp::altium::pcblib::PcbLib;
 #[test]
 #[ignore = "Requires sample.PcbLib with ComponentBody records"]
 fn test_component_body_parsing() {
-    let lib = PcbLib::read("scripts/sample.PcbLib").expect("Failed to read sample.PcbLib");
+    let lib = PcbLib::open("scripts/sample.PcbLib").expect("Failed to read sample.PcbLib");
 
     println!("\n=== Testing ComponentBody Parsing ===\n");
 
     let mut total_component_bodies_count = 0;
-    for fp in lib.footprints() {
+    for fp in lib.iter() {
         if !fp.component_bodies.is_empty() {
             println!("Footprint: {}", fp.name);
             println!("  ComponentBodies: {}", fp.component_bodies.len());

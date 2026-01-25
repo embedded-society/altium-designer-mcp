@@ -19,7 +19,7 @@ const NONEXISTENT_PCBLIB_PATH: &str = "this_file_should_not_exist_123456789.PcbL
 #[ignore = "Requires sample.PcbLib with embedded 3D models"]
 fn test_model_parsing() {
     let lib_path = get_sample_pcblib_path();
-    let lib = PcbLib::read(&lib_path).expect("Failed to read sample.PcbLib");
+    let lib = PcbLib::open(&lib_path).expect("Failed to read sample.PcbLib");
 
     println!("\n=== Testing 3D Model Parsing ===\n");
 
@@ -47,7 +47,7 @@ fn test_model_parsing() {
 
     // Check ComponentBody references
     println!("\n=== ComponentBody to Model Mapping ===\n");
-    for fp in lib.footprints() {
+    for fp in lib.iter() {
         if !fp.component_bodies.is_empty() {
             println!("Footprint: {}", fp.name);
             for body in &fp.component_bodies {
@@ -80,7 +80,7 @@ fn test_model_parsing_missing_file() {
     // This test ensures that the PcbLib::read API behaves sensibly when the
     // requested file is not present. It does not rely on any external files
     // and therefore can run in CI/CD environments.
-    let result = PcbLib::read(NONEXISTENT_PCBLIB_PATH);
+    let result = PcbLib::open(NONEXISTENT_PCBLIB_PATH);
     assert!(
         result.is_err(),
         "PcbLib::read should fail when the input file does not exist"

@@ -1494,13 +1494,13 @@ impl McpServer {
             .and_then(Value::as_u64)
             .map_or(0, |v| v as usize);
 
-        match PcbLib::read(filepath) {
+        match PcbLib::open(filepath) {
             Ok(library) => {
                 let total_count = library.len();
 
                 // Apply filtering and pagination
                 let footprints: Vec<_> = library
-                    .footprints()
+                    .iter()
                     .filter(|fp| {
                         // If component_name specified, only include matching
                         component_name.map_or(true, |name| fp.name == name)
@@ -1611,7 +1611,7 @@ impl McpServer {
 
         // If append mode and file exists, read existing library; otherwise create new
         let mut library = if append && std::path::Path::new(filepath).exists() {
-            match PcbLib::read(filepath) {
+            match PcbLib::open(filepath) {
                 Ok(lib) => lib,
                 Err(e) => {
                     return ToolCallResult::error(format!(
@@ -1740,7 +1740,7 @@ impl McpServer {
             library.add(footprint);
         }
 
-        match library.write(filepath) {
+        match library.save(filepath) {
             Ok(()) => {
                 let result = json!({
                     "status": "success",
@@ -1794,15 +1794,15 @@ impl McpServer {
                 // Apply filtering and pagination
                 let symbols: Vec<_> = library
                     .iter()
-                    .filter(|(name, _)| {
+                    .filter(|symbol| {
                         // If component_name specified, only include matching
-                        component_name.map_or(true, |filter| *name == filter)
+                        component_name.map_or(true, |filter| symbol.name == filter)
                     })
                     .skip(offset)
                     .take(limit.unwrap_or(usize::MAX))
-                    .map(|(name, symbol)| {
+                    .map(|symbol| {
                         json!({
-                            "name": name,
+                            "name": symbol.name,
                             "description": symbol.description,
                             "designator": symbol.designator,
                             "part_count": symbol.part_count,
@@ -2036,12 +2036,12 @@ impl McpServer {
                 return ToolCallResult::error(e);
             }
 
-            library.add_symbol(symbol);
+            library.add(symbol);
         }
 
         match library.save(filepath) {
             Ok(()) => {
-                let symbol_names: Vec<_> = library.iter().map(|(name, _)| name.clone()).collect();
+                let symbol_names: Vec<_> = library.iter().map(|s| s.name.clone()).collect();
                 let result = json!({
                     "status": "success",
                     "filepath": filepath,
@@ -2082,7 +2082,7 @@ impl McpServer {
             .map(str::to_lowercase);
 
         match extension.as_deref() {
-            Some("pcblib") => match PcbLib::read(filepath) {
+            Some("pcblib") => match PcbLib::open(filepath) {
                 Ok(library) => {
                     let result = json!({
                         "status": "success",
@@ -2105,7 +2105,7 @@ impl McpServer {
             Some("schlib") => match SchLib::open(filepath) {
                 Ok(library) => {
                     let symbol_names: Vec<_> =
-                        library.iter().map(|(name, _)| name.clone()).collect();
+                        library.iter().map(|s| s.name.clone()).collect();
                     let result = json!({
                         "status": "success",
                         "filepath": filepath,
@@ -2171,7 +2171,7 @@ impl McpServer {
         use crate::altium::PcbLib;
         use std::collections::HashMap;
 
-        match PcbLib::read(filepath) {
+        match PcbLib::open(filepath) {
             Ok(library) => {
                 // Track widths by layer
                 let mut track_widths: HashMap<String, Vec<f64>> = HashMap::new();
@@ -2182,7 +2182,7 @@ impl McpServer {
                 // Layers used
                 let mut layers_used: HashMap<String, usize> = HashMap::new();
 
-                for fp in library.footprints() {
+                for fp in library.iter() {
                     // Analyze tracks
                     for track in &fp.tracks {
                         let layer_name = track.layer.as_str().to_string();
@@ -2299,7 +2299,7 @@ impl McpServer {
                 let mut rect_filled_count = 0usize;
                 let mut rect_unfilled_count = 0usize;
 
-                for (_name, symbol) in library.iter() {
+                for symbol in library.iter() {
                     // Analyze pins
                     for pin in &symbol.pins {
                         pin_lengths.push(pin.length);
@@ -3225,7 +3225,7 @@ impl McpServer {
         use crate::altium::PcbLib;
 
         // Read the library
-        let mut library = match PcbLib::read(filepath) {
+        let mut library = match PcbLib::open(filepath) {
             Ok(lib) => lib,
             Err(e) => {
                 let result = json!({
@@ -3259,7 +3259,7 @@ impl McpServer {
 
         // Only write if something was deleted
         if deleted_count > 0 {
-            if let Err(e) = library.write(filepath) {
+            if let Err(e) = library.save(filepath) {
                 let result = json!({
                     "status": "error",
                     "filepath": filepath,
@@ -3388,7 +3388,7 @@ impl McpServer {
         use std::collections::HashSet;
 
         // Read the library
-        let library = match PcbLib::read(filepath) {
+        let library = match PcbLib::open(filepath) {
             Ok(lib) => lib,
             Err(e) => {
                 let result = json!({
@@ -3413,7 +3413,7 @@ impl McpServer {
         }
 
         // Validate each footprint
-        for fp in library.footprints() {
+        for fp in library.iter() {
             let name = &fp.name;
 
             // Check for empty name
@@ -3574,7 +3574,8 @@ impl McpServer {
         }
 
         // Validate each symbol
-        for (name, symbol) in library.iter() {
+        for symbol in library.iter() {
+            let name = &symbol.name;
             // Check for empty name
             if name.is_empty() {
                 issues.push(json!({
@@ -3717,7 +3718,7 @@ impl McpServer {
         use crate::altium::PcbLib;
 
         // Read the library
-        let library = match PcbLib::read(filepath) {
+        let library = match PcbLib::open(filepath) {
             Ok(lib) => lib,
             Err(e) => {
                 let result = json!({
@@ -3732,7 +3733,7 @@ impl McpServer {
         if format == "json" {
             // Full JSON export
             let footprints: Vec<Value> = library
-                .footprints()
+                .iter()
                 .map(|fp| {
                     json!({
                         "name": fp.name,
@@ -3762,7 +3763,7 @@ impl McpServer {
             let mut csv_lines: Vec<String> = Vec::new();
             csv_lines.push("name,description,pad_count,track_count,arc_count,region_count,text_count,has_3d_model".to_string());
 
-            for fp in library.footprints() {
+            for fp in library.iter() {
                 let description = fp.description.replace(',', ";").replace('\n', " ");
                 let has_model = if fp.model_3d.is_some() { "yes" } else { "no" };
                 csv_lines.push(format!(
@@ -3814,9 +3815,9 @@ impl McpServer {
             // Full JSON export
             let symbols: Vec<Value> = library
                 .iter()
-                .map(|(name, symbol)| {
+                .map(|symbol| {
                     json!({
-                        "name": name,
+                        "name": symbol.name,
                         "description": symbol.description,
                         "designator": symbol.designator,
                         "pins": symbol.pins,
@@ -3850,11 +3851,11 @@ impl McpServer {
                     .to_string(),
             );
 
-            for (name, symbol) in library.iter() {
+            for symbol in library.iter() {
                 let description = symbol.description.replace(',', ";").replace('\n', " ");
                 csv_lines.push(format!(
                     "{},{},{},{},{},{},{}",
-                    name,
+                    symbol.name,
                     description,
                     symbol.designator,
                     symbol.pins.len(),
@@ -3942,7 +3943,7 @@ impl McpServer {
 
         // If append mode and file exists, read existing library; otherwise create new
         let mut library = if append && std::path::Path::new(output_path).exists() {
-            match PcbLib::read(output_path) {
+            match PcbLib::open(output_path) {
                 Ok(lib) => lib,
                 Err(e) => {
                     return ToolCallResult::error(format!(
@@ -3985,7 +3986,7 @@ impl McpServer {
         }
 
         // Write the library
-        if let Err(e) = library.write(output_path) {
+        if let Err(e) = library.save(output_path) {
             return ToolCallResult::error(format!("Failed to write library: {e}"));
         }
 
@@ -4050,7 +4051,7 @@ impl McpServer {
             // Parse symbol via serde
             match serde_json::from_value::<Symbol>(sym_json.clone()) {
                 Ok(symbol) => {
-                    library.add_symbol(symbol);
+                    library.add(symbol);
                     imported_count += 1;
                 }
                 Err(e) => {
@@ -4111,7 +4112,7 @@ impl McpServer {
         let model_identifier = arguments.get("model").and_then(Value::as_str);
 
         // Read the library
-        let library = match PcbLib::read(filepath) {
+        let library = match PcbLib::open(filepath) {
             Ok(lib) => lib,
             Err(e) => {
                 let result = json!({
@@ -4312,7 +4313,7 @@ impl McpServer {
         use std::collections::HashSet;
 
         // Read both libraries
-        let lib_a = match PcbLib::read(filepath_a) {
+        let lib_a = match PcbLib::open(filepath_a) {
             Ok(lib) => lib,
             Err(e) => {
                 let result = json!({
@@ -4323,7 +4324,7 @@ impl McpServer {
             }
         };
 
-        let lib_b = match PcbLib::read(filepath_b) {
+        let lib_b = match PcbLib::open(filepath_b) {
             Ok(lib) => lib,
             Err(e) => {
                 let result = json!({
@@ -4335,8 +4336,8 @@ impl McpServer {
         };
 
         // Get component names from both libraries
-        let names_a: HashSet<String> = lib_a.footprints().map(|f| f.name.clone()).collect();
-        let names_b: HashSet<String> = lib_b.footprints().map(|f| f.name.clone()).collect();
+        let names_a: HashSet<String> = lib_a.iter().map(|f| f.name.clone()).collect();
+        let names_b: HashSet<String> = lib_b.iter().map(|f| f.name.clone()).collect();
 
         // Find added, removed, and common components
         let added: Vec<&str> = names_b.difference(&names_a).map(String::as_str).collect();
@@ -4467,8 +4468,8 @@ impl McpServer {
         };
 
         // Get component names from both libraries
-        let names_a: HashSet<String> = lib_a.iter().map(|(name, _)| name.clone()).collect();
-        let names_b: HashSet<String> = lib_b.iter().map(|(name, _)| name.clone()).collect();
+        let names_a: HashSet<String> = lib_a.iter().map(|s| s.name.clone()).collect();
+        let names_b: HashSet<String> = lib_b.iter().map(|s| s.name.clone()).collect();
 
         // Find added, removed, and common components
         let added: Vec<&str> = names_b.difference(&names_a).map(String::as_str).collect();
@@ -4610,7 +4611,7 @@ impl McpServer {
         use crate::altium::PcbLib;
 
         // Read the library
-        let mut library = match PcbLib::read(filepath) {
+        let mut library = match PcbLib::open(filepath) {
             Ok(lib) => lib,
             Err(e) => return ToolCallResult::error(format!("Failed to read library: {e}")),
         };
@@ -4690,7 +4691,7 @@ impl McpServer {
         let mut params_added = 0;
 
         // Update parameters across all symbols
-        for symbol in library.symbols_mut() {
+        for symbol in library.iter_mut() {
             // Check symbol filter
             if let Some(ref filter) = symbol_filter {
                 if !filter.is_match(&symbol.name) {
@@ -4791,7 +4792,7 @@ impl McpServer {
         let mut total_updated = 0usize;
         let mut footprints_updated = Vec::new();
 
-        for fp in library.footprints_mut() {
+        for fp in library.iter_mut() {
             let mut fp_count = 0usize;
 
             for track in &mut fp.tracks {
@@ -4812,7 +4813,7 @@ impl McpServer {
 
         // Write the updated library if any changes were made
         if total_updated > 0 {
-            if let Err(e) = library.write(filepath) {
+            if let Err(e) = library.save(filepath) {
                 return ToolCallResult::error(format!("Failed to write updated library: {e}"));
             }
         }
@@ -4868,7 +4869,7 @@ impl McpServer {
         let mut total_updated = 0usize;
         let mut footprints_updated = Vec::new();
 
-        for fp in library.footprints_mut() {
+        for fp in library.iter_mut() {
             let mut fp_changes = json!({
                 "name": fp.name,
                 "tracks": 0,
@@ -4923,7 +4924,7 @@ impl McpServer {
 
         // Write the updated library if any changes were made
         if total_updated > 0 {
-            if let Err(e) = library.write(filepath) {
+            if let Err(e) = library.save(filepath) {
                 return ToolCallResult::error(format!("Failed to write updated library: {e}"));
             }
         }
@@ -5057,7 +5058,7 @@ impl McpServer {
         use crate::altium::PcbLib;
 
         // Read the library
-        let mut library = match PcbLib::read(filepath) {
+        let mut library = match PcbLib::open(filepath) {
             Ok(lib) => lib,
             Err(e) => return ToolCallResult::error(format!("Failed to read library: {e}")),
         };
@@ -5087,7 +5088,7 @@ impl McpServer {
         library.add(new_footprint);
 
         // Write the updated library
-        if let Err(e) = library.write(filepath) {
+        if let Err(e) = library.save(filepath) {
             return ToolCallResult::error(format!("Failed to write library: {e}"));
         }
 
@@ -5140,7 +5141,7 @@ impl McpServer {
         }
 
         // Add the new symbol
-        library.add_symbol(new_symbol);
+        library.add(new_symbol);
 
         // Write the updated library
         if let Err(e) = library.save(filepath) {
@@ -5211,7 +5212,7 @@ impl McpServer {
         use crate::altium::PcbLib;
 
         // Read the library
-        let mut library = match PcbLib::read(filepath) {
+        let mut library = match PcbLib::open(filepath) {
             Ok(lib) => lib,
             Err(e) => return ToolCallResult::error(format!("Failed to read library: {e}")),
         };
@@ -5233,7 +5234,7 @@ impl McpServer {
         library.add(footprint);
 
         // Write the updated library
-        if let Err(e) = library.write(filepath) {
+        if let Err(e) = library.save(filepath) {
             return ToolCallResult::error(format!("Failed to write library: {e}"));
         }
 
@@ -5273,7 +5274,7 @@ impl McpServer {
 
         // Rename and add back
         symbol.name = new_name.to_string();
-        library.add_symbol(symbol);
+        library.add(symbol);
 
         // Write the updated library
         if let Err(e) = library.save(filepath) {
@@ -5377,7 +5378,7 @@ impl McpServer {
         use crate::altium::PcbLib;
 
         // Read the source library
-        let source_library = match PcbLib::read(source_filepath) {
+        let source_library = match PcbLib::open(source_filepath) {
             Ok(lib) => lib,
             Err(e) => return ToolCallResult::error(format!("Failed to read source library: {e}")),
         };
@@ -5398,7 +5399,7 @@ impl McpServer {
 
         // Read or create the target library
         let mut target_library = if std::path::Path::new(target_filepath).exists() {
-            match PcbLib::read(target_filepath) {
+            match PcbLib::open(target_filepath) {
                 Ok(lib) => lib,
                 Err(e) => {
                     return ToolCallResult::error(format!("Failed to read target library: {e}"))
@@ -5419,7 +5420,7 @@ impl McpServer {
         target_library.add(new_footprint);
 
         // Write the target library
-        if let Err(e) = target_library.write(target_filepath) {
+        if let Err(e) = target_library.save(target_filepath) {
             return ToolCallResult::error(format!("Failed to write target library: {e}"));
         }
 
@@ -5497,7 +5498,7 @@ impl McpServer {
         }
 
         // Add the symbol to target library
-        target_library.add_symbol(new_symbol);
+        target_library.add(new_symbol);
 
         // Write the target library
         if let Err(e) = target_library.save(target_filepath) {
@@ -5627,7 +5628,7 @@ impl McpServer {
 
         // Read or create target library
         let mut target_library = if std::path::Path::new(target_filepath).exists() {
-            match PcbLib::read(target_filepath) {
+            match PcbLib::open(target_filepath) {
                 Ok(lib) => lib,
                 Err(e) => {
                     return ToolCallResult::error(format!("Failed to read target library: {e}"))
@@ -5644,7 +5645,7 @@ impl McpServer {
         let mut source_details: Vec<Value> = Vec::new();
 
         for source_path in source_paths {
-            let source_library = match PcbLib::read(source_path) {
+            let source_library = match PcbLib::open(source_path) {
                 Ok(lib) => lib,
                 Err(e) => {
                     return ToolCallResult::error(format!(
@@ -5657,7 +5658,7 @@ impl McpServer {
             let mut source_skipped = 0;
             let mut source_renamed = 0;
 
-            for footprint in source_library.footprints() {
+            for footprint in source_library.iter() {
                 let original_name = footprint.name.clone();
                 let mut fp_to_add = footprint.clone();
 
@@ -5703,7 +5704,7 @@ impl McpServer {
         }
 
         // Write the merged library
-        if let Err(e) = target_library.write(target_filepath) {
+        if let Err(e) = target_library.save(target_filepath) {
             return ToolCallResult::error(format!("Failed to write target library: {e}"));
         }
 
@@ -5771,7 +5772,7 @@ impl McpServer {
             let mut source_renamed = 0;
 
             // Collect symbols to avoid borrowing issues
-            let symbols: Vec<_> = source_library.iter().map(|(_, s)| s.clone()).collect();
+            let symbols: Vec<_> = source_library.iter().cloned().collect();
 
             for symbol in symbols {
                 let original_name = symbol.name.clone();
@@ -5805,7 +5806,7 @@ impl McpServer {
                     }
                 }
 
-                target_library.add_symbol(sym_to_add);
+                target_library.add(sym_to_add);
                 source_merged += 1;
                 merged_count += 1;
             }
@@ -5898,7 +5899,7 @@ impl McpServer {
         use crate::altium::PcbLib;
 
         // Read the library
-        let mut library = match PcbLib::read(filepath) {
+        let mut library = match PcbLib::open(filepath) {
             Ok(lib) => lib,
             Err(e) => {
                 let result = json!({
@@ -5917,7 +5918,7 @@ impl McpServer {
         let new_order = library.reorder(order);
 
         // Write the library back
-        if let Err(e) = library.write(filepath) {
+        if let Err(e) = library.save(filepath) {
             let result = json!({
                 "status": "error",
                 "filepath": filepath,
@@ -6093,7 +6094,7 @@ impl McpServer {
         use crate::altium::pcblib::{Footprint, PcbLib};
 
         // Read the library
-        let mut library = match PcbLib::read(filepath) {
+        let mut library = match PcbLib::open(filepath) {
             Ok(lib) => lib,
             Err(e) => return ToolCallResult::error(format!("Failed to read library: {e}")),
         };
@@ -6171,7 +6172,7 @@ impl McpServer {
         let old = library.update(component_name, footprint);
 
         // Write the library back
-        if let Err(e) = library.write(filepath) {
+        if let Err(e) = library.save(filepath) {
             return ToolCallResult::error(format!("Failed to write library: {e}"));
         }
 
@@ -6458,10 +6459,10 @@ impl McpServer {
     fn search_pcblib(path: &str, regex: &regex::Regex) -> Result<(Vec<String>, usize), String> {
         use crate::altium::PcbLib;
 
-        let library = PcbLib::read(path).map_err(|e| format!("Failed to read: {e}"))?;
+        let library = PcbLib::open(path).map_err(|e| format!("Failed to read: {e}"))?;
         let total = library.len();
         let matching: Vec<String> = library
-            .footprints()
+            .iter()
             .filter(|fp| regex.is_match(&fp.name))
             .map(|fp| fp.name.clone())
             .collect();
@@ -6477,8 +6478,8 @@ impl McpServer {
         let total = library.len();
         let matching: Vec<String> = library
             .iter()
-            .filter(|(name, _)| regex.is_match(name))
-            .map(|(name, _)| name.clone())
+            .filter(|s| regex.is_match(&s.name))
+            .map(|s| s.name.clone())
             .collect();
 
         Ok((matching, total))
@@ -6518,13 +6519,13 @@ impl McpServer {
     fn get_pcblib_component(filepath: &str, component_name: &str) -> ToolCallResult {
         use crate::altium::PcbLib;
 
-        let library = match PcbLib::read(filepath) {
+        let library = match PcbLib::open(filepath) {
             Ok(lib) => lib,
             Err(e) => return ToolCallResult::error(format!("Failed to read library: {e}")),
         };
 
         let Some(footprint) = library.get(component_name) else {
-            let available: Vec<&str> = library.footprints().map(|fp| fp.name.as_str()).collect();
+            let available: Vec<&str> = library.iter().map(|fp| fp.name.as_str()).collect();
             return ToolCallResult::error(format!(
                 "Component '{}' not found in library. Available components: {}",
                 component_name,
@@ -6562,7 +6563,7 @@ impl McpServer {
         };
 
         let Some(symbol) = library.get(component_name) else {
-            let available: Vec<&str> = library.iter().map(|(name, _)| name.as_str()).collect();
+            let available: Vec<&str> = library.iter().map(|s| s.name.as_str()).collect();
             return ToolCallResult::error(format!(
                 "Component '{}' not found in library. Available components: {}",
                 component_name,
@@ -6629,14 +6630,14 @@ impl McpServer {
         }
 
         // Read the library
-        let library = match PcbLib::read(filepath) {
+        let library = match PcbLib::open(filepath) {
             Ok(lib) => lib,
             Err(e) => return ToolCallResult::error(format!("Failed to read library: {e}")),
         };
 
         // Find the footprint
         let Some(footprint) = library.get(component_name) else {
-            let available: Vec<_> = library.footprints().take(5).map(|f| &f.name).collect();
+            let available: Vec<_> = library.iter().take(5).map(|f| &f.name).collect();
             let hint = if available.is_empty() {
                 "Library is empty".to_string()
             } else {
@@ -6940,7 +6941,7 @@ impl McpServer {
             let available: Vec<_> = library
                 .iter()
                 .take(5)
-                .map(|(name, _)| name.as_str())
+                .map(|s| s.name.as_str())
                 .collect();
             let hint = if available.is_empty() {
                 "Library is empty".to_string()

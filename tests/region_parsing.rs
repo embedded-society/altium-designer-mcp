@@ -5,12 +5,12 @@ use altium_designer_mcp::altium::pcblib::PcbLib;
 #[test]
 #[ignore = "Requires sample.PcbLib with Region records"]
 fn test_region_parsing() {
-    let lib = PcbLib::read("scripts/sample.PcbLib").expect("Failed to read sample.PcbLib");
+    let lib = PcbLib::open("scripts/sample.PcbLib").expect("Failed to read sample.PcbLib");
 
     println!("\n=== Testing Region Parsing ===\n");
 
     let mut total_regions = 0;
-    for fp in lib.footprints() {
+    for fp in lib.iter() {
         if !fp.regions.is_empty() {
             println!("Footprint: {}", fp.name);
             println!("  Regions: {}", fp.regions.len());

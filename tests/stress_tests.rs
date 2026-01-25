@@ -28,9 +28,9 @@ fn test_extreme_positive_coordinates() {
     fp.add_track(Track::new(0.0, 0.0, 100.0, 100.0, 0.2, Layer::TopOverlay));
 
     lib.add(fp);
-    lib.write(&file_path).expect("Failed to write");
+    lib.save(&file_path).expect("Failed to write");
 
-    let read_lib = PcbLib::read(&file_path).expect("Failed to read");
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read");
     let read_fp = read_lib.get("EXTREME_POS").expect("Footprint not found");
 
     assert!((read_fp.pads[0].x - 100.0).abs() < 0.001);
@@ -50,9 +50,9 @@ fn test_extreme_negative_coordinates() {
     fp.add_track(Track::new(-100.0, -100.0, 0.0, 0.0, 0.2, Layer::TopOverlay));
 
     lib.add(fp);
-    lib.write(&file_path).expect("Failed to write");
+    lib.save(&file_path).expect("Failed to write");
 
-    let read_lib = PcbLib::read(&file_path).expect("Failed to read");
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read");
     let read_fp = read_lib.get("EXTREME_NEG").expect("Footprint not found");
 
     assert!((read_fp.pads[0].x - (-100.0)).abs() < 0.001);
@@ -72,9 +72,9 @@ fn test_very_small_dimensions() {
     fp.add_track(Track::new(0.0, 0.0, 0.001, 0.001, 0.001, Layer::TopOverlay));
 
     lib.add(fp);
-    lib.write(&file_path).expect("Failed to write");
+    lib.save(&file_path).expect("Failed to write");
 
-    let read_lib = PcbLib::read(&file_path).expect("Failed to read");
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read");
     let read_fp = read_lib.get("VERY_SMALL").expect("Footprint not found");
 
     // Values should be preserved within internal unit precision
@@ -97,9 +97,9 @@ fn test_zero_dimensions() {
     fp.add_pad(Pad::smd("1", 0.0, 0.0, 0.0, 0.0));
 
     lib.add(fp);
-    lib.write(&file_path).expect("Failed to write");
+    lib.save(&file_path).expect("Failed to write");
 
-    let read_lib = PcbLib::read(&file_path).expect("Failed to read");
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read");
     let read_fp = read_lib.get("ZERO_DIM").expect("Footprint not found");
 
     // Should handle zero dimensions gracefully
@@ -120,9 +120,9 @@ fn test_empty_footprint() {
     let fp = Footprint::new("EMPTY_FOOTPRINT");
     lib.add(fp);
 
-    lib.write(&file_path).expect("Failed to write");
+    lib.save(&file_path).expect("Failed to write");
 
-    let read_lib = PcbLib::read(&file_path).expect("Failed to read");
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read");
     let read_fp = read_lib
         .get("EMPTY_FOOTPRINT")
         .expect("Footprint not found");
@@ -139,9 +139,9 @@ fn test_empty_library() {
     let file_path = temp_dir.path().join("empty_lib.PcbLib");
 
     let mut lib = PcbLib::new();
-    lib.write(&file_path).expect("Failed to write");
+    lib.save(&file_path).expect("Failed to write");
 
-    let read_lib = PcbLib::read(&file_path).expect("Failed to read");
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read");
     assert_eq!(read_lib.len(), 0);
 }
 
@@ -167,9 +167,9 @@ fn test_footprint_with_many_primitives() {
     }
 
     lib.add(fp);
-    lib.write(&file_path).expect("Failed to write");
+    lib.save(&file_path).expect("Failed to write");
 
-    let read_lib = PcbLib::read(&file_path).expect("Failed to read");
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read");
     let read_fp = read_lib
         .get("MANY_PRIMITIVES")
         .expect("Footprint not found");
@@ -195,9 +195,9 @@ fn test_unicode_in_footprint_name() {
     fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
 
     lib.add(fp);
-    lib.write(&file_path).expect("Failed to write");
+    lib.save(&file_path).expect("Failed to write");
 
-    let read_lib = PcbLib::read(&file_path).expect("Failed to read");
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read");
     assert!(read_lib.get("FP_TEST_123").is_some());
 }
 
@@ -215,9 +215,9 @@ fn test_long_footprint_name() {
     fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
 
     lib.add(fp);
-    lib.write(&file_path).expect("Failed to write");
+    lib.save(&file_path).expect("Failed to write");
 
-    let read_lib = PcbLib::read(&file_path).expect("Failed to read");
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read");
     assert!(read_lib.get(&long_name).is_some());
 }
 
@@ -237,14 +237,14 @@ fn test_footprint_name_too_long_returns_error() {
 
     // This should succeed - the OLE storage uses a truncated name,
     // but the full name is preserved in the PATTERN field
-    lib.write(&file_path)
+    lib.save(&file_path)
         .expect("Long names should be supported");
 
     // Verify the full name is preserved on read
-    let read_lib = PcbLib::read(&file_path).expect("Failed to read");
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read");
     assert_eq!(read_lib.len(), 1);
 
-    let read_fp = read_lib.footprints().next().expect("Footprint not found");
+    let read_fp = read_lib.iter().next().expect("Footprint not found");
     assert_eq!(read_fp.name, long_name, "Full name should be preserved");
 }
 
@@ -277,9 +277,9 @@ fn test_pad_rotation_boundaries() {
     }
 
     lib.add(fp);
-    lib.write(&file_path).expect("Failed to write");
+    lib.save(&file_path).expect("Failed to write");
 
-    let read_lib = PcbLib::read(&file_path).expect("Failed to read");
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read");
     let read_fp = read_lib.get("ROTATION_TEST").expect("Footprint not found");
 
     assert_eq!(read_fp.pads.len(), rotations.len());
@@ -309,9 +309,9 @@ fn test_arc_angle_boundaries() {
     fp.add_arc(neg_arc);
 
     lib.add(fp);
-    lib.write(&file_path).expect("Failed to write");
+    lib.save(&file_path).expect("Failed to write");
 
-    let read_lib = PcbLib::read(&file_path).expect("Failed to read");
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read");
     let read_fp = read_lib.get("ARC_ANGLES").expect("Footprint not found");
 
     assert_eq!(read_fp.arcs.len(), 3);
@@ -346,9 +346,9 @@ fn test_complex_region() {
     fp.add_region(region);
 
     lib.add(fp);
-    lib.write(&file_path).expect("Failed to write");
+    lib.save(&file_path).expect("Failed to write");
 
-    let read_lib = PcbLib::read(&file_path).expect("Failed to read");
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read");
     let read_fp = read_lib.get("COMPLEX_REGION").expect("Footprint not found");
 
     assert_eq!(read_fp.regions.len(), 1);
@@ -384,9 +384,9 @@ fn test_region_with_many_vertices() {
     fp.add_region(region);
 
     lib.add(fp);
-    lib.write(&file_path).expect("Failed to write");
+    lib.save(&file_path).expect("Failed to write");
 
-    let read_lib = PcbLib::read(&file_path).expect("Failed to read");
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read");
     let read_fp = read_lib.get("MANY_VERTICES").expect("Footprint not found");
 
     assert_eq!(read_fp.regions.len(), 1);
@@ -427,7 +427,7 @@ fn test_symbol_with_many_pins() {
     }
 
     sym.add_rectangle(Rectangle::new(-40, -40, 80, 80));
-    lib.add_symbol(sym);
+    lib.add(sym);
 
     let file = File::create(&file_path).expect("Failed to create file");
     lib.write(file).expect("Failed to write");
@@ -455,9 +455,9 @@ fn test_multiple_footprints_same_library() {
         lib.add(fp);
     }
 
-    lib.write(&file_path).expect("Failed to write");
+    lib.save(&file_path).expect("Failed to write");
 
-    let read_lib = PcbLib::read(&file_path).expect("Failed to read");
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read");
     assert_eq!(read_lib.len(), 20);
 
     // Verify each footprint
@@ -516,9 +516,9 @@ fn test_text_special_strings() {
     fp.add_text(text2);
 
     lib.add(fp);
-    lib.write(&file_path).expect("Failed to write");
+    lib.save(&file_path).expect("Failed to write");
 
-    let read_lib = PcbLib::read(&file_path).expect("Failed to read");
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read");
     let read_fp = read_lib.get("TEXT_SPECIAL").expect("Footprint not found");
 
     assert_eq!(read_fp.text.len(), 2);
@@ -546,9 +546,9 @@ fn test_multiple_via_types() {
     fp.add_via(Via::new(4.0, 0.0, 0.4, 0.2));
 
     lib.add(fp);
-    lib.write(&file_path).expect("Failed to write");
+    lib.save(&file_path).expect("Failed to write");
 
-    let read_lib = PcbLib::read(&file_path).expect("Failed to read");
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read");
     let read_fp = read_lib.get("VIAS").expect("Footprint not found");
 
     assert_eq!(read_fp.vias.len(), 3);
@@ -576,9 +576,9 @@ fn test_fills_various_sizes() {
     fp.add_fill(Fill::new(0.0, 15.0, 20.0, 15.2, Layer::TopOverlay));
 
     lib.add(fp);
-    lib.write(&file_path).expect("Failed to write");
+    lib.save(&file_path).expect("Failed to write");
 
-    let read_lib = PcbLib::read(&file_path).expect("Failed to read");
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read");
     let read_fp = read_lib.get("FILLS").expect("Footprint not found");
 
     assert_eq!(read_fp.fills.len(), 3);
@@ -599,7 +599,7 @@ fn test_schlib_symbol_name_length_validation() {
     let valid_name = "A".repeat(31);
     let mut valid_symbol = Symbol::new(&valid_name);
     valid_symbol.description = "Valid length".to_string();
-    lib.add_symbol(valid_symbol);
+    lib.add(valid_symbol);
     assert!(lib.save(&file_path).is_ok(), "31-char name should be valid");
 
     // Create a new lib with long name - should now work with OLE truncation
@@ -607,7 +607,7 @@ fn test_schlib_symbol_name_length_validation() {
     let long_name = "B".repeat(64);
     let mut long_symbol = Symbol::new(&long_name);
     long_symbol.description = "Long name".to_string();
-    lib2.add_symbol(long_symbol);
+    lib2.add(long_symbol);
 
     // Long names are now supported - the OLE storage uses a truncated name,
     // but the full name is preserved in the LibReference field
@@ -635,23 +635,23 @@ fn test_pcblib_append_mode() {
     let mut fp1 = Footprint::new("FOOTPRINT_1");
     fp1.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
     lib1.add(fp1);
-    lib1.write(&file_path)
+    lib1.save(&file_path)
         .expect("Failed to write initial library");
 
     // Verify initial state
-    let check1 = PcbLib::read(&file_path).expect("Failed to read");
+    let check1 = PcbLib::open(&file_path).expect("Failed to read");
     assert_eq!(check1.len(), 1, "Should have 1 footprint initially");
 
     // Step 2: Simulate append mode - read existing, add new, write back
-    let mut lib2 = PcbLib::read(&file_path).expect("Failed to read for append");
+    let mut lib2 = PcbLib::open(&file_path).expect("Failed to read for append");
     let mut fp2 = Footprint::new("FOOTPRINT_2");
     fp2.add_pad(Pad::smd("1", 0.0, 0.0, 0.8, 0.8));
     lib2.add(fp2);
-    lib2.write(&file_path)
+    lib2.save(&file_path)
         .expect("Failed to write appended library");
 
     // Step 3: Verify both footprints are present
-    let final_lib = PcbLib::read(&file_path).expect("Failed to read final library");
+    let final_lib = PcbLib::open(&file_path).expect("Failed to read final library");
     assert_eq!(final_lib.len(), 2, "Should have 2 footprints after append");
     assert!(
         final_lib.get("FOOTPRINT_1").is_some(),
@@ -673,7 +673,7 @@ fn test_schlib_append_mode() {
     let mut sym1 = Symbol::new("SYMBOL_1");
     sym1.add_pin(Pin::new("P1", "1", 0, 0, 10, PinOrientation::Left));
     sym1.add_rectangle(Rectangle::new(-10, -5, 10, 5));
-    lib1.add_symbol(sym1);
+    lib1.add(sym1);
 
     let file = File::create(&file_path).expect("Failed to create file");
     lib1.write(file).expect("Failed to write initial library");
@@ -687,7 +687,7 @@ fn test_schlib_append_mode() {
     let mut sym2 = Symbol::new("SYMBOL_2");
     sym2.add_pin(Pin::new("P1", "1", 0, 0, 10, PinOrientation::Left));
     sym2.add_rectangle(Rectangle::new(-10, -5, 10, 5));
-    lib2.add_symbol(sym2);
+    lib2.add(sym2);
 
     let file = File::create(&file_path).expect("Failed to create file for write");
     lib2.write(file).expect("Failed to write appended library");
@@ -721,14 +721,14 @@ fn test_pcblib_append_multiple_footprints() {
         lib.add(fp);
 
         // Write after each addition
-        lib.write(&file_path).expect("Failed to write");
+        lib.save(&file_path).expect("Failed to write");
 
         // Read back for next iteration
-        lib = PcbLib::read(&file_path).expect("Failed to read");
+        lib = PcbLib::open(&file_path).expect("Failed to read");
     }
 
     // Final verification
-    let final_lib = PcbLib::read(&file_path).expect("Failed to read final");
+    let final_lib = PcbLib::open(&file_path).expect("Failed to read final");
     assert_eq!(final_lib.len(), 5, "Should have 5 footprints after appends");
 
     for i in 1..=5 {
@@ -770,10 +770,10 @@ fn test_component_body_roundtrip() {
     fp.component_bodies.push(body);
 
     lib.add(fp);
-    lib.write(&file_path).expect("Failed to write");
+    lib.save(&file_path).expect("Failed to write");
 
     // Read back and verify
-    let read_lib = PcbLib::read(&file_path).expect("Failed to read");
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read");
     let read_fp = read_lib.get("WITH_3D_MODEL").expect("Footprint not found");
 
     assert_eq!(read_fp.pads.len(), 2, "Should have 2 pads");
@@ -814,9 +814,9 @@ fn test_component_body_with_rotation() {
     fp.component_bodies.push(body);
 
     lib.add(fp);
-    lib.write(&file_path).expect("Failed to write");
+    lib.save(&file_path).expect("Failed to write");
 
-    let read_lib = PcbLib::read(&file_path).expect("Failed to read");
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read");
     let read_fp = read_lib.get("ROTATED_MODEL").expect("Footprint not found");
 
     assert_eq!(read_fp.component_bodies.len(), 1);
@@ -844,15 +844,14 @@ fn test_large_pcblib_pagination() {
         lib.add(fp);
     }
 
-    lib.write(&file_path)
-        .expect("Failed to write large library");
+    lib.save(&file_path).expect("Failed to write large library");
 
     // Verify total count
-    let read_lib = PcbLib::read(&file_path).expect("Failed to read");
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read");
     assert_eq!(read_lib.len(), 100, "Should have 100 footprints");
 
     // Test iteration with offset and limit (simulating pagination)
-    let footprints: Vec<_> = read_lib.footprints().collect();
+    let footprints: Vec<_> = read_lib.iter().collect();
 
     // Page 1: first 10
     assert_eq!(footprints.iter().take(10).count(), 10);
@@ -881,7 +880,7 @@ fn test_large_schlib_pagination() {
         sym.add_pin(Pin::new("P1", "1", -20, 0, 10, PinOrientation::Left));
         sym.add_pin(Pin::new("P2", "2", 20, 0, 10, PinOrientation::Right));
         sym.add_rectangle(Rectangle::new(-10, -5, 10, 5));
-        lib.add_symbol(sym);
+        lib.add(sym);
     }
 
     let file = File::create(&file_path).expect("Failed to create file");
@@ -902,7 +901,7 @@ fn test_large_schlib_pagination() {
 
     // Verify all symbols are present
     let names: std::collections::HashSet<_> =
-        symbols.iter().map(|(name, _)| name.as_str()).collect();
+        symbols.iter().map(|s| s.name.as_str()).collect();
     assert_eq!(names.len(), 50, "All symbol names should be unique");
 }
 
@@ -918,10 +917,10 @@ fn test_pagination_edge_cases() {
         fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
         lib.add(fp);
     }
-    lib.write(&file_path).expect("Failed to write");
+    lib.save(&file_path).expect("Failed to write");
 
-    let read_lib = PcbLib::read(&file_path).expect("Failed to read");
-    let footprints: Vec<_> = read_lib.footprints().collect();
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read");
+    let footprints: Vec<_> = read_lib.iter().collect();
 
     // Edge case: offset beyond available items
     assert!(
@@ -991,10 +990,10 @@ END-ISO-10303-21;
     });
 
     lib.add(fp);
-    lib.write(&pcblib_path).expect("Failed to write PcbLib");
+    lib.save(&pcblib_path).expect("Failed to write PcbLib");
 
     // Read back and verify
-    let read_lib = PcbLib::read(&pcblib_path).expect("Failed to read PcbLib");
+    let read_lib = PcbLib::open(&pcblib_path).expect("Failed to read PcbLib");
     let read_fp = read_lib.get("MODEL_3D_TEST").expect("Footprint not found");
 
     // Verify model_3d is populated (from ComponentBody)
@@ -1068,10 +1067,10 @@ fn test_model_3d_embedded_data_persistence() {
     });
 
     lib.add(fp);
-    lib.write(&pcblib_path).expect("Failed to write");
+    lib.save(&pcblib_path).expect("Failed to write");
 
     // Read back
-    let read_lib = PcbLib::read(&pcblib_path).expect("Failed to read");
+    let read_lib = PcbLib::open(&pcblib_path).expect("Failed to read");
 
     // Verify embedded model data
     assert_eq!(read_lib.model_count(), 1, "Should have 1 embedded model");
@@ -1121,10 +1120,10 @@ fn test_step_model_extraction_to_file() {
     });
 
     lib.add(fp);
-    lib.write(&pcblib_path).expect("Failed to write library");
+    lib.save(&pcblib_path).expect("Failed to write library");
 
     // Read library and extract model
-    let read_lib = PcbLib::read(&pcblib_path).expect("Failed to read library");
+    let read_lib = PcbLib::open(&pcblib_path).expect("Failed to read library");
     assert_eq!(read_lib.model_count(), 1, "Should have 1 embedded model");
 
     let model = read_lib.models().next().expect("Should have model");
@@ -1176,10 +1175,10 @@ fn test_step_model_lookup_by_name_and_id() {
     });
 
     lib.add(fp);
-    lib.write(&pcblib_path).expect("Failed to write library");
+    lib.save(&pcblib_path).expect("Failed to write library");
 
     // Read library
-    let read_lib = PcbLib::read(&pcblib_path).expect("Failed to read library");
+    let read_lib = PcbLib::open(&pcblib_path).expect("Failed to read library");
 
     // Get model and its ID
     let model = read_lib.models().next().expect("Should have model");
@@ -1217,19 +1216,19 @@ fn test_pcblib_rename_component() {
     fp.add_pad(Pad::smd("2", 0.5, 0.0, 0.6, 0.5));
     fp.add_track(Track::new(-1.0, -0.5, 1.0, -0.5, 0.15, Layer::TopOverlay));
     lib.add(fp);
-    lib.write(&file_path).expect("Failed to write");
+    lib.save(&file_path).expect("Failed to write");
 
     // Read, rename, and write back (simulating rename_component tool)
-    let mut lib = PcbLib::read(&file_path).expect("Failed to read");
+    let mut lib = PcbLib::open(&file_path).expect("Failed to read");
     assert!(lib.get("OLD_NAME").is_some(), "Original should exist");
 
     let mut footprint = lib.remove("OLD_NAME").expect("Should remove old");
     footprint.name = "NEW_NAME".to_string();
     lib.add(footprint);
-    lib.write(&file_path).expect("Failed to write renamed");
+    lib.save(&file_path).expect("Failed to write renamed");
 
     // Verify rename
-    let read_lib = PcbLib::read(&file_path).expect("Failed to read final");
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read final");
     assert_eq!(read_lib.len(), 1, "Should still have 1 component");
     assert!(
         read_lib.get("OLD_NAME").is_none(),
@@ -1285,7 +1284,7 @@ fn test_schlib_rename_component() {
         description: String::new(),
         owner_part_id: 1,
     });
-    lib.add_symbol(sym);
+    lib.add(sym);
     lib.save(&file_path).expect("Failed to write");
 
     // Read, rename, and write back
@@ -1294,7 +1293,7 @@ fn test_schlib_rename_component() {
 
     let mut symbol = lib.remove("OLD_SYMBOL").expect("Should remove old");
     symbol.name = "NEW_SYMBOL".to_string();
-    lib.add_symbol(symbol);
+    lib.add(symbol);
     lib.save(&file_path).expect("Failed to write renamed");
 
     // Verify rename
@@ -1337,11 +1336,11 @@ fn test_pcblib_copy_cross_library() {
     fp.add_track(Track::new(-1.0, -0.5, 1.0, -0.5, 0.15, Layer::TopOverlay));
     source_lib.add(fp);
     source_lib
-        .write(&source_path)
+        .save(&source_path)
         .expect("Failed to write source");
 
     // Simulate cross-library copy (same as the tool does)
-    let source_lib = PcbLib::read(&source_path).expect("Failed to read source");
+    let source_lib = PcbLib::open(&source_path).expect("Failed to read source");
     let source = source_lib
         .get("SOURCE_FP")
         .expect("Source not found")
@@ -1350,11 +1349,11 @@ fn test_pcblib_copy_cross_library() {
     let mut target_lib = PcbLib::new();
     target_lib.add(source);
     target_lib
-        .write(&target_path)
+        .save(&target_path)
         .expect("Failed to write target");
 
     // Verify target library
-    let read_target = PcbLib::read(&target_path).expect("Failed to read target");
+    let read_target = PcbLib::open(&target_path).expect("Failed to read target");
     assert_eq!(read_target.len(), 1, "Target should have 1 footprint");
     let fp = read_target.get("SOURCE_FP").expect("Footprint not found");
     assert_eq!(fp.description, "Source footprint");
@@ -1376,7 +1375,7 @@ fn test_pcblib_copy_cross_library_to_existing() {
     fp1.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
     source_lib.add(fp1);
     source_lib
-        .write(&source_path)
+        .save(&source_path)
         .expect("Failed to write source");
 
     // Create target library with existing footprint
@@ -1386,21 +1385,21 @@ fn test_pcblib_copy_cross_library_to_existing() {
     fp2.add_pad(Pad::smd("1", 0.0, 0.0, 0.5, 0.5));
     target_lib.add(fp2);
     target_lib
-        .write(&target_path)
+        .save(&target_path)
         .expect("Failed to write target");
 
     // Copy from source to target
-    let source_lib = PcbLib::read(&source_path).expect("Failed to read source");
+    let source_lib = PcbLib::open(&source_path).expect("Failed to read source");
     let source = source_lib.get("FP_A").expect("Source not found").clone();
 
-    let mut target_lib = PcbLib::read(&target_path).expect("Failed to read target");
+    let mut target_lib = PcbLib::open(&target_path).expect("Failed to read target");
     target_lib.add(source);
     target_lib
-        .write(&target_path)
+        .save(&target_path)
         .expect("Failed to write target");
 
     // Verify target has both footprints
-    let read_target = PcbLib::read(&target_path).expect("Failed to read target");
+    let read_target = PcbLib::open(&target_path).expect("Failed to read target");
     assert_eq!(read_target.len(), 2, "Target should have 2 footprints");
     assert!(read_target.get("FP_A").is_some(), "FP_A should exist");
     assert!(read_target.get("FP_B").is_some(), "FP_B should exist");
@@ -1420,11 +1419,11 @@ fn test_pcblib_copy_cross_library_with_rename() {
     fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
     source_lib.add(fp);
     source_lib
-        .write(&source_path)
+        .save(&source_path)
         .expect("Failed to write source");
 
     // Copy with rename
-    let source_lib = PcbLib::read(&source_path).expect("Failed to read source");
+    let source_lib = PcbLib::open(&source_path).expect("Failed to read source");
     let mut source = source_lib
         .get("ORIGINAL_NAME")
         .expect("Source not found")
@@ -1435,11 +1434,11 @@ fn test_pcblib_copy_cross_library_with_rename() {
     let mut target_lib = PcbLib::new();
     target_lib.add(source);
     target_lib
-        .write(&target_path)
+        .save(&target_path)
         .expect("Failed to write target");
 
     // Verify target has renamed footprint
-    let read_target = PcbLib::read(&target_path).expect("Failed to read target");
+    let read_target = PcbLib::open(&target_path).expect("Failed to read target");
     assert_eq!(read_target.len(), 1);
     assert!(
         read_target.get("ORIGINAL_NAME").is_none(),
@@ -1497,7 +1496,7 @@ fn test_schlib_copy_cross_library() {
         description: String::new(),
         owner_part_id: 1,
     });
-    source_lib.add_symbol(sym);
+    source_lib.add(sym);
     source_lib
         .save(&source_path)
         .expect("Failed to write source");
@@ -1510,7 +1509,7 @@ fn test_schlib_copy_cross_library() {
         .clone();
 
     let mut target_lib = SchLib::new();
-    target_lib.add_symbol(source);
+    target_lib.add(source);
     target_lib
         .save(&target_path)
         .expect("Failed to write target");
@@ -1544,12 +1543,12 @@ fn test_pcblib_json_roundtrip() {
     fp.add_pad(Pad::smd("2", 0.5, 0.0, 0.6, 0.5));
     fp.add_track(Track::new(-1.0, -0.5, 1.0, -0.5, 0.15, Layer::TopOverlay));
     lib.add(fp);
-    lib.write(&original_path).expect("Failed to write original");
+    lib.save(&original_path).expect("Failed to write original");
 
     // Simulate export: serialise to JSON format matching export_library output
-    let read_lib = PcbLib::read(&original_path).expect("Failed to read original");
+    let read_lib = PcbLib::open(&original_path).expect("Failed to read original");
     let footprints_json: Vec<serde_json::Value> = read_lib
-        .footprints()
+        .iter()
         .map(|fp| {
             serde_json::json!({
                 "name": fp.name,
@@ -1577,11 +1576,11 @@ fn test_pcblib_json_roundtrip() {
         new_lib.add(footprint);
     }
     new_lib
-        .write(&imported_path)
+        .save(&imported_path)
         .expect("Failed to write imported");
 
     // Verify round-trip
-    let final_lib = PcbLib::read(&imported_path).expect("Failed to read imported");
+    let final_lib = PcbLib::open(&imported_path).expect("Failed to read imported");
     assert_eq!(final_lib.len(), 1);
     let fp = final_lib.get("TEST_FP").expect("Footprint not found");
     assert_eq!(fp.description, "Test footprint for round-trip");
@@ -1631,16 +1630,16 @@ fn test_schlib_json_roundtrip() {
         description: String::new(),
         owner_part_id: 1,
     });
-    lib.add_symbol(sym);
+    lib.add(sym);
     lib.save(&original_path).expect("Failed to write original");
 
     // Simulate export: serialise to JSON format matching export_library output
     let read_lib = SchLib::open(&original_path).expect("Failed to read original");
     let symbols_json: Vec<serde_json::Value> = read_lib
         .iter()
-        .map(|(name, symbol)| {
+        .map(|symbol| {
             serde_json::json!({
-                "name": name,
+                "name": symbol.name,
                 "description": symbol.description,
                 "designator": symbol.designator,
                 "pins": symbol.pins,
@@ -1666,7 +1665,7 @@ fn test_schlib_json_roundtrip() {
     let symbols = export_json["symbols"].as_array().unwrap();
     for sym_json in symbols {
         let symbol: Symbol = serde_json::from_value(sym_json.clone()).expect("Failed to parse");
-        new_lib.add_symbol(symbol);
+        new_lib.add(symbol);
     }
     new_lib
         .save(&imported_path)
@@ -1700,7 +1699,7 @@ fn test_pcblib_merge_libraries() {
     fp1.description = "Footprint A".to_string();
     fp1.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
     lib1.add(fp1);
-    lib1.write(&source1_path).expect("Failed to write source1");
+    lib1.save(&source1_path).expect("Failed to write source1");
 
     // Create source library 2
     let mut lib2 = PcbLib::new();
@@ -1708,23 +1707,23 @@ fn test_pcblib_merge_libraries() {
     fp2.description = "Footprint B".to_string();
     fp2.add_pad(Pad::smd("1", 0.0, 0.0, 0.5, 0.5));
     lib2.add(fp2);
-    lib2.write(&source2_path).expect("Failed to write source2");
+    lib2.save(&source2_path).expect("Failed to write source2");
 
     // Merge the libraries (simulating what the tool does)
-    let lib1 = PcbLib::read(&source1_path).expect("Failed to read source1");
-    let lib2 = PcbLib::read(&source2_path).expect("Failed to read source2");
+    let lib1 = PcbLib::open(&source1_path).expect("Failed to read source1");
+    let lib2 = PcbLib::open(&source2_path).expect("Failed to read source2");
 
     let mut merged = PcbLib::new();
-    for fp in lib1.footprints() {
+    for fp in lib1.iter() {
         merged.add(fp.clone());
     }
-    for fp in lib2.footprints() {
+    for fp in lib2.iter() {
         merged.add(fp.clone());
     }
-    merged.write(&target_path).expect("Failed to write merged");
+    merged.save(&target_path).expect("Failed to write merged");
 
     // Verify merged library
-    let result = PcbLib::read(&target_path).expect("Failed to read merged");
+    let result = PcbLib::open(&target_path).expect("Failed to read merged");
     assert_eq!(result.len(), 2, "Merged library should have 2 footprints");
     assert!(result.get("FP_A").is_some(), "FP_A should exist");
     assert!(result.get("FP_B").is_some(), "FP_B should exist");
@@ -1744,7 +1743,7 @@ fn test_pcblib_merge_skip_duplicates() {
     fp1.description = "Original FP_A".to_string();
     fp1.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
     lib1.add(fp1);
-    lib1.write(&source1_path).expect("Failed to write source1");
+    lib1.save(&source1_path).expect("Failed to write source1");
 
     // Create source library 2 with duplicate FP_A and unique FP_B
     let mut lib2 = PcbLib::new();
@@ -1756,26 +1755,26 @@ fn test_pcblib_merge_skip_duplicates() {
     unique_footprint.description = "Footprint B".to_string();
     unique_footprint.add_pad(Pad::smd("1", 0.0, 0.0, 0.7, 0.7));
     lib2.add(unique_footprint);
-    lib2.write(&source2_path).expect("Failed to write source2");
+    lib2.save(&source2_path).expect("Failed to write source2");
 
     // Merge with skip duplicates
-    let lib1 = PcbLib::read(&source1_path).expect("Failed to read source1");
-    let lib2 = PcbLib::read(&source2_path).expect("Failed to read source2");
+    let lib1 = PcbLib::open(&source1_path).expect("Failed to read source1");
+    let lib2 = PcbLib::open(&source2_path).expect("Failed to read source2");
 
     let mut merged = PcbLib::new();
-    for fp in lib1.footprints() {
+    for fp in lib1.iter() {
         merged.add(fp.clone());
     }
-    for fp in lib2.footprints() {
+    for fp in lib2.iter() {
         if merged.get(&fp.name).is_none() {
             // Skip duplicates
             merged.add(fp.clone());
         }
     }
-    merged.write(&target_path).expect("Failed to write merged");
+    merged.save(&target_path).expect("Failed to write merged");
 
     // Verify: should have 2 footprints, FP_A from source1
-    let result = PcbLib::read(&target_path).expect("Failed to read merged");
+    let result = PcbLib::open(&target_path).expect("Failed to read merged");
     assert_eq!(result.len(), 2);
     let original = result.get("FP_A").expect("FP_A should exist");
     assert_eq!(original.description, "Original FP_A"); // From source1, not source2
@@ -1796,7 +1795,7 @@ fn test_pcblib_merge_rename_duplicates() {
     fp1.description = "Original FP_A".to_string();
     fp1.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
     lib1.add(fp1);
-    lib1.write(&source1_path).expect("Failed to write source1");
+    lib1.save(&source1_path).expect("Failed to write source1");
 
     // Create source library 2 with duplicate FP_A
     let mut lib2 = PcbLib::new();
@@ -1804,17 +1803,17 @@ fn test_pcblib_merge_rename_duplicates() {
     fp2.description = "Duplicate FP_A".to_string();
     fp2.add_pad(Pad::smd("1", 0.0, 0.0, 0.5, 0.5));
     lib2.add(fp2);
-    lib2.write(&source2_path).expect("Failed to write source2");
+    lib2.save(&source2_path).expect("Failed to write source2");
 
     // Merge with rename duplicates
-    let lib1 = PcbLib::read(&source1_path).expect("Failed to read source1");
-    let lib2 = PcbLib::read(&source2_path).expect("Failed to read source2");
+    let lib1 = PcbLib::open(&source1_path).expect("Failed to read source1");
+    let lib2 = PcbLib::open(&source2_path).expect("Failed to read source2");
 
     let mut merged = PcbLib::new();
-    for fp in lib1.footprints() {
+    for fp in lib1.iter() {
         merged.add(fp.clone());
     }
-    for fp in lib2.footprints() {
+    for fp in lib2.iter() {
         let mut fp_to_add = fp.clone();
         if merged.get(&fp.name).is_some() {
             // Rename duplicate
@@ -1828,10 +1827,10 @@ fn test_pcblib_merge_rename_duplicates() {
         }
         merged.add(fp_to_add);
     }
-    merged.write(&target_path).expect("Failed to write merged");
+    merged.save(&target_path).expect("Failed to write merged");
 
     // Verify: should have 2 footprints, FP_A and FP_A_1
-    let result = PcbLib::read(&target_path).expect("Failed to read merged");
+    let result = PcbLib::open(&target_path).expect("Failed to read merged");
     assert_eq!(result.len(), 2);
     assert!(result.get("FP_A").is_some());
     assert!(result.get("FP_A_1").is_some());
@@ -1868,7 +1867,7 @@ fn test_schlib_merge_libraries() {
         filled: true,
         owner_part_id: 1,
     });
-    lib1.add_symbol(sym1);
+    lib1.add(sym1);
     lib1.save(&source1_path).expect("Failed to write source1");
 
     // Create source library 2
@@ -1890,7 +1889,7 @@ fn test_schlib_merge_libraries() {
         description: String::new(),
         owner_part_id: 1,
     });
-    lib2.add_symbol(sym2);
+    lib2.add(sym2);
     lib2.save(&source2_path).expect("Failed to write source2");
 
     // Merge the libraries
@@ -1898,11 +1897,11 @@ fn test_schlib_merge_libraries() {
     let lib2 = SchLib::open(&source2_path).expect("Failed to read source2");
 
     let mut merged = SchLib::new();
-    for (_, sym) in lib1.iter() {
-        merged.add_symbol(sym.clone());
+    for sym in lib1.iter() {
+        merged.add(sym.clone());
     }
-    for (_, sym) in lib2.iter() {
-        merged.add_symbol(sym.clone());
+    for sym in lib2.iter() {
+        merged.add(sym.clone());
     }
     merged.save(&target_path).expect("Failed to write merged");
 
@@ -1929,13 +1928,13 @@ fn test_pcblib_search_glob() {
     lib.add(Footprint::new("SOIC-16"));
     lib.add(Footprint::new("TSSOP-8"));
     lib.add(Footprint::new("QFN-24"));
-    lib.write(&file_path).expect("Failed to write library");
+    lib.save(&file_path).expect("Failed to write library");
 
     // Test glob pattern matching
-    let library = PcbLib::read(&file_path).expect("Failed to read library");
+    let library = PcbLib::open(&file_path).expect("Failed to read library");
     let pattern = regex::Regex::new("(?i)^SOIC-.*$").expect("Failed to compile regex");
     let matches: Vec<String> = library
-        .footprints()
+        .iter()
         .filter(|fp| pattern.is_match(&fp.name))
         .map(|fp| fp.name.clone())
         .collect();
@@ -1957,13 +1956,13 @@ fn test_pcblib_search_regex() {
     lib.add(Footprint::new("SOIC-16"));
     lib.add(Footprint::new("TSSOP-8"));
     lib.add(Footprint::new("QFN-24"));
-    lib.write(&file_path).expect("Failed to write library");
+    lib.save(&file_path).expect("Failed to write library");
 
     // Test regex pattern matching (footprints ending with -8)
-    let library = PcbLib::read(&file_path).expect("Failed to read library");
+    let library = PcbLib::open(&file_path).expect("Failed to read library");
     let pattern = regex::Regex::new("(?i)^.*-8$").expect("Failed to compile regex");
     let matches: Vec<String> = library
-        .footprints()
+        .iter()
         .filter(|fp| pattern.is_match(&fp.name))
         .map(|fp| fp.name.clone())
         .collect();
@@ -1984,22 +1983,22 @@ fn test_pcblib_search_multiple_libraries() {
     let mut lib1 = PcbLib::new();
     lib1.add(Footprint::new("RES_0402"));
     lib1.add(Footprint::new("RES_0603"));
-    lib1.write(&file1_path).expect("Failed to write lib1");
+    lib1.save(&file1_path).expect("Failed to write lib1");
 
     // Create second library
     let mut lib2 = PcbLib::new();
     lib2.add(Footprint::new("CAP_0402"));
     lib2.add(Footprint::new("RES_0805"));
-    lib2.write(&file2_path).expect("Failed to write lib2");
+    lib2.save(&file2_path).expect("Failed to write lib2");
 
     // Search for RES_* across both libraries
     let pattern = regex::Regex::new("(?i)^RES_.*$").expect("Failed to compile regex");
     let mut all_matches: Vec<String> = Vec::new();
 
     for path in [&file1_path, &file2_path] {
-        let library = PcbLib::read(path).expect("Failed to read library");
+        let library = PcbLib::open(path).expect("Failed to read library");
         let matches: Vec<String> = library
-            .footprints()
+            .iter()
             .filter(|fp| pattern.is_match(&fp.name))
             .map(|fp| fp.name.clone())
             .collect();
@@ -2039,7 +2038,7 @@ fn test_schlib_search() {
         filled: false,
         owner_part_id: 1,
     });
-    lib.add_symbol(sym1);
+    lib.add(sym1);
 
     let mut sym2 = Symbol::new("LM7812");
     sym2.rectangles.push(Rectangle {
@@ -2053,7 +2052,7 @@ fn test_schlib_search() {
         filled: false,
         owner_part_id: 1,
     });
-    lib.add_symbol(sym2);
+    lib.add(sym2);
 
     let mut sym3 = Symbol::new("NE555");
     sym3.rectangles.push(Rectangle {
@@ -2067,7 +2066,7 @@ fn test_schlib_search() {
         filled: false,
         owner_part_id: 1,
     });
-    lib.add_symbol(sym3);
+    lib.add(sym3);
 
     lib.save(&file_path).expect("Failed to write library");
 
@@ -2076,8 +2075,8 @@ fn test_schlib_search() {
     let pattern = regex::Regex::new("(?i)^LM78.*$").expect("Failed to compile regex");
     let matches: Vec<String> = library
         .iter()
-        .filter(|(name, _)| pattern.is_match(name))
-        .map(|(name, _)| name.clone())
+        .filter(|s| pattern.is_match(&s.name))
+        .map(|s| s.name.clone())
         .collect();
 
     assert_eq!(matches.len(), 2, "Should find 2 LM78 symbols");
@@ -2106,10 +2105,10 @@ fn test_pcblib_get_component() {
     fp2.add_pad(Pad::smd("1", -2.0, 0.0, 0.3, 0.8));
     lib.add(fp2);
 
-    lib.write(&file_path).expect("Failed to write library");
+    lib.save(&file_path).expect("Failed to write library");
 
     // Read the library and get a specific component
-    let library = PcbLib::read(&file_path).expect("Failed to read library");
+    let library = PcbLib::open(&file_path).expect("Failed to read library");
     let footprint = library.get("SOIC-8").expect("Component not found");
 
     assert_eq!(footprint.name, "SOIC-8");
@@ -2126,10 +2125,10 @@ fn test_pcblib_get_component_not_found() {
     // Create library with one footprint
     let mut lib = PcbLib::new();
     lib.add(Footprint::new("SOIC-8"));
-    lib.write(&file_path).expect("Failed to write library");
+    lib.save(&file_path).expect("Failed to write library");
 
     // Try to get a non-existent component
-    let library = PcbLib::read(&file_path).expect("Failed to read library");
+    let library = PcbLib::open(&file_path).expect("Failed to read library");
     let result = library.get("NON_EXISTENT");
 
     assert!(result.is_none(), "Should not find non-existent component");
@@ -2176,11 +2175,11 @@ fn test_schlib_get_component() {
         description: String::new(),
         owner_part_id: 1,
     });
-    lib.add_symbol(sym1);
+    lib.add(sym1);
 
     let mut sym2 = Symbol::new("NE555");
     sym2.description = "Timer IC".to_string();
-    lib.add_symbol(sym2);
+    lib.add(sym2);
 
     lib.save(&file_path).expect("Failed to write library");
 
@@ -2205,7 +2204,7 @@ fn test_schlib_get_component_not_found() {
 
     // Create library with one symbol
     let mut lib = SchLib::new();
-    lib.add_symbol(Symbol::new("LM7805"));
+    lib.add(Symbol::new("LM7805"));
     lib.save(&file_path).expect("Failed to write library");
 
     // Try to get a non-existent component
