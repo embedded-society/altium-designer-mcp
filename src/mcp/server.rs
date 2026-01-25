@@ -333,7 +333,7 @@ impl McpServer {
     /// Creates a timestamped backup of an existing file before modification.
     ///
     /// Copies `filepath` to `filepath.YYYYMMDD_HHMMSS.bak`, keeping up to
-    /// [`MAX_BACKUPS`] recent backups per file. Older backups are automatically
+    /// `MAX_BACKUPS` recent backups per file. Older backups are automatically
     /// cleaned up to prevent unbounded disk usage.
     ///
     /// If the source file does not exist (new file creation), this is a no-op.
@@ -376,7 +376,7 @@ impl McpServer {
         Ok(Some(backup_path))
     }
 
-    /// Removes old backup files, keeping only the most recent [`MAX_BACKUPS`].
+    /// Removes old backup files, keeping only the most recent `MAX_BACKUPS`.
     fn cleanup_old_backups(filepath: &str) {
         use std::path::Path;
 
