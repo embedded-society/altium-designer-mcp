@@ -2226,7 +2226,7 @@ fn test_schlib_get_component_not_found() {
 // =============================================================================
 
 /// Tests that GUID matching for embedded models is case-insensitive.
-/// This was a bug where GUIDs stored with different casing in ComponentBody
+/// This was a bug where GUIDs stored with different casing in `ComponentBody`
 /// records vs the model index would fail to match.
 #[test]
 fn test_step_model_case_insensitive_guid_matching() {
@@ -2448,7 +2448,7 @@ fn test_copy_footprint_with_step_model() {
     );
 }
 
-/// Tests ComponentBody with external (non-embedded) STEP model reference.
+/// Tests `ComponentBody` with external (non-embedded) STEP model reference.
 #[test]
 fn test_component_body_external_model_reference() {
     let temp_dir = test_temp_dir();
@@ -2584,7 +2584,7 @@ fn test_large_step_model_compression() {
     content.extend_from_slice(header);
     for i in 0..2000 {
         content.extend_from_slice(
-            format!("#{}=CARTESIAN_POINT('Point{}',(0.0,0.0,0.0));\n", i, i).as_bytes(),
+            format!("#{i}=CARTESIAN_POINT('Point{i}',(0.0,0.0,0.0));\n").as_bytes(),
         );
     }
     content.extend_from_slice(footer);

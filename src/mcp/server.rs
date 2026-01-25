@@ -9642,7 +9642,7 @@ mod tests {
         McpServer::new(vec![temp_path.to_path_buf()])
     }
 
-    /// Helper to create a test PcbLib with sample footprints.
+    /// Helper to create a test `PcbLib` with sample footprints.
     fn create_test_pcblib(path: &std::path::Path) {
         let mut lib = PcbLib::new();
 
@@ -9661,7 +9661,7 @@ mod tests {
         lib.save(path).expect("Failed to create test PcbLib");
     }
 
-    /// Helper to create a test SchLib with sample symbols.
+    /// Helper to create a test `SchLib` with sample symbols.
     fn create_test_schlib(path: &std::path::Path) {
         let mut lib = SchLib::new();
 
