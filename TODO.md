@@ -4,7 +4,6 @@
 
 | Item | Notes |
 |------|-------|
-| Layer name examples | List of valid layer names in tool description |
 | Pad shape examples | Clarify "round" vs "circle" equivalence |
 
 ---

@@ -691,7 +691,7 @@ impl McpServer {
                                                     "enum": ["rectangle", "rounded_rectangle", "round", "oval"],
                                                     "description": "Pad shape (round/circle are equivalent)"
                                                 },
-                                                "layer": { "type": "string", "description": "Layer name (default: multi-layer for SMD)" },
+                                                "layer": { "type": "string", "description": "Layer name: Top Layer, Bottom Layer, Multi-Layer (default for SMD)" },
                                                 "hole_size": { "type": "number", "description": "Hole diameter for through-hole pads (mm)" }
                                             },
                                             "required": ["designator", "x", "y", "width", "height"]
@@ -708,7 +708,7 @@ impl McpServer {
                                                 "x2": { "type": "number" },
                                                 "y2": { "type": "number" },
                                                 "width": { "type": "number", "description": "Line width in mm" },
-                                                "layer": { "type": "string", "description": "Layer name (e.g., 'Top Overlay', 'Mechanical 1')" }
+                                                "layer": { "type": "string", "description": "Layer name: Top Overlay, Top Assembly, Top Courtyard, Mechanical 1, etc." }
                                             },
                                             "required": ["x1", "y1", "x2", "y2", "width", "layer"]
                                         }
@@ -725,7 +725,7 @@ impl McpServer {
                                                 "start_angle": { "type": "number", "description": "Start angle in degrees" },
                                                 "end_angle": { "type": "number", "description": "End angle in degrees" },
                                                 "width": { "type": "number", "description": "Line width in mm" },
-                                                "layer": { "type": "string" }
+                                                "layer": { "type": "string", "description": "Layer name: Top Overlay, Top Assembly, Mechanical 1, etc." }
                                             },
                                             "required": ["x", "y", "radius", "start_angle", "end_angle", "width", "layer"]
                                         }
@@ -746,7 +746,7 @@ impl McpServer {
                                                         }
                                                     }
                                                 },
-                                                "layer": { "type": "string" }
+                                                "layer": { "type": "string", "description": "Layer name: Top Courtyard, Top Assembly, Mechanical 1, etc." }
                                             },
                                             "required": ["vertices", "layer"]
                                         }
@@ -761,7 +761,7 @@ impl McpServer {
                                                 "y": { "type": "number" },
                                                 "text": { "type": "string" },
                                                 "height": { "type": "number", "description": "Text height in mm" },
-                                                "layer": { "type": "string" },
+                                                "layer": { "type": "string", "description": "Layer name: Top Overlay, Top Assembly, Mechanical 1, etc." },
                                                 "rotation": { "type": "number", "description": "Rotation in degrees" }
                                             },
                                             "required": ["x", "y", "text", "height", "layer"]
@@ -1045,11 +1045,11 @@ impl McpServer {
                                 },
                                 "from_layer": {
                                     "type": "string",
-                                    "description": "For rename_layer: the layer name to change from"
+                                    "description": "For rename_layer: source layer (e.g., Mechanical 1, Top Assembly)"
                                 },
                                 "to_layer": {
                                     "type": "string",
-                                    "description": "For rename_layer: the layer name to change to"
+                                    "description": "For rename_layer: target layer (e.g., Mechanical 2, Top Courtyard)"
                                 },
                                 "tolerance": {
                                     "type": "number",
