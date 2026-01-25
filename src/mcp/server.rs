@@ -9208,7 +9208,7 @@ impl McpServer {
             }
         }
 
-        // Draw pins with up to 3-character designators
+        // Draw pins with full designators
         for pin in &symbol.pins {
             if !matches_part(pin.owner_part_id) {
                 continue;
@@ -9224,11 +9224,10 @@ impl McpServer {
             // Draw pin line
             Self::draw_line(&mut canvas, to_canvas(px, py), to_canvas(end_x, end_y), '~');
 
-            // Draw designator (up to 3 chars) at connection point
+            // Draw full designator at connection point
             let (cx, cy) = to_canvas(px, py);
             if cy < canvas_height {
-                // Get designator truncated/padded to 3 chars
-                let desig: String = pin.designator.chars().take(3).collect();
+                let desig = &pin.designator;
 
                 // Place designator based on pin orientation
                 match pin.orientation {
