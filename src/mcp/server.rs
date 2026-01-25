@@ -2104,8 +2104,7 @@ impl McpServer {
             },
             Some("schlib") => match SchLib::open(filepath) {
                 Ok(library) => {
-                    let symbol_names: Vec<_> =
-                        library.iter().map(|s| s.name.clone()).collect();
+                    let symbol_names: Vec<_> = library.iter().map(|s| s.name.clone()).collect();
                     let result = json!({
                         "status": "success",
                         "filepath": filepath,
@@ -6938,11 +6937,7 @@ impl McpServer {
 
         // Find the symbol
         let Some(symbol) = library.get(component_name) else {
-            let available: Vec<_> = library
-                .iter()
-                .take(5)
-                .map(|s| s.name.as_str())
-                .collect();
+            let available: Vec<_> = library.iter().take(5).map(|s| s.name.as_str()).collect();
             let hint = if available.is_empty() {
                 "Library is empty".to_string()
             } else {

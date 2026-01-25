@@ -900,8 +900,7 @@ fn test_large_schlib_pagination() {
     assert_eq!(symbols.iter().skip(20).take(10).count(), 10);
 
     // Verify all symbols are present
-    let names: std::collections::HashSet<_> =
-        symbols.iter().map(|s| s.name.as_str()).collect();
+    let names: std::collections::HashSet<_> = symbols.iter().map(|s| s.name.as_str()).collect();
     assert_eq!(names.len(), 50, "All symbol names should be unique");
 }
 
