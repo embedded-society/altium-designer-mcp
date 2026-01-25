@@ -187,6 +187,8 @@ You should see the Altium tools listed:
 - `import_library` — Import components from JSON data (inverse of export_library)
 - `extract_step_model` — Extract embedded STEP 3D models from a PcbLib
 - `diff_libraries` — Compare two library versions
+- `repair_library` — Remove orphaned data (e.g., component body references to missing models)
+- `bulk_rename` — Rename multiple components using glob or regex patterns
 
 **Batch Operations:**
 

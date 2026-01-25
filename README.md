@@ -1036,6 +1036,89 @@ footprint references that link schematic symbols to PCB footprints.
 | `add` | Links a new footprint to the symbol |
 | `remove` | Removes a footprint link from the symbol |
 
+### `repair_library`
+
+Repair a library file by removing orphaned data. For PcbLib files, this removes component body
+references that point to non-existent embedded STEP models. This fixes libraries where 3D model
+data was corrupted or incompletely deleted.
+
+```json
+{
+    "name": "repair_library",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib",
+        "dry_run": true
+    }
+}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `filepath` | Path to the library file (.PcbLib) |
+| `dry_run` | If `true`, report what would be removed without modifying the file (default: `false`) |
+
+**Example Response:**
+
+```json
+{
+    "library_type": "PcbLib",
+    "footprints_checked": 5,
+    "orphaned_references_removed": [
+        { "footprint_name": "RESC0603", "removed_count": 2 }
+    ],
+    "total_removed": 2,
+    "dry_run": false
+}
+```
+
+### `bulk_rename`
+
+Rename multiple components in a library using pattern matching. Supports glob patterns and
+regex with capture groups for flexible bulk renaming operations.
+
+```json
+{
+    "name": "bulk_rename",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib",
+        "pattern": "^RESC(.*)$",
+        "replacement": "RES_$1",
+        "pattern_type": "regex",
+        "dry_run": true
+    }
+}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `filepath` | Path to the library file (.PcbLib or .SchLib) |
+| `pattern` | Pattern to match component names |
+| `replacement` | Replacement string (use `$1`, `$2`, etc. for regex capture groups) |
+| `pattern_type` | Pattern type: `glob` or `regex` (default: `glob`) |
+| `dry_run` | If `true`, preview changes without modifying the file (default: `false`) |
+
+**Example Response:**
+
+```json
+{
+    "renamed": [
+        { "old_name": "RESC0402", "new_name": "RES_0402" },
+        { "old_name": "RESC0603", "new_name": "RES_0603" }
+    ],
+    "skipped": [],
+    "conflicts": [],
+    "dry_run": true
+}
+```
+
+**Pattern Examples:**
+
+| Pattern Type | Pattern | Replacement | Input | Output |
+|--------------|---------|-------------|-------|--------|
+| glob | `RESC*` | `RES_` | `RESC0603` | `RES_0603` (suffix preserved) |
+| regex | `^RESC(.*)$` | `RES_$1` | `RESC0603` | `RES_0603` |
+| regex | `^(.*)_V(\d+)$` | `$1_REV$2` | `CAP_V2` | `CAP_REV2` |
+
 ---
 
 ## Primitive Types

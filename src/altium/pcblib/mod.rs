@@ -790,21 +790,32 @@ impl PcbLib {
 
         for footprint in &mut self.footprints {
             if let Some(ref model_3d) = footprint.model_3d {
+                let path = std::path::Path::new(&model_3d.filepath);
+
+                // Skip if the file doesn't exist - this happens when model_3d was
+                // populated from an existing ComponentBody during read (the filepath
+                // is just the model name, not an actual path). The ComponentBody
+                // already exists, so we don't need to create a duplicate.
+                if !path.exists() || !path.is_file() {
+                    tracing::trace!(
+                        footprint = %footprint.name,
+                        filepath = %model_3d.filepath,
+                        "Skipping model_3d - file not found (already has ComponentBody)"
+                    );
+                    continue;
+                }
+
                 // Read the STEP file
-                let step_data = std::fs::read(&model_3d.filepath).map_err(|e| {
-                    AltiumError::file_read(std::path::Path::new(&model_3d.filepath), e)
-                })?;
+                let step_data = std::fs::read(path).map_err(|e| AltiumError::file_read(path, e))?;
 
                 // Generate a GUID for the model
                 let guid = format!("{{{}}}", Uuid::new_v4().to_string().to_uppercase());
 
                 // Extract filename from path
-                let filename = std::path::Path::new(&model_3d.filepath)
-                    .file_name()
-                    .map_or_else(
-                        || "model.step".to_string(),
-                        |n| n.to_string_lossy().to_string(),
-                    );
+                let filename = path.file_name().map_or_else(
+                    || "model.step".to_string(),
+                    |n| n.to_string_lossy().to_string(),
+                );
 
                 // Create EmbeddedModel
                 let embedded_model = EmbeddedModel::new(&guid, &filename, step_data);
@@ -1204,6 +1215,86 @@ impl PcbLib {
     /// Adds an embedded 3D model to the library.
     pub fn add_model(&mut self, model: EmbeddedModel) {
         self.models.push(model);
+    }
+
+    /// Returns all model GUIDs referenced by footprints in this library.
+    ///
+    /// GUIDs are normalised to lowercase for consistent matching.
+    #[must_use]
+    pub fn referenced_model_ids(&self) -> std::collections::HashSet<String> {
+        let mut ids = std::collections::HashSet::new();
+        for fp in &self.footprints {
+            for cb in &fp.component_bodies {
+                if cb.embedded {
+                    ids.insert(cb.model_id.to_lowercase());
+                }
+            }
+        }
+        ids
+    }
+
+    /// Removes models that are not referenced by any footprint.
+    ///
+    /// This should be called after deleting footprints to prevent library bloat
+    /// from orphaned embedded models.
+    ///
+    /// Returns the number of models removed.
+    pub fn remove_orphaned_models(&mut self) -> usize {
+        let referenced = self.referenced_model_ids();
+        let original_count = self.models.len();
+        self.models
+            .retain(|m| referenced.contains(&m.id.to_lowercase()));
+        let removed = original_count - self.models.len();
+        if removed > 0 {
+            tracing::debug!(removed, "Removed orphaned embedded models");
+        }
+        removed
+    }
+
+    /// Returns all model GUIDs that exist in the library's model collection.
+    ///
+    /// GUIDs are normalised to lowercase for consistent matching.
+    #[must_use]
+    pub fn available_model_ids(&self) -> std::collections::HashSet<String> {
+        self.models.iter().map(|m| m.id.to_lowercase()).collect()
+    }
+
+    /// Removes component body references that point to non-existent models.
+    ///
+    /// This repairs libraries where `component_bodies` have `embedded: true`
+    /// but the actual model data is missing from `/Library/Models/`.
+    ///
+    /// Returns a vector of (`footprint_name`, `removed_count`) for each affected footprint.
+    pub fn remove_orphaned_component_bodies(&mut self) -> Vec<(String, usize)> {
+        let available = self.available_model_ids();
+        let mut results = Vec::new();
+
+        for footprint in &mut self.footprints {
+            let original_count = footprint.component_bodies.len();
+            footprint.component_bodies.retain(|cb| {
+                // Keep external references (embedded: false) - they don't need model data
+                if !cb.embedded {
+                    return true;
+                }
+                // Keep if model_id is empty (shouldn't happen but be safe)
+                if cb.model_id.is_empty() {
+                    return true;
+                }
+                // Keep only if the model exists in the library
+                available.contains(&cb.model_id.to_lowercase())
+            });
+            let removed = original_count - footprint.component_bodies.len();
+            if removed > 0 {
+                tracing::debug!(
+                    footprint = %footprint.name,
+                    removed,
+                    "Removed orphaned component body references"
+                );
+                results.push((footprint.name.clone(), removed));
+            }
+        }
+
+        results
     }
 
     /// Returns a reference to the library metadata.

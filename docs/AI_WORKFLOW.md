@@ -512,6 +512,87 @@ Use `validate_library` to check for common issues before using a library:
 }
 ```
 
+### Repairing Libraries
+
+Use `repair_library` to fix orphaned data in library files. For PcbLib files, this removes component
+body references that point to non-existent embedded STEP models:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ LIBRARY REPAIR WORKFLOW                                                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  1. PREVIEW REPAIR (recommended)                                            │
+│     AI calls: repair_library {                                              │
+│         filepath: "./MyLibrary.PcbLib",                                     │
+│         dry_run: true                                                       │
+│     }                                                                       │
+│     Returns: preview of what would be removed (no changes made)             │
+│                                                                             │
+│  2. PERFORM REPAIR                                                          │
+│     AI calls: repair_library {                                              │
+│         filepath: "./MyLibrary.PcbLib",                                     │
+│         dry_run: false                                                      │
+│     }                                                                       │
+│     Returns: count of orphaned references removed                           │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Use cases:**
+
+- Fix libraries where 3D model data was corrupted or incompletely deleted
+- Clean up orphaned component body references
+- Reduce library file size by removing unused data
+
+### Bulk Renaming Components
+
+Use `bulk_rename` to rename multiple components using pattern matching. Supports glob patterns
+and regex with capture groups:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ BULK RENAME WORKFLOW                                                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  1. PREVIEW RENAME (recommended)                                            │
+│     AI calls: bulk_rename {                                                 │
+│         filepath: "./MyLibrary.PcbLib",                                     │
+│         pattern: "^RESC(.*)$",                                              │
+│         replacement: "RES_$1",                                              │
+│         pattern_type: "regex",                                              │
+│         dry_run: true                                                       │
+│     }                                                                       │
+│     Returns: preview of old → new names (no changes made)                   │
+│                                                                             │
+│  2. PERFORM RENAME                                                          │
+│     AI calls: bulk_rename {                                                 │
+│         filepath: "./MyLibrary.PcbLib",                                     │
+│         pattern: "^RESC(.*)$",                                              │
+│         replacement: "RES_$1",                                              │
+│         pattern_type: "regex",                                              │
+│         dry_run: false                                                      │
+│     }                                                                       │
+│     Returns: list of renamed components and any conflicts                   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Pattern examples:**
+
+| Type | Pattern | Replacement | Input | Output |
+|------|---------|-------------|-------|--------|
+| glob | `RESC*` | `RES_` | `RESC0603` | `RES_0603` |
+| regex | `^RESC(.*)$` | `RES_$1` | `RESC0603` | `RES_0603` |
+| regex | `^(.*)_V(\d+)$` | `$1_REV$2` | `CAP_V2` | `CAP_REV2` |
+
+**Use cases:**
+
+- Standardise naming conventions across a library
+- Add prefixes or suffixes to component names
+- Migrate from one naming scheme to another
+- Fix typos in multiple component names
+
 ### Importing Libraries from JSON
 
 Use `import_library` to create libraries from JSON data. This is the inverse of `export_library`

@@ -674,6 +674,8 @@ impl McpServer {
             "manage_schlib_parameters" => self.call_manage_schlib_parameters(&params.arguments),
             "manage_schlib_footprints" => self.call_manage_schlib_footprints(&params.arguments),
             "compare_components" => self.call_compare_components(&params.arguments),
+            "repair_library" => self.call_repair_library(&params.arguments),
+            "bulk_rename" => self.call_bulk_rename(&params.arguments),
             // Unknown tool
             _ => ToolCallResult::error(format!("Unknown tool: {}", params.name)),
         };
@@ -949,7 +951,8 @@ impl McpServer {
                                         "type": "object",
                                         "description": "Optional STEP 3D model attachment",
                                         "properties": {
-                                            "filepath": { "type": "string", "description": "Path to .step file" },
+                                            "filepath": { "type": "string", "description": "Path to .step file (for embedding) or model name (for external reference)" },
+                                            "embed": { "type": "boolean", "description": "If true (default), embed the STEP file. If false, create external reference only (file doesn't need to exist)" },
                                             "x_offset": { "type": "number" },
                                             "y_offset": { "type": "number" },
                                             "z_offset": { "type": "number" },
@@ -1701,6 +1704,60 @@ impl McpServer {
                     "required": ["filepath_a", "component_a", "filepath_b", "component_b"]
                 }),
             },
+            ToolDefinition {
+                name: "repair_library".to_string(),
+                description: Some(
+                    "Repair a library by removing orphaned references. For PcbLib files, this removes: \
+                     (1) embedded models not referenced by any footprint, and \
+                     (2) component body references that point to non-existent models. \
+                     This fixes libraries where STEP model data is missing but references remain."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepath": {
+                            "type": "string",
+                            "description": "Path to the library file (.PcbLib)"
+                        },
+                        "dry_run": {
+                            "type": "boolean",
+                            "description": "If true, report what would be fixed without making changes (default: false)"
+                        }
+                    },
+                    "required": ["filepath"]
+                }),
+            },
+            ToolDefinition {
+                name: "bulk_rename".to_string(),
+                description: Some(
+                    "Rename multiple components in a library using regex pattern matching. \
+                     Supports capture groups for flexible renaming (e.g., 'RESC(.*)' -> 'RES_$1')."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepath": {
+                            "type": "string",
+                            "description": "Path to the library file (.PcbLib or .SchLib)"
+                        },
+                        "pattern": {
+                            "type": "string",
+                            "description": "Regex pattern to match component names (e.g., '^RESC(.*)$')"
+                        },
+                        "replacement": {
+                            "type": "string",
+                            "description": "Replacement string with optional capture groups (e.g., 'RES_$1')"
+                        },
+                        "dry_run": {
+                            "type": "boolean",
+                            "description": "If true, show what would be renamed without making changes (default: false)"
+                        }
+                    },
+                    "required": ["filepath", "pattern", "replacement"]
+                }),
+            },
         ]
     }
 
@@ -1972,25 +2029,59 @@ impl McpServer {
             // Parse 3D model
             if let Some(model_json) = fp_json.get("step_model") {
                 if let Some(model_path) = model_json.get("filepath").and_then(Value::as_str) {
-                    footprint.model_3d = Some(Model3D {
-                        filepath: model_path.to_string(),
-                        x_offset: model_json
-                            .get("x_offset")
-                            .and_then(Value::as_f64)
-                            .unwrap_or(0.0),
-                        y_offset: model_json
-                            .get("y_offset")
-                            .and_then(Value::as_f64)
-                            .unwrap_or(0.0),
-                        z_offset: model_json
-                            .get("z_offset")
-                            .and_then(Value::as_f64)
-                            .unwrap_or(0.0),
-                        rotation: model_json
-                            .get("rotation")
-                            .and_then(Value::as_f64)
-                            .unwrap_or(0.0),
-                    });
+                    let embed = model_json
+                        .get("embed")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(true);
+
+                    if embed {
+                        // Embedded model - use Model3D which will read the file on save
+                        footprint.model_3d = Some(Model3D {
+                            filepath: model_path.to_string(),
+                            x_offset: model_json
+                                .get("x_offset")
+                                .and_then(Value::as_f64)
+                                .unwrap_or(0.0),
+                            y_offset: model_json
+                                .get("y_offset")
+                                .and_then(Value::as_f64)
+                                .unwrap_or(0.0),
+                            z_offset: model_json
+                                .get("z_offset")
+                                .and_then(Value::as_f64)
+                                .unwrap_or(0.0),
+                            rotation: model_json
+                                .get("rotation")
+                                .and_then(Value::as_f64)
+                                .unwrap_or(0.0),
+                        });
+                    } else {
+                        // External reference only - create ComponentBody directly
+                        use crate::altium::pcblib::{ComponentBody, Layer};
+                        let model_name = std::path::Path::new(model_path).file_name().map_or_else(
+                            || model_path.to_string(),
+                            |n| n.to_string_lossy().to_string(),
+                        );
+                        footprint.add_component_body(ComponentBody {
+                            model_id: String::new(), // No GUID for external reference
+                            model_name,
+                            embedded: false,
+                            rotation_x: 0.0,
+                            rotation_y: 0.0,
+                            rotation_z: model_json
+                                .get("rotation")
+                                .and_then(Value::as_f64)
+                                .unwrap_or(0.0),
+                            z_offset: model_json
+                                .get("z_offset")
+                                .and_then(Value::as_f64)
+                                .unwrap_or(0.0),
+                            overall_height: 0.0,
+                            standoff_height: 0.0,
+                            layer: Layer::Top3DBody,
+                            unique_id: None,
+                        });
+                    }
                 }
             }
 
@@ -3573,6 +3664,13 @@ impl McpServer {
             }
         }
 
+        // Clean up orphaned embedded models after deleting footprints
+        let orphaned_models_removed = if deleted_count > 0 && !dry_run {
+            library.remove_orphaned_models()
+        } else {
+            0
+        };
+
         // Only write if something was deleted (and not dry-run)
         if deleted_count > 0 && !dry_run {
             // Create backup before destructive operation
@@ -3605,6 +3703,7 @@ impl McpServer {
             "original_count": original_count,
             "deleted_count": deleted_count,
             "remaining_count": if dry_run { original_count - deleted_count } else { library.len() },
+            "orphaned_models_removed": orphaned_models_removed,
             "results": results,
         });
 
@@ -8638,10 +8737,17 @@ impl McpServer {
             // Place designator at centre
             let (cx, cy) = to_canvas(pad.x, pad.y);
             if cx < canvas_width && cy < canvas_height {
-                let designator_char = pad.designator.chars().next().unwrap_or('#');
+                // Convert designator to a display character:
+                // - Single char: use as-is
+                // - Numeric 1-9: use digit
+                // - Numeric 10-35: use A-Z
+                // - Numeric 36+: use '?'
+                // - Alphanumeric (BGA): use first char
+                let designator_char = Self::designator_to_char(&pad.designator);
                 canvas[cy][cx] = designator_char;
-                // Track multi-character designators for the legend
-                if pad.designator.len() > 1 {
+                // Track designators that needed mapping for the legend
+                let first_char = pad.designator.chars().next().unwrap_or('#');
+                if designator_char != first_char || pad.designator.len() > 1 {
                     pad_mappings.push((designator_char, &pad.designator));
                 }
             }
@@ -8710,6 +8816,39 @@ impl McpServer {
         }
 
         output
+    }
+
+    /// Converts a pad designator to a single display character.
+    ///
+    /// Mapping:
+    /// - Single character: use as-is
+    /// - Numeric 1-9: use the digit ('1'-'9')
+    /// - Numeric 10-35: use letters ('A'-'Z')
+    /// - Numeric 36+: use '?'
+    /// - Alphanumeric (e.g., BGA "A1"): use first character
+    #[allow(clippy::cast_possible_truncation)] // Values are bounded by match arms
+    fn designator_to_char(designator: &str) -> char {
+        if designator.is_empty() {
+            return '#';
+        }
+
+        // Single character - use as-is
+        if designator.len() == 1 {
+            return designator.chars().next().unwrap();
+        }
+
+        // Try to parse as number for numeric designators
+        if let Ok(num) = designator.parse::<u32>() {
+            return match num {
+                0 => '0',
+                1..=9 => char::from_digit(num, 10).unwrap(),
+                10..=35 => char::from_u32(u32::from(b'A') + (num - 10)).unwrap_or('?'),
+                _ => '?',
+            };
+        }
+
+        // Alphanumeric (like BGA "A1", "B2") - use first char
+        designator.chars().next().unwrap_or('#')
     }
 
     /// Draws a line on the canvas using Bresenham's algorithm.
@@ -9619,6 +9758,324 @@ impl McpServer {
                 "Unknown operation: {operation}. Valid operations: list, add, remove"
             )),
         }
+    }
+
+    /// Repairs a library by removing orphaned references.
+    fn call_repair_library(&self, arguments: &Value) -> ToolCallResult {
+        use crate::altium::PcbLib;
+
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        // Validate path is within allowed directories
+        if let Err(e) = self.validate_path(filepath) {
+            return ToolCallResult::error(e);
+        }
+
+        let dry_run = arguments
+            .get("dry_run")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+        // Currently only supports PcbLib
+        if !filepath.to_lowercase().ends_with(".pcblib") {
+            return ToolCallResult::error("repair_library currently only supports .PcbLib files");
+        }
+
+        // Read the library
+        let mut library = match PcbLib::open(filepath) {
+            Ok(lib) => lib,
+            Err(e) => return ToolCallResult::error(format!("Failed to read library: {e}")),
+        };
+
+        let original_model_count = library.model_count();
+        let original_component_body_count: usize =
+            library.iter().map(|fp| fp.component_bodies.len()).sum();
+
+        // Remove orphaned models (models not referenced by any footprint)
+        let orphaned_models_removed = library.remove_orphaned_models();
+
+        // Remove orphaned component body references (references to non-existent models)
+        let orphaned_bodies_info = library.remove_orphaned_component_bodies();
+        let orphaned_bodies_removed: usize = orphaned_bodies_info.iter().map(|(_, c)| c).sum();
+
+        let needs_save = orphaned_models_removed > 0 || orphaned_bodies_removed > 0;
+
+        // Save if not dry run and changes were made
+        if needs_save && !dry_run {
+            // Create backup before destructive operation
+            if let Err(e) = Self::create_backup(filepath) {
+                return ToolCallResult::error(e);
+            }
+
+            if let Err(e) = library.save(filepath) {
+                return ToolCallResult::error(format!("Failed to save library: {e}"));
+            }
+        }
+
+        let mut result = json!({
+            "status": if dry_run { "dry_run" } else { "success" },
+            "filepath": filepath,
+            "dry_run": dry_run,
+            "repairs": {
+                "orphaned_models_removed": orphaned_models_removed,
+                "orphaned_component_bodies_removed": orphaned_bodies_removed,
+                "affected_footprints": orphaned_bodies_info.iter()
+                    .map(|(name, count)| json!({"name": name, "removed": count}))
+                    .collect::<Vec<_>>()
+            },
+            "before": {
+                "model_count": original_model_count,
+                "total_component_bodies": original_component_body_count
+            },
+            "after": {
+                "model_count": library.model_count(),
+                "total_component_bodies": library.iter()
+                    .map(|fp| fp.component_bodies.len())
+                    .sum::<usize>()
+            }
+        });
+
+        if needs_save && !dry_run {
+            result["message"] = json!(format!(
+                "Repaired library: removed {} orphaned models and {} orphaned component body references",
+                orphaned_models_removed, orphaned_bodies_removed
+            ));
+        } else if needs_save && dry_run {
+            result["message"] = json!(format!(
+                "Would remove {} orphaned models and {} orphaned component body references",
+                orphaned_models_removed, orphaned_bodies_removed
+            ));
+        } else {
+            result["message"] = json!("No repairs needed - library is clean");
+        }
+
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Renames multiple components using regex pattern matching.
+    fn call_bulk_rename(&self, arguments: &Value) -> ToolCallResult {
+        use regex::Regex;
+
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+        let Some(pattern) = arguments.get("pattern").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: pattern");
+        };
+        let Some(replacement) = arguments.get("replacement").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: replacement");
+        };
+
+        // Validate path is within allowed directories
+        if let Err(e) = self.validate_path(filepath) {
+            return ToolCallResult::error(e);
+        }
+
+        let dry_run = arguments
+            .get("dry_run")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+        // Compile regex
+        let regex = match Regex::new(pattern) {
+            Ok(r) => r,
+            Err(e) => return ToolCallResult::error(format!("Invalid regex pattern: {e}")),
+        };
+
+        let filepath_lower = filepath.to_lowercase();
+        if filepath_lower.ends_with(".pcblib") {
+            Self::bulk_rename_pcblib(filepath, &regex, replacement, dry_run)
+        } else if filepath_lower.ends_with(".schlib") {
+            Self::bulk_rename_schlib(filepath, &regex, replacement, dry_run)
+        } else {
+            ToolCallResult::error("Unsupported file type. Expected .PcbLib or .SchLib")
+        }
+    }
+
+    /// Bulk rename components in a `PcbLib` file.
+    fn bulk_rename_pcblib(
+        filepath: &str,
+        regex: &regex::Regex,
+        replacement: &str,
+        dry_run: bool,
+    ) -> ToolCallResult {
+        use crate::altium::PcbLib;
+
+        let mut library = match PcbLib::open(filepath) {
+            Ok(lib) => lib,
+            Err(e) => return ToolCallResult::error(format!("Failed to read library: {e}")),
+        };
+
+        let mut renames: Vec<(String, String)> = Vec::new();
+        let mut errors: Vec<String> = Vec::new();
+
+        // Collect all renames first (to check for conflicts)
+        let names: Vec<String> = library.names().into_iter().collect();
+        for name in &names {
+            if regex.is_match(name) {
+                let new_name = regex.replace(name, replacement).to_string();
+                if new_name != *name {
+                    renames.push((name.clone(), new_name));
+                }
+            }
+        }
+
+        // Check for conflicts (new name already exists or duplicates in renames)
+        let existing_names: std::collections::HashSet<&str> =
+            names.iter().map(String::as_str).collect();
+        let mut new_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        for (old_name, new_name) in &renames {
+            // Check if new name conflicts with an existing name that's not being renamed
+            if existing_names.contains(new_name.as_str()) {
+                let is_being_renamed = renames.iter().any(|(o, _)| o == new_name);
+                if !is_being_renamed {
+                    errors.push(format!(
+                        "Cannot rename '{old_name}' to '{new_name}': target name already exists"
+                    ));
+                }
+            }
+            // Check for duplicate new names
+            if !new_names.insert(new_name.clone()) {
+                errors.push(format!(
+                    "Multiple components would be renamed to '{new_name}' (conflict)"
+                ));
+            }
+        }
+
+        if !errors.is_empty() {
+            return ToolCallResult::error(format!(
+                "Rename conflicts detected:\n{}",
+                errors.join("\n")
+            ));
+        }
+
+        // Perform renames (if not dry run)
+        if !dry_run && !renames.is_empty() {
+            // Create backup before destructive operation
+            if let Err(e) = Self::create_backup(filepath) {
+                return ToolCallResult::error(e);
+            }
+
+            for (old_name, new_name) in &renames {
+                if let Some(mut footprint) = library.remove(old_name) {
+                    footprint.name.clone_from(new_name);
+                    library.add(footprint);
+                }
+            }
+
+            if let Err(e) = library.save(filepath) {
+                return ToolCallResult::error(format!("Failed to save library: {e}"));
+            }
+        }
+
+        let result = json!({
+            "status": if dry_run { "dry_run" } else { "success" },
+            "filepath": filepath,
+            "file_type": "PcbLib",
+            "dry_run": dry_run,
+            "pattern": regex.as_str(),
+            "replacement": replacement,
+            "renamed_count": renames.len(),
+            "renames": renames.iter()
+                .map(|(old, new)| json!({"from": old, "to": new}))
+                .collect::<Vec<_>>()
+        });
+
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Bulk rename components in a `SchLib` file.
+    fn bulk_rename_schlib(
+        filepath: &str,
+        regex: &regex::Regex,
+        replacement: &str,
+        dry_run: bool,
+    ) -> ToolCallResult {
+        use crate::altium::SchLib;
+
+        let mut library = match SchLib::open(filepath) {
+            Ok(lib) => lib,
+            Err(e) => return ToolCallResult::error(format!("Failed to read library: {e}")),
+        };
+
+        let mut renames: Vec<(String, String)> = Vec::new();
+        let mut errors: Vec<String> = Vec::new();
+
+        // Collect all renames first (to check for conflicts)
+        let names: Vec<String> = library.names().into_iter().collect();
+        for name in &names {
+            if regex.is_match(name) {
+                let new_name = regex.replace(name, replacement).to_string();
+                if new_name != *name {
+                    renames.push((name.clone(), new_name));
+                }
+            }
+        }
+
+        // Check for conflicts
+        let existing_names: std::collections::HashSet<&str> =
+            names.iter().map(String::as_str).collect();
+        let mut new_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        for (old_name, new_name) in &renames {
+            if existing_names.contains(new_name.as_str()) {
+                let is_being_renamed = renames.iter().any(|(o, _)| o == new_name);
+                if !is_being_renamed {
+                    errors.push(format!(
+                        "Cannot rename '{old_name}' to '{new_name}': target name already exists"
+                    ));
+                }
+            }
+            if !new_names.insert(new_name.clone()) {
+                errors.push(format!(
+                    "Multiple components would be renamed to '{new_name}' (conflict)"
+                ));
+            }
+        }
+
+        if !errors.is_empty() {
+            return ToolCallResult::error(format!(
+                "Rename conflicts detected:\n{}",
+                errors.join("\n")
+            ));
+        }
+
+        // Perform renames (if not dry run)
+        if !dry_run && !renames.is_empty() {
+            // Create backup before destructive operation
+            if let Err(e) = Self::create_backup(filepath) {
+                return ToolCallResult::error(e);
+            }
+
+            for (old_name, new_name) in &renames {
+                if let Some(mut symbol) = library.remove(old_name) {
+                    symbol.name.clone_from(new_name);
+                    library.add(symbol);
+                }
+            }
+
+            if let Err(e) = library.save(filepath) {
+                return ToolCallResult::error(format!("Failed to save library: {e}"));
+            }
+        }
+
+        let result = json!({
+            "status": if dry_run { "dry_run" } else { "success" },
+            "filepath": filepath,
+            "file_type": "SchLib",
+            "dry_run": dry_run,
+            "pattern": regex.as_str(),
+            "replacement": replacement,
+            "renamed_count": renames.len(),
+            "renames": renames.iter()
+                .map(|(old, new)| json!({"from": old, "to": new}))
+                .collect::<Vec<_>>()
+        });
+
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
 }
 
