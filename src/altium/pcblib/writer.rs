@@ -68,12 +68,19 @@ pub fn encode_wide_strings(texts: &[&str]) -> Vec<u8> {
 ///
 /// Returns a vector of unique text strings (excluding special values like `.Designator`).
 pub fn collect_wide_strings_content(footprints: &[Footprint]) -> Vec<String> {
+    use std::collections::HashSet;
+
+    let mut seen: HashSet<&str> = HashSet::new();
     let mut texts = Vec::new();
 
     for footprint in footprints {
         for text in &footprint.text {
-            // Skip special text values
-            if !text.text.starts_with('.') && !text.text.is_empty() && !texts.contains(&text.text) {
+            // Skip special text values and duplicates
+            if !text.text.starts_with('.')
+                && !text.text.is_empty()
+                && !seen.contains(text.text.as_str())
+            {
+                seen.insert(&text.text);
                 texts.push(text.text.clone());
             }
         }
