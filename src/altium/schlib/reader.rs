@@ -275,9 +275,9 @@ fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
     offset += 2;
 
     // location X, Y (2 bytes each, signed)
-    let x = i32::from(read_i16_signed(data, offset).unwrap_or(0));
+    let x = i32::from(read_i16(data, offset).unwrap_or(0));
     offset += 2;
-    let y = i32::from(read_i16_signed(data, offset).unwrap_or(0));
+    let y = i32::from(read_i16(data, offset).unwrap_or(0));
     offset += 2;
 
     // colour (4 bytes)
@@ -819,17 +819,12 @@ fn read_i32(data: &[u8], offset: usize) -> Option<i32> {
     ]))
 }
 
-/// Reads a 2-byte little-endian unsigned integer.
+/// Reads a 2-byte little-endian signed integer.
 fn read_i16(data: &[u8], offset: usize) -> Option<i16> {
     if offset + 2 > data.len() {
         return None;
     }
     Some(i16::from_le_bytes([data[offset], data[offset + 1]]))
-}
-
-/// Reads a 2-byte little-endian signed integer.
-fn read_i16_signed(data: &[u8], offset: usize) -> Option<i16> {
-    read_i16(data, offset)
 }
 
 #[cfg(test)]

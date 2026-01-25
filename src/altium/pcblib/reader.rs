@@ -414,7 +414,7 @@ fn read_string_from_block(block: &[u8]) -> String {
     if str_len + 1 > block.len() {
         return String::new();
     }
-    // Use Windows-1252 encoding (common in Altium files)
+    // Decode as UTF-8 with lossy replacement for invalid sequences
     String::from_utf8_lossy(&block[1..=str_len]).to_string()
 }
 
