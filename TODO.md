@@ -53,15 +53,7 @@ Minor artifacts from mm↔mils conversion. Does not affect functionality.
 
 ## Nice-to-Have Features
 
-### 1. Batch Parameter Update for SchLib
-
-Similar to `batch_update` for PcbLib track widths, add ability to update parameters across all symbols in a SchLib (e.g., update all "Manufacturer" parameters).
-
-### 2. Component Comparison
-
-Add a tool to compare two specific components (not just libraries) and show detailed differences in pads, tracks, parameters, etc.
-
-### 3. Better Error Context
+### 1. Better Error Context
 
 When operations fail, provide more context about what was being processed and what state the file is in.
 
