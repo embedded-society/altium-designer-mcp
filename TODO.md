@@ -4,20 +4,20 @@
 
 ## Minor Issues / Limitations
 
-### 1. No Embedded STEP Models Found
+### 1. External vs Embedded STEP Models
 
 **Severity:** Low
-**Status:** Limitation
+**Status:** Documented behaviour
 
 **Description:**
-The `extract_step_model` tool reports "No embedded 3D models found" for all tested libraries, even though `read_pcblib` shows `model_3d` references in footprints.
+Altium libraries can reference 3D models in two ways:
 
-**Possible Causes:**
+- **External references** (`model_3d`): Path to a STEP file on disk
+- **Embedded models** (`component_bodies`): STEP data stored inside the library
 
-- The libraries may use external STEP file references rather than embedded models
-- The extraction tool may not be looking in the correct OLE storage location
+The `extract_step_model` tool only extracts embedded models. If a library uses external references, the error message now explains this and shows the external file paths.
 
-**Note:** This may not be a bug — the existing libraries may simply not have embedded models.
+**Note:** Most libraries use external STEP file references. Use `read_pcblib` to see both `model_3d` (external) and `component_bodies` (embedded) for each footprint.
 
 ---
 
@@ -53,24 +53,19 @@ Minor artifacts from mm↔mils conversion. Does not affect functionality.
 
 ## Nice-to-Have Features
 
-### 1. Better 3D Model Handling
-
-- Option to extract model references as external files
-- Better error messages when models are missing
-
-### 2. Validation Before Write
+### 1. Validation Before Write
 
 Run `validate_library` automatically after write operations to catch corruption immediately.
 
-### 3. Batch Parameter Update for SchLib
+### 2. Batch Parameter Update for SchLib
 
 Similar to `batch_update` for PcbLib track widths, add ability to update parameters across all symbols in a SchLib (e.g., update all "Manufacturer" parameters).
 
-### 4. Component Comparison
+### 3. Component Comparison
 
 Add a tool to compare two specific components (not just libraries) and show detailed differences in pads, tracks, parameters, etc.
 
-### 5. Better Error Context
+### 4. Better Error Context
 
 When operations fail, provide more context about what was being processed and what state the file is in.
 

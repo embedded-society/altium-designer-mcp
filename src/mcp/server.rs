@@ -1572,6 +1572,7 @@ impl McpServer {
                             "regions": fp.regions,
                             "text": fp.text,
                             "model_3d": fp.model_3d,
+                            "component_bodies": fp.component_bodies,
                         })
                     })
                     .collect();
@@ -3867,6 +3868,7 @@ impl McpServer {
                         "regions": fp.regions,
                         "text": fp.text,
                         "model_3d": fp.model_3d,
+                        "component_bodies": fp.component_bodies,
                     })
                 })
                 .collect();
@@ -3885,13 +3887,14 @@ impl McpServer {
         } else {
             // CSV export - summary table
             let mut csv_lines: Vec<String> = Vec::new();
-            csv_lines.push("name,description,pad_count,track_count,arc_count,region_count,text_count,has_3d_model".to_string());
+            csv_lines.push("name,description,pad_count,track_count,arc_count,region_count,text_count,external_3d_model,embedded_3d_bodies".to_string());
 
             for fp in library.iter() {
                 let description = fp.description.replace(',', ";").replace('\n', " ");
-                let has_model = if fp.model_3d.is_some() { "yes" } else { "no" };
+                let has_external_model = if fp.model_3d.is_some() { "yes" } else { "no" };
+                let embedded_body_count = fp.component_bodies.len();
                 csv_lines.push(format!(
-                    "{},{},{},{},{},{},{},{}",
+                    "{},{},{},{},{},{},{},{},{}",
                     fp.name,
                     description,
                     fp.pads.len(),
@@ -3899,7 +3902,8 @@ impl McpServer {
                     fp.arcs.len(),
                     fp.regions.len(),
                     fp.text.len(),
-                    has_model
+                    has_external_model,
+                    embedded_body_count
                 ));
             }
 
@@ -4263,11 +4267,51 @@ impl McpServer {
         let models: Vec<_> = library.models().collect();
 
         if models.is_empty() {
-            let result = json!({
+            // Check for external model references to provide better error context
+            let external_refs: Vec<Value> = library
+                .iter()
+                .filter_map(|fp| {
+                    fp.model_3d.as_ref().map(|m| {
+                        json!({
+                            "footprint": fp.name,
+                            "filepath": m.filepath,
+                        })
+                    })
+                })
+                .collect();
+
+            let component_body_refs: Vec<Value> = library
+                .iter()
+                .filter(|fp| !fp.component_bodies.is_empty())
+                .map(|fp| {
+                    json!({
+                        "footprint": fp.name,
+                        "body_count": fp.component_bodies.len(),
+                        "model_ids": fp.component_bodies.iter().map(|cb| &cb.model_id).collect::<Vec<_>>(),
+                    })
+                })
+                .collect();
+
+            let mut result = json!({
                 "status": "error",
                 "filepath": filepath,
                 "error": "No embedded 3D models found in this library.",
             });
+
+            if !external_refs.is_empty() {
+                result["note"] = json!("This library uses external STEP file references (not embedded). The model files are stored separately on disk.");
+                result["external_model_references"] = json!(external_refs);
+            }
+
+            if !component_body_refs.is_empty() {
+                result["component_body_references"] = json!(component_body_refs);
+                result["note"] = json!("Component bodies reference model IDs, but the corresponding model data was not found in /Library/Models/. The models may have been removed or the library may be using external references.");
+            }
+
+            if external_refs.is_empty() && component_body_refs.is_empty() {
+                result["note"] = json!("No 3D model references of any kind found in this library.");
+            }
+
             return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
         }
 
@@ -4533,14 +4577,23 @@ impl McpServer {
                 ));
             }
 
-            // Compare 3D model presence
+            // Compare 3D model presence (external references)
             let has_model_a = fp_a.model_3d.is_some();
             let has_model_b = fp_b.model_3d.is_some();
             if has_model_a != has_model_b {
                 changes.push(format!(
-                    "3d_model: {} -> {}",
+                    "external_3d_model: {} -> {}",
                     if has_model_a { "yes" } else { "no" },
                     if has_model_b { "yes" } else { "no" }
+                ));
+            }
+
+            // Compare embedded 3D bodies
+            if fp_a.component_bodies.len() != fp_b.component_bodies.len() {
+                changes.push(format!(
+                    "component_body_count: {} -> {}",
+                    fp_a.component_bodies.len(),
+                    fp_b.component_bodies.len()
                 ));
             }
 
