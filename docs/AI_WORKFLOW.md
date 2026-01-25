@@ -1061,6 +1061,7 @@ Use `get_component` to retrieve a single component by exact name:
     "filepath": "./MyLibrary.PcbLib",
     "component_name": "SOIC-8",
     "type": "PcbLib",
+    "units": "mm",
     "component": {
         "name": "SOIC-8",
         "description": "8-pin SOIC package",

@@ -177,6 +177,8 @@ You should see the Altium tools listed:
 - `rename_component` — Rename a component within a library
 - `copy_component_cross_library` — Copy a component from one library to another
 - `merge_libraries` — Merge multiple libraries into one
+- `reorder_components` — Reorder components in a library
+- `update_component` — Update a component in-place, preserving its position
 - `search_components` — Search for components across multiple libraries
 - `get_component` — Get a single component by name from a library
 - `validate_library` — Check a library for common issues

@@ -1531,6 +1531,7 @@ impl McpServer {
                 let result = json!({
                     "status": "success",
                     "filepath": filepath,
+                    "units": "mm",
                     "total_count": total_count,
                     "returned_count": returned_count,
                     "offset": offset,
@@ -1829,6 +1830,7 @@ impl McpServer {
                 let result = json!({
                     "status": "success",
                     "filepath": filepath,
+                    "units": "schematic units (10 = 1 grid)",
                     "total_count": total_count,
                     "returned_count": returned_count,
                     "offset": offset,
@@ -3752,6 +3754,7 @@ impl McpServer {
                 "filepath": filepath,
                 "file_type": "PcbLib",
                 "format": "json",
+                "units": "mm",
                 "component_count": library.len(),
                 "footprints": footprints,
             });
@@ -3837,6 +3840,7 @@ impl McpServer {
                 "filepath": filepath,
                 "file_type": "SchLib",
                 "format": "json",
+                "units": "schematic units (10 = 1 grid)",
                 "component_count": library.len(),
                 "symbols": symbols,
             });
@@ -6545,6 +6549,7 @@ impl McpServer {
             "filepath": filepath,
             "component_name": component_name,
             "type": "PcbLib",
+            "units": "mm",
             "component": footprint,
             "message": format!("Retrieved footprint '{}' from '{}'", component_name, filepath),
         });
@@ -6583,6 +6588,7 @@ impl McpServer {
             "filepath": filepath,
             "component_name": component_name,
             "type": "SchLib",
+            "units": "schematic units (10 = 1 grid)",
             "component": symbol,
             "message": format!("Retrieved symbol '{}' from '{}'", component_name, filepath),
         });

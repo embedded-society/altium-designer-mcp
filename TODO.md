@@ -4,7 +4,6 @@
 
 | Item | Notes |
 |------|-------|
-| Units reminder in responses | "Coordinates are in mm" / "Coordinates are in schematic units (10=1 grid)" |
 | Layer name examples | List of valid layer names in tool description |
 | Pad shape examples | Clarify "round" vs "circle" equivalence |
 
