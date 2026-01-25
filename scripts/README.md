@@ -1,27 +1,30 @@
 # Scripts and Sample Files
 
-This folder contains analysis scripts and sample Altium library files for testing and development.
+This folder contains analysis scripts and sample Altium library files for **manual debugging only**.
+These are NOT used by automated tests.
+
+---
 
 ## Sample Files
 
 | File | Description |
 |------|-------------|
-| `sample.PcbLib` | Sample PCB footprint library containing generic chip resistor footprints (0402, 0603, 0805, etc.) with IPC-7351B compliant land patterns |
-| `sample.SchLib` | Corresponding schematic symbol library with generic chip resistor symbols |
+| `sample.PcbLib` | Sample PCB footprint library with generic chip resistor footprints |
+| `sample.SchLib` | Corresponding schematic symbol library |
 
-These files are used for:
+These files are useful for:
 
-- Testing the binary format reader/writer
-- Validating round-trip encoding/decoding
-- Running the manual analysis test
+- Manual debugging of binary format issues
+- Reverse engineering Altium file formats
+- Testing with real Altium-created libraries
 
-## Analysis Scripts
+---
 
-### Python Analysis (`analyze_pcblib.py`, `analyze_schlib.py`)
+## Python Analysis Scripts
 
-Analyses the binary format of PcbLib and SchLib files using olefile.
+Analyses the binary format of Altium files using olefile.
 
-**Prerequisites:**
+### Prerequisites
 
 ```bash
 # Create virtual environment (one-time setup)
@@ -32,41 +35,32 @@ source .venv/bin/activate  # Linux/macOS
 pip install olefile
 ```
 
-**Usage:**
+### Usage
 
 ```bash
-# Analyse PcbLib sample file
+# Analyse the sample PcbLib
 python analyze_pcblib.py
 
 # Analyse a specific PcbLib file
 python analyze_pcblib.py /path/to/library.PcbLib
 
-# Analyse SchLib sample file
+# Analyse the sample SchLib
 python analyze_schlib.py
 
 # Analyse a specific SchLib file
 python analyze_schlib.py /path/to/library.SchLib
 ```
 
-**Output:**
+### Output
 
 - OLE structure (streams and storages)
 - Component names and parameters
 - Primitive data (pads, tracks, pins, rectangles, etc.)
 - Binary format details for reverse engineering
 
-### Rust Analysis Tests
+---
 
-The Rust analysis tests (`tests/pcblib_analysis.rs`, `tests/schlib_analysis.rs`) provide similar functionality in Rust.
+## Note
 
-**Usage:**
-
-```bash
-# From project root
-cargo test --test pcblib_analysis -- --ignored --nocapture
-cargo test --test schlib_analysis -- --ignored --nocapture
-```
-
-## Binary Format Documentation
-
-See [docs/PCBLIB_FORMAT.md](../docs/PCBLIB_FORMAT.md) and [docs/SCHLIB_FORMAT.md](../docs/SCHLIB_FORMAT.md) for complete binary format documentation.
+Automated tests in `tests/` generate their own test data programmatically and do not depend
+on these sample files. This ensures tests work in CI environments without external dependencies.
