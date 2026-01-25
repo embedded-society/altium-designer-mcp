@@ -11,7 +11,15 @@ use altium_designer_mcp::altium::schlib::{
     Pin, PinElectricalType, PinOrientation, Rectangle, SchLib, Symbol,
 };
 use std::fs::File;
-use tempfile::tempdir;
+use tempfile::TempDir;
+
+/// Creates a temporary directory inside `.tmp/` for test isolation.
+/// The directory is automatically cleaned up when the returned `TempDir` is dropped.
+fn test_temp_dir() -> TempDir {
+    let tmp_root = std::path::Path::new(".tmp");
+    std::fs::create_dir_all(tmp_root).expect("Failed to create .tmp directory");
+    tempfile::tempdir_in(tmp_root).expect("Failed to create temp dir")
+}
 
 /// Helper to compare floats with tolerance.
 fn approx_eq(a: f64, b: f64, tolerance: f64) -> bool {
@@ -32,7 +40,7 @@ const COORD_TOLERANCE: f64 = 0.001;
 
 #[test]
 fn pcblib_file_roundtrip_simple_footprint() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("test_simple.PcbLib");
 
     // Create a simple footprint
@@ -82,7 +90,7 @@ fn pcblib_file_roundtrip_simple_footprint() {
 
 #[test]
 fn pcblib_file_roundtrip_multiple_footprints() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("test_multi.PcbLib");
 
     // Create multiple footprints
@@ -110,7 +118,7 @@ fn pcblib_file_roundtrip_multiple_footprints() {
 
 #[test]
 fn pcblib_file_roundtrip_all_primitives() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("test_all_primitives.PcbLib");
 
     // Create footprint with all primitive types
@@ -172,7 +180,7 @@ fn pcblib_file_roundtrip_all_primitives() {
 
 #[test]
 fn pcblib_file_roundtrip_pad_shapes() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("test_pad_shapes.PcbLib");
 
     let mut lib = PcbLib::new();
@@ -214,7 +222,7 @@ fn pcblib_file_roundtrip_pad_shapes() {
 
 #[test]
 fn pcblib_file_roundtrip_layers() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("test_layers.PcbLib");
 
     let mut lib = PcbLib::new();
@@ -257,7 +265,7 @@ fn pcblib_file_roundtrip_layers() {
 
 #[test]
 fn schlib_file_roundtrip_simple_symbol() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("test_simple.SchLib");
 
     // Create a simple resistor symbol
@@ -293,7 +301,7 @@ fn schlib_file_roundtrip_simple_symbol() {
 
 #[test]
 fn schlib_file_roundtrip_multiple_symbols() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("test_multi.SchLib");
 
     let mut lib = SchLib::new();
@@ -322,7 +330,7 @@ fn schlib_file_roundtrip_multiple_symbols() {
 
 #[test]
 fn schlib_file_roundtrip_pin_types() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("test_pin_types.SchLib");
 
     let mut lib = SchLib::new();
@@ -370,7 +378,7 @@ fn schlib_file_roundtrip_pin_types() {
 
 #[test]
 fn schlib_file_roundtrip_pin_orientations() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("test_orientations.SchLib");
 
     let mut lib = SchLib::new();

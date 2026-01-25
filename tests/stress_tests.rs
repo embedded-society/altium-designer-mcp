@@ -9,7 +9,15 @@ use altium_designer_mcp::altium::pcblib::{
 };
 use altium_designer_mcp::altium::schlib::{Pin, PinOrientation, Rectangle, SchLib, Symbol};
 use std::fs::File;
-use tempfile::tempdir;
+use tempfile::TempDir;
+
+/// Creates a temporary directory inside `.tmp/` for test isolation.
+/// The directory is automatically cleaned up when the returned `TempDir` is dropped.
+fn test_temp_dir() -> TempDir {
+    let tmp_root = std::path::Path::new(".tmp");
+    std::fs::create_dir_all(tmp_root).expect("Failed to create .tmp directory");
+    tempfile::tempdir_in(tmp_root).expect("Failed to create temp dir")
+}
 
 // =============================================================================
 // Coordinate Boundary Tests
@@ -17,7 +25,7 @@ use tempfile::tempdir;
 
 #[test]
 fn test_extreme_positive_coordinates() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("extreme_positive.PcbLib");
 
     let mut lib = PcbLib::new();
@@ -39,7 +47,7 @@ fn test_extreme_positive_coordinates() {
 
 #[test]
 fn test_extreme_negative_coordinates() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("extreme_negative.PcbLib");
 
     let mut lib = PcbLib::new();
@@ -61,7 +69,7 @@ fn test_extreme_negative_coordinates() {
 
 #[test]
 fn test_very_small_dimensions() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("very_small.PcbLib");
 
     let mut lib = PcbLib::new();
@@ -84,7 +92,7 @@ fn test_very_small_dimensions() {
 
 #[test]
 fn test_zero_dimensions() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("zero_dim.PcbLib");
 
     let mut lib = PcbLib::new();
@@ -113,7 +121,7 @@ fn test_zero_dimensions() {
 
 #[test]
 fn test_empty_footprint() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("empty_fp.PcbLib");
 
     let mut lib = PcbLib::new();
@@ -135,7 +143,7 @@ fn test_empty_footprint() {
 
 #[test]
 fn test_empty_library() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("empty_lib.PcbLib");
 
     let mut lib = PcbLib::new();
@@ -147,7 +155,7 @@ fn test_empty_library() {
 
 #[test]
 fn test_footprint_with_many_primitives() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("many_primitives.PcbLib");
 
     let mut lib = PcbLib::new();
@@ -184,7 +192,7 @@ fn test_footprint_with_many_primitives() {
 
 #[test]
 fn test_unicode_in_footprint_name() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("unicode.PcbLib");
 
     let mut lib = PcbLib::new();
@@ -203,7 +211,7 @@ fn test_unicode_in_footprint_name() {
 
 #[test]
 fn test_long_footprint_name() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("long_name.PcbLib");
 
     let mut lib = PcbLib::new();
@@ -223,7 +231,7 @@ fn test_long_footprint_name() {
 
 #[test]
 fn test_footprint_name_too_long_returns_error() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("too_long.PcbLib");
 
     let mut lib = PcbLib::new();
@@ -254,7 +262,7 @@ fn test_footprint_name_too_long_returns_error() {
 
 #[test]
 fn test_pad_rotation_boundaries() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("rotation.PcbLib");
 
     let mut lib = PcbLib::new();
@@ -287,7 +295,7 @@ fn test_pad_rotation_boundaries() {
 
 #[test]
 fn test_arc_angle_boundaries() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("arc_angles.PcbLib");
 
     let mut lib = PcbLib::new();
@@ -323,7 +331,7 @@ fn test_arc_angle_boundaries() {
 
 #[test]
 fn test_complex_region() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("complex_region.PcbLib");
 
     let mut lib = PcbLib::new();
@@ -357,7 +365,7 @@ fn test_complex_region() {
 
 #[test]
 fn test_region_with_many_vertices() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("many_vertices.PcbLib");
 
     let mut lib = PcbLib::new();
@@ -399,7 +407,7 @@ fn test_region_with_many_vertices() {
 
 #[test]
 fn test_symbol_with_many_pins() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("many_pins.SchLib");
 
     let mut lib = SchLib::new();
@@ -440,7 +448,7 @@ fn test_symbol_with_many_pins() {
 
 #[test]
 fn test_multiple_footprints_same_library() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("multi_fp.PcbLib");
 
     let mut lib = PcbLib::new();
@@ -477,7 +485,7 @@ fn test_multiple_footprints_same_library() {
 
 #[test]
 fn test_text_special_strings() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("text_special.PcbLib");
 
     let mut lib = PcbLib::new();
@@ -530,7 +538,7 @@ fn test_text_special_strings() {
 
 #[test]
 fn test_multiple_via_types() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("vias.PcbLib");
 
     let mut lib = PcbLib::new();
@@ -560,7 +568,7 @@ fn test_multiple_via_types() {
 
 #[test]
 fn test_fills_various_sizes() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("fills.PcbLib");
 
     let mut lib = PcbLib::new();
@@ -590,7 +598,7 @@ fn test_fills_various_sizes() {
 fn test_schlib_symbol_name_length_validation() {
     use altium_designer_mcp::altium::schlib::{SchLib, Symbol};
 
-    let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("name_test.SchLib");
 
     let mut lib = SchLib::new();
@@ -627,7 +635,7 @@ fn test_schlib_symbol_name_length_validation() {
 
 #[test]
 fn test_pcblib_append_mode() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("append_test.PcbLib");
 
     // Step 1: Create initial library with one footprint
@@ -665,7 +673,7 @@ fn test_pcblib_append_mode() {
 
 #[test]
 fn test_schlib_append_mode() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("append_test.SchLib");
 
     // Step 1: Create initial library with one symbol
@@ -707,7 +715,7 @@ fn test_schlib_append_mode() {
 
 #[test]
 fn test_pcblib_append_multiple_footprints() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("append_multi.PcbLib");
 
     // Start with empty library
@@ -745,7 +753,7 @@ fn test_pcblib_append_multiple_footprints() {
 
 #[test]
 fn test_component_body_roundtrip() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("component_body.PcbLib");
 
     let mut lib = PcbLib::new();
@@ -790,7 +798,7 @@ fn test_component_body_roundtrip() {
 
 #[test]
 fn test_component_body_with_rotation() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("rotated_body.PcbLib");
 
     let mut lib = PcbLib::new();
@@ -831,7 +839,7 @@ fn test_component_body_with_rotation() {
 
 #[test]
 fn test_large_pcblib_pagination() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("large_library.PcbLib");
 
     // Create a library with 100 footprints
@@ -869,7 +877,7 @@ fn test_large_pcblib_pagination() {
 
 #[test]
 fn test_large_schlib_pagination() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("large_schlib.SchLib");
 
     // Create a library with 50 symbols
@@ -906,7 +914,7 @@ fn test_large_schlib_pagination() {
 
 #[test]
 fn test_pagination_edge_cases() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("edge_case.PcbLib");
 
     // Create library with 5 footprints
@@ -950,7 +958,7 @@ fn test_pagination_edge_cases() {
 fn test_model_3d_persistence() {
     use std::io::Write;
 
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let step_path = temp_dir.path().join("test_model.step");
     let pcblib_path = temp_dir.path().join("model_3d_test.PcbLib");
 
@@ -1039,7 +1047,7 @@ END-ISO-10303-21;
 fn test_model_3d_embedded_data_persistence() {
     use std::io::Write;
 
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let step_path = temp_dir.path().join("embedded_model.step");
     let pcblib_path = temp_dir.path().join("embedded_test.PcbLib");
 
@@ -1091,7 +1099,7 @@ fn test_model_3d_embedded_data_persistence() {
 fn test_step_model_extraction_to_file() {
     use std::io::Write;
 
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let step_path = temp_dir.path().join("original.step");
     let pcblib_path = temp_dir.path().join("extraction_test.PcbLib");
     let extracted_path = temp_dir.path().join("extracted.step");
@@ -1148,7 +1156,7 @@ fn test_step_model_extraction_to_file() {
 fn test_step_model_lookup_by_name_and_id() {
     use std::io::Write;
 
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let step_path = temp_dir.path().join("lookup_test.step");
     let pcblib_path = temp_dir.path().join("lookup_test.PcbLib");
 
@@ -1204,7 +1212,7 @@ fn test_step_model_lookup_by_name_and_id() {
 /// Tests renaming a footprint in a `PcbLib` file.
 #[test]
 fn test_pcblib_rename_component() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("rename_test.PcbLib");
 
     // Create library with a footprint
@@ -1250,7 +1258,7 @@ fn test_schlib_rename_component() {
     };
     use altium_designer_mcp::altium::SchLib;
 
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("rename_test.SchLib");
 
     // Create library with a symbol
@@ -1322,7 +1330,7 @@ fn test_schlib_rename_component() {
 /// Tests copying a footprint from one `PcbLib` to another.
 #[test]
 fn test_pcblib_copy_cross_library() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let source_path = temp_dir.path().join("source.PcbLib");
     let target_path = temp_dir.path().join("target.PcbLib");
 
@@ -1363,7 +1371,7 @@ fn test_pcblib_copy_cross_library() {
 /// Tests copying a footprint to an existing target library.
 #[test]
 fn test_pcblib_copy_cross_library_to_existing() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let source_path = temp_dir.path().join("source.PcbLib");
     let target_path = temp_dir.path().join("target.PcbLib");
 
@@ -1407,7 +1415,7 @@ fn test_pcblib_copy_cross_library_to_existing() {
 /// Tests copying a footprint with rename.
 #[test]
 fn test_pcblib_copy_cross_library_with_rename() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let source_path = temp_dir.path().join("source.PcbLib");
     let target_path = temp_dir.path().join("target.PcbLib");
 
@@ -1461,7 +1469,7 @@ fn test_schlib_copy_cross_library() {
     };
     use altium_designer_mcp::altium::SchLib;
 
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let source_path = temp_dir.path().join("source.SchLib");
     let target_path = temp_dir.path().join("target.SchLib");
 
@@ -1530,7 +1538,7 @@ fn test_schlib_copy_cross_library() {
 /// Tests `PcbLib` round-trip through JSON export/import format.
 #[test]
 fn test_pcblib_json_roundtrip() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let original_path = temp_dir.path().join("original.PcbLib");
     let imported_path = temp_dir.path().join("imported.PcbLib");
 
@@ -1595,7 +1603,7 @@ fn test_schlib_json_roundtrip() {
     };
     use altium_designer_mcp::altium::SchLib;
 
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let original_path = temp_dir.path().join("original.SchLib");
     let imported_path = temp_dir.path().join("imported.SchLib");
 
@@ -1687,7 +1695,7 @@ fn test_schlib_json_roundtrip() {
 /// Tests merging multiple `PcbLib` files into one.
 #[test]
 fn test_pcblib_merge_libraries() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let source1_path = temp_dir.path().join("source1.PcbLib");
     let source2_path = temp_dir.path().join("source2.PcbLib");
     let target_path = temp_dir.path().join("merged.PcbLib");
@@ -1731,7 +1739,7 @@ fn test_pcblib_merge_libraries() {
 /// Tests merging with duplicate handling (skip).
 #[test]
 fn test_pcblib_merge_skip_duplicates() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let source1_path = temp_dir.path().join("source1.PcbLib");
     let source2_path = temp_dir.path().join("source2.PcbLib");
     let target_path = temp_dir.path().join("merged.PcbLib");
@@ -1783,7 +1791,7 @@ fn test_pcblib_merge_skip_duplicates() {
 /// Tests merging with duplicate handling (rename).
 #[test]
 fn test_pcblib_merge_rename_duplicates() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let source1_path = temp_dir.path().join("source1.PcbLib");
     let source2_path = temp_dir.path().join("source2.PcbLib");
     let target_path = temp_dir.path().join("merged.PcbLib");
@@ -1845,7 +1853,7 @@ fn test_schlib_merge_libraries() {
     };
     use altium_designer_mcp::altium::SchLib;
 
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let source1_path = temp_dir.path().join("source1.SchLib");
     let source2_path = temp_dir.path().join("source2.SchLib");
     let target_path = temp_dir.path().join("merged.SchLib");
@@ -1918,7 +1926,7 @@ fn test_schlib_merge_libraries() {
 /// Tests glob pattern search in `PcbLib`.
 #[test]
 fn test_pcblib_search_glob() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("searchable.PcbLib");
 
     // Create library with multiple footprints
@@ -1946,7 +1954,7 @@ fn test_pcblib_search_glob() {
 /// Tests regex pattern search in `PcbLib`.
 #[test]
 fn test_pcblib_search_regex() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("searchable.PcbLib");
 
     // Create library with multiple footprints
@@ -1974,7 +1982,7 @@ fn test_pcblib_search_regex() {
 /// Tests search across multiple `PcbLib` files.
 #[test]
 fn test_pcblib_search_multiple_libraries() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file1_path = temp_dir.path().join("lib1.PcbLib");
     let file2_path = temp_dir.path().join("lib2.PcbLib");
 
@@ -2020,7 +2028,7 @@ fn test_schlib_search() {
     use altium_designer_mcp::altium::schlib::{Rectangle, Symbol};
     use altium_designer_mcp::altium::SchLib;
 
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("searchable.SchLib");
 
     // Create library with multiple symbols
@@ -2090,7 +2098,7 @@ fn test_schlib_search() {
 /// Tests getting a single footprint from a `PcbLib`.
 #[test]
 fn test_pcblib_get_component() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("components.PcbLib");
 
     // Create library with multiple footprints
@@ -2118,7 +2126,7 @@ fn test_pcblib_get_component() {
 /// Tests getting a component that doesn't exist.
 #[test]
 fn test_pcblib_get_component_not_found() {
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("components.PcbLib");
 
     // Create library with one footprint
@@ -2141,7 +2149,7 @@ fn test_schlib_get_component() {
     };
     use altium_designer_mcp::altium::SchLib;
 
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("components.SchLib");
 
     // Create library with multiple symbols
@@ -2198,7 +2206,7 @@ fn test_schlib_get_component_not_found() {
     use altium_designer_mcp::altium::schlib::Symbol;
     use altium_designer_mcp::altium::SchLib;
 
-    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("components.SchLib");
 
     // Create library with one symbol
@@ -2211,4 +2219,421 @@ fn test_schlib_get_component_not_found() {
     let result = library.get("NON_EXISTENT");
 
     assert!(result.is_none(), "Should not find non-existent component");
+}
+
+// =============================================================================
+// Comprehensive STEP Model Tests
+// =============================================================================
+
+/// Tests that GUID matching for embedded models is case-insensitive.
+/// This was a bug where GUIDs stored with different casing in ComponentBody
+/// records vs the model index would fail to match.
+#[test]
+fn test_step_model_case_insensitive_guid_matching() {
+    use std::io::Write;
+
+    let temp_dir = test_temp_dir();
+    let step_path = temp_dir.path().join("case_test.step");
+    let pcblib_path = temp_dir.path().join("case_test.PcbLib");
+
+    // Create a STEP file
+    let step_content =
+        b"ISO-10303-21;HEADER;FILE_DESCRIPTION(('Case test'));ENDSEC;DATA;ENDSEC;END-ISO-10303-21;";
+    {
+        let mut step_file = File::create(&step_path).expect("Failed to create STEP file");
+        step_file
+            .write_all(step_content)
+            .expect("Failed to write STEP file");
+    }
+
+    // Create library with embedded model
+    let mut lib = PcbLib::new();
+    let mut fp = Footprint::new("CASE_TEST");
+    fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    fp.model_3d = Some(Model3D {
+        filepath: step_path.to_string_lossy().to_string(),
+        x_offset: 0.0,
+        y_offset: 0.0,
+        z_offset: 0.0,
+        rotation: 0.0,
+    });
+
+    lib.add(fp);
+    lib.save(&pcblib_path).expect("Failed to write library");
+
+    // Read library and get the model GUID
+    let read_lib = PcbLib::open(&pcblib_path).expect("Failed to read library");
+    let model = read_lib
+        .models()
+        .next()
+        .expect("Should have embedded model");
+    let guid = model.id.clone();
+
+    // Test that lookup works with exact case
+    assert!(
+        read_lib.get_model(&guid).is_some(),
+        "Should find model with exact GUID"
+    );
+
+    // Test that lookup works with different casing
+    let upper_guid = guid.to_uppercase();
+    let lower_guid = guid.to_lowercase();
+
+    assert!(
+        read_lib.get_model(&upper_guid).is_some(),
+        "Should find model with uppercase GUID"
+    );
+    assert!(
+        read_lib.get_model(&lower_guid).is_some(),
+        "Should find model with lowercase GUID"
+    );
+}
+
+/// Tests multiple STEP models embedded in a single library.
+#[test]
+fn test_multiple_step_models_in_library() {
+    use std::io::Write;
+
+    let temp_dir = test_temp_dir();
+    let pcblib_path = temp_dir.path().join("multi_model.PcbLib");
+
+    // Create multiple STEP files
+    let step_paths: Vec<_> = (1..=3)
+        .map(|i| {
+            let path = temp_dir.path().join(format!("model_{i}.step"));
+            let content = format!(
+                "ISO-10303-21;HEADER;FILE_DESCRIPTION(('Model {i}'));ENDSEC;DATA;ENDSEC;END-ISO-10303-21;"
+            );
+            let mut file = File::create(&path).expect("Failed to create STEP file");
+            file.write_all(content.as_bytes())
+                .expect("Failed to write STEP file");
+            path
+        })
+        .collect();
+
+    // Create library with multiple footprints, each with its own model
+    let mut lib = PcbLib::new();
+    for (i, step_path) in step_paths.iter().enumerate() {
+        let mut fp = Footprint::new(format!("FP_{}", i + 1));
+        fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+        fp.model_3d = Some(Model3D {
+            filepath: step_path.to_string_lossy().to_string(),
+            x_offset: 0.0,
+            y_offset: 0.0,
+            z_offset: 0.0,
+            rotation: 0.0,
+        });
+        lib.add(fp);
+    }
+
+    lib.save(&pcblib_path).expect("Failed to write library");
+
+    // Read library and verify all models
+    let read_lib = PcbLib::open(&pcblib_path).expect("Failed to read library");
+    assert_eq!(read_lib.model_count(), 3, "Should have 3 embedded models");
+
+    // Verify each footprint has model_3d populated
+    for i in 1..=3 {
+        let fp = read_lib
+            .get(&format!("FP_{i}"))
+            .expect("Footprint should exist");
+        assert!(
+            fp.model_3d.is_some(),
+            "Footprint FP_{i} should have model_3d"
+        );
+    }
+
+    // Verify model data integrity
+    let models: Vec<_> = read_lib.models().collect();
+    assert_eq!(models.len(), 3);
+    for (i, model) in models.iter().enumerate() {
+        let content = model.as_string().expect("Model should be valid UTF-8");
+        assert!(
+            content.contains(&format!("Model {}", i + 1)),
+            "Model {i} should contain correct identifier"
+        );
+    }
+}
+
+/// Tests copying a footprint with embedded STEP model between libraries.
+/// The STEP file must remain available since the target library re-embeds from the filepath.
+#[test]
+fn test_copy_footprint_with_step_model() {
+    use std::io::Write;
+
+    let temp_dir = test_temp_dir();
+    let step_path = temp_dir.path().join("copy_test.step");
+    let source_path = temp_dir.path().join("source.PcbLib");
+    let target_path = temp_dir.path().join("target.PcbLib");
+
+    // Create a STEP file
+    let step_content = b"ISO-10303-21;HEADER;FILE_DESCRIPTION(('Copy test model'));ENDSEC;DATA;ENDSEC;END-ISO-10303-21;";
+    {
+        let mut step_file = File::create(&step_path).expect("Failed to create STEP file");
+        step_file
+            .write_all(step_content)
+            .expect("Failed to write STEP file");
+    }
+
+    // Create source library with embedded model
+    let mut source_lib = PcbLib::new();
+    let mut fp = Footprint::new("WITH_MODEL");
+    fp.add_pad(Pad::smd("1", -0.5, 0.0, 0.6, 0.5));
+    fp.add_pad(Pad::smd("2", 0.5, 0.0, 0.6, 0.5));
+    fp.model_3d = Some(Model3D {
+        filepath: step_path.to_string_lossy().to_string(),
+        x_offset: 0.0,
+        y_offset: 0.0,
+        z_offset: 0.5,
+        rotation: 45.0,
+    });
+    source_lib.add(fp);
+    source_lib
+        .save(&source_path)
+        .expect("Failed to write source");
+
+    // Read source and copy the component
+    let source_lib = PcbLib::open(&source_path).expect("Failed to read source");
+    let source_fp = source_lib.get("WITH_MODEL").expect("Source not found");
+
+    // Get the embedded model data for verification
+    let source_model = source_lib.models().next().expect("Should have model");
+    let source_model_content = source_model.as_string().expect("Should be UTF-8");
+
+    // Create target library with the copied footprint
+    // The footprint's model_3d.filepath is preserved, so the STEP file must exist
+    let mut target_lib = PcbLib::new();
+    let mut copied_fp = source_fp.clone();
+
+    // Update the model_3d filepath to point to the still-existing STEP file
+    if let Some(ref mut model) = copied_fp.model_3d {
+        model.filepath = step_path.to_string_lossy().to_string();
+    }
+    target_lib.add(copied_fp);
+
+    target_lib
+        .save(&target_path)
+        .expect("Failed to write target");
+
+    // Verify target library
+    let target_lib = PcbLib::open(&target_path).expect("Failed to read target");
+    assert_eq!(target_lib.len(), 1, "Should have 1 footprint");
+    assert_eq!(target_lib.model_count(), 1, "Should have 1 embedded model");
+
+    let target_fp = target_lib
+        .get("WITH_MODEL")
+        .expect("Target footprint not found");
+    assert!(target_fp.model_3d.is_some(), "Should have model_3d");
+    assert!(
+        (target_fp.model_3d.as_ref().unwrap().z_offset - 0.5).abs() < 0.01,
+        "Z offset should be preserved"
+    );
+    assert!(
+        (target_fp.model_3d.as_ref().unwrap().rotation - 45.0).abs() < 0.01,
+        "Rotation should be preserved"
+    );
+
+    // Verify model data matches source
+    let target_model = target_lib.models().next().expect("Should have model");
+    let target_model_content = target_model
+        .as_string()
+        .expect("Model should be valid UTF-8");
+    assert!(
+        target_model_content.contains("Copy test model"),
+        "Model content should be preserved"
+    );
+    assert_eq!(
+        source_model_content, target_model_content,
+        "Model content should match source"
+    );
+}
+
+/// Tests ComponentBody with external (non-embedded) STEP model reference.
+#[test]
+fn test_component_body_external_model_reference() {
+    let temp_dir = test_temp_dir();
+    let pcblib_path = temp_dir.path().join("external_ref.PcbLib");
+
+    // Create library with ComponentBody referencing external model (no actual file)
+    let mut lib = PcbLib::new();
+    let mut fp = Footprint::new("EXTERNAL_MODEL");
+    fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+
+    // Add ComponentBody with external reference
+    let body = ComponentBody {
+        model_id: "{EXTERNAL-GUID-1234}".to_string(),
+        model_name: "external_model.step".to_string(),
+        embedded: false, // External reference
+        rotation_x: 0.0,
+        rotation_y: 0.0,
+        rotation_z: 0.0,
+        z_offset: 0.0,
+        overall_height: 1.0,
+        standoff_height: 0.0,
+        layer: Layer::Top3DBody,
+        unique_id: None,
+    };
+    fp.component_bodies.push(body);
+
+    lib.add(fp);
+    lib.save(&pcblib_path).expect("Failed to write library");
+
+    // Read back and verify
+    let read_lib = PcbLib::open(&pcblib_path).expect("Failed to read library");
+    let read_fp = read_lib.get("EXTERNAL_MODEL").expect("Footprint not found");
+
+    assert_eq!(read_fp.component_bodies.len(), 1);
+    let read_body = &read_fp.component_bodies[0];
+    assert!(!read_body.embedded, "Should be external reference");
+    assert_eq!(read_body.model_name, "external_model.step");
+
+    // No embedded models in library
+    assert_eq!(
+        read_lib.model_count(),
+        0,
+        "Should have no embedded models for external reference"
+    );
+}
+
+/// Tests that footprints sharing the same STEP model reference it correctly.
+#[test]
+fn test_multiple_footprints_sharing_step_model() {
+    use std::io::Write;
+
+    let temp_dir = test_temp_dir();
+    let step_path = temp_dir.path().join("shared.step");
+    let pcblib_path = temp_dir.path().join("shared_model.PcbLib");
+
+    // Create a single STEP file
+    let step_content = b"ISO-10303-21;HEADER;FILE_DESCRIPTION(('Shared model'));ENDSEC;DATA;ENDSEC;END-ISO-10303-21;";
+    {
+        let mut step_file = File::create(&step_path).expect("Failed to create STEP file");
+        step_file
+            .write_all(step_content)
+            .expect("Failed to write STEP file");
+    }
+
+    // Create library where multiple footprints use the same model
+    let mut lib = PcbLib::new();
+
+    // First footprint
+    let mut fp1 = Footprint::new("CHIP_0402");
+    fp1.add_pad(Pad::smd("1", -0.5, 0.0, 0.6, 0.5));
+    fp1.add_pad(Pad::smd("2", 0.5, 0.0, 0.6, 0.5));
+    fp1.model_3d = Some(Model3D {
+        filepath: step_path.to_string_lossy().to_string(),
+        x_offset: 0.0,
+        y_offset: 0.0,
+        z_offset: 0.0,
+        rotation: 0.0,
+    });
+    lib.add(fp1);
+
+    // Second footprint - same model file
+    let mut fp2 = Footprint::new("CHIP_0402_ALT");
+    fp2.add_pad(Pad::smd("1", -0.5, 0.0, 0.6, 0.5));
+    fp2.add_pad(Pad::smd("2", 0.5, 0.0, 0.6, 0.5));
+    fp2.model_3d = Some(Model3D {
+        filepath: step_path.to_string_lossy().to_string(),
+        x_offset: 0.0,
+        y_offset: 0.0,
+        z_offset: 0.0,
+        rotation: 90.0, // Different rotation
+    });
+    lib.add(fp2);
+
+    lib.save(&pcblib_path).expect("Failed to write library");
+
+    // Read back and verify
+    let read_lib = PcbLib::open(&pcblib_path).expect("Failed to read library");
+    assert_eq!(read_lib.len(), 2, "Should have 2 footprints");
+
+    // Both footprints should have model_3d
+    let fp1_read = read_lib.get("CHIP_0402").expect("FP1 not found");
+    let fp2_read = read_lib.get("CHIP_0402_ALT").expect("FP2 not found");
+
+    assert!(fp1_read.model_3d.is_some(), "FP1 should have model_3d");
+    assert!(fp2_read.model_3d.is_some(), "FP2 should have model_3d");
+
+    // Verify different rotations are preserved
+    assert!(
+        (fp1_read.model_3d.as_ref().unwrap().rotation - 0.0).abs() < 0.01,
+        "FP1 should have 0 rotation"
+    );
+    assert!(
+        (fp2_read.model_3d.as_ref().unwrap().rotation - 90.0).abs() < 0.01,
+        "FP2 should have 90 rotation"
+    );
+}
+
+/// Tests that large STEP files are handled correctly (compression).
+#[test]
+fn test_large_step_model_compression() {
+    use std::io::Write;
+
+    let temp_dir = test_temp_dir();
+    let step_path = temp_dir.path().join("large_model.step");
+    let pcblib_path = temp_dir.path().join("large_model.PcbLib");
+
+    // Create a larger STEP file (repetitive content compresses well)
+    let header = b"ISO-10303-21;HEADER;FILE_DESCRIPTION(('Large model test'));ENDSEC;DATA;\n";
+    let footer = b"ENDSEC;END-ISO-10303-21;";
+
+    // Generate ~100KB of STEP-like content
+    let mut content = Vec::with_capacity(100_000);
+    content.extend_from_slice(header);
+    for i in 0..2000 {
+        content.extend_from_slice(
+            format!("#{}=CARTESIAN_POINT('Point{}',(0.0,0.0,0.0));\n", i, i).as_bytes(),
+        );
+    }
+    content.extend_from_slice(footer);
+
+    let original_size = content.len();
+    {
+        let mut step_file = File::create(&step_path).expect("Failed to create STEP file");
+        step_file
+            .write_all(&content)
+            .expect("Failed to write STEP file");
+    }
+
+    // Create library with embedded model
+    let mut lib = PcbLib::new();
+    let mut fp = Footprint::new("LARGE_MODEL");
+    fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    fp.model_3d = Some(Model3D {
+        filepath: step_path.to_string_lossy().to_string(),
+        x_offset: 0.0,
+        y_offset: 0.0,
+        z_offset: 0.0,
+        rotation: 0.0,
+    });
+
+    lib.add(fp);
+    lib.save(&pcblib_path).expect("Failed to write library");
+
+    // Read back and verify
+    let read_lib = PcbLib::open(&pcblib_path).expect("Failed to read library");
+    let model = read_lib
+        .models()
+        .next()
+        .expect("Should have embedded model");
+
+    // Verify decompressed size matches original
+    assert_eq!(
+        model.data.len(),
+        original_size,
+        "Decompressed model should match original size"
+    );
+
+    // Verify content integrity
+    let model_content = model.as_string().expect("Model should be valid UTF-8");
+    assert!(
+        model_content.contains("Large model test"),
+        "Header should be preserved"
+    );
+    assert!(
+        model_content.contains("CARTESIAN_POINT"),
+        "Content should be preserved"
+    );
 }

@@ -1259,6 +1259,25 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ---
 
+## Development
+
+### Running Tests
+
+```bash
+cargo test
+```
+
+Tests are self-contained and generate their own data programmatically. Temporary files are created in `.tmp/` (git-ignored) and automatically cleaned up.
+
+### Code Quality
+
+```bash
+cargo fmt --check  # Check formatting
+cargo clippy       # Lint
+```
+
+---
+
 ## Licence
 
 Copyright (C) 2026 The Embedded Society <https://github.com/embedded-society/altium-designer-mcp>.
@@ -1276,7 +1295,8 @@ GNU General Public License v3.0 — see [LICENCE](LICENCE).
 
 ## Sample Files
 
-Sample Altium library files are included in the `scripts/` folder for testing and development.
+Sample Altium library files are included in the `scripts/` folder for **manual debugging only**.
+Automated tests do not depend on these files.
 
 See [scripts/README.md](scripts/README.md) for details on available sample files and analysis scripts.
 

@@ -9625,6 +9625,70 @@ impl McpServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::altium::pcblib::{Footprint, Pad, PcbLib};
+    use crate::altium::schlib::{Pin, PinOrientation, Rectangle, SchLib, Symbol};
+    use tempfile::TempDir;
+
+    /// Creates a temporary directory inside `.tmp/` for test isolation.
+    /// The directory is automatically cleaned up when the returned `TempDir` is dropped.
+    fn test_temp_dir() -> TempDir {
+        let tmp_root = std::path::Path::new(".tmp");
+        std::fs::create_dir_all(tmp_root).expect("Failed to create .tmp directory");
+        tempfile::tempdir_in(tmp_root).expect("Failed to create temp dir")
+    }
+
+    /// Helper to create a server with a temp directory as allowed path.
+    fn create_test_server(temp_path: &std::path::Path) -> McpServer {
+        McpServer::new(vec![temp_path.to_path_buf()])
+    }
+
+    /// Helper to create a test PcbLib with sample footprints.
+    fn create_test_pcblib(path: &std::path::Path) {
+        let mut lib = PcbLib::new();
+
+        let mut fp1 = Footprint::new("CHIP_0402");
+        fp1.description = "0402 chip resistor".to_string();
+        fp1.add_pad(Pad::smd("1", -0.5, 0.0, 0.6, 0.5));
+        fp1.add_pad(Pad::smd("2", 0.5, 0.0, 0.6, 0.5));
+        lib.add(fp1);
+
+        let mut fp2 = Footprint::new("CHIP_0603");
+        fp2.description = "0603 chip resistor".to_string();
+        fp2.add_pad(Pad::smd("1", -0.8, 0.0, 0.8, 0.8));
+        fp2.add_pad(Pad::smd("2", 0.8, 0.0, 0.8, 0.8));
+        lib.add(fp2);
+
+        lib.save(path).expect("Failed to create test PcbLib");
+    }
+
+    /// Helper to create a test SchLib with sample symbols.
+    fn create_test_schlib(path: &std::path::Path) {
+        let mut lib = SchLib::new();
+
+        let mut sym1 = Symbol::new("RESISTOR");
+        sym1.description = "Generic resistor".to_string();
+        sym1.designator = "R?".to_string();
+        sym1.add_pin(Pin::new("1", "1", -20, 0, 10, PinOrientation::Left));
+        sym1.add_pin(Pin::new("2", "2", 20, 0, 10, PinOrientation::Right));
+        sym1.add_rectangle(Rectangle::new(-10, -5, 10, 5));
+        lib.add(sym1);
+
+        let mut sym2 = Symbol::new("CAPACITOR");
+        sym2.description = "Generic capacitor".to_string();
+        sym2.designator = "C?".to_string();
+        sym2.add_pin(Pin::new("1", "1", -20, 0, 10, PinOrientation::Left));
+        sym2.add_pin(Pin::new("2", "2", 20, 0, 10, PinOrientation::Right));
+        lib.add(sym2);
+
+        lib.save(path).expect("Failed to create test SchLib");
+    }
+
+    /// Helper to extract text from a tool result.
+    fn get_result_text(result: &ToolCallResult) -> &str {
+        match &result.content[0] {
+            ToolContent::Text { text } => text,
+        }
+    }
 
     #[test]
     fn server_initial_state() {
@@ -9690,5 +9754,682 @@ mod tests {
         // Empty slice should return 0.0
         let empty: [f64; 0] = [];
         assert!((McpServer::most_common_f64(&empty) - 0.0).abs() < f64::EPSILON);
+    }
+
+    // =========================================================================
+    // list_components Tool Tests
+    // =========================================================================
+
+    #[test]
+    fn list_components_pcblib_success() {
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("test.PcbLib");
+        create_test_pcblib(&lib_path);
+
+        let server = create_test_server(temp.path());
+        let args = json!({ "filepath": lib_path.to_string_lossy() });
+
+        let result = server.call_list_components(&args);
+        assert!(!result.is_error, "Expected success, got error");
+
+        let text = get_result_text(&result);
+        let parsed: Value = serde_json::from_str(text).expect("Invalid JSON");
+
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["file_type"], "PcbLib");
+        assert_eq!(parsed["component_count"], 2);
+
+        let components = parsed["components"].as_array().unwrap();
+        assert!(components.contains(&json!("CHIP_0402")));
+        assert!(components.contains(&json!("CHIP_0603")));
+    }
+
+    #[test]
+    fn list_components_schlib_success() {
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("test.SchLib");
+        create_test_schlib(&lib_path);
+
+        let server = create_test_server(temp.path());
+        let args = json!({ "filepath": lib_path.to_string_lossy() });
+
+        let result = server.call_list_components(&args);
+        assert!(!result.is_error, "Expected success, got error");
+
+        let text = get_result_text(&result);
+        let parsed: Value = serde_json::from_str(text).expect("Invalid JSON");
+
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["file_type"], "SchLib");
+        assert_eq!(parsed["component_count"], 2);
+
+        let components = parsed["components"].as_array().unwrap();
+        assert!(components.contains(&json!("RESISTOR")));
+        assert!(components.contains(&json!("CAPACITOR")));
+    }
+
+    #[test]
+    fn list_components_missing_filepath() {
+        let server = McpServer::new(vec![PathBuf::from(".")]);
+        let args = json!({});
+
+        let result = server.call_list_components(&args);
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Missing required parameter"));
+    }
+
+    #[test]
+    fn list_components_file_not_found() {
+        let temp = test_temp_dir();
+        let server = create_test_server(temp.path());
+        let args = json!({ "filepath": temp.path().join("nonexistent.PcbLib").to_string_lossy() });
+
+        let result = server.call_list_components(&args);
+        assert!(result.is_error);
+    }
+
+    // =========================================================================
+    // get_component Tool Tests
+    // =========================================================================
+
+    #[test]
+    fn get_component_pcblib_found() {
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("test.PcbLib");
+        create_test_pcblib(&lib_path);
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepath": lib_path.to_string_lossy(),
+            "component_name": "CHIP_0402"
+        });
+
+        let result = server.call_get_component(&args);
+        assert!(!result.is_error, "Expected success, got error");
+
+        let text = get_result_text(&result);
+        let parsed: Value = serde_json::from_str(text).expect("Invalid JSON");
+
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["component"]["name"], "CHIP_0402");
+        assert_eq!(parsed["component"]["description"], "0402 chip resistor");
+    }
+
+    #[test]
+    fn get_component_pcblib_not_found() {
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("test.PcbLib");
+        create_test_pcblib(&lib_path);
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepath": lib_path.to_string_lossy(),
+            "component_name": "NONEXISTENT"
+        });
+
+        let result = server.call_get_component(&args);
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("not found"));
+    }
+
+    #[test]
+    fn get_component_schlib_found() {
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("test.SchLib");
+        create_test_schlib(&lib_path);
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepath": lib_path.to_string_lossy(),
+            "component_name": "RESISTOR"
+        });
+
+        let result = server.call_get_component(&args);
+        assert!(!result.is_error, "Expected success, got error");
+
+        let text = get_result_text(&result);
+        let parsed: Value = serde_json::from_str(text).expect("Invalid JSON");
+
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["component"]["name"], "RESISTOR");
+    }
+
+    // =========================================================================
+    // search_components Tool Tests
+    // =========================================================================
+
+    #[test]
+    fn search_components_glob_pattern() {
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("test.PcbLib");
+        create_test_pcblib(&lib_path);
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepaths": [lib_path.to_string_lossy()],
+            "pattern": "CHIP_*"
+        });
+
+        let result = server.call_search_components(&args);
+        assert!(
+            !result.is_error,
+            "Expected success, got: {}",
+            get_result_text(&result)
+        );
+
+        let text = get_result_text(&result);
+        let parsed: Value = serde_json::from_str(text).expect("Invalid JSON");
+
+        assert_eq!(parsed["status"], "success");
+        let matches = parsed["matches"].as_array().unwrap();
+        assert_eq!(matches.len(), 2);
+    }
+
+    #[test]
+    fn search_components_regex_pattern() {
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("test.PcbLib");
+        create_test_pcblib(&lib_path);
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepaths": [lib_path.to_string_lossy()],
+            "pattern": ".*0402$",
+            "pattern_type": "regex"
+        });
+
+        let result = server.call_search_components(&args);
+        assert!(
+            !result.is_error,
+            "Expected success, got: {}",
+            get_result_text(&result)
+        );
+
+        let text = get_result_text(&result);
+        let parsed: Value = serde_json::from_str(text).expect("Invalid JSON");
+
+        assert_eq!(parsed["status"], "success");
+        let matches = parsed["matches"].as_array().unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0]["name"], "CHIP_0402");
+    }
+
+    #[test]
+    fn search_components_no_matches() {
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("test.PcbLib");
+        create_test_pcblib(&lib_path);
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepaths": [lib_path.to_string_lossy()],
+            "pattern": "NONEXISTENT_*"
+        });
+
+        let result = server.call_search_components(&args);
+        assert!(
+            !result.is_error,
+            "Expected success, got: {}",
+            get_result_text(&result)
+        );
+
+        let text = get_result_text(&result);
+        let parsed: Value = serde_json::from_str(text).expect("Invalid JSON");
+
+        assert_eq!(parsed["status"], "success");
+        let matches = parsed["matches"].as_array().unwrap();
+        assert!(matches.is_empty());
+    }
+
+    // =========================================================================
+    // write_pcblib Tool Tests
+    // =========================================================================
+
+    #[test]
+    fn write_pcblib_create_new() {
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("new_lib.PcbLib");
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepath": lib_path.to_string_lossy(),
+            "footprints": [{
+                "name": "TEST_FP",
+                "description": "Test footprint",
+                "pads": [
+                    {"designator": "1", "x": -0.5, "y": 0.0, "width": 0.6, "height": 0.5}
+                ]
+            }]
+        });
+
+        let result = server.call_write_pcblib(&args);
+        assert!(
+            !result.is_error,
+            "Expected success, got: {}",
+            get_result_text(&result)
+        );
+
+        // Verify file was created
+        assert!(lib_path.exists());
+
+        // Verify content
+        let lib = PcbLib::open(&lib_path).expect("Failed to read created library");
+        assert_eq!(lib.len(), 1);
+        assert!(lib.get("TEST_FP").is_some());
+    }
+
+    #[test]
+    fn write_pcblib_append_mode() {
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("append_test.PcbLib");
+        create_test_pcblib(&lib_path);
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepath": lib_path.to_string_lossy(),
+            "footprints": [{
+                "name": "NEW_FP",
+                "pads": [{"designator": "1", "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0}]
+            }],
+            "append": true
+        });
+
+        let result = server.call_write_pcblib(&args);
+        assert!(
+            !result.is_error,
+            "Expected success, got: {}",
+            get_result_text(&result)
+        );
+
+        // Verify original + new footprints exist
+        let lib = PcbLib::open(&lib_path).expect("Failed to read library");
+        assert_eq!(lib.len(), 3);
+        assert!(lib.get("CHIP_0402").is_some());
+        assert!(lib.get("CHIP_0603").is_some());
+        assert!(lib.get("NEW_FP").is_some());
+    }
+
+    // =========================================================================
+    // write_schlib Tool Tests
+    // =========================================================================
+
+    #[test]
+    fn write_schlib_create_new() {
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("new_lib.SchLib");
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepath": lib_path.to_string_lossy(),
+            "symbols": [{
+                "name": "TEST_SYM",
+                "description": "Test symbol",
+                "designator": "U?",
+                "pins": [
+                    {"name": "VCC", "designator": "1", "x": -40, "y": 0, "length": 20, "orientation": "Right"}
+                ],
+                "rectangles": [
+                    {"x1": -30, "y1": -20, "x2": 30, "y2": 20}
+                ]
+            }]
+        });
+
+        let result = server.call_write_schlib(&args);
+        assert!(
+            !result.is_error,
+            "Expected success, got: {}",
+            get_result_text(&result)
+        );
+
+        // Verify file was created
+        assert!(lib_path.exists());
+
+        // Verify content
+        let lib = SchLib::open(&lib_path).expect("Failed to read created library");
+        assert_eq!(lib.len(), 1);
+        assert!(lib.get("TEST_SYM").is_some());
+    }
+
+    #[test]
+    fn write_schlib_append_mode() {
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("append_test.SchLib");
+        create_test_schlib(&lib_path);
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepath": lib_path.to_string_lossy(),
+            "symbols": [{
+                "name": "NEW_SYM",
+                "designator": "X?",
+                "pins": [],
+                "rectangles": [{"x1": -10, "y1": -10, "x2": 10, "y2": 10}]
+            }],
+            "append": true
+        });
+
+        let result = server.call_write_schlib(&args);
+        assert!(
+            !result.is_error,
+            "Expected success, got: {}",
+            get_result_text(&result)
+        );
+
+        // Verify original + new symbols exist
+        let lib = SchLib::open(&lib_path).expect("Failed to read library");
+        assert_eq!(lib.len(), 3);
+        assert!(lib.get("RESISTOR").is_some());
+        assert!(lib.get("CAPACITOR").is_some());
+        assert!(lib.get("NEW_SYM").is_some());
+    }
+
+    // =========================================================================
+    // delete_component Tool Tests
+    // =========================================================================
+
+    #[test]
+    fn delete_component_pcblib() {
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("delete_test.PcbLib");
+        create_test_pcblib(&lib_path);
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepath": lib_path.to_string_lossy(),
+            "component_names": ["CHIP_0402"]
+        });
+
+        let result = server.call_delete_component(&args);
+        assert!(
+            !result.is_error,
+            "Expected success, got: {}",
+            get_result_text(&result)
+        );
+
+        // Verify component was deleted
+        let lib = PcbLib::open(&lib_path).expect("Failed to read library");
+        assert_eq!(lib.len(), 1);
+        assert!(lib.get("CHIP_0402").is_none());
+        assert!(lib.get("CHIP_0603").is_some());
+    }
+
+    #[test]
+    fn delete_component_not_found() {
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("delete_test.PcbLib");
+        create_test_pcblib(&lib_path);
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepath": lib_path.to_string_lossy(),
+            "component_names": ["NONEXISTENT"]
+        });
+
+        let result = server.call_delete_component(&args);
+        // The tool returns success but with results showing "not_found" status
+        let text = get_result_text(&result);
+        let parsed: Value = serde_json::from_str(text).expect("Invalid JSON");
+        let results = parsed["results"]
+            .as_array()
+            .expect("Should have results array");
+        assert!(!results.is_empty(), "Should have results");
+        assert_eq!(results[0]["status"], "not_found");
+    }
+
+    // =========================================================================
+    // rename_component Tool Tests
+    // =========================================================================
+
+    #[test]
+    fn rename_component_pcblib() {
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("rename_test.PcbLib");
+        create_test_pcblib(&lib_path);
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepath": lib_path.to_string_lossy(),
+            "old_name": "CHIP_0402",
+            "new_name": "RES_0402"
+        });
+
+        let result = server.call_rename_component(&args);
+        assert!(
+            !result.is_error,
+            "Expected success, got: {}",
+            get_result_text(&result)
+        );
+
+        // Verify rename
+        let lib = PcbLib::open(&lib_path).expect("Failed to read library");
+        assert_eq!(lib.len(), 2);
+        assert!(lib.get("CHIP_0402").is_none());
+        assert!(lib.get("RES_0402").is_some());
+        assert!(lib.get("CHIP_0603").is_some());
+    }
+
+    #[test]
+    fn rename_component_not_found() {
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("rename_test.PcbLib");
+        create_test_pcblib(&lib_path);
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepath": lib_path.to_string_lossy(),
+            "old_name": "NONEXISTENT",
+            "new_name": "NEW_NAME"
+        });
+
+        let result = server.call_rename_component(&args);
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("not found"));
+    }
+
+    // =========================================================================
+    // copy_component_cross_library Tool Tests
+    // =========================================================================
+
+    #[test]
+    fn copy_component_cross_library_pcblib() {
+        let temp = test_temp_dir();
+        let source_path = temp.path().join("source.PcbLib");
+        let target_path = temp.path().join("target.PcbLib");
+        create_test_pcblib(&source_path);
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "source_filepath": source_path.to_string_lossy(),
+            "target_filepath": target_path.to_string_lossy(),
+            "component_name": "CHIP_0402"
+        });
+
+        let result = server.call_copy_component_cross_library(&args);
+        assert!(
+            !result.is_error,
+            "Expected success, got: {}",
+            get_result_text(&result)
+        );
+
+        // Verify copy
+        let target_lib = PcbLib::open(&target_path).expect("Failed to read target library");
+        assert_eq!(target_lib.len(), 1);
+        assert!(target_lib.get("CHIP_0402").is_some());
+
+        // Verify source unchanged
+        let source_lib = PcbLib::open(&source_path).expect("Failed to read source library");
+        assert_eq!(source_lib.len(), 2);
+    }
+
+    #[test]
+    fn copy_component_cross_library_with_rename() {
+        let temp = test_temp_dir();
+        let source_path = temp.path().join("source.PcbLib");
+        let target_path = temp.path().join("target.PcbLib");
+        create_test_pcblib(&source_path);
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "source_filepath": source_path.to_string_lossy(),
+            "target_filepath": target_path.to_string_lossy(),
+            "component_name": "CHIP_0402",
+            "new_name": "COPIED_0402"
+        });
+
+        let result = server.call_copy_component_cross_library(&args);
+        assert!(
+            !result.is_error,
+            "Expected success, got: {}",
+            get_result_text(&result)
+        );
+
+        // Verify copy with new name
+        let target_lib = PcbLib::open(&target_path).expect("Failed to read target library");
+        assert_eq!(target_lib.len(), 1);
+        assert!(target_lib.get("CHIP_0402").is_none());
+        assert!(target_lib.get("COPIED_0402").is_some());
+    }
+
+    // =========================================================================
+    // render_footprint Tool Tests
+    // =========================================================================
+
+    #[test]
+    fn render_footprint_ascii() {
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("render_test.PcbLib");
+        create_test_pcblib(&lib_path);
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepath": lib_path.to_string_lossy(),
+            "component_name": "CHIP_0402"
+        });
+
+        let result = server.call_render_footprint(&args);
+        assert!(
+            !result.is_error,
+            "Expected success, got: {}",
+            get_result_text(&result)
+        );
+
+        let text = get_result_text(&result);
+        // Should contain ASCII art representation
+        assert!(text.contains("CHIP_0402"), "Should contain footprint name");
+    }
+
+    // =========================================================================
+    // render_symbol Tool Tests
+    // =========================================================================
+
+    #[test]
+    fn render_symbol_ascii() {
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("render_test.SchLib");
+        create_test_schlib(&lib_path);
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepath": lib_path.to_string_lossy(),
+            "component_name": "RESISTOR"
+        });
+
+        let result = server.call_render_symbol(&args);
+        assert!(
+            !result.is_error,
+            "Expected success, got: {}",
+            get_result_text(&result)
+        );
+
+        let text = get_result_text(&result);
+        // Should contain ASCII art representation
+        assert!(text.contains("RESISTOR"), "Should contain symbol name");
+    }
+
+    // =========================================================================
+    // Error Path Tests
+    // =========================================================================
+
+    #[test]
+    fn error_path_outside_allowed_directories() {
+        let temp = test_temp_dir();
+        let other_temp = test_temp_dir();
+        let outside_path = other_temp.path().join("outside.PcbLib");
+
+        // Create a file outside the allowed directory
+        create_test_pcblib(&outside_path);
+
+        let server = create_test_server(temp.path());
+        let args = json!({ "filepath": outside_path.to_string_lossy() });
+        let result = server.call_list_components(&args);
+
+        assert!(result.is_error);
+        assert!(
+            get_result_text(&result).contains("Access denied")
+                || get_result_text(&result).contains("outside"),
+            "Expected access denied error, got: {}",
+            get_result_text(&result)
+        );
+    }
+
+    #[test]
+    fn error_unsupported_file_extension() {
+        let temp = test_temp_dir();
+        let bad_path = temp.path().join("test.txt");
+        std::fs::write(&bad_path, "not a library").expect("Failed to write file");
+
+        let server = create_test_server(temp.path());
+        let args = json!({ "filepath": bad_path.to_string_lossy() });
+
+        let result = server.call_list_components(&args);
+        assert!(result.is_error);
+        // The error message mentions the supported extensions
+        let text = get_result_text(&result);
+        assert!(
+            text.contains("Unsupported") || text.contains("PcbLib") || text.contains("SchLib"),
+            "Expected unsupported file type error, got: {text}"
+        );
+    }
+
+    // =========================================================================
+    // Backup Functionality Tests
+    // =========================================================================
+
+    #[test]
+    fn backup_created_on_destructive_operation() {
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("backup_test.PcbLib");
+        create_test_pcblib(&lib_path);
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepath": lib_path.to_string_lossy(),
+            "component_names": ["CHIP_0402"]
+        });
+
+        // Delete a component (destructive operation)
+        let result = server.call_delete_component(&args);
+        assert!(
+            !result.is_error,
+            "Expected success, got: {}",
+            get_result_text(&result)
+        );
+
+        // Check that a backup was created (format: {filename}.{timestamp}.bak)
+        let backup_pattern = format!("{}.*.bak", lib_path.file_name().unwrap().to_string_lossy());
+        let backups: Vec<_> = std::fs::read_dir(temp.path())
+            .expect("Failed to read temp dir")
+            .filter_map(Result::ok)
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("backup_test.PcbLib.")
+                    && e.file_name().to_string_lossy().ends_with(".bak")
+            })
+            .collect();
+        assert!(
+            !backups.is_empty(),
+            "At least one backup should exist, pattern: {backup_pattern}"
+        );
     }
 }

@@ -4,3 +4,4 @@ Cargo.lock
 nul
 .venv/
 node_modules/
+.tmp/

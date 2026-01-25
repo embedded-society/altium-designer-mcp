@@ -582,17 +582,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Requires sample file"]
-    fn read_sample_schlib() {
-        let lib = SchLib::open("scripts/sample.SchLib").unwrap();
-        assert!(!lib.is_empty());
-
-        let symbol = lib.get("SMD Chip Resistor").expect("Symbol not found");
-        assert_eq!(symbol.pins.len(), 2);
-        assert!(!symbol.rectangles.is_empty());
-    }
-
-    #[test]
     fn roundtrip_simple_symbol() {
         // Create a simple symbol
         let mut symbol = Symbol::new("RESISTOR");
