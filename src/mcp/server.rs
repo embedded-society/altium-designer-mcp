@@ -910,7 +910,8 @@ impl McpServer {
                 description: Some(
                     "Delete one or more components from an Altium library file (.PcbLib or .SchLib). \
                      The file type is auto-detected from the extension. Returns status for each \
-                     component: deleted, not_found, or error."
+                     component: deleted, not_found, or error. Use dry_run=true to preview changes \
+                     without modifying the file."
                         .to_string(),
                 ),
                 input_schema: json!({
@@ -924,6 +925,11 @@ impl McpServer {
                             "type": "array",
                             "items": { "type": "string" },
                             "description": "Names of components to delete"
+                        },
+                        "dry_run": {
+                            "type": "boolean",
+                            "description": "If true, show what would be deleted without actually modifying the file",
+                            "default": false
                         }
                     },
                     "required": ["filepath", "component_names"]
@@ -1054,7 +1060,8 @@ impl McpServer {
                 description: Some(
                     "Perform batch updates across all components in an Altium library file. \
                      For PcbLib: update track widths, rename layers. \
-                     For SchLib: update parameter values across symbols."
+                     For SchLib: update parameter values across symbols. \
+                     Use dry_run=true to preview changes without modifying the file."
                         .to_string(),
                 ),
                 input_schema: json!({
@@ -1110,6 +1117,11 @@ impl McpServer {
                                     "description": "For update_parameters: add parameter if not present (default: false)"
                                 }
                             }
+                        },
+                        "dry_run": {
+                            "type": "boolean",
+                            "description": "If true, show what would be updated without actually modifying the file",
+                            "default": false
                         }
                     },
                     "required": ["filepath", "operation", "parameters"]
@@ -1212,7 +1224,7 @@ impl McpServer {
                 description: Some(
                     "Merge multiple Altium libraries into a single library. All source libraries must \
                      be the same type (all PcbLib or all SchLib). Components are copied from each \
-                     source into the target library."
+                     source into the target library. Use dry_run=true to preview what would be merged."
                         .to_string(),
                 ),
                 input_schema: json!({
@@ -1231,6 +1243,11 @@ impl McpServer {
                             "type": "string",
                             "enum": ["skip", "error", "rename"],
                             "description": "How to handle duplicate component names: 'skip' (ignore duplicates), 'error' (fail on duplicates), 'rename' (auto-rename with suffix). Default: 'error'"
+                        },
+                        "dry_run": {
+                            "type": "boolean",
+                            "description": "If true, show what would be merged without actually modifying any files",
+                            "default": false
                         }
                     },
                     "required": ["source_filepaths", "target_filepath"]
@@ -3248,6 +3265,11 @@ impl McpServer {
             return ToolCallResult::error("component_names array is empty or contains no strings");
         }
 
+        let dry_run = arguments
+            .get("dry_run")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
         // Determine file type from extension
         let path = std::path::Path::new(filepath);
         let extension = path
@@ -3256,8 +3278,8 @@ impl McpServer {
             .map(str::to_lowercase);
 
         match extension.as_deref() {
-            Some("pcblib") => Self::delete_from_pcblib(filepath, &names),
-            Some("schlib") => Self::delete_from_schlib(filepath, &names),
+            Some("pcblib") => Self::delete_from_pcblib(filepath, &names, dry_run),
+            Some("schlib") => Self::delete_from_schlib(filepath, &names, dry_run),
             _ => {
                 let result = json!({
                     "status": "error",
@@ -3270,7 +3292,7 @@ impl McpServer {
     }
 
     /// Deletes components from a `PcbLib` file.
-    fn delete_from_pcblib(filepath: &str, names: &[&str]) -> ToolCallResult {
+    fn delete_from_pcblib(filepath: &str, names: &[&str], dry_run: bool) -> ToolCallResult {
         use crate::altium::PcbLib;
 
         // Read the library
@@ -3290,9 +3312,23 @@ impl McpServer {
         let mut results: Vec<Value> = Vec::with_capacity(names.len());
         let mut deleted_count = 0;
 
-        // Remove each component
+        // Check which components exist (for dry_run) or remove them
         for name in names {
-            if library.remove(name).is_some() {
+            if dry_run {
+                // In dry-run mode, just check if component exists
+                if library.get(name).is_some() {
+                    results.push(json!({
+                        "name": name,
+                        "status": "would_delete"
+                    }));
+                    deleted_count += 1;
+                } else {
+                    results.push(json!({
+                        "name": name,
+                        "status": "not_found"
+                    }));
+                }
+            } else if library.remove(name).is_some() {
                 results.push(json!({
                     "name": name,
                     "status": "deleted"
@@ -3306,8 +3342,8 @@ impl McpServer {
             }
         }
 
-        // Only write if something was deleted
-        if deleted_count > 0 {
+        // Only write if something was deleted (and not dry-run)
+        if deleted_count > 0 && !dry_run {
             // Create backup before destructive operation
             if let Err(e) = Self::create_backup(filepath) {
                 let result = json!({
@@ -3331,19 +3367,20 @@ impl McpServer {
         }
 
         let result = json!({
-            "status": "success",
+            "status": if dry_run { "dry_run" } else { "success" },
             "filepath": filepath,
             "file_type": "PcbLib",
+            "dry_run": dry_run,
             "original_count": original_count,
             "deleted_count": deleted_count,
-            "remaining_count": library.len(),
+            "remaining_count": if dry_run { original_count - deleted_count } else { library.len() },
             "results": results,
         });
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
 
     /// Deletes components from a `SchLib` file.
-    fn delete_from_schlib(filepath: &str, names: &[&str]) -> ToolCallResult {
+    fn delete_from_schlib(filepath: &str, names: &[&str], dry_run: bool) -> ToolCallResult {
         use crate::altium::SchLib;
 
         // Read the library
@@ -3363,9 +3400,23 @@ impl McpServer {
         let mut results: Vec<Value> = Vec::with_capacity(names.len());
         let mut deleted_count = 0;
 
-        // Remove each component
+        // Check which components exist (for dry_run) or remove them
         for name in names {
-            if library.remove(name).is_some() {
+            if dry_run {
+                // In dry-run mode, just check if component exists
+                if library.get(name).is_some() {
+                    results.push(json!({
+                        "name": name,
+                        "status": "would_delete"
+                    }));
+                    deleted_count += 1;
+                } else {
+                    results.push(json!({
+                        "name": name,
+                        "status": "not_found"
+                    }));
+                }
+            } else if library.remove(name).is_some() {
                 results.push(json!({
                     "name": name,
                     "status": "deleted"
@@ -3379,8 +3430,8 @@ impl McpServer {
             }
         }
 
-        // Only write if something was deleted
-        if deleted_count > 0 {
+        // Only write if something was deleted (and not dry-run)
+        if deleted_count > 0 && !dry_run {
             // Create backup before destructive operation
             if let Err(e) = Self::create_backup(filepath) {
                 let result = json!({
@@ -3404,12 +3455,13 @@ impl McpServer {
         }
 
         let result = json!({
-            "status": "success",
+            "status": if dry_run { "dry_run" } else { "success" },
             "filepath": filepath,
             "file_type": "SchLib",
+            "dry_run": dry_run,
             "original_count": original_count,
             "deleted_count": deleted_count,
-            "remaining_count": library.len(),
+            "remaining_count": if dry_run { original_count - deleted_count } else { library.len() },
             "results": results,
         });
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
@@ -4671,6 +4723,11 @@ impl McpServer {
             return ToolCallResult::error("Missing required parameter: parameters");
         };
 
+        let dry_run = arguments
+            .get("dry_run")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
         // Validate path is within allowed directories
         if let Err(e) = self.validate_path(filepath) {
             return ToolCallResult::error(e);
@@ -4683,14 +4740,19 @@ impl McpServer {
             .map(str::to_lowercase);
 
         match ext.as_deref() {
-            Some("pcblib") => Self::batch_update_pcblib(filepath, operation, parameters),
-            Some("schlib") => Self::batch_update_schlib(filepath, operation, parameters),
+            Some("pcblib") => Self::batch_update_pcblib(filepath, operation, parameters, dry_run),
+            Some("schlib") => Self::batch_update_schlib(filepath, operation, parameters, dry_run),
             _ => ToolCallResult::error("batch_update only supports .PcbLib and .SchLib files"),
         }
     }
 
     /// Performs batch updates on a `PcbLib` file.
-    fn batch_update_pcblib(filepath: &str, operation: &str, parameters: &Value) -> ToolCallResult {
+    fn batch_update_pcblib(
+        filepath: &str,
+        operation: &str,
+        parameters: &Value,
+        dry_run: bool,
+    ) -> ToolCallResult {
         use crate::altium::PcbLib;
 
         // Read the library
@@ -4702,9 +4764,9 @@ impl McpServer {
         // Perform the operation
         match operation {
             "update_track_width" => {
-                Self::batch_update_track_width(&mut library, parameters, filepath)
+                Self::batch_update_track_width(&mut library, parameters, filepath, dry_run)
             }
-            "rename_layer" => Self::batch_rename_layer(&mut library, parameters, filepath),
+            "rename_layer" => Self::batch_rename_layer(&mut library, parameters, filepath, dry_run),
             _ => ToolCallResult::error(format!(
                 "Unknown PcbLib operation: {operation}. Valid: update_track_width, rename_layer"
             )),
@@ -4712,7 +4774,12 @@ impl McpServer {
     }
 
     /// Performs batch updates on a `SchLib` file.
-    fn batch_update_schlib(filepath: &str, operation: &str, parameters: &Value) -> ToolCallResult {
+    fn batch_update_schlib(
+        filepath: &str,
+        operation: &str,
+        parameters: &Value,
+        dry_run: bool,
+    ) -> ToolCallResult {
         use crate::altium::schlib::SchLib;
 
         // Read the library
@@ -4724,7 +4791,7 @@ impl McpServer {
         // Perform the operation
         match operation {
             "update_parameters" => {
-                Self::batch_update_schlib_parameters(&mut library, parameters, filepath)
+                Self::batch_update_schlib_parameters(&mut library, parameters, filepath, dry_run)
             }
             _ => ToolCallResult::error(format!(
                 "Unknown SchLib operation: {operation}. Valid: update_parameters"
@@ -4737,6 +4804,7 @@ impl McpServer {
         library: &mut crate::altium::schlib::SchLib,
         parameters: &Value,
         filepath: &str,
+        dry_run: bool,
     ) -> ToolCallResult {
         use crate::altium::schlib::Parameter;
         use regex::Regex;
@@ -4789,10 +4857,12 @@ impl McpServer {
             for param in &mut symbol.parameters {
                 if param.name == param_name {
                     let old_value = param.value.clone();
-                    param.value = param_value.to_string();
+                    if !dry_run {
+                        param.value = param_value.to_string();
+                    }
                     updates.push(json!({
                         "symbol": symbol.name,
-                        "action": "updated",
+                        "action": if dry_run { "would_update" } else { "updated" },
                         "old_value": old_value,
                         "new_value": param_value
                     }));
@@ -4804,11 +4874,13 @@ impl McpServer {
 
             // Add parameter if not found and add_if_missing is true
             if !updated_in_symbol && add_if_missing {
-                let param = Parameter::new(param_name, param_value);
-                symbol.add_parameter(param);
+                if !dry_run {
+                    let param = Parameter::new(param_name, param_value);
+                    symbol.add_parameter(param);
+                }
                 updates.push(json!({
                     "symbol": symbol.name,
-                    "action": "added",
+                    "action": if dry_run { "would_add" } else { "added" },
                     "new_value": param_value
                 }));
                 params_added += 1;
@@ -4820,8 +4892,8 @@ impl McpServer {
             }
         }
 
-        // Write back if any updates were made
-        if symbols_updated > 0 {
+        // Write back if any updates were made (and not dry-run)
+        if symbols_updated > 0 && !dry_run {
             // Create backup before destructive operation
             if let Err(e) = Self::create_backup(filepath) {
                 return ToolCallResult::error(e);
@@ -4833,7 +4905,8 @@ impl McpServer {
         }
 
         let result = json!({
-            "success": true,
+            "status": if dry_run { "dry_run" } else { "success" },
+            "dry_run": dry_run,
             "filepath": filepath,
             "operation": "update_parameters",
             "param_name": param_name,
@@ -4855,6 +4928,7 @@ impl McpServer {
         library: &mut crate::altium::PcbLib,
         parameters: &Value,
         filepath: &str,
+        dry_run: bool,
     ) -> ToolCallResult {
         let Some(from_width) = parameters.get("from_width").and_then(Value::as_f64) else {
             return ToolCallResult::error(
@@ -4885,7 +4959,9 @@ impl McpServer {
 
             for track in &mut fp.tracks {
                 if (track.width - from_width).abs() <= tolerance {
-                    track.width = to_width;
+                    if !dry_run {
+                        track.width = to_width;
+                    }
                     fp_count += 1;
                 }
             }
@@ -4899,8 +4975,8 @@ impl McpServer {
             }
         }
 
-        // Write the updated library if any changes were made
-        if total_updated > 0 {
+        // Write the updated library if any changes were made (and not dry-run)
+        if total_updated > 0 && !dry_run {
             // Create backup before destructive operation
             if let Err(e) = Self::create_backup(filepath) {
                 return ToolCallResult::error(e);
@@ -4912,7 +4988,8 @@ impl McpServer {
         }
 
         let result = json!({
-            "status": "success",
+            "status": if dry_run { "dry_run" } else { "success" },
+            "dry_run": dry_run,
             "operation": "update_track_width",
             "filepath": filepath,
             "from_width": from_width,
@@ -4931,6 +5008,7 @@ impl McpServer {
         library: &mut crate::altium::PcbLib,
         parameters: &Value,
         filepath: &str,
+        dry_run: bool,
     ) -> ToolCallResult {
         let Some(from_layer_str) = parameters.get("from_layer").and_then(Value::as_str) else {
             return ToolCallResult::error(
@@ -4975,7 +5053,9 @@ impl McpServer {
             // Update tracks
             for track in &mut fp.tracks {
                 if track.layer == from_layer {
-                    track.layer = to_layer;
+                    if !dry_run {
+                        track.layer = to_layer;
+                    }
                     fp_changes["tracks"] = json!(fp_changes["tracks"].as_u64().unwrap_or(0) + 1);
                     fp_total += 1;
                 }
@@ -4984,7 +5064,9 @@ impl McpServer {
             // Update arcs
             for arc in &mut fp.arcs {
                 if arc.layer == from_layer {
-                    arc.layer = to_layer;
+                    if !dry_run {
+                        arc.layer = to_layer;
+                    }
                     fp_changes["arcs"] = json!(fp_changes["arcs"].as_u64().unwrap_or(0) + 1);
                     fp_total += 1;
                 }
@@ -4993,7 +5075,9 @@ impl McpServer {
             // Update regions
             for region in &mut fp.regions {
                 if region.layer == from_layer {
-                    region.layer = to_layer;
+                    if !dry_run {
+                        region.layer = to_layer;
+                    }
                     fp_changes["regions"] = json!(fp_changes["regions"].as_u64().unwrap_or(0) + 1);
                     fp_total += 1;
                 }
@@ -5002,7 +5086,9 @@ impl McpServer {
             // Update text
             for text in &mut fp.text {
                 if text.layer == from_layer {
-                    text.layer = to_layer;
+                    if !dry_run {
+                        text.layer = to_layer;
+                    }
                     fp_changes["text"] = json!(fp_changes["text"].as_u64().unwrap_or(0) + 1);
                     fp_total += 1;
                 }
@@ -5015,8 +5101,8 @@ impl McpServer {
             }
         }
 
-        // Write the updated library if any changes were made
-        if total_updated > 0 {
+        // Write the updated library if any changes were made (and not dry-run)
+        if total_updated > 0 && !dry_run {
             // Create backup before destructive operation
             if let Err(e) = Self::create_backup(filepath) {
                 return ToolCallResult::error(e);
@@ -5028,7 +5114,8 @@ impl McpServer {
         }
 
         let result = json!({
-            "status": "success",
+            "status": if dry_run { "dry_run" } else { "success" },
+            "dry_run": dry_run,
             "operation": "rename_layer",
             "filepath": filepath,
             "from_layer": from_layer.as_str(),
@@ -5713,6 +5800,11 @@ impl McpServer {
             .and_then(Value::as_str)
             .unwrap_or("error");
 
+        let dry_run = arguments
+            .get("dry_run")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
         // Validate on_duplicate parameter
         if !["skip", "error", "rename"].contains(&on_duplicate) {
             return ToolCallResult::error("on_duplicate must be one of: 'skip', 'error', 'rename'");
@@ -5768,10 +5860,10 @@ impl McpServer {
 
         match first_ext.as_deref() {
             Some("pcblib") => {
-                Self::merge_pcblib_libraries(&source_paths, target_filepath, on_duplicate)
+                Self::merge_pcblib_libraries(&source_paths, target_filepath, on_duplicate, dry_run)
             }
             Some("schlib") => {
-                Self::merge_schlib_libraries(&source_paths, target_filepath, on_duplicate)
+                Self::merge_schlib_libraries(&source_paths, target_filepath, on_duplicate, dry_run)
             }
             Some(ext) => ToolCallResult::error(format!(
                 "Unsupported file type: .{ext}. Use .PcbLib or .SchLib"
@@ -5781,10 +5873,12 @@ impl McpServer {
     }
 
     /// Merges multiple `PcbLib` files into one.
+    #[allow(clippy::too_many_lines)]
     fn merge_pcblib_libraries(
         source_paths: &[&str],
         target_filepath: &str,
         on_duplicate: &str,
+        dry_run: bool,
     ) -> ToolCallResult {
         use crate::altium::PcbLib;
 
@@ -5799,6 +5893,10 @@ impl McpServer {
         } else {
             PcbLib::new()
         };
+
+        // For dry_run, we track names that "would be" added to detect duplicates
+        let mut simulated_names: std::collections::HashSet<String> =
+            target_library.names().into_iter().collect();
 
         let initial_count = target_library.len();
         let mut merged_count = 0;
@@ -5824,7 +5922,13 @@ impl McpServer {
                 let original_name = footprint.name.clone();
                 let mut fp_to_add = footprint.clone();
 
-                if target_library.get(&original_name).is_some() {
+                let name_exists = if dry_run {
+                    simulated_names.contains(&original_name)
+                } else {
+                    target_library.get(&original_name).is_some()
+                };
+
+                if name_exists {
                     match on_duplicate {
                         "skip" => {
                             source_skipped += 1;
@@ -5840,11 +5944,16 @@ impl McpServer {
                             // Find a unique name
                             let mut counter = 1;
                             let mut new_name = format!("{original_name}_{counter}");
-                            while target_library.get(&new_name).is_some() {
+                            while (dry_run && simulated_names.contains(&new_name))
+                                || (!dry_run && target_library.get(&new_name).is_some())
+                            {
                                 counter += 1;
                                 new_name = format!("{original_name}_{counter}");
                             }
-                            fp_to_add.name = new_name;
+                            fp_to_add.name.clone_from(&new_name);
+                            if dry_run {
+                                simulated_names.insert(new_name);
+                            }
                             source_renamed += 1;
                             renamed_count += 1;
                         }
@@ -5852,7 +5961,11 @@ impl McpServer {
                     }
                 }
 
-                target_library.add(fp_to_add);
+                if dry_run {
+                    simulated_names.insert(fp_to_add.name.clone());
+                } else {
+                    target_library.add(fp_to_add);
+                }
                 source_merged += 1;
                 merged_count += 1;
             }
@@ -5865,18 +5978,28 @@ impl McpServer {
             }));
         }
 
-        // Create backup before destructive operation
-        if let Err(e) = Self::create_backup(target_filepath) {
-            return ToolCallResult::error(e);
+        // Only write if not dry-run
+        if !dry_run {
+            // Create backup before destructive operation
+            if let Err(e) = Self::create_backup(target_filepath) {
+                return ToolCallResult::error(e);
+            }
+
+            // Write the merged library
+            if let Err(e) = target_library.save(target_filepath) {
+                return ToolCallResult::error(format!("Failed to write target library: {e}"));
+            }
         }
 
-        // Write the merged library
-        if let Err(e) = target_library.save(target_filepath) {
-            return ToolCallResult::error(format!("Failed to write target library: {e}"));
-        }
+        let final_count = if dry_run {
+            simulated_names.len()
+        } else {
+            target_library.len()
+        };
 
         let result = json!({
-            "status": "success",
+            "status": if dry_run { "dry_run" } else { "success" },
+            "dry_run": dry_run,
             "target_filepath": target_filepath,
             "file_type": "PcbLib",
             "sources_count": source_paths.len(),
@@ -5884,14 +6007,15 @@ impl McpServer {
             "merged_count": merged_count,
             "skipped_count": skipped_count,
             "renamed_count": renamed_count,
-            "final_count": target_library.len(),
+            "final_count": final_count,
             "sources": source_details,
             "message": format!(
-                "Merged {} components from {} sources into '{}' (total: {})",
+                "{} {} components from {} sources into '{}' (total: {})",
+                if dry_run { "Would merge" } else { "Merged" },
                 merged_count,
                 source_paths.len(),
                 target_filepath,
-                target_library.len()
+                final_count
             ),
         });
 
@@ -5899,10 +6023,12 @@ impl McpServer {
     }
 
     /// Merges multiple `SchLib` files into one.
+    #[allow(clippy::too_many_lines)]
     fn merge_schlib_libraries(
         source_paths: &[&str],
         target_filepath: &str,
         on_duplicate: &str,
+        dry_run: bool,
     ) -> ToolCallResult {
         use crate::altium::SchLib;
 
@@ -5917,6 +6043,10 @@ impl McpServer {
         } else {
             SchLib::new()
         };
+
+        // For dry_run, we track names that "would be" added to detect duplicates
+        let mut simulated_names: std::collections::HashSet<String> =
+            target_library.iter().map(|s| s.name.clone()).collect();
 
         let initial_count = target_library.len();
         let mut merged_count = 0;
@@ -5945,7 +6075,13 @@ impl McpServer {
                 let original_name = symbol.name.clone();
                 let mut sym_to_add = symbol;
 
-                if target_library.get(&original_name).is_some() {
+                let name_exists = if dry_run {
+                    simulated_names.contains(&original_name)
+                } else {
+                    target_library.get(&original_name).is_some()
+                };
+
+                if name_exists {
                     match on_duplicate {
                         "skip" => {
                             source_skipped += 1;
@@ -5961,11 +6097,16 @@ impl McpServer {
                             // Find a unique name
                             let mut counter = 1;
                             let mut new_name = format!("{original_name}_{counter}");
-                            while target_library.get(&new_name).is_some() {
+                            while (dry_run && simulated_names.contains(&new_name))
+                                || (!dry_run && target_library.get(&new_name).is_some())
+                            {
                                 counter += 1;
                                 new_name = format!("{original_name}_{counter}");
                             }
-                            sym_to_add.name = new_name;
+                            sym_to_add.name.clone_from(&new_name);
+                            if dry_run {
+                                simulated_names.insert(new_name);
+                            }
                             source_renamed += 1;
                             renamed_count += 1;
                         }
@@ -5973,7 +6114,11 @@ impl McpServer {
                     }
                 }
 
-                target_library.add(sym_to_add);
+                if dry_run {
+                    simulated_names.insert(sym_to_add.name.clone());
+                } else {
+                    target_library.add(sym_to_add);
+                }
                 source_merged += 1;
                 merged_count += 1;
             }
@@ -5986,18 +6131,28 @@ impl McpServer {
             }));
         }
 
-        // Create backup before destructive operation
-        if let Err(e) = Self::create_backup(target_filepath) {
-            return ToolCallResult::error(e);
+        // Only write if not dry-run
+        if !dry_run {
+            // Create backup before destructive operation
+            if let Err(e) = Self::create_backup(target_filepath) {
+                return ToolCallResult::error(e);
+            }
+
+            // Write the merged library
+            if let Err(e) = target_library.save(target_filepath) {
+                return ToolCallResult::error(format!("Failed to write target library: {e}"));
+            }
         }
 
-        // Write the merged library
-        if let Err(e) = target_library.save(target_filepath) {
-            return ToolCallResult::error(format!("Failed to write target library: {e}"));
-        }
+        let final_count = if dry_run {
+            simulated_names.len()
+        } else {
+            target_library.len()
+        };
 
         let result = json!({
-            "status": "success",
+            "status": if dry_run { "dry_run" } else { "success" },
+            "dry_run": dry_run,
             "target_filepath": target_filepath,
             "file_type": "SchLib",
             "sources_count": source_paths.len(),
@@ -6005,14 +6160,15 @@ impl McpServer {
             "merged_count": merged_count,
             "skipped_count": skipped_count,
             "renamed_count": renamed_count,
-            "final_count": target_library.len(),
+            "final_count": final_count,
             "sources": source_details,
             "message": format!(
-                "Merged {} components from {} sources into '{}' (total: {})",
+                "{} {} components from {} sources into '{}' (total: {})",
+                if dry_run { "Would merge" } else { "Merged" },
                 merged_count,
                 source_paths.len(),
                 target_filepath,
-                target_library.len()
+                final_count
             ),
         });
 
