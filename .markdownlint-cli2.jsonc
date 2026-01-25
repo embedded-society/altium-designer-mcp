@@ -2,5 +2,5 @@
     // Files owned by repository owner - do not modify
     // GitHub issue templates have their own format requirements
     // Third-party packages in virtual environments and Node.js
-    "ignores": ["CODE_OF_CONDUCT.md", ".github/ISSUE_TEMPLATE/**", "**/.venv/**", "**/node_modules/**"]
+    "ignores": ["CODE_OF_CONDUCT.md", ".github/ISSUE_TEMPLATE/**", "**/.venv/**", "**/node_modules/**", "**/target/**"]
 }
