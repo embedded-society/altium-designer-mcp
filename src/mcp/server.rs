@@ -1804,12 +1804,18 @@ impl McpServer {
 
         match library.save(filepath) {
             Ok(()) => {
-                let result = json!({
+                let mut result = json!({
                     "status": "success",
                     "filepath": filepath,
                     "footprint_count": library.len(),
                     "footprint_names": library.names(),
                 });
+
+                // Run post-write validation
+                if let Some(validation) = Self::post_write_validation_pcblib(filepath) {
+                    result["validation"] = validation;
+                }
+
                 ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
             }
             Err(e) => {
@@ -2110,12 +2116,18 @@ impl McpServer {
         match library.save(filepath) {
             Ok(()) => {
                 let symbol_names: Vec<_> = library.iter().map(|s| s.name.clone()).collect();
-                let result = json!({
+                let mut result = json!({
                     "status": "success",
                     "filepath": filepath,
                     "symbol_count": library.len(),
                     "symbol_names": symbol_names,
                 });
+
+                // Run post-write validation
+                if let Some(validation) = Self::post_write_validation_schlib(filepath) {
+                    result["validation"] = validation;
+                }
+
                 ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
             }
             Err(e) => {
@@ -3367,7 +3379,7 @@ impl McpServer {
             }
         }
 
-        let result = json!({
+        let mut result = json!({
             "status": if dry_run { "dry_run" } else { "success" },
             "filepath": filepath,
             "file_type": "PcbLib",
@@ -3377,6 +3389,14 @@ impl McpServer {
             "remaining_count": if dry_run { original_count - deleted_count } else { library.len() },
             "results": results,
         });
+
+        // Run post-write validation (only if actual changes were made)
+        if deleted_count > 0 && !dry_run {
+            if let Some(validation) = Self::post_write_validation_pcblib(filepath) {
+                result["validation"] = validation;
+            }
+        }
+
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
 
@@ -3455,7 +3475,7 @@ impl McpServer {
             }
         }
 
-        let result = json!({
+        let mut result = json!({
             "status": if dry_run { "dry_run" } else { "success" },
             "filepath": filepath,
             "file_type": "SchLib",
@@ -3465,6 +3485,14 @@ impl McpServer {
             "remaining_count": if dry_run { original_count - deleted_count } else { library.len() },
             "results": results,
         });
+
+        // Run post-write validation (only if actual changes were made)
+        if deleted_count > 0 && !dry_run {
+            if let Some(validation) = Self::post_write_validation_schlib(filepath) {
+                result["validation"] = validation;
+            }
+        }
+
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
 
@@ -3791,6 +3819,153 @@ impl McpServer {
         });
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Runs post-write validation on a `PcbLib` file and returns validation info.
+    ///
+    /// Returns a JSON value with validation results that can be included in write operation responses.
+    /// Returns `None` if the file cannot be read (which would indicate a serious write failure).
+    fn post_write_validation_pcblib(filepath: &str) -> Option<Value> {
+        use crate::altium::PcbLib;
+        use std::collections::HashSet;
+
+        let library = PcbLib::open(filepath).ok()?;
+        let mut issues: Vec<Value> = Vec::new();
+
+        for fp in library.iter() {
+            let name = &fp.name;
+
+            // Check for empty name
+            if name.is_empty() {
+                issues.push(json!({
+                    "severity": "error",
+                    "component": name,
+                    "issue": "Footprint has empty name"
+                }));
+            }
+
+            // Check for duplicate pad designators
+            let mut seen_designators: HashSet<&str> = HashSet::new();
+            for pad in &fp.pads {
+                if !seen_designators.insert(&pad.designator) {
+                    issues.push(json!({
+                        "severity": "error",
+                        "component": name,
+                        "issue": format!("Duplicate pad designator: '{}'", pad.designator)
+                    }));
+                }
+
+                // Check for zero or negative dimensions
+                if pad.width <= 0.0 || pad.height <= 0.0 {
+                    issues.push(json!({
+                        "severity": "error",
+                        "component": name,
+                        "issue": format!("Pad '{}' has invalid dimensions", pad.designator)
+                    }));
+                }
+            }
+
+            // Check tracks for invalid values
+            for (i, track) in fp.tracks.iter().enumerate() {
+                if track.width <= 0.0 {
+                    issues.push(json!({
+                        "severity": "error",
+                        "component": name,
+                        "issue": format!("Track {} has invalid width", i)
+                    }));
+                }
+            }
+
+            // Check arcs for invalid values
+            for (i, arc) in fp.arcs.iter().enumerate() {
+                if arc.radius <= 0.0 {
+                    issues.push(json!({
+                        "severity": "error",
+                        "component": name,
+                        "issue": format!("Arc {} has invalid radius", i)
+                    }));
+                }
+            }
+
+            // Check regions for minimum vertices
+            for (i, region) in fp.regions.iter().enumerate() {
+                if region.vertices.len() < 3 {
+                    issues.push(json!({
+                        "severity": "error",
+                        "component": name,
+                        "issue": format!("Region {} has fewer than 3 vertices", i)
+                    }));
+                }
+            }
+        }
+
+        let error_count = issues.iter().filter(|i| i["severity"] == "error").count();
+        let warning_count = issues.iter().filter(|i| i["severity"] == "warning").count();
+
+        Some(json!({
+            "status": if error_count > 0 { "invalid" } else if warning_count > 0 { "warnings" } else { "valid" },
+            "error_count": error_count,
+            "warning_count": warning_count,
+            "issues": issues,
+        }))
+    }
+
+    /// Runs post-write validation on a `SchLib` file and returns validation info.
+    ///
+    /// Returns a JSON value with validation results that can be included in write operation responses.
+    /// Returns `None` if the file cannot be read (which would indicate a serious write failure).
+    fn post_write_validation_schlib(filepath: &str) -> Option<Value> {
+        use crate::altium::SchLib;
+        use std::collections::HashSet;
+
+        let library = SchLib::open(filepath).ok()?;
+        let mut issues: Vec<Value> = Vec::new();
+
+        for symbol in library.iter() {
+            let name = &symbol.name;
+
+            // Check for empty name
+            if name.is_empty() {
+                issues.push(json!({
+                    "severity": "error",
+                    "component": name,
+                    "issue": "Symbol has empty name"
+                }));
+            }
+
+            // Check for duplicate pin designators
+            let mut seen_designators: HashSet<&str> = HashSet::new();
+            for pin in &symbol.pins {
+                if !seen_designators.insert(&pin.designator) {
+                    issues.push(json!({
+                        "severity": "error",
+                        "component": name,
+                        "issue": format!("Duplicate pin designator: '{}'", pin.designator)
+                    }));
+                }
+            }
+
+            // Check rectangles for inverted corners
+            for (i, rect) in symbol.rectangles.iter().enumerate() {
+                if rect.x1 > rect.x2 || rect.y1 > rect.y2 {
+                    issues.push(json!({
+                        "severity": "warning",
+                        "component": name,
+                        "issue": format!("Rectangle {} has inverted corners", i)
+                    }));
+                }
+            }
+        }
+
+        let error_count = issues.iter().filter(|i| i["severity"] == "error").count();
+        let warning_count = issues.iter().filter(|i| i["severity"] == "warning").count();
+
+        Some(json!({
+            "status": if error_count > 0 { "invalid" } else if warning_count > 0 { "warnings" } else { "valid" },
+            "error_count": error_count,
+            "warning_count": warning_count,
+            "issues": issues,
+        }))
     }
 
     // ==================== Library Export Tools ====================
@@ -4125,7 +4300,7 @@ impl McpServer {
         }
 
         let total_count = library.len();
-        let result = json!({
+        let mut result = json!({
             "status": "success",
             "output_path": output_path,
             "file_type": "PcbLib",
@@ -4138,6 +4313,11 @@ impl McpServer {
                 format!("Created library with {imported_count} footprints")
             },
         });
+
+        // Run post-write validation
+        if let Some(validation) = Self::post_write_validation_pcblib(output_path) {
+            result["validation"] = validation;
+        }
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
@@ -4207,7 +4387,7 @@ impl McpServer {
         }
 
         let total_count = library.len();
-        let result = json!({
+        let mut result = json!({
             "status": "success",
             "output_path": output_path,
             "file_type": "SchLib",
@@ -4220,6 +4400,11 @@ impl McpServer {
                 format!("Created library with {imported_count} symbols")
             },
         });
+
+        // Run post-write validation
+        if let Some(validation) = Self::post_write_validation_schlib(output_path) {
+            result["validation"] = validation;
+        }
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
@@ -4957,7 +5142,7 @@ impl McpServer {
             }
         }
 
-        let result = json!({
+        let mut result = json!({
             "status": if dry_run { "dry_run" } else { "success" },
             "dry_run": dry_run,
             "filepath": filepath,
@@ -4972,6 +5157,13 @@ impl McpServer {
             },
             "updates": updates
         });
+
+        // Run post-write validation (only if actual changes were made)
+        if symbols_updated > 0 && !dry_run {
+            if let Some(validation) = Self::post_write_validation_schlib(filepath) {
+                result["validation"] = validation;
+            }
+        }
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
@@ -5040,7 +5232,7 @@ impl McpServer {
             }
         }
 
-        let result = json!({
+        let mut result = json!({
             "status": if dry_run { "dry_run" } else { "success" },
             "dry_run": dry_run,
             "operation": "update_track_width",
@@ -5052,6 +5244,13 @@ impl McpServer {
             "footprints_updated_count": footprints_updated.len(),
             "footprints_updated": footprints_updated,
         });
+
+        // Run post-write validation (only if actual changes were made)
+        if total_updated > 0 && !dry_run {
+            if let Some(validation) = Self::post_write_validation_pcblib(filepath) {
+                result["validation"] = validation;
+            }
+        }
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
@@ -5166,7 +5365,7 @@ impl McpServer {
             }
         }
 
-        let result = json!({
+        let mut result = json!({
             "status": if dry_run { "dry_run" } else { "success" },
             "dry_run": dry_run,
             "operation": "rename_layer",
@@ -5177,6 +5376,13 @@ impl McpServer {
             "footprints_updated_count": footprints_updated.len(),
             "footprints_updated": footprints_updated,
         });
+
+        // Run post-write validation (only if actual changes were made)
+        if total_updated > 0 && !dry_run {
+            if let Some(validation) = Self::post_write_validation_pcblib(filepath) {
+                result["validation"] = validation;
+            }
+        }
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
@@ -5335,7 +5541,7 @@ impl McpServer {
             return ToolCallResult::error(format!("Failed to write library: {e}"));
         }
 
-        let result = json!({
+        let mut result = json!({
             "status": "success",
             "filepath": filepath,
             "file_type": "PcbLib",
@@ -5343,6 +5549,11 @@ impl McpServer {
             "target_name": target_name,
             "component_count": library.len(),
         });
+
+        // Run post-write validation
+        if let Some(validation) = Self::post_write_validation_pcblib(filepath) {
+            result["validation"] = validation;
+        }
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
@@ -5396,7 +5607,7 @@ impl McpServer {
             return ToolCallResult::error(format!("Failed to write library: {e}"));
         }
 
-        let result = json!({
+        let mut result = json!({
             "status": "success",
             "filepath": filepath,
             "file_type": "SchLib",
@@ -5404,6 +5615,11 @@ impl McpServer {
             "target_name": target_name,
             "component_count": library.len(),
         });
+
+        // Run post-write validation
+        if let Some(validation) = Self::post_write_validation_schlib(filepath) {
+            result["validation"] = validation;
+        }
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
@@ -5491,7 +5707,7 @@ impl McpServer {
             return ToolCallResult::error(format!("Failed to write library: {e}"));
         }
 
-        let result = json!({
+        let mut result = json!({
             "status": "success",
             "filepath": filepath,
             "file_type": "PcbLib",
@@ -5499,6 +5715,11 @@ impl McpServer {
             "new_name": new_name,
             "component_count": library.len(),
         });
+
+        // Run post-write validation
+        if let Some(validation) = Self::post_write_validation_pcblib(filepath) {
+            result["validation"] = validation;
+        }
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
@@ -5539,7 +5760,7 @@ impl McpServer {
             return ToolCallResult::error(format!("Failed to write library: {e}"));
         }
 
-        let result = json!({
+        let mut result = json!({
             "status": "success",
             "filepath": filepath,
             "file_type": "SchLib",
@@ -5547,6 +5768,11 @@ impl McpServer {
             "new_name": new_name,
             "component_count": library.len(),
         });
+
+        // Run post-write validation
+        if let Some(validation) = Self::post_write_validation_schlib(filepath) {
+            result["validation"] = validation;
+        }
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
@@ -5742,6 +5968,11 @@ impl McpServer {
                 json!("External 3D model reference was removed (STEP file path not portable across libraries)");
         }
 
+        // Run post-write validation
+        if let Some(validation) = Self::post_write_validation_pcblib(target_filepath) {
+            result["validation"] = validation;
+        }
+
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
 
@@ -5807,7 +6038,7 @@ impl McpServer {
             return ToolCallResult::error(format!("Failed to write target library: {e}"));
         }
 
-        let result = json!({
+        let mut result = json!({
             "status": "success",
             "source_filepath": source_filepath,
             "target_filepath": target_filepath,
@@ -5827,6 +6058,11 @@ impl McpServer {
                 }
             ),
         });
+
+        // Run post-write validation
+        if let Some(validation) = Self::post_write_validation_schlib(target_filepath) {
+            result["validation"] = validation;
+        }
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
@@ -6050,7 +6286,7 @@ impl McpServer {
             target_library.len()
         };
 
-        let result = json!({
+        let mut result = json!({
             "status": if dry_run { "dry_run" } else { "success" },
             "dry_run": dry_run,
             "target_filepath": target_filepath,
@@ -6071,6 +6307,13 @@ impl McpServer {
                 final_count
             ),
         });
+
+        // Run post-write validation (only if actual changes were made)
+        if merged_count > 0 && !dry_run {
+            if let Some(validation) = Self::post_write_validation_pcblib(target_filepath) {
+                result["validation"] = validation;
+            }
+        }
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
@@ -6203,7 +6446,7 @@ impl McpServer {
             target_library.len()
         };
 
-        let result = json!({
+        let mut result = json!({
             "status": if dry_run { "dry_run" } else { "success" },
             "dry_run": dry_run,
             "target_filepath": target_filepath,
@@ -6224,6 +6467,13 @@ impl McpServer {
                 final_count
             ),
         });
+
+        // Run post-write validation (only if actual changes were made)
+        if merged_count > 0 && !dry_run {
+            if let Some(validation) = Self::post_write_validation_schlib(target_filepath) {
+                result["validation"] = validation;
+            }
+        }
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
@@ -6326,7 +6576,7 @@ impl McpServer {
             .cloned()
             .collect();
 
-        let result = json!({
+        let mut result = json!({
             "status": "success",
             "filepath": filepath,
             "component_count": component_count,
@@ -6350,6 +6600,11 @@ impl McpServer {
                 }
             ),
         });
+
+        // Run post-write validation
+        if let Some(validation) = Self::post_write_validation_pcblib(filepath) {
+            result["validation"] = validation;
+        }
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
@@ -6405,7 +6660,7 @@ impl McpServer {
             .cloned()
             .collect();
 
-        let result = json!({
+        let mut result = json!({
             "status": "success",
             "filepath": filepath,
             "component_count": component_count,
@@ -6429,6 +6684,11 @@ impl McpServer {
                 }
             ),
         });
+
+        // Run post-write validation
+        if let Some(validation) = Self::post_write_validation_schlib(filepath) {
+            result["validation"] = validation;
+        }
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
@@ -6572,7 +6832,7 @@ impl McpServer {
             return ToolCallResult::error(format!("Failed to write library: {e}"));
         }
 
-        let result = json!({
+        let mut result = json!({
             "status": "success",
             "filepath": filepath,
             "file_type": "PcbLib",
@@ -6591,10 +6851,16 @@ impl McpServer {
             ),
         });
 
+        // Run post-write validation
+        if let Some(validation) = Self::post_write_validation_pcblib(filepath) {
+            result["validation"] = validation;
+        }
+
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
 
     /// Updates a symbol in-place within a `SchLib` file.
+    #[allow(clippy::too_many_lines)]
     fn update_schlib_component(
         filepath: &str,
         component_name: &str,
@@ -6709,7 +6975,7 @@ impl McpServer {
             return ToolCallResult::error(format!("Failed to write library: {e}"));
         }
 
-        let result = json!({
+        let mut result = json!({
             "status": "success",
             "filepath": filepath,
             "file_type": "SchLib",
@@ -6727,6 +6993,11 @@ impl McpServer {
                 }
             ),
         });
+
+        // Run post-write validation
+        if let Some(validation) = Self::post_write_validation_schlib(filepath) {
+            result["validation"] = validation;
+        }
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
@@ -7822,7 +8093,7 @@ impl McpServer {
                     ));
                 };
 
-                let result = match operation {
+                let mut result = match operation {
                     "set" => {
                         // Find and update existing parameter
                         let param = symbol
@@ -7952,6 +8223,11 @@ impl McpServer {
                     return ToolCallResult::error(format!("Failed to save library: {e}"));
                 }
 
+                // Run post-write validation
+                if let Some(validation) = Self::post_write_validation_schlib(filepath) {
+                    result["validation"] = validation;
+                }
+
                 ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
             }
 
@@ -8053,7 +8329,7 @@ impl McpServer {
                     ));
                 };
 
-                let result = if operation == "add" {
+                let mut result = if operation == "add" {
                     // Check if footprint already exists
                     if symbol
                         .footprints
@@ -8111,6 +8387,11 @@ impl McpServer {
                 // Save the modified library
                 if let Err(e) = library.save(filepath) {
                     return ToolCallResult::error(format!("Failed to save library: {e}"));
+                }
+
+                // Run post-write validation
+                if let Some(validation) = Self::post_write_validation_schlib(filepath) {
+                    result["validation"] = validation;
                 }
 
                 ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
