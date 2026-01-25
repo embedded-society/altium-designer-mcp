@@ -235,13 +235,15 @@ Returns statistics about track widths, pad shapes, pin lengths, colours, and lay
 ### `delete_component`
 
 Delete one or more components from an Altium library file. Works with both `.PcbLib` and `.SchLib` files.
+Use `dry_run=true` to preview changes without modifying the file.
 
 ```json
 {
     "name": "delete_component",
     "arguments": {
         "filepath": "./MyLibrary.PcbLib",
-        "component_names": ["OLD_FOOTPRINT", "UNUSED_COMPONENT"]
+        "component_names": ["OLD_FOOTPRINT", "UNUSED_COMPONENT"],
+        "dry_run": false
     }
 }
 ```
@@ -249,8 +251,11 @@ Delete one or more components from an Altium library file. Works with both `.Pcb
 | Parameter | Description |
 |-----------|-------------|
 | `component_names` | Array of component names to delete |
+| `dry_run` | If `true`, show what would be deleted without modifying the file (default: `false`) |
 
 Returns per-component status (`deleted` or `not_found`) and updated component counts.
+
+A backup is automatically created before deletion (see [Automatic Backups](#automatic-backups)).
 
 ### `validate_library`
 
@@ -588,7 +593,8 @@ components between projects.
         "target_filepath": "./TargetLibrary.PcbLib",
         "component_name": "RESC0603_IPC_MEDIUM",
         "new_name": "RESC0603_COPIED",
-        "description": "Copied from SourceLibrary"
+        "description": "Copied from SourceLibrary",
+        "ignore_missing_models": false
     }
 }
 ```
@@ -600,12 +606,15 @@ components between projects.
 | `component_name` | Name of the component to copy from the source library |
 | `new_name` | Optional new name for the component in the target library (defaults to original name) |
 | `description` | Optional new description for the component (defaults to original description) |
+| `ignore_missing_models` | If `true`, copy the component even if referenced embedded 3D models are missing (PcbLib only). The component body references will be removed. (default: `false`) |
 
 **Behaviour:**
 
 - If the target file does not exist, it will be created
 - If the target file exists, the component will be added to it
 - If a component with the same name already exists in the target, an error is returned
+- Embedded 3D models are copied along with the component (if present and valid)
+- External STEP file references are removed (paths are not portable across libraries)
 
 ### `merge_libraries`
 
@@ -847,6 +856,54 @@ Get a single component by name from an Altium library. Returns the full componen
         "type": "text",
         "text": "Component 'SOIC-99' not found in library. Available components: SOIC-8, SOIC-14, SOIC-16 ... and 5 more"
     }]
+}
+```
+
+### `compare_components`
+
+Compare two specific components in detail, showing differences in primitives, parameters, and
+properties. Components can be from the same library or different libraries. Returns detailed
+primitive-level differences (pads, tracks, pins, etc.).
+
+```json
+{
+    "name": "compare_components",
+    "arguments": {
+        "filepath_a": "./LibraryA.PcbLib",
+        "component_a": "RESC0603_V1",
+        "filepath_b": "./LibraryB.PcbLib",
+        "component_b": "RESC0603_V2",
+        "include_geometry": true,
+        "tolerance": 0.001
+    }
+}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `filepath_a` | Path to the first library file (.PcbLib or .SchLib) |
+| `component_a` | Name of the first component |
+| `filepath_b` | Path to the second library file (can be same as `filepath_a`) |
+| `component_b` | Name of the second component |
+| `include_geometry` | Include detailed geometry comparisons (default: `true`) |
+| `tolerance` | Tolerance for floating-point comparisons in mm (default: `0.001`) |
+
+**Example Response:**
+
+```json
+{
+    "status": "different",
+    "summary": {
+        "identical": false,
+        "pad_differences": 2,
+        "track_differences": 1,
+        "description_changed": true
+    },
+    "differences": {
+        "pads": [
+            { "designator": "1", "field": "width", "a": 0.9, "b": 1.0 }
+        ]
+    }
 }
 ```
 
@@ -1149,6 +1206,36 @@ STEP models are **attached**, not generated. The tool links existing STEP files 
 ```
 
 For parametric 3D model generation, a dedicated mechanical MCP server is planned as a future project.
+
+---
+
+## Automatic Backups
+
+Before any destructive operation (delete, update, merge, batch update), the server automatically
+creates a timestamped backup of the target file. Backups use the format:
+
+```text
+MyLibrary.PcbLib.20260125_143022.bak
+```
+
+**Backup retention:** Only the 5 most recent backups per file are kept. Older backups are
+automatically removed to prevent unbounded disk usage.
+
+**Operations that create backups:**
+
+- `delete_component`
+- `update_component`
+- `rename_component`
+- `copy_component_cross_library` (target file)
+- `merge_libraries` (target file)
+- `batch_update`
+- `write_pcblib` / `write_schlib` (when overwriting)
+
+**Dry-run support:** Some destructive operations support `dry_run=true` to preview changes
+without modifying files:
+
+- `delete_component` — preview which components would be deleted
+- `merge_libraries` — preview merge results without writing
 
 ---
 

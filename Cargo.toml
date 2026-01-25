@@ -77,6 +77,9 @@ base64 = "0.22"
 # Ordered hash map (preserves insertion order for SchLib symbols)
 indexmap = { version = "2.7", features = ["serde"] }
 
+# Date/time handling (for timestamped backups)
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
 [dev-dependencies]
 # Async testing utilities
 tokio-test = "0.4"

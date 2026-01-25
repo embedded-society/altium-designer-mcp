@@ -327,9 +327,15 @@ impl McpServer {
         Err("Access denied: path is outside the configured allowed directories".to_string())
     }
 
-    /// Creates a backup of an existing file before modification.
+    /// Maximum number of timestamped backups to retain per file.
+    const MAX_BACKUPS: usize = 5;
+
+    /// Creates a timestamped backup of an existing file before modification.
     ///
-    /// Copies `filepath` to `filepath.bak`, overwriting any existing backup.
+    /// Copies `filepath` to `filepath.YYYYMMDD_HHMMSS.bak`, keeping up to
+    /// [`MAX_BACKUPS`] recent backups per file. Older backups are automatically
+    /// cleaned up to prevent unbounded disk usage.
+    ///
     /// If the source file does not exist (new file creation), this is a no-op.
     ///
     /// # Returns
@@ -346,7 +352,9 @@ impl McpServer {
             return Ok(None);
         }
 
-        let backup_path = format!("{filepath}.bak");
+        // Generate timestamped backup filename
+        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+        let backup_path = format!("{filepath}.{timestamp}.bak");
 
         std::fs::copy(path, &backup_path).map_err(|e| {
             format!(
@@ -359,10 +367,72 @@ impl McpServer {
         tracing::debug!(
             source = %filepath,
             backup = %backup_path,
-            "Created backup before destructive operation"
+            "Created timestamped backup before destructive operation"
         );
 
+        // Clean up old backups, keeping only the most recent MAX_BACKUPS
+        Self::cleanup_old_backups(filepath);
+
         Ok(Some(backup_path))
+    }
+
+    /// Removes old backup files, keeping only the most recent [`MAX_BACKUPS`].
+    fn cleanup_old_backups(filepath: &str) {
+        use std::path::Path;
+
+        let path = Path::new(filepath);
+        let Some(parent) = path.parent() else {
+            return;
+        };
+        let Some(filename) = path.file_name().and_then(|n| n.to_str()) else {
+            return;
+        };
+
+        // Pattern: filename.YYYYMMDD_HHMMSS.bak
+        let prefix = format!("{filename}.");
+        let suffix = ".bak";
+
+        // Collect all matching backup files
+        let mut backups: Vec<_> = match std::fs::read_dir(parent) {
+            Ok(entries) => entries
+                .filter_map(Result::ok)
+                .filter_map(|entry| {
+                    let name = entry.file_name().to_string_lossy().into_owned();
+                    if name.starts_with(&prefix)
+                        && name.ends_with(suffix)
+                        && name != format!("{filename}.bak")
+                    {
+                        // Extract timestamp part for sorting
+                        let timestamp_part = &name[prefix.len()..name.len() - suffix.len()];
+                        // Validate it looks like a timestamp (YYYYMMDD_HHMMSS = 15 chars)
+                        if timestamp_part.len() == 15 {
+                            return Some((entry.path(), name));
+                        }
+                    }
+                    None
+                })
+                .collect(),
+            Err(_) => return,
+        };
+
+        // Sort by filename (timestamp) descending (newest first)
+        backups.sort_by(|a, b| b.1.cmp(&a.1));
+
+        // Remove backups beyond MAX_BACKUPS
+        for (backup_path, _) in backups.into_iter().skip(Self::MAX_BACKUPS) {
+            if let Err(e) = std::fs::remove_file(&backup_path) {
+                tracing::warn!(
+                    path = %backup_path.display(),
+                    error = %e,
+                    "Failed to remove old backup"
+                );
+            } else {
+                tracing::debug!(
+                    path = %backup_path.display(),
+                    "Removed old backup (exceeded MAX_BACKUPS)"
+                );
+            }
+        }
     }
 
     /// Runs the MCP server main loop with graceful shutdown handling.
@@ -1284,6 +1354,10 @@ impl McpServer {
                         "description": {
                             "type": "string",
                             "description": "Optional new description for the component (defaults to original description)"
+                        },
+                        "ignore_missing_models": {
+                            "type": "boolean",
+                            "description": "If true, copy the component even if referenced embedded 3D models are missing (PcbLib only). The component body references will be removed. Defaults to false."
                         }
                     },
                     "required": ["source_filepath", "target_filepath", "component_name"]
@@ -6842,6 +6916,10 @@ impl McpServer {
 
         let new_name = arguments.get("new_name").and_then(Value::as_str);
         let description = arguments.get("description").and_then(Value::as_str);
+        let ignore_missing_models = arguments
+            .get("ignore_missing_models")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
 
         // Validate paths are within allowed directories
         if let Err(e) = self.validate_path(source_filepath) {
@@ -6883,6 +6961,7 @@ impl McpServer {
                 component_name,
                 target_name,
                 description,
+                ignore_missing_models,
             ),
             Some("schlib") => Self::copy_schlib_component_cross_library(
                 source_filepath,
@@ -6899,12 +6978,14 @@ impl McpServer {
     }
 
     /// Copies a footprint from one `PcbLib` to another.
+    #[allow(clippy::too_many_lines)]
     fn copy_pcblib_component_cross_library(
         source_filepath: &str,
         target_filepath: &str,
         component_name: &str,
         target_name: &str,
         description: Option<&str>,
+        ignore_missing_models: bool,
     ) -> ToolCallResult {
         use crate::altium::PcbLib;
 
@@ -6932,13 +7013,36 @@ impl McpServer {
         // and won't be valid in the target location. Users can re-attach 3D models later.
         let had_model_3d = new_footprint.model_3d.take().is_some();
 
-        // Collect embedded model IDs referenced by this footprint
-        let embedded_model_ids: Vec<String> = new_footprint
-            .component_bodies
-            .iter()
-            .filter(|cb| cb.embedded)
-            .map(|cb| cb.model_id.clone())
-            .collect();
+        // Collect embedded model IDs referenced by this footprint and check availability
+        let mut embedded_model_ids: Vec<String> = Vec::new();
+        let mut missing_model_ids: Vec<String> = Vec::new();
+
+        for cb in &new_footprint.component_bodies {
+            if cb.embedded {
+                if source_library.get_model(&cb.model_id).is_some() {
+                    embedded_model_ids.push(cb.model_id.clone());
+                } else {
+                    missing_model_ids.push(cb.model_id.clone());
+                }
+            }
+        }
+
+        // Handle missing models
+        if !missing_model_ids.is_empty() {
+            if ignore_missing_models {
+                // Remove component bodies that reference missing models
+                new_footprint
+                    .component_bodies
+                    .retain(|cb| !cb.embedded || !missing_model_ids.contains(&cb.model_id));
+            } else {
+                return ToolCallResult::error(format!(
+                    "Component '{}' references missing embedded model(s): {}. \
+                     Use ignore_missing_models=true to copy without the 3D model references.",
+                    component_name,
+                    missing_model_ids.join(", ")
+                ));
+            }
+        }
 
         // Read or create the target library
         let mut target_library = if std::path::Path::new(target_filepath).exists() {
@@ -6962,11 +7066,8 @@ impl McpServer {
         // Copy embedded 3D models from source to target library
         let mut models_copied = 0;
         for model_id in &embedded_model_ids {
-            let Some(model) = source_library.get_model(model_id) else {
-                return ToolCallResult::error(format!(
-                    "Component '{component_name}' references missing embedded model: {model_id}"
-                ));
-            };
+            // We already verified these exist above
+            let model = source_library.get_model(model_id).unwrap();
             // Only add if not already present in target
             if target_library.get_model(model_id).is_none() {
                 target_library.add_model(model.clone());
@@ -7009,10 +7110,22 @@ impl McpServer {
             ),
         });
 
-        // Add warning if external 3D model reference was removed
+        // Collect warnings
+        let mut warnings: Vec<String> = Vec::new();
         if had_model_3d {
-            result["warning"] =
-                json!("External 3D model reference was removed (STEP file path not portable across libraries)");
+            warnings.push(
+                "External 3D model reference was removed (STEP file path not portable across libraries)".to_string()
+            );
+        }
+        if !missing_model_ids.is_empty() {
+            warnings.push(format!(
+                "Removed {} component body reference(s) with missing embedded model(s): {}",
+                missing_model_ids.len(),
+                missing_model_ids.join(", ")
+            ));
+        }
+        if !warnings.is_empty() {
+            result["warnings"] = json!(warnings);
         }
 
         // Run post-write validation
@@ -8502,7 +8615,8 @@ impl McpServer {
             }
         }
 
-        // Draw pads (as rectangles with designator)
+        // Draw pads (as rectangles with designator) and collect designator mappings
+        let mut pad_mappings: Vec<(char, &str)> = Vec::new();
         for pad in &footprint.pads {
             let half_w = pad.width / 2.0;
             let half_h = pad.height / 2.0;
@@ -8526,6 +8640,10 @@ impl McpServer {
             if cx < canvas_width && cy < canvas_height {
                 let designator_char = pad.designator.chars().next().unwrap_or('#');
                 canvas[cy][cx] = designator_char;
+                // Track multi-character designators for the legend
+                if pad.designator.len() > 1 {
+                    pad_mappings.push((designator_char, &pad.designator));
+                }
             }
         }
 
@@ -8566,6 +8684,30 @@ impl McpServer {
         output.push_str(&"-".repeat(canvas_width + 2));
         output.push('\n');
         output.push_str("Legend: # = pad, - = track, o = arc, + = origin\n");
+
+        // Add pad designator legend if any designators were truncated
+        if !pad_mappings.is_empty() {
+            // Sort by displayed character for consistent output
+            pad_mappings.sort_by(|a, b| a.0.cmp(&b.0));
+            // Group by displayed character (e.g., '1' might map to "10", "11", "12"...)
+            let mut current_char = '\0';
+            let mut groups: Vec<(char, Vec<&str>)> = Vec::new();
+            for (ch, desig) in &pad_mappings {
+                if *ch != current_char {
+                    groups.push((*ch, vec![desig]));
+                    current_char = *ch;
+                } else if let Some(last) = groups.last_mut() {
+                    last.1.push(desig);
+                }
+            }
+            output.push_str("Pad designators: ");
+            let mappings: Vec<String> = groups
+                .iter()
+                .map(|(ch, desigs)| format!("'{ch}'={}", desigs.join(",")))
+                .collect();
+            output.push_str(&mappings.join(" | "));
+            output.push('\n');
+        }
 
         output
     }

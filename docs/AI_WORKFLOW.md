@@ -401,7 +401,8 @@ The AI can create entire libraries efficiently:
 
 ### Deleting Components
 
-Components can be removed from existing libraries using `delete_component`:
+Components can be removed from existing libraries using `delete_component`. Use `dry_run: true`
+to preview changes without modifying the file. A backup is automatically created before deletion.
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -412,14 +413,23 @@ Components can be removed from existing libraries using `delete_component`:
 │     AI calls: list_components { filepath }                                  │
 │     Returns: ["RESC0402...", "RESC0603...", "OLD_FOOTPRINT", ...]           │
 │                                                                             │
-│  2. DELETE UNWANTED COMPONENTS                                              │
+│  2. PREVIEW DELETION (recommended)                                          │
+│     AI calls: delete_component {                                            │
+│         filepath,                                                           │
+│         component_names: ["OLD_FOOTPRINT", "DEPRECATED_0402"],              │
+│         dry_run: true                                                       │
+│     }                                                                       │
+│     Returns: preview of what would be deleted (no changes made)             │
+│                                                                             │
+│  3. DELETE UNWANTED COMPONENTS                                              │
 │     AI calls: delete_component {                                            │
 │         filepath,                                                           │
 │         component_names: ["OLD_FOOTPRINT", "DEPRECATED_0402"]               │
 │     }                                                                       │
 │     Returns: per-component status (deleted/not_found)                       │
+│     Note: Backup created automatically before deletion                      │
 │                                                                             │
-│  3. VERIFY (optional)                                                       │
+│  4. VERIFY (optional)                                                       │
 │     AI calls: list_components { filepath }                                  │
 │     Confirm components were removed                                         │
 │                                                                             │
@@ -632,6 +642,75 @@ Use `diff_libraries` to compare two versions of a library:
 }
 ```
 
+### Comparing Individual Components
+
+Use `compare_components` for detailed primitive-level comparison of two specific components.
+Components can be from the same library or different libraries:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ COMPONENT COMPARISON WORKFLOW                                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  COMPARE TWO COMPONENTS (same library)                                      │
+│  AI calls: compare_components {                                             │
+│      filepath_a: "./MyLibrary.PcbLib",                                      │
+│      component_a: "RESC0603_V1",                                            │
+│      filepath_b: "./MyLibrary.PcbLib",                                      │
+│      component_b: "RESC0603_V2"                                             │
+│  }                                                                          │
+│                                                                             │
+│  COMPARE COMPONENTS FROM DIFFERENT LIBRARIES                                │
+│  AI calls: compare_components {                                             │
+│      filepath_a: "./OldLibrary.PcbLib",                                     │
+│      component_a: "RESC0603",                                               │
+│      filepath_b: "./NewLibrary.PcbLib",                                     │
+│      component_b: "RESC0603",                                               │
+│      include_geometry: true,                                                │
+│      tolerance: 0.001                                                       │
+│  }                                                                          │
+│                                                                             │
+│  Returns detailed differences in:                                           │
+│  • Pads (position, size, shape, layer)                                      │
+│  • Tracks (coordinates, width, layer)                                       │
+│  • Pins (designator, name, position, electrical type)                       │
+│  • Parameters (Value, Manufacturer, etc.)                                   │
+│  • Description and other properties                                         │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Example Response:**
+
+```json
+{
+    "status": "different",
+    "file_type": "PcbLib",
+    "component_a": "RESC0603_V1",
+    "component_b": "RESC0603_V2",
+    "summary": {
+        "identical": false,
+        "pad_differences": 2,
+        "track_differences": 0,
+        "description_changed": true
+    },
+    "differences": {
+        "description": { "a": "Old resistor", "b": "Updated resistor" },
+        "pads": [
+            { "designator": "1", "field": "width", "a": 0.9, "b": 1.0 },
+            { "designator": "2", "field": "width", "a": 0.9, "b": 1.0 }
+        ]
+    }
+}
+```
+
+**Use cases:**
+
+- Compare footprint variants to identify differences
+- Verify updates were applied correctly
+- Debug issues by comparing working and broken components
+- Audit library changes before deployment
+
 ### Batch Operations
 
 Use `batch_update` to perform library-wide updates efficiently:
@@ -770,7 +849,9 @@ Use `copy_component` to duplicate components for creating variants:
 
 ### Copying Components Between Libraries
 
-Use `copy_component_cross_library` to copy components from one library to another:
+Use `copy_component_cross_library` to copy components from one library to another. Embedded 3D
+models are copied automatically. If a component references missing 3D models, use
+`ignore_missing_models: true` to copy without the model references.
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -799,6 +880,15 @@ Use `copy_component_cross_library` to copy components from one library to anothe
 │      target_filepath: "./ProjectSchLib.SchLib",                             │
 │      component_name: "Generic_Resistor"                                     │
 │  }                                                                          │
+│                                                                             │
+│  COPY FOOTPRINT WITH MISSING 3D MODELS (PcbLib only)                        │
+│  AI calls: copy_component_cross_library {                                   │
+│      source_filepath: "./OldLib.PcbLib",                                    │
+│      target_filepath: "./NewLib.PcbLib",                                    │
+│      component_name: "FOOTPRINT_WITH_MISSING_MODEL",                        │
+│      ignore_missing_models: true                                            │
+│  }                                                                          │
+│  Note: Component body references to missing models will be removed          │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
