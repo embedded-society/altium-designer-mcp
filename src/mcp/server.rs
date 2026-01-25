@@ -688,8 +688,8 @@ impl McpServer {
                                                 "height": { "type": "number", "description": "Pad height in mm" },
                                                 "shape": {
                                                     "type": "string",
-                                                    "enum": ["rectangle", "rounded_rectangle", "round", "oval"],
-                                                    "description": "Pad shape (round/circle are equivalent)"
+                                                    "enum": ["rectangle", "rounded_rectangle", "round", "circle", "oval"],
+                                                    "description": "Pad shape: rectangle (pin 1), rounded_rectangle (SMD default), round/circle (equivalent, for through-hole), oval"
                                                 },
                                                 "layer": { "type": "string", "description": "Layer name: Top Layer, Bottom Layer, Multi-Layer (default for SMD)" },
                                                 "hole_size": { "type": "number", "description": "Hole diameter for through-hole pads (mm)" }

@@ -1,11 +1,5 @@
 # TODO
 
-## Documentation/UX Polish
-
-| Item | Notes |
-|------|-------|
-| Pad shape examples | Clarify "round" vs "circle" equivalence |
-
 ---
 
 ## Known Limitations

@@ -1004,7 +1004,7 @@ The `shape` property on pads controls the copper shape. Use this to indicate pin
 |-------|-------|-------|
 | Rectangle | `"rectangle"` | **Pin 1 indicator** — use for the first pad to distinguish it visually |
 | Rounded Rectangle | `"rounded_rectangle"` | Default for SMD pads (most common) |
-| Round | `"round"` | Circular pads, default for through-hole |
+| Round | `"round"` or `"circle"` | Circular pads, default for through-hole (both values are equivalent) |
 | Oval | `"oval"` | Oblong pads for constrained spaces |
 
 **Example — marking pin 1 with a rectangular pad:**
