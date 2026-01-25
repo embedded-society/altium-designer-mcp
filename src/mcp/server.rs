@@ -827,8 +827,8 @@ impl McpServer {
                                         "items": {
                                             "type": "object",
                                             "properties": {
-                                                "x": { "type": "number", "description": "Center X" },
-                                                "y": { "type": "number", "description": "Center Y" },
+                                                "x": { "type": "number", "description": "Centre X" },
+                                                "y": { "type": "number", "description": "Centre Y" },
                                                 "radius": { "type": "number" },
                                                 "start_angle": { "type": "number", "description": "Start angle in degrees" },
                                                 "end_angle": { "type": "number", "description": "End angle in degrees" },
@@ -2406,7 +2406,7 @@ impl McpServer {
                 let mut layers_used: HashMap<String, usize> = HashMap::new();
 
                 for fp in library.iter() {
-                    // Analyze tracks
+                    // Analyse tracks
                     for track in &fp.tracks {
                         let layer_name = track.layer.as_str().to_string();
                         track_widths
@@ -2416,7 +2416,7 @@ impl McpServer {
                         *layers_used.entry(layer_name).or_insert(0) += 1;
                     }
 
-                    // Analyze pads
+                    // Analyse pads
                     for pad in &fp.pads {
                         let shape_name = format!("{:?}", pad.shape);
                         *pad_shapes.entry(shape_name).or_insert(0) += 1;
@@ -2424,14 +2424,14 @@ impl McpServer {
                         *layers_used.entry(layer_name).or_insert(0) += 1;
                     }
 
-                    // Analyze text
+                    // Analyse text
                     for text in &fp.text {
                         text_heights.push(text.height);
                         let layer_name = text.layer.as_str().to_string();
                         *layers_used.entry(layer_name).or_insert(0) += 1;
                     }
 
-                    // Analyze regions
+                    // Analyse regions
                     for region in &fp.regions {
                         let layer_name = region.layer.as_str().to_string();
                         *layers_used.entry(layer_name).or_insert(0) += 1;
@@ -2523,12 +2523,12 @@ impl McpServer {
                 let mut rect_unfilled_count = 0usize;
 
                 for symbol in library.iter() {
-                    // Analyze pins
+                    // Analyse pins
                     for pin in &symbol.pins {
                         pin_lengths.push(pin.length);
                     }
 
-                    // Analyze rectangles
+                    // Analyse rectangles
                     for rect in &symbol.rectangles {
                         line_widths.push(rect.line_width);
                         let line_color = format!("#{:06X}", rect.line_color);
@@ -2542,7 +2542,7 @@ impl McpServer {
                         }
                     }
 
-                    // Analyze lines
+                    // Analyse lines
                     for line in &symbol.lines {
                         line_widths.push(line.line_width);
                         let color = format!("#{:06X}", line.color);
@@ -5584,7 +5584,7 @@ impl McpServer {
                     continue;
                 }
 
-                // Match by center and radius
+                // Match by centre and radius
                 if (arc_a.x - arc_b.x).abs() <= tolerance
                     && (arc_a.y - arc_b.y).abs() <= tolerance
                     && (arc_a.radius - arc_b.radius).abs() <= tolerance
@@ -5626,7 +5626,7 @@ impl McpServer {
                         diffs.push(json!({
                             "arc_index": i,
                             "status": "modified",
-                            "center": { "x": arc_a.x, "y": arc_a.y },
+                            "centre": { "x": arc_a.x, "y": arc_a.y },
                             "radius": arc_a.radius,
                             "changes": changes
                         }));
@@ -5639,7 +5639,7 @@ impl McpServer {
                 diffs.push(json!({
                     "arc_index": i,
                     "status": "only_in_a",
-                    "center": { "x": arc_a.x, "y": arc_a.y },
+                    "centre": { "x": arc_a.x, "y": arc_a.y },
                     "radius": arc_a.radius,
                     "layer": arc_a.layer
                 }));
@@ -5651,7 +5651,7 @@ impl McpServer {
                 diffs.push(json!({
                     "arc_index": j,
                     "status": "only_in_b",
-                    "center": { "x": arc_b.x, "y": arc_b.y },
+                    "centre": { "x": arc_b.x, "y": arc_b.y },
                     "radius": arc_b.radius,
                     "layer": arc_b.layer
                 }));

@@ -71,7 +71,7 @@ fn analyze_pcblib(path: &Path) {
                 }
             }
 
-            // Read and analyze Data stream
+            // Read and analyse Data stream
             let mut stream = cfb.open_stream(&data_path).unwrap();
             let mut data = Vec::new();
             stream.read_to_end(&mut data).unwrap();
@@ -79,13 +79,13 @@ fn analyze_pcblib(path: &Path) {
             println!("Data stream: {} bytes", data.len());
             analyze_data_stream(&data);
 
-            // Only analyze first footprint for brevity
+            // Only analyse first footprint for brevity
             break;
         }
     }
 }
 
-/// Analyzes the binary Data stream to understand the record format.
+/// Analyses the binary Data stream to understand the record format.
 fn analyze_data_stream(data: &[u8]) {
     println!("\nFirst 256 bytes (hex dump):");
     for (i, chunk) in data

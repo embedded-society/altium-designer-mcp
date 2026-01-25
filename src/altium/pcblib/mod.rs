@@ -1815,7 +1815,7 @@ mod tests {
 
         // Set up per-layer offsets
         let mut offsets = vec![(0.0, 0.0); 32];
-        offsets[0] = (0.1, 0.05); // Top layer offset from hole center
+        offsets[0] = (0.1, 0.05); // Top layer offset from hole centre
         pad.per_layer_offsets = Some(offsets);
 
         original.add_pad(pad);

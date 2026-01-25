@@ -522,7 +522,7 @@ impl RoundRect {
 
 /// An elliptical arc.
 ///
-/// An arc segment of an ellipse, defined by center, radii, and angle range.
+/// An arc segment of an ellipse, defined by centre, radii, and angle range.
 /// Radii support fractional parts for precise positioning.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EllipticalArc {

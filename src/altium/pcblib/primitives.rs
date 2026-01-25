@@ -7,7 +7,7 @@
 //!
 //! All coordinates use millimeters (mm) as the unit of measurement. The coordinate system is:
 //!
-//! - **Origin**: Footprint center (0, 0)
+//! - **Origin**: Footprint centre (0, 0)
 //! - **X-axis**: Positive to the right
 //! - **Y-axis**: Positive upward
 //! - **Rotation**: Counter-clockwise, 0° = right (positive X direction)
@@ -165,7 +165,7 @@ pub struct Pad {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub per_layer_corner_radii: Option<Vec<u8>>,
 
-    /// Per-layer offset from hole center in mm (x, y) for 32 layers.
+    /// Per-layer offset from hole centre in mm (x, y) for 32 layers.
     /// Only used when `stack_mode` != `Simple`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub per_layer_offsets: Option<Vec<(f64, f64)>>,
@@ -659,26 +659,26 @@ pub enum StrokeFont {
 ///
 /// Specifies how text is aligned relative to its anchor point.
 /// The 9 positions form a 3x3 grid combining vertical (Bottom/Middle/Top)
-/// and horizontal (Left/Center/Right) alignment.
+/// and horizontal (Left/Centre/Right) alignment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TextJustification {
     /// Bottom-left aligned.
     BottomLeft,
-    /// Bottom-center aligned.
+    /// Bottom-centre aligned.
     BottomCenter,
     /// Bottom-right aligned.
     BottomRight,
     /// Middle-left aligned.
     MiddleLeft,
-    /// Middle-center aligned.
+    /// Middle-centre aligned.
     #[default]
     MiddleCenter,
     /// Middle-right aligned.
     MiddleRight,
     /// Top-left aligned.
     TopLeft,
-    /// Top-center aligned.
+    /// Top-centre aligned.
     TopCenter,
     /// Top-right aligned.
     TopRight,
