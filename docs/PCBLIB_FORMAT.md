@@ -200,7 +200,7 @@ Pads have 6 blocks:
 |----|------|-------------|
 | 0 | Simple | All layers mirror top layer settings |
 | 1 | TopMiddleBottom | Independent top, middle (layers 1-30), bottom |
-| 2 | FullStack | Complete per-layer customization (32 layers) |
+| 2 | FullStack | Complete per-layer customisation (32 layers) |
 
 **Per-layer data (Block 6):**
 

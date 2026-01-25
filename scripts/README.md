@@ -19,7 +19,7 @@ These files are used for:
 
 ### Python Analysis (`analyze_pcblib.py`, `analyze_schlib.py`)
 
-Analyzes the binary format of PcbLib and SchLib files using olefile.
+Analyses the binary format of PcbLib and SchLib files using olefile.
 
 **Prerequisites:**
 
