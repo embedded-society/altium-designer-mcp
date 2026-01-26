@@ -8733,7 +8733,7 @@ impl McpServer {
                 }
             }
 
-            // Place full designator centered on pad
+            // Place full designator centred on pad
             let (cx, cy) = to_canvas(pad.x, pad.y);
             if cy < canvas_height {
                 let desig = &pad.designator;
@@ -9187,7 +9187,7 @@ impl McpServer {
                         }
                     }
                     PinOrientation::Up | PinOrientation::Down => {
-                        // Vertical pins: place designator horizontally centered
+                        // Vertical pins: place designator horizontally centred
                         let start_x = cx.saturating_sub(desig.len() / 2);
                         for (i, ch) in desig.chars().enumerate() {
                             let x = start_x + i;
