@@ -444,6 +444,7 @@ fn read_flags(data: &[u8]) -> PcbFlags {
 /// - 61 (Mech 5): Bottom Courtyard
 /// - 62 (Mech 6): Top 3D Body
 /// - 63 (Mech 7): Bottom 3D Body
+#[allow(clippy::too_many_lines)] // ID-to-layer lookup for all layer types
 const fn layer_from_id(id: u8) -> Layer {
     match id {
         1 => Layer::TopLayer,
@@ -537,6 +538,23 @@ const fn layer_from_id(id: u8) -> Layer {
         83 => Layer::TopPadMaster,
         84 => Layer::BottomPadMaster,
         85 => Layer::DRCDetailLayer,
+        // Extended mechanical layers (Altium Designer 18+, IDs 186-201)
+        186 => Layer::Mechanical17,
+        187 => Layer::Mechanical18,
+        188 => Layer::Mechanical19,
+        189 => Layer::Mechanical20,
+        190 => Layer::Mechanical21,
+        191 => Layer::Mechanical22,
+        192 => Layer::Mechanical23,
+        193 => Layer::Mechanical24,
+        194 => Layer::Mechanical25,
+        195 => Layer::Mechanical26,
+        196 => Layer::Mechanical27,
+        197 => Layer::Mechanical28,
+        198 => Layer::Mechanical29,
+        199 => Layer::Mechanical30,
+        200 => Layer::Mechanical31,
+        201 => Layer::Mechanical32,
         // Unknown layers default to MultiLayer
         _ => Layer::MultiLayer,
     }

@@ -179,6 +179,7 @@ Most primitives use length-prefixed blocks:
 | 56 | Keep-Out Layer |
 | 57-72 | Mechanical 1-16 |
 | 73 | Drill Drawing |
+| 186-201 | Mechanical 17-32 (Altium Designer 18+) |
 
 ### Component Layer Pairs
 

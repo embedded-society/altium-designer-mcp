@@ -162,6 +162,7 @@ fn write_string_block(
 /// - Bottom Courtyard: 61 (Mech 5)
 /// - Top 3D Body: 62 (Mech 6)
 /// - Bottom 3D Body: 63 (Mech 7)
+#[allow(clippy::too_many_lines)] // Layer-to-ID lookup for all layer types
 const fn layer_to_id(layer: Layer) -> u8 {
     match layer {
         Layer::TopLayer => 1,
@@ -254,6 +255,23 @@ const fn layer_to_id(layer: Layer) -> u8 {
         Layer::TopPadMaster => 83,
         Layer::BottomPadMaster => 84,
         Layer::DRCDetailLayer => 85,
+        // Extended mechanical layers (Altium Designer 18+)
+        Layer::Mechanical17 => 186,
+        Layer::Mechanical18 => 187,
+        Layer::Mechanical19 => 188,
+        Layer::Mechanical20 => 189,
+        Layer::Mechanical21 => 190,
+        Layer::Mechanical22 => 191,
+        Layer::Mechanical23 => 192,
+        Layer::Mechanical24 => 193,
+        Layer::Mechanical25 => 194,
+        Layer::Mechanical26 => 195,
+        Layer::Mechanical27 => 196,
+        Layer::Mechanical28 => 197,
+        Layer::Mechanical29 => 198,
+        Layer::Mechanical30 => 199,
+        Layer::Mechanical31 => 200,
+        Layer::Mechanical32 => 201,
         Layer::MultiLayer => 74,
     }
 }

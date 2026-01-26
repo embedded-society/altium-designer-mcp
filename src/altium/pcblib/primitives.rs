@@ -1185,6 +1185,56 @@ pub enum Layer {
     #[serde(rename = "Mechanical 16", alias = "Mechanical16")]
     Mechanical16,
 
+    // Extended mechanical layers (IDs 186-201, Altium Designer 18+)
+    /// Mechanical layer 17 (ID 186).
+    #[serde(rename = "Mechanical 17", alias = "Mechanical17")]
+    Mechanical17,
+    /// Mechanical layer 18 (ID 187).
+    #[serde(rename = "Mechanical 18", alias = "Mechanical18")]
+    Mechanical18,
+    /// Mechanical layer 19 (ID 188).
+    #[serde(rename = "Mechanical 19", alias = "Mechanical19")]
+    Mechanical19,
+    /// Mechanical layer 20 (ID 189).
+    #[serde(rename = "Mechanical 20", alias = "Mechanical20")]
+    Mechanical20,
+    /// Mechanical layer 21 (ID 190).
+    #[serde(rename = "Mechanical 21", alias = "Mechanical21")]
+    Mechanical21,
+    /// Mechanical layer 22 (ID 191).
+    #[serde(rename = "Mechanical 22", alias = "Mechanical22")]
+    Mechanical22,
+    /// Mechanical layer 23 (ID 192).
+    #[serde(rename = "Mechanical 23", alias = "Mechanical23")]
+    Mechanical23,
+    /// Mechanical layer 24 (ID 193).
+    #[serde(rename = "Mechanical 24", alias = "Mechanical24")]
+    Mechanical24,
+    /// Mechanical layer 25 (ID 194).
+    #[serde(rename = "Mechanical 25", alias = "Mechanical25")]
+    Mechanical25,
+    /// Mechanical layer 26 (ID 195).
+    #[serde(rename = "Mechanical 26", alias = "Mechanical26")]
+    Mechanical26,
+    /// Mechanical layer 27 (ID 196).
+    #[serde(rename = "Mechanical 27", alias = "Mechanical27")]
+    Mechanical27,
+    /// Mechanical layer 28 (ID 197).
+    #[serde(rename = "Mechanical 28", alias = "Mechanical28")]
+    Mechanical28,
+    /// Mechanical layer 29 (ID 198).
+    #[serde(rename = "Mechanical 29", alias = "Mechanical29")]
+    Mechanical29,
+    /// Mechanical layer 30 (ID 199).
+    #[serde(rename = "Mechanical 30", alias = "Mechanical30")]
+    Mechanical30,
+    /// Mechanical layer 31 (ID 200).
+    #[serde(rename = "Mechanical 31", alias = "Mechanical31")]
+    Mechanical31,
+    /// Mechanical layer 32 (ID 201).
+    #[serde(rename = "Mechanical 32", alias = "Mechanical32")]
+    Mechanical32,
+
     // Special layers (IDs 75-85)
     /// Connect layer (ID 75).
     #[serde(rename = "Connect Layer", alias = "ConnectLayer")]
@@ -1229,6 +1279,7 @@ pub enum Layer {
 impl Layer {
     /// Returns the Altium layer name string.
     #[must_use]
+    #[allow(clippy::too_many_lines)] // Layer name lookup for all layers
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::TopLayer => "Top Layer",
@@ -1310,6 +1361,22 @@ impl Layer {
             Self::Mechanical14 => "Mechanical 14",
             Self::Mechanical15 => "Mechanical 15",
             Self::Mechanical16 => "Mechanical 16",
+            Self::Mechanical17 => "Mechanical 17",
+            Self::Mechanical18 => "Mechanical 18",
+            Self::Mechanical19 => "Mechanical 19",
+            Self::Mechanical20 => "Mechanical 20",
+            Self::Mechanical21 => "Mechanical 21",
+            Self::Mechanical22 => "Mechanical 22",
+            Self::Mechanical23 => "Mechanical 23",
+            Self::Mechanical24 => "Mechanical 24",
+            Self::Mechanical25 => "Mechanical 25",
+            Self::Mechanical26 => "Mechanical 26",
+            Self::Mechanical27 => "Mechanical 27",
+            Self::Mechanical28 => "Mechanical 28",
+            Self::Mechanical29 => "Mechanical 29",
+            Self::Mechanical30 => "Mechanical 30",
+            Self::Mechanical31 => "Mechanical 31",
+            Self::Mechanical32 => "Mechanical 32",
             Self::ConnectLayer => "Connect Layer",
             Self::BackgroundLayer => "Background Layer",
             Self::DRCErrorLayer => "DRC Error Layer",
@@ -1327,6 +1394,7 @@ impl Layer {
 
     /// Parses a layer from its Altium name string.
     #[must_use]
+    #[allow(clippy::too_many_lines)] // Layer name parsing for all layers
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "Top Layer" => Some(Self::TopLayer),
@@ -1408,6 +1476,22 @@ impl Layer {
             "Mechanical 14" => Some(Self::Mechanical14),
             "Mechanical 15" => Some(Self::Mechanical15),
             "Mechanical 16" => Some(Self::Mechanical16),
+            "Mechanical 17" => Some(Self::Mechanical17),
+            "Mechanical 18" => Some(Self::Mechanical18),
+            "Mechanical 19" => Some(Self::Mechanical19),
+            "Mechanical 20" => Some(Self::Mechanical20),
+            "Mechanical 21" => Some(Self::Mechanical21),
+            "Mechanical 22" => Some(Self::Mechanical22),
+            "Mechanical 23" => Some(Self::Mechanical23),
+            "Mechanical 24" => Some(Self::Mechanical24),
+            "Mechanical 25" => Some(Self::Mechanical25),
+            "Mechanical 26" => Some(Self::Mechanical26),
+            "Mechanical 27" => Some(Self::Mechanical27),
+            "Mechanical 28" => Some(Self::Mechanical28),
+            "Mechanical 29" => Some(Self::Mechanical29),
+            "Mechanical 30" => Some(Self::Mechanical30),
+            "Mechanical 31" => Some(Self::Mechanical31),
+            "Mechanical 32" => Some(Self::Mechanical32),
             "Connect Layer" => Some(Self::ConnectLayer),
             "Background Layer" => Some(Self::BackgroundLayer),
             "DRC Error Layer" => Some(Self::DRCErrorLayer),

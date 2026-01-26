@@ -4,18 +4,6 @@ Missing features and improvements for altium-designer-mcp.
 
 ---
 
-## PcbLib - Potential Improvements
-
-### Additional Layer Support
-
-**Priority:** Low
-
-Some layer IDs default to `MultiLayer` when unknown. Consider adding explicit support for:
-
-- Layers 86-255 (extended mechanical layers in newer Altium versions)
-
----
-
 ## Testing
 
 ### Real-World Library Testing
