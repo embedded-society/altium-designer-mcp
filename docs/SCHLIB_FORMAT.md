@@ -30,13 +30,27 @@ Key fields:
 | Key | Description | Notes |
 |-----|-------------|-------|
 | `HEADER` | File type identifier | "Schematic Library Editor Binary File Version 5.0" |
+| `WEIGHT` | File weight/version | Typically 47 |
+| `MINORVERSION` | Minor version number | Typically 9 |
+| `UNIQUEID` | Library unique ID | 8-char alphanumeric |
 | `CompCount` | Number of components | |
 | `LibRef{N}` | Component name | 0-indexed |
 | `CompDescr{N}` | Component description | |
 | `PartCount{N}` | Number of parts | Stored as count+1 in file |
-| `FontIdCount` | Number of custom fonts | |
-| `FontName{N}` | Font name | |
-| `Size{N}` | Font size | |
+| `FontIdCount` | Number of custom fonts | Default: 1 |
+| `FontName{N}` | Font name | Default: "Times New Roman" |
+| `Size{N}` | Font size | Default: 10 |
+| `UseMBCS` | Multibyte character set | "T" or "F" |
+| `IsBOC` | Binary OLE Container flag | "T" or "F" |
+| `SheetStyle` | Sheet style number | |
+| `BorderOn` | Border enabled | "T" or "F" |
+| `SnapGridOn` | Snap grid enabled | "T" or "F" |
+| `SnapGridSize` | Snap grid size | Default: 10 |
+| `VisibleGridOn` | Visible grid enabled | "T" or "F" |
+| `VisibleGridSize` | Visible grid size | Default: 10 |
+| `CustomX`, `CustomY` | Custom sheet dimensions | |
+| `UseCustomSheet` | Use custom sheet | "T" or "F" |
+| `AreaColor` | Background colour (BGR) | |
 
 > **Note:** `PartCount` is stored as actual_count + 1 in the file. When reading, subtract 1 to get the true part count.
 
@@ -236,6 +250,40 @@ Common colours:
 | `0xFF0000` | Blue | Component body |
 | `0x000000` | Black | Pins |
 
+## Common Text Record Fields
+
+Most text records include these standard fields:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `RECORD` | int | Record type ID |
+| `OwnerPartId` | int | Part ownership (-1 = all parts, 1+ = specific part) |
+| `OwnerPartDisplayMode` | int | Display mode (typically 0) |
+| `IndexInSheet` | int | Index within sheet (-1 for most) |
+| `UniqueID` | string | 8-char alphanumeric identifier |
+| `IsNotAccesible` | bool | Access flag ("T" or "F") |
+
+> **Note:** `UniqueID` is present on all shape records for tracking across edits.
+
+## Component Header (RECORD=1)
+
+The component header contains symbol-level metadata:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `LibReference` | string | Component name |
+| `ComponentDescription` | string | Description |
+| `PartCount` | int | Number of parts (stored as count+1) |
+| `DisplayModeCount` | int | Number of display modes (typically 1) |
+| `IndexInSheet` | int | Sheet index (-1) |
+| `CurrentPartId` | int | Currently displayed part (1) |
+| `SourceLibraryName` | string | Source library ("*") |
+| `TargetFileName` | string | Target file ("*") |
+| `AllPinCount` | int | Total number of pins |
+| `AreaColor` | int | Fill colour (BGR, default: 11599871 = light yellow) |
+| `Color` | int | Border colour (BGR, default: 128 = dark red) |
+| `PartIDLocked` | bool | Lock part ID ("T" or "F") |
+
 ## Text Record Examples
 
 ### Component Header (RECORD=1)
@@ -280,16 +328,18 @@ Common colours:
 
 ### Polyline (RECORD=6)
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `LocationCount` | int | Number of vertices |
-| `X{N}`, `Y{N}` | int | Vertex coordinates (1-indexed) |
-| `LineWidth` | int | Line thickness |
-| `Color` | int | Line colour (BGR) |
-| `LineStyle` | int | 0=Solid, 1=Dashed, 2=Dotted |
-| `StartLineShape` | int | Start endpoint shape |
-| `EndLineShape` | int | End endpoint shape |
-| `LineShapeSize` | int | Size of endpoint shapes |
+| Property | Type | Description | Implemented |
+|----------|------|-------------|-------------|
+| `LocationCount` | int | Number of vertices | ✓ |
+| `X{N}`, `Y{N}` | int | Vertex coordinates (1-indexed) | ✓ |
+| `LineWidth` | int | Line thickness | ✓ |
+| `Color` | int | Line colour (BGR) | ✓ |
+| `LineStyle` | int | 0=Solid, 1=Dashed, 2=Dotted | ✗ |
+| `StartLineShape` | int | Start endpoint shape | ✗ |
+| `EndLineShape` | int | End endpoint shape | ✗ |
+| `LineShapeSize` | int | Size of endpoint shapes | ✗ |
+
+> **Note:** Line style and endpoint shape properties are parsed but not currently stored in the Polyline struct.
 
 **Line shapes:**
 
@@ -343,6 +393,23 @@ Common colours:
 | `DataFileCount` | int | Number of data files |
 | `ModelDataFileKind{N}` | string | Data file references |
 
+### EllipticalArc (RECORD=11)
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `Location.X` | int | Centre X |
+| `Location.Y` | int | Centre Y |
+| `Radius` | int | Primary radius (integer part) |
+| `Radius_Frac` | int | Primary radius fractional part (× 100,000) |
+| `SecondaryRadius` | int | Secondary radius (integer part) |
+| `SecondaryRadius_Frac` | int | Secondary radius fractional part (× 100,000) |
+| `StartAngle` | float | Start angle (degrees) |
+| `EndAngle` | float | End angle (degrees) |
+| `LineWidth` | int | Line width |
+| `Color` | int | Line colour (BGR) |
+
+> **Note:** Fractional radius values are stored multiplied by 100,000 for precision without floating point.
+
 ## Multi-Part Symbols
 
 Some symbols have multiple parts (e.g., quad op-amp):
@@ -359,9 +426,12 @@ Some symbols have multiple parts (e.g., quad op-amp):
 - **ModelDatafileEntity (RECORD=47)**: Simulation model entity
 - **Implementation (RECORD=48)**: Additional implementation details
 - **Pin text format (RECORD=2)**: Rarely used, binary format preferred
-- **Pin symbol decorations**: Documented above (22 symbol types)
+- **Pin symbol decorations**: Documented above (22 symbol types) — not implemented
+- **Pin colour**: Stored in binary format but defaults to black — not implemented
 - **Display modes**: Stored in `DisplayModeCount`, primitives have `OwnerPartDisplayMode`
 - **Font storage**: Fonts defined in FileHeader (`FontName{N}`, `Size{N}`)
+- **Unique IDs**: All shapes have 8-char alphanumeric `UniqueID` for tracking
+- **Polyline styles**: `LineStyle`, `StartLineShape`, `EndLineShape` parsed but not stored
 
 ## References
 

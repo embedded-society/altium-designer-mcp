@@ -77,6 +77,29 @@ The 0x40 bit in pin flags (GraphicallyLocked) is documented but not extracted.
 
 ---
 
+### Polyline Line Style Properties
+
+**Priority:** Low
+
+Polyline supports line style and endpoint shape properties that are parsed but not stored in the struct.
+
+**Properties to implement:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `LineStyle` | int | 0=Solid, 1=Dashed, 2=Dotted |
+| `StartLineShape` | int | Start endpoint shape (Arrow, Circle, etc.) |
+| `EndLineShape` | int | End endpoint shape |
+| `LineShapeSize` | int | Size of endpoint shapes |
+
+**Files to modify:**
+
+- `src/altium/schlib/primitives.rs` — add fields to `Polyline` struct
+- `src/altium/schlib/reader.rs` — store parsed values
+- `src/altium/schlib/writer.rs` — encode line style properties
+
+---
+
 ## PcbLib - Potential Improvements
 
 ### Additional Layer Support

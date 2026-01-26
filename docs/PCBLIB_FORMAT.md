@@ -35,6 +35,40 @@ Key fields:
 | `LibRef{N}` | Component name (0-indexed) |
 | `CompDescr{N}` | Component description |
 
+## Storage Stream
+
+The Storage stream contains additional metadata including unique ID mappings for primitives.
+
+```text
+[length:4 LE][pipe-delimited key=value pairs...]
+```
+
+Key fields:
+
+| Key | Description |
+|-----|-------------|
+| `HEADER` | Stream type identifier |
+| `WEIGHT` | File weight/version |
+| `MINORVERSION` | Minor version number |
+| `UNIQUEID` | Library unique ID (8-char alphanumeric) |
+
+### UniqueIdPrimitiveInformation
+
+Primitive unique IDs are stored as indexed entries within the Storage stream:
+
+```text
+|PRIMITIVEINDEX={index}|PRIMITIVEOBJECTID={type}|UNIQUEID={uid}|
+```
+
+| Field | Description |
+|-------|-------------|
+| `PRIMITIVEINDEX` | 1-based index within primitive type |
+| `PRIMITIVEOBJECTID` | Primitive type name (Pad, Via, Track, Arc, Region, Text, Fill, ComponentBody) |
+| `UNIQUEID` | 8-character alphanumeric identifier |
+
+> **Note:** All primitives support a `unique_id` field for tracking across edits. The tool preserves existing
+> unique IDs when reading and generates new ones when creating primitives.
+
 ## Data Stream Format
 
 Each component's Data stream contains the footprint primitives:
@@ -179,9 +213,16 @@ Pads have 6 blocks:
 | 51 | 1 | Shape (bottom) |
 | 52-59 | 8 | Rotation (IEEE 754 double, degrees) |
 | 60 | 1 | Is plated (0 = no, 1 = yes) |
-| 61 | 1 | Reserved |
+| 61 | 1 | Hole shape (0 = Round, 1 = Square, 2 = Slot) |
 | 62 | 1 | Stack mode (see below) |
-| 63+ | var | Additional pad properties (paste/solder mask expansion, etc.) |
+| 63-85 | 23 | Reserved (zeros) |
+| 86-89 | 4 | Paste mask expansion (internal units, signed) |
+| 90-93 | 4 | Solder mask expansion (internal units, signed) |
+| 94-100 | 7 | Reserved |
+| 101 | 1 | Paste mask expansion manual (0 = auto, 1 = manual) |
+| 102 | 1 | Solder mask expansion manual (0 = auto, 1 = manual) |
+| 103-109 | 7 | Reserved |
+| 110-111 | 2 | Jumper ID (internal use) |
 
 **Pad shapes:**
 
@@ -193,6 +234,10 @@ Pads have 6 blocks:
 
 > **Note:** Round and RoundedRectangle share shape ID 1. The distinction is made via the per-layer
 > corner_radius_percent field. RoundedRectangle pads require FullStack mode to preserve their shape.
+>
+> **Implementation note:** When writing pads with `corner_radius_percent` set (1-99%) or shape
+> `RoundedRectangle`, the tool automatically upgrades from Simple to FullStack mode to preserve the
+> corner radius data.
 
 **Stack modes:**
 
@@ -301,9 +346,15 @@ Text has 2 blocks:
 
 | ID | Position |
 |----|----------|
-| 1-3 | Bottom Right, Center, Left |
-| 4-6 | Middle Right, Center, Left |
-| 7-9 | Top Right, Center, Left |
+| 0 | Bottom Left |
+| 1 | Bottom Center |
+| 2 | Bottom Right |
+| 3 | Middle Left |
+| 4 | Middle Center |
+| 5 | Middle Right |
+| 6 | Top Left |
+| 7 | Top Center |
+| 8 | Top Right |
 
 **Block 1 (Content):**
 
@@ -393,7 +444,8 @@ Binary header followed by pipe-delimited key=value parameters. Parameters start 
 | `STANDOFFHEIGHT` | Standoff height | "0mil" |
 | `OVERALLHEIGHT` | Overall height | "0.4mm" |
 
-> **Note:** Height values can be in "mil" or "mm" units.
+> **Note:** Height values can be in "mil" or "mm" units. The tool parses both formats:
+> `15.748mil` → 0.4mm, `0.4mm` → 0.4mm. Mil values are converted using factor 0.0254 (1 mil = 0.0254 mm).
 
 **Block 1:** Model snap points data (usually empty).
 
@@ -433,9 +485,9 @@ Vias have 6 blocks, similar to Pads:
 | 25-28 | 4 | Hole size |
 | 29 | 1 | From layer ID |
 | 30 | 1 | To layer ID |
-| 31-34 | 4 | Thermal relief air gap width |
-| 35 | 1 | Thermal relief conductors count |
-| 36-39 | 4 | Thermal relief conductors width |
+| 31-34 | 4 | Thermal relief air gap width (default: 10 mils = 2540 units) |
+| 35 | 1 | Thermal relief conductors count (default: 4) |
+| 36-39 | 4 | Thermal relief conductors width (default: 10 mils = 2540 units) |
 | 40-43 | 4 | Solder mask expansion |
 | 44 | 1 | Solder mask expansion manual flag |
 | 45 | 1 | Diameter stack mode |
@@ -493,6 +545,10 @@ The record's position (0, 1, 2, ...) corresponds to the model stream index.
 - **Pad hole shapes**: Round (0), Square (1), Slot (2)
 - **Net information**: Used in board files, not library files
 - **Component variants**: Not applicable to library files
+- **Unique IDs**: All primitives support 8-character alphanumeric unique IDs for tracking
+- **Default layer mapping**: Unknown layer IDs default to Multi-Layer (74)
+- **Default hole shape**: Unknown hole shape IDs default to Round (0)
+- **Default stack mode**: Unknown stack mode IDs default to Simple (0)
 
 ## References
 
