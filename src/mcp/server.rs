@@ -8714,8 +8714,7 @@ impl McpServer {
             }
         }
 
-        // Draw pads (as rectangles with designator) and collect designator mappings
-        let mut pad_mappings: Vec<(char, &str)> = Vec::new();
+        // Draw pads (as rectangles with full designator)
         for pad in &footprint.pads {
             let half_w = pad.width / 2.0;
             let half_h = pad.height / 2.0;
@@ -8734,21 +8733,16 @@ impl McpServer {
                 }
             }
 
-            // Place designator at centre
+            // Place full designator centered on pad
             let (cx, cy) = to_canvas(pad.x, pad.y);
-            if cx < canvas_width && cy < canvas_height {
-                // Convert designator to a display character:
-                // - Single char: use as-is
-                // - Numeric 1-9: use digit
-                // - Numeric 10-35: use A-Z
-                // - Numeric 36+: use '?'
-                // - Alphanumeric (BGA): use first char
-                let designator_char = Self::designator_to_char(&pad.designator);
-                canvas[cy][cx] = designator_char;
-                // Track designators that needed mapping for the legend
-                let first_char = pad.designator.chars().next().unwrap_or('#');
-                if designator_char != first_char || pad.designator.len() > 1 {
-                    pad_mappings.push((designator_char, &pad.designator));
+            if cy < canvas_height {
+                let desig = &pad.designator;
+                let start_x = cx.saturating_sub(desig.len() / 2);
+                for (i, ch) in desig.chars().enumerate() {
+                    let x = start_x + i;
+                    if x < canvas_width {
+                        canvas[cy][x] = ch;
+                    }
                 }
             }
         }
@@ -8791,64 +8785,7 @@ impl McpServer {
         output.push('\n');
         output.push_str("Legend: # = pad, - = track, o = arc, + = origin\n");
 
-        // Add pad designator legend if any designators were truncated
-        if !pad_mappings.is_empty() {
-            // Sort by displayed character for consistent output
-            pad_mappings.sort_by(|a, b| a.0.cmp(&b.0));
-            // Group by displayed character (e.g., '1' might map to "10", "11", "12"...)
-            let mut current_char = '\0';
-            let mut groups: Vec<(char, Vec<&str>)> = Vec::new();
-            for (ch, desig) in &pad_mappings {
-                if *ch != current_char {
-                    groups.push((*ch, vec![desig]));
-                    current_char = *ch;
-                } else if let Some(last) = groups.last_mut() {
-                    last.1.push(desig);
-                }
-            }
-            output.push_str("Pad designators: ");
-            let mappings: Vec<String> = groups
-                .iter()
-                .map(|(ch, desigs)| format!("'{ch}'={}", desigs.join(",")))
-                .collect();
-            output.push_str(&mappings.join(" | "));
-            output.push('\n');
-        }
-
         output
-    }
-
-    /// Converts a pad designator to a single display character.
-    ///
-    /// Mapping:
-    /// - Single character: use as-is
-    /// - Numeric 1-9: use the digit ('1'-'9')
-    /// - Numeric 10-35: use letters ('A'-'Z')
-    /// - Numeric 36+: use '?'
-    /// - Alphanumeric (e.g., BGA "A1"): use first character
-    #[allow(clippy::cast_possible_truncation)] // Values are bounded by match arms
-    fn designator_to_char(designator: &str) -> char {
-        if designator.is_empty() {
-            return '#';
-        }
-
-        // Single character - use as-is
-        if designator.len() == 1 {
-            return designator.chars().next().unwrap();
-        }
-
-        // Try to parse as number for numeric designators
-        if let Ok(num) = designator.parse::<u32>() {
-            return match num {
-                0 => '0',
-                1..=9 => char::from_digit(num, 10).unwrap(),
-                10..=35 => char::from_u32(u32::from(b'A') + (num - 10)).unwrap_or('?'),
-                _ => '?',
-            };
-        }
-
-        // Alphanumeric (like BGA "A1", "B2") - use first char
-        designator.chars().next().unwrap_or('#')
     }
 
     /// Draws a line on the canvas using Bresenham's algorithm.
@@ -10889,61 +10826,6 @@ mod tests {
             !backups.is_empty(),
             "At least one backup should exist, pattern: {backup_pattern}"
         );
-    }
-
-    // =========================================================================
-    // designator_to_char Unit Tests
-    // =========================================================================
-
-    #[test]
-    fn designator_to_char_single_digit() {
-        assert_eq!(McpServer::designator_to_char("1"), '1');
-        assert_eq!(McpServer::designator_to_char("5"), '5');
-        assert_eq!(McpServer::designator_to_char("9"), '9');
-    }
-
-    #[test]
-    fn designator_to_char_numeric_1_to_9() {
-        // Single digits should return themselves
-        for i in 1..=9 {
-            let ch = McpServer::designator_to_char(&i.to_string());
-            assert_eq!(ch, char::from_digit(i, 10).unwrap(), "Failed for {i}");
-        }
-    }
-
-    #[test]
-    fn designator_to_char_numeric_10_to_35() {
-        // 10-35 should map to A-Z
-        assert_eq!(McpServer::designator_to_char("10"), 'A');
-        assert_eq!(McpServer::designator_to_char("11"), 'B');
-        assert_eq!(McpServer::designator_to_char("26"), 'Q');
-        assert_eq!(McpServer::designator_to_char("35"), 'Z');
-    }
-
-    #[test]
-    fn designator_to_char_numeric_above_35() {
-        // 36+ should return '?'
-        assert_eq!(McpServer::designator_to_char("36"), '?');
-        assert_eq!(McpServer::designator_to_char("100"), '?');
-        assert_eq!(McpServer::designator_to_char("999"), '?');
-    }
-
-    #[test]
-    fn designator_to_char_alphanumeric_bga() {
-        // BGA-style (e.g., "A1", "B2") should use first character
-        assert_eq!(McpServer::designator_to_char("A1"), 'A');
-        assert_eq!(McpServer::designator_to_char("B2"), 'B');
-        assert_eq!(McpServer::designator_to_char("AA1"), 'A');
-    }
-
-    #[test]
-    fn designator_to_char_empty() {
-        assert_eq!(McpServer::designator_to_char(""), '#');
-    }
-
-    #[test]
-    fn designator_to_char_zero() {
-        assert_eq!(McpServer::designator_to_char("0"), '0');
     }
 
     // =========================================================================
