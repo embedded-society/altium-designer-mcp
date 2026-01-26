@@ -7,7 +7,9 @@ use altium_designer_mcp::altium::pcblib::{
     Arc, ComponentBody, Fill, Footprint, Layer, Model3D, Pad, PcbFlags, PcbLib, Region, Text,
     TextJustification, TextKind, Track, Vertex, Via,
 };
-use altium_designer_mcp::altium::schlib::{Pin, PinOrientation, Rectangle, SchLib, Symbol};
+use altium_designer_mcp::altium::schlib::{
+    Pin, PinOrientation, PinSymbol, Rectangle, SchLib, Symbol,
+};
 use std::fs::File;
 use tempfile::TempDir;
 
@@ -1280,6 +1282,7 @@ fn test_schlib_rename_component() {
         line_color: 0x0000_0000,
         fill_color: 0x0000_FFFF,
         filled: true,
+        transparent: false,
         owner_part_id: 1,
     });
     sym.pins.push(Pin {
@@ -1295,6 +1298,12 @@ fn test_schlib_rename_component() {
         show_designator: true,
         description: String::new(),
         owner_part_id: 1,
+        colour: 0,
+        graphically_locked: false,
+        symbol_inner_edge: PinSymbol::None,
+        symbol_outer_edge: PinSymbol::None,
+        symbol_inside: PinSymbol::None,
+        symbol_outside: PinSymbol::None,
     });
     lib.add(sym);
     lib.save(&file_path).expect("Failed to write");
@@ -1492,6 +1501,7 @@ fn test_schlib_copy_cross_library() {
         line_color: 0x0000_0000,
         fill_color: 0x0000_FFFF,
         filled: true,
+        transparent: false,
         owner_part_id: 1,
     });
     sym.pins.push(Pin {
@@ -1507,6 +1517,12 @@ fn test_schlib_copy_cross_library() {
         show_designator: true,
         description: String::new(),
         owner_part_id: 1,
+        colour: 0,
+        graphically_locked: false,
+        symbol_inner_edge: PinSymbol::None,
+        symbol_outer_edge: PinSymbol::None,
+        symbol_inside: PinSymbol::None,
+        symbol_outside: PinSymbol::None,
     });
     source_lib.add(sym);
     source_lib
@@ -1626,6 +1642,7 @@ fn test_schlib_json_roundtrip() {
         line_color: 0x0000_0000,
         fill_color: 0x0000_FFFF,
         filled: true,
+        transparent: false,
         owner_part_id: 1,
     });
     sym.pins.push(Pin {
@@ -1641,6 +1658,12 @@ fn test_schlib_json_roundtrip() {
         show_designator: true,
         description: String::new(),
         owner_part_id: 1,
+        colour: 0,
+        graphically_locked: false,
+        symbol_inner_edge: PinSymbol::None,
+        symbol_outer_edge: PinSymbol::None,
+        symbol_inside: PinSymbol::None,
+        symbol_outside: PinSymbol::None,
     });
     lib.add(sym);
     lib.save(&original_path).expect("Failed to write original");
@@ -1877,6 +1900,7 @@ fn test_schlib_merge_libraries() {
         line_color: 0x0000_0000,
         fill_color: 0x0000_FFFF,
         filled: true,
+        transparent: false,
         owner_part_id: 1,
     });
     lib1.add(sym1);
@@ -1900,6 +1924,12 @@ fn test_schlib_merge_libraries() {
         show_designator: true,
         description: String::new(),
         owner_part_id: 1,
+        colour: 0,
+        graphically_locked: false,
+        symbol_inner_edge: PinSymbol::None,
+        symbol_outer_edge: PinSymbol::None,
+        symbol_inside: PinSymbol::None,
+        symbol_outside: PinSymbol::None,
     });
     lib2.add(sym2);
     lib2.save(&source2_path).expect("Failed to write source2");
@@ -2048,6 +2078,7 @@ fn test_schlib_search() {
         line_color: 0,
         fill_color: 0,
         filled: false,
+        transparent: false,
         owner_part_id: 1,
     });
     lib.add(sym1);
@@ -2062,6 +2093,7 @@ fn test_schlib_search() {
         line_color: 0,
         fill_color: 0,
         filled: false,
+        transparent: false,
         owner_part_id: 1,
     });
     lib.add(sym2);
@@ -2076,6 +2108,7 @@ fn test_schlib_search() {
         line_color: 0,
         fill_color: 0,
         filled: false,
+        transparent: false,
         owner_part_id: 1,
     });
     lib.add(sym3);
@@ -2171,6 +2204,7 @@ fn test_schlib_get_component() {
         line_color: 0,
         fill_color: 0,
         filled: false,
+        transparent: false,
         owner_part_id: 1,
     });
     sym1.pins.push(Pin {
@@ -2186,6 +2220,12 @@ fn test_schlib_get_component() {
         show_designator: true,
         description: String::new(),
         owner_part_id: 1,
+        colour: 0,
+        graphically_locked: false,
+        symbol_inner_edge: PinSymbol::None,
+        symbol_outer_edge: PinSymbol::None,
+        symbol_inside: PinSymbol::None,
+        symbol_outside: PinSymbol::None,
     });
     lib.add(sym1);
 

@@ -181,8 +181,7 @@ Binary pin records have a variable-length structure with three length-prefixed s
 
 ### Pin Symbols
 
-> **Not implemented:** Pin symbol decorations are documented here for format completeness but are
-> **not currently parsed or written** by this tool. All four symbol bytes are read/written as zeros.
+Pin symbol decorations appear at four positions on the pin to indicate electrical characteristics.
 
 The four symbol positions (InnerEdge, OuterEdge, Inside, Outside) can each have one of these decorations:
 
@@ -221,7 +220,7 @@ The four symbol positions (InnerEdge, OuterEdge, Inside, Outside) can each have 
 | 0x08 | DisplayNameVisible | Show pin name | ✓ |
 | 0x10 | DesignatorVisible | Show pin designator | ✓ |
 | 0x20 | Reserved | Reserved | — |
-| 0x40 | GraphicallyLocked | Pin is graphically locked | ✗ |
+| 0x40 | GraphicallyLocked | Pin is graphically locked | ✓ |
 | 0x80 | Reserved | Reserved | — |
 
 ### Pin Constraints
@@ -390,12 +389,10 @@ The component header contains symbol-level metadata:
 | `X{N}`, `Y{N}` | int | Vertex coordinates (1-indexed) | ✓ |
 | `LineWidth` | int | Line thickness | ✓ |
 | `Color` | int | Line colour (BGR) | ✓ |
-| `LineStyle` | int | 0=Solid, 1=Dashed, 2=Dotted | ✗ |
-| `StartLineShape` | int | Start endpoint shape | ✗ |
-| `EndLineShape` | int | End endpoint shape | ✗ |
-| `LineShapeSize` | int | Size of endpoint shapes | ✗ |
-
-> **Note:** Line style and endpoint shape properties are parsed but not currently stored in the Polyline struct.
+| `LineStyle` | int | 0=Solid, 1=Dashed, 2=Dotted | ✓ |
+| `StartLineShape` | int | Start endpoint shape | ✓ |
+| `EndLineShape` | int | End endpoint shape | ✓ |
+| `LineShapeSize` | int | Size of endpoint shapes | ✓ |
 >
 > Polylines require a minimum of 2 vertices.
 
@@ -662,12 +659,12 @@ Some symbols have multiple parts (e.g., quad op-amp):
 - **ModelDatafileEntity (RECORD=47)**: Simulation model entity
 - **Implementation (RECORD=48)**: Additional implementation details
 - **Pin text format (RECORD=2)**: Rarely used, binary format preferred
-- **Pin symbol decorations**: Documented above (22 symbol types) — not implemented
-- **Pin colour**: Stored in binary format but defaults to black — not implemented
+- **Pin symbol decorations**: Supported (22 symbol types)
+- **Pin colour**: Stored in binary format (BGR)
 - **Display modes**: Stored in `DisplayModeCount`, primitives have `OwnerPartDisplayMode`
 - **Font storage**: Fonts defined in FileHeader (`FontName{N}`, `Size{N}`)
 - **Unique IDs**: All shapes have 8-char alphanumeric `UniqueID` for tracking
-- **Polyline styles**: `LineStyle`, `StartLineShape`, `EndLineShape` parsed but not stored
+- **Polyline styles**: `LineStyle`, `StartLineShape`, `EndLineShape`, `LineShapeSize` supported
 
 ## References
 

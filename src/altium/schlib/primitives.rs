@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 /// A schematic symbol pin.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(clippy::struct_excessive_bools)] // Pin flags match Altium binary format
 pub struct Pin {
     /// Pin name (e.g., "VCC", "GND", "IN").
     pub name: String,
@@ -50,6 +51,30 @@ pub struct Pin {
     /// Owner part ID (for multi-part symbols).
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,
+
+    /// Pin colour (BGR format).
+    #[serde(default)]
+    pub colour: u32,
+
+    /// Whether the pin is graphically locked.
+    #[serde(default)]
+    pub graphically_locked: bool,
+
+    /// Symbol decoration on the inner edge (closest to component body).
+    #[serde(default)]
+    pub symbol_inner_edge: PinSymbol,
+
+    /// Symbol decoration on the outer edge (furthest from component body).
+    #[serde(default)]
+    pub symbol_outer_edge: PinSymbol,
+
+    /// Symbol decoration inside the pin line.
+    #[serde(default)]
+    pub symbol_inside: PinSymbol,
+
+    /// Symbol decoration outside the pin line.
+    #[serde(default)]
+    pub symbol_outside: PinSymbol,
 }
 
 const fn default_true() -> bool {
@@ -84,6 +109,126 @@ impl Pin {
             show_designator: true,
             description: String::new(),
             owner_part_id: 1,
+            colour: 0,
+            graphically_locked: false,
+            symbol_inner_edge: PinSymbol::None,
+            symbol_outer_edge: PinSymbol::None,
+            symbol_inside: PinSymbol::None,
+            symbol_outside: PinSymbol::None,
+        }
+    }
+}
+
+/// Pin symbol decoration (visual indicators on pin graphics).
+///
+/// These decorations appear at different positions on the pin to indicate
+/// electrical characteristics or signal flow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PinSymbol {
+    /// No decoration.
+    #[default]
+    None,
+    /// Inversion dot (bubble).
+    Dot,
+    /// Right-to-left signal flow arrow.
+    RightLeftSignalFlow,
+    /// Clock input indicator.
+    Clock,
+    /// Active low input bar.
+    ActiveLowInput,
+    /// Analog signal input.
+    AnalogSignalIn,
+    /// Not a logic connection.
+    NotLogicConnection,
+    /// Postponed output.
+    PostponedOutput,
+    /// Open collector output.
+    OpenCollector,
+    /// High impedance.
+    HiZ,
+    /// High current.
+    HighCurrent,
+    /// Pulse.
+    Pulse,
+    /// Schmitt trigger input.
+    Schmitt,
+    /// Active low output bar.
+    ActiveLowOutput,
+    /// Open collector with pull-up.
+    OpenCollectorPullUp,
+    /// Open emitter output.
+    OpenEmitter,
+    /// Open emitter with pull-up.
+    OpenEmitterPullUp,
+    /// Digital signal input.
+    DigitalSignalIn,
+    /// Shift left.
+    ShiftLeft,
+    /// Open output.
+    OpenOutput,
+    /// Left-to-right signal flow arrow.
+    LeftRightSignalFlow,
+    /// Bidirectional signal flow.
+    BidirectionalSignalFlow,
+}
+
+impl PinSymbol {
+    /// Creates from Altium symbol ID.
+    #[must_use]
+    pub const fn from_id(id: u8) -> Self {
+        match id {
+            1 => Self::Dot,
+            2 => Self::RightLeftSignalFlow,
+            3 => Self::Clock,
+            4 => Self::ActiveLowInput,
+            5 => Self::AnalogSignalIn,
+            6 => Self::NotLogicConnection,
+            7 => Self::PostponedOutput,
+            8 => Self::OpenCollector,
+            9 => Self::HiZ,
+            10 => Self::HighCurrent,
+            11 => Self::Pulse,
+            12 => Self::Schmitt,
+            13 => Self::ActiveLowOutput,
+            14 => Self::OpenCollectorPullUp,
+            15 => Self::OpenEmitter,
+            16 => Self::OpenEmitterPullUp,
+            17 => Self::DigitalSignalIn,
+            18 => Self::ShiftLeft,
+            19 => Self::OpenOutput,
+            20 => Self::LeftRightSignalFlow,
+            21 => Self::BidirectionalSignalFlow,
+            _ => Self::None,
+        }
+    }
+
+    /// Returns the Altium symbol ID.
+    #[must_use]
+    pub const fn to_id(self) -> u8 {
+        match self {
+            Self::None => 0,
+            Self::Dot => 1,
+            Self::RightLeftSignalFlow => 2,
+            Self::Clock => 3,
+            Self::ActiveLowInput => 4,
+            Self::AnalogSignalIn => 5,
+            Self::NotLogicConnection => 6,
+            Self::PostponedOutput => 7,
+            Self::OpenCollector => 8,
+            Self::HiZ => 9,
+            Self::HighCurrent => 10,
+            Self::Pulse => 11,
+            Self::Schmitt => 12,
+            Self::ActiveLowOutput => 13,
+            Self::OpenCollectorPullUp => 14,
+            Self::OpenEmitter => 15,
+            Self::OpenEmitterPullUp => 16,
+            Self::DigitalSignalIn => 17,
+            Self::ShiftLeft => 18,
+            Self::OpenOutput => 19,
+            Self::LeftRightSignalFlow => 20,
+            Self::BidirectionalSignalFlow => 21,
         }
     }
 }
@@ -207,6 +352,9 @@ pub struct Rectangle {
     /// Whether the rectangle is filled.
     #[serde(default = "default_true")]
     pub filled: bool,
+    /// Whether the rectangle is transparent.
+    #[serde(default)]
+    pub transparent: bool,
     /// Owner part ID.
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,
@@ -229,6 +377,7 @@ impl Rectangle {
             line_color: 0x00_00_80, // Dark red (BGR)
             fill_color: 0xFF_FF_B0, // Light yellow (BGR)
             filled: true,
+            transparent: false,
             owner_part_id: 1,
         }
     }
@@ -283,6 +432,18 @@ pub struct Polyline {
     /// Line colour (BGR format).
     #[serde(default)]
     pub color: u32,
+    /// Line style (0 = Solid, 1 = Dashed, 2 = Dotted).
+    #[serde(default)]
+    pub line_style: u8,
+    /// Start endpoint shape.
+    #[serde(default)]
+    pub start_line_shape: u8,
+    /// End endpoint shape.
+    #[serde(default)]
+    pub end_line_shape: u8,
+    /// Size of endpoint shapes.
+    #[serde(default)]
+    pub line_shape_size: u8,
     /// Owner part ID.
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,
@@ -603,6 +764,12 @@ pub struct Label {
     /// Rotation in degrees.
     #[serde(default)]
     pub rotation: f64,
+    /// Whether the label is mirrored horizontally.
+    #[serde(default)]
+    pub is_mirrored: bool,
+    /// Whether the label is hidden.
+    #[serde(default)]
+    pub is_hidden: bool,
     /// Owner part ID.
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,
@@ -657,6 +824,12 @@ pub struct Parameter {
     /// Whether the parameter is hidden.
     #[serde(default)]
     pub hidden: bool,
+    /// Read-only state (0 = editable, 1 = read-only).
+    #[serde(default)]
+    pub read_only_state: u8,
+    /// Parameter type (0 = String, 1 = Boolean, 2 = Integer, 3 = Float).
+    #[serde(default)]
+    pub param_type: u8,
     /// Owner part ID.
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,
@@ -674,6 +847,8 @@ impl Parameter {
             font_id: 1,
             color: 0x80_00_00, // Dark blue (BGR)
             hidden: false,
+            read_only_state: 0,
+            param_type: 0,
             owner_part_id: 1,
         }
     }

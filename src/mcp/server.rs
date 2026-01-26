@@ -3338,6 +3338,12 @@ impl McpServer {
             show_designator,
             description: String::new(),
             owner_part_id,
+            colour: 0,
+            graphically_locked: false,
+            symbol_inner_edge: crate::altium::schlib::PinSymbol::None,
+            symbol_outer_edge: crate::altium::schlib::PinSymbol::None,
+            symbol_inside: crate::altium::schlib::PinSymbol::None,
+            symbol_outside: crate::altium::schlib::PinSymbol::None,
         })
     }
 
@@ -3375,6 +3381,7 @@ impl McpServer {
             line_color,
             fill_color,
             filled,
+            transparent: false,
             owner_part_id,
         })
     }
@@ -3443,6 +3450,8 @@ impl McpServer {
             font_id,
             color,
             hidden,
+            read_only_state: 0,
+            param_type: 0,
             owner_part_id,
         })
     }
@@ -3480,6 +3489,10 @@ impl McpServer {
             points,
             line_width,
             color,
+            line_style: 0,
+            start_line_shape: 0,
+            end_line_shape: 0,
+            line_shape_size: 0,
             owner_part_id,
         })
     }

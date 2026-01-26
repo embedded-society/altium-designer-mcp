@@ -18,7 +18,8 @@
 
 use super::primitives::{
     Arc, Bezier, Ellipse, EllipticalArc, FootprintModel, Label, Line, Parameter, Pin,
-    PinElectricalType, PinOrientation, Polygon, Polyline, Rectangle, RoundRect, TextJustification,
+    PinElectricalType, PinOrientation, PinSymbol, Polygon, Polyline, Rectangle, RoundRect,
+    TextJustification,
 };
 use super::Symbol;
 use std::collections::HashMap;
@@ -244,6 +245,10 @@ fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
     offset += 1;
 
     // symbol flags (4 bytes: inner_edge, outer_edge, inside, outside)
+    let symbol_inner_edge = PinSymbol::from_id(data.get(offset).copied().unwrap_or(0));
+    let symbol_outer_edge = PinSymbol::from_id(data.get(offset + 1).copied().unwrap_or(0));
+    let symbol_inside = PinSymbol::from_id(data.get(offset + 2).copied().unwrap_or(0));
+    let symbol_outside = PinSymbol::from_id(data.get(offset + 3).copied().unwrap_or(0));
     offset += 4;
 
     // description: [length:1][unknown:1][string]
@@ -269,6 +274,7 @@ fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
     let hidden = (flags & 0x04) != 0;
     let show_name = (flags & 0x08) != 0;
     let show_designator = (flags & 0x10) != 0;
+    let graphically_locked = (flags & 0x40) != 0;
 
     // length (2 bytes)
     let length = i32::from(read_i16(data, offset).unwrap_or(10));
@@ -281,6 +287,7 @@ fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
     offset += 2;
 
     // colour (4 bytes)
+    let colour = read_u32(data, offset).unwrap_or(0);
     offset += 4;
 
     // name: [length:1][string]
@@ -315,6 +322,12 @@ fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
         show_designator,
         description,
         owner_part_id: owner_part_id.into(),
+        colour,
+        graphically_locked,
+        symbol_inner_edge,
+        symbol_outer_edge,
+        symbol_inside,
+        symbol_outside,
     })
 }
 
@@ -342,6 +355,8 @@ fn parse_rectangle(props: &HashMap<String, String>) -> Option<Rectangle> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
 
+    let transparent = props.get("transparent").is_some_and(|s| s == "T");
+
     Some(Rectangle {
         x1,
         y1,
@@ -351,6 +366,7 @@ fn parse_rectangle(props: &HashMap<String, String>) -> Option<Rectangle> {
         line_color,
         fill_color,
         filled: true,
+        transparent,
         owner_part_id,
     })
 }
@@ -408,6 +424,14 @@ fn parse_parameter(props: &HashMap<String, String>) -> Option<Parameter> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(0x80_00_00);
     let hidden = props.get("ishidden").is_some_and(|s| s == "T");
+    let read_only_state = props
+        .get("readonlystate")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let param_type = props
+        .get("paramtype")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
     let owner_part_id = props
         .get("ownerpartid")
         .and_then(|s| s.parse().ok())
@@ -421,6 +445,8 @@ fn parse_parameter(props: &HashMap<String, String>) -> Option<Parameter> {
         font_id,
         color,
         hidden,
+        read_only_state,
+        param_type,
         owner_part_id,
     })
 }
@@ -454,6 +480,22 @@ fn parse_polyline(props: &HashMap<String, String>) -> Option<Polyline> {
         .get("color")
         .and_then(|s| s.parse().ok())
         .unwrap_or(0x00_00_80);
+    let line_style = props
+        .get("linestyle")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let start_line_shape = props
+        .get("startlineshape")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let end_line_shape = props
+        .get("endlineshape")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let line_shape_size = props
+        .get("lineshapesize")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
     let owner_part_id = props
         .get("ownerpartid")
         .and_then(|s| s.parse().ok())
@@ -463,6 +505,10 @@ fn parse_polyline(props: &HashMap<String, String>) -> Option<Polyline> {
         points,
         line_width,
         color,
+        line_style,
+        start_line_shape,
+        end_line_shape,
+        line_shape_size,
         owner_part_id,
     })
 }
@@ -773,6 +819,8 @@ fn parse_label(props: &HashMap<String, String>) -> Option<Label> {
         .get("justification")
         .and_then(|s| s.parse::<u8>().ok())
         .map_or(TextJustification::BottomLeft, justification_from_id);
+    let is_mirrored = props.get("ismirrored").is_some_and(|s| s == "T");
+    let is_hidden = props.get("ishidden").is_some_and(|s| s == "T");
     let owner_part_id = props
         .get("ownerpartid")
         .and_then(|s| s.parse().ok())
@@ -786,6 +834,8 @@ fn parse_label(props: &HashMap<String, String>) -> Option<Label> {
         color,
         justification,
         rotation,
+        is_mirrored,
+        is_hidden,
         owner_part_id,
     })
 }
@@ -825,6 +875,19 @@ fn read_i16(data: &[u8], offset: usize) -> Option<i16> {
         return None;
     }
     Some(i16::from_le_bytes([data[offset], data[offset + 1]]))
+}
+
+/// Reads a 4-byte little-endian unsigned integer.
+fn read_u32(data: &[u8], offset: usize) -> Option<u32> {
+    if offset + 4 > data.len() {
+        return None;
+    }
+    Some(u32::from_le_bytes([
+        data[offset],
+        data[offset + 1],
+        data[offset + 2],
+        data[offset + 3],
+    ]))
 }
 
 #[cfg(test)]

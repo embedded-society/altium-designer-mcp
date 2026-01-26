@@ -134,7 +134,10 @@ fn write_binary_pin(data: &mut Vec<u8>, pin: &Pin) -> crate::altium::error::Alti
     record.push(0x00);
 
     // Symbol flags (4 bytes: inner_edge, outer_edge, inside, outside)
-    record.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+    record.push(pin.symbol_inner_edge.to_id());
+    record.push(pin.symbol_outer_edge.to_id());
+    record.push(pin.symbol_inside.to_id());
+    record.push(pin.symbol_outside.to_id());
 
     // Description: [length:1][unknown:1][string]
     let desc_bytes = pin.description.as_bytes();
@@ -164,6 +167,9 @@ fn write_binary_pin(data: &mut Vec<u8>, pin: &Pin) -> crate::altium::error::Alti
     if pin.show_designator {
         flags |= 0x10;
     }
+    if pin.graphically_locked {
+        flags |= 0x40;
+    }
     record.push(flags);
 
     // Length (2 bytes)
@@ -179,8 +185,8 @@ fn write_binary_pin(data: &mut Vec<u8>, pin: &Pin) -> crate::altium::error::Alti
     record.extend_from_slice(&x.to_le_bytes());
     record.extend_from_slice(&y.to_le_bytes());
 
-    // Colour (4 bytes) - default black
-    record.extend_from_slice(&0u32.to_le_bytes());
+    // Colour (4 bytes)
+    record.extend_from_slice(&pin.colour.to_le_bytes());
 
     // Name: [length:1][string]
     let name_bytes = pin.name.as_bytes();
@@ -228,10 +234,11 @@ fn encode_component_header(symbol: &Symbol) -> String {
 
 /// Encodes a rectangle record.
 fn encode_rectangle(rect: &Rectangle, index: usize) -> String {
+    let transparent = if rect.transparent { "T" } else { "F" };
     format!(
         "|RECORD=14|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T\
          |Location.X={}|Location.Y={}|Corner.X={}|Corner.Y={}\
-         |LineWidth={}|Color={}|AreaColor={}|IsSolid=T|UniqueID={}|",
+         |LineWidth={}|Color={}|AreaColor={}|IsSolid=T|Transparent={}|UniqueID={}|",
         index,
         rect.owner_part_id,
         rect.x1,
@@ -241,6 +248,7 @@ fn encode_rectangle(rect: &Rectangle, index: usize) -> String {
         rect.line_width,
         rect.line_color,
         rect.fill_color,
+        transparent,
         generate_unique_id()
     )
 }
@@ -265,7 +273,7 @@ fn encode_line(line: &Line, index: usize) -> String {
 fn encode_parameter(param: &Parameter, index: usize) -> String {
     let hidden = if param.hidden { "T" } else { "F" };
     format!(
-        "|RECORD=41|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Color={}|FontID={}|IsHidden={}|Text={}|Name={}|UniqueID={}|",
+        "|RECORD=41|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Color={}|FontID={}|IsHidden={}|ReadOnlyState={}|ParamType={}|Text={}|Name={}|UniqueID={}|",
         index,
         param.owner_part_id,
         param.x,
@@ -273,6 +281,8 @@ fn encode_parameter(param: &Parameter, index: usize) -> String {
         param.color,
         param.font_id,
         hidden,
+        param.read_only_state,
+        param.param_type,
         param.value,
         param.name,
         generate_unique_id()
@@ -296,6 +306,10 @@ fn encode_polyline(polyline: &Polyline, index: usize) -> String {
         format!("OwnerPartId={}", polyline.owner_part_id),
         format!("LineWidth={}", polyline.line_width),
         format!("Color={}", polyline.color),
+        format!("LineStyle={}", polyline.line_style),
+        format!("StartLineShape={}", polyline.start_line_shape),
+        format!("EndLineShape={}", polyline.end_line_shape),
+        format!("LineShapeSize={}", polyline.line_shape_size),
         format!("LocationCount={}", polyline.points.len()),
     ];
 
@@ -453,8 +467,10 @@ fn encode_label(label: &Label, index: usize) -> String {
     #[allow(clippy::cast_possible_truncation)]
     let orientation = (label.rotation / 90.0).round() as i32 % 4;
     let justification = justification_to_id(label.justification);
+    let is_mirrored = if label.is_mirrored { "T" } else { "F" };
+    let is_hidden = if label.is_hidden { "T" } else { "F" };
     format!(
-        "|RECORD=4|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Color={}|FontID={}|Orientation={}|Justification={}|Text={}|UniqueID={}|",
+        "|RECORD=4|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Color={}|FontID={}|Orientation={}|Justification={}|IsMirrored={}|IsHidden={}|Text={}|UniqueID={}|",
         index,
         label.owner_part_id,
         label.x,
@@ -463,6 +479,8 @@ fn encode_label(label: &Label, index: usize) -> String {
         label.font_id,
         orientation,
         justification,
+        is_mirrored,
+        is_hidden,
         label.text,
         generate_unique_id()
     )
