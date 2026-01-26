@@ -114,6 +114,19 @@ Most primitives use length-prefixed blocks:
 | UniqueID record | 10,000 bytes |
 | String field | 255 bytes |
 
+**Minimum block sizes (for parsing):**
+
+| Primitive | Minimum Size | Notes |
+|-----------|--------------|-------|
+| Pad geometry | 52 bytes | Required for shape data |
+| Track | 33 bytes | Header + coordinates + width |
+| Arc | 45 bytes | Header + geometry + angles + width |
+| Text geometry | 25 bytes | Minimum to extract position; writer pads to 80 |
+| Via geometry | 31 bytes | Reader minimum; writer pads to 46 |
+| Fill | 37 bytes | Header + coordinates + rotation |
+| Region properties | 22 bytes | Before parameter string |
+| Per-layer data | 320 bytes | Minimum without offsets; 576 with offsets |
+
 ## Coordinate System
 
 - Altium uses internal units: **10000 units = 1 mil = 0.0254 mm**
@@ -375,9 +388,18 @@ Text has 2 blocks:
 | 72 | 1 | Justification (see below) |
 | 73 | 1 | Reserved |
 | 74-77 | 4 | Glyph width |
-| 78+ | var | Additional padding (minimum 80 bytes total) |
+| 78-114 | 37 | Reserved padding |
+| 115-116 | 2 | WideStringsIndex (u16, reference to WideStrings stream) |
+| 117+ | var | Additional padding |
 
-> **Note:** WideStrings index is stored at offset 115 (u16) when text content references the WideStrings stream.
+**Block size constraints:**
+
+| Constraint | Value | Notes |
+|------------|-------|-------|
+| Minimum for reading | 25 bytes | Minimum to extract basic geometry |
+| Writer padding | 80 bytes | Total block padded to at least 80 bytes |
+
+> **Note:** WideStrings index at offset 115 references the WideStrings stream.
 > Justification offset (67-72) may vary based on font name length.
 >
 > Font style bytes at offset 61-67 are typically: `0x56, 0x40, 0x01, 0x00, 0x00, 0x00, 0x00`.
@@ -489,7 +511,8 @@ V7_LAYER={layer}|NAME= |KIND=0|...
 | 0-7 | 8 | X coordinate (IEEE 754 double, internal units) |
 | 8-15 | 8 | Y coordinate (IEEE 754 double, internal units) |
 
-> **Note:** Vertices stored as doubles, not integers. Convert to mm: `mm = internal_units / 10000.0 * 0.0254`
+> **Note:** Vertices are stored as doubles but rounded to integers before conversion:
+> `mm = round(internal_double) / 10000.0 * 0.0254`
 
 ### ComponentBody (0x0C)
 
