@@ -303,6 +303,10 @@ impl PcbLib {
         // List all entries to find footprint storages
         let entries: Vec<_> = cfb.walk().map(|e| e.path().to_path_buf()).collect();
 
+        // Collect footprints with their OLE storage names for later reordering
+        let mut footprints_by_ole_name: std::collections::HashMap<String, Footprint> =
+            std::collections::HashMap::new();
+
         for entry_path in entries {
             // Skip non-storage entries and root
             let path_str = entry_path.to_string_lossy();
@@ -331,7 +335,9 @@ impl PcbLib {
                         &component_name,
                         &wide_strings,
                     ) {
-                        Ok(footprint) => library.footprints.push(footprint),
+                        Ok(footprint) => {
+                            footprints_by_ole_name.insert(component_name.clone(), footprint);
+                        }
                         Err(e) => {
                             tracing::warn!(
                                 component = %component_name,
@@ -342,6 +348,26 @@ impl PcbLib {
                     }
                 }
             }
+        }
+
+        // Reorder footprints according to FileHeader order (LIBREF{N} entries)
+        // This ensures list_components returns components in the correct order
+        // after reorder_components has been used.
+        for ole_name in &library.metadata.component_names {
+            if let Some(footprint) = footprints_by_ole_name.remove(ole_name) {
+                library.footprints.push(footprint);
+            }
+        }
+
+        // Append any orphaned footprints (found in OLE but not in FileHeader)
+        // This handles edge cases like corrupted FileHeader or manually edited files
+        for (ole_name, footprint) in footprints_by_ole_name {
+            tracing::warn!(
+                ole_name = %ole_name,
+                footprint = %footprint.name,
+                "Footprint not found in FileHeader, appending at end"
+            );
+            library.footprints.push(footprint);
         }
 
         // Populate model_3d from component_bodies for backward compatibility

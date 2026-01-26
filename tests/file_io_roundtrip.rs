@@ -413,3 +413,62 @@ fn schlib_file_roundtrip_pin_orientations() {
     assert!(orientations.contains(&PinOrientation::Up));
     assert!(orientations.contains(&PinOrientation::Down));
 }
+
+// =============================================================================
+// Component Ordering Tests
+// =============================================================================
+
+#[test]
+fn pcblib_file_roundtrip_preserves_order() {
+    let temp_dir = test_temp_dir();
+    let file_path = temp_dir.path().join("test_order.PcbLib");
+
+    // Create library with components in specific order
+    let mut lib = PcbLib::new();
+    for name in ["ALPHA", "BETA", "GAMMA", "DELTA"] {
+        let mut fp = Footprint::new(name);
+        fp.add_pad(Pad::smd("1", 0.0, 0.0, 0.5, 0.5));
+        lib.add(fp);
+    }
+
+    assert_eq!(lib.names(), vec!["ALPHA", "BETA", "GAMMA", "DELTA"]);
+
+    // Write and read back - order should be preserved
+    lib.save(&file_path).expect("Failed to write PcbLib");
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read PcbLib");
+
+    assert_eq!(
+        read_lib.names(),
+        vec!["ALPHA", "BETA", "GAMMA", "DELTA"],
+        "Component order should be preserved after roundtrip"
+    );
+}
+
+#[test]
+fn pcblib_file_roundtrip_reorder_preserved() {
+    let temp_dir = test_temp_dir();
+    let file_path = temp_dir.path().join("test_reorder.PcbLib");
+
+    // Create library with components
+    let mut lib = PcbLib::new();
+    for name in ["A", "B", "C", "D"] {
+        let mut fp = Footprint::new(name);
+        fp.add_pad(Pad::smd("1", 0.0, 0.0, 0.5, 0.5));
+        lib.add(fp);
+    }
+
+    // Reorder components
+    let new_order = lib.reorder(&["D", "B", "A", "C"]);
+    assert_eq!(new_order, vec!["D", "B", "A", "C"]);
+
+    // Write to file
+    lib.save(&file_path).expect("Failed to write PcbLib");
+
+    // Read back and verify order is preserved
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read PcbLib");
+    assert_eq!(
+        read_lib.names(),
+        vec!["D", "B", "A", "C"],
+        "Reordered component order should be preserved after roundtrip"
+    );
+}

@@ -206,16 +206,31 @@ Write symbols to an Altium `.SchLib` file. The AI provides primitive definitions
 
 ### `list_components`
 
-List component names in an Altium library file.
+List component names in an Altium library file. Supports pagination for large libraries.
 
 ```json
 {
     "name": "list_components",
     "arguments": {
-        "filepath": "./MyLibrary.PcbLib"
+        "filepath": "./MyLibrary.PcbLib",
+        "limit": 50,
+        "offset": 0
     }
 }
 ```
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `filepath` | Yes | Path to the library file |
+| `limit` | No | Maximum number of components to return (default: all) |
+| `offset` | No | Number of components to skip (default: 0) |
+
+**Response includes:**
+
+- `total_count`: Total number of components in the library
+- `returned_count`: Number of components in this response
+- `offset`: Current offset
+- `has_more`: Whether more components are available
 
 ### `extract_style`
 
@@ -304,7 +319,8 @@ Export an Altium library to JSON or CSV format for version control, backup, or e
 
 ### `extract_step_model`
 
-Extract embedded STEP 3D models from an Altium .PcbLib file. Models are stored compressed inside the library; this tool extracts them to standalone .step files.
+Extract embedded STEP 3D models from an Altium .PcbLib file. Models are stored compressed inside the library;
+this tool extracts them to standalone .step files. Supports pagination when listing models.
 
 ```json
 {
@@ -322,6 +338,8 @@ Extract embedded STEP 3D models from an Altium .PcbLib file. Models are stored c
 | `filepath` | Yes | Path to the .PcbLib file containing embedded 3D models |
 | `output_path` | No | Path where the extracted .step file will be saved. If omitted, returns base64-encoded data. |
 | `model` | No | Model name (e.g., `RESC1005X04L.step`) or GUID to extract. If omitted and only one model exists, extracts it automatically. If multiple models exist and no model specified, lists available models. |
+| `limit` | No | Maximum number of models to list (default: all) |
+| `offset` | No | Number of models to skip when listing (default: 0) |
 
 **Response (listing models):**
 
@@ -330,7 +348,10 @@ Extract embedded STEP 3D models from an Altium .PcbLib file. Models are stored c
     "status": "list",
     "filepath": "./MyLibrary.PcbLib",
     "message": "Multiple models found. Specify 'model' parameter with name or ID to extract.",
-    "model_count": 3,
+    "total_count": 50,
+    "returned_count": 10,
+    "offset": 0,
+    "has_more": true,
     "models": [
         { "id": "{GUID...}", "name": "model1.step", "size_bytes": 12345 },
         { "id": "{GUID...}", "name": "model2.step", "size_bytes": 67890 }
@@ -1284,6 +1305,36 @@ STEP models are **attached**, not generated. The tool links existing STEP files 
         "y_offset": 0,
         "z_offset": 0,
         "rotation": 0
+    }
+}
+```
+
+### Embedded vs External Models
+
+Altium supports two ways to reference 3D models:
+
+| Type | Storage | Portability |
+|------|---------|-------------|
+| **Embedded** | STEP data stored inside the .PcbLib file | Fully portable — the model travels with the library |
+| **External** | File path reference to a .step file on disk | Not portable — requires the file to exist at the referenced path |
+
+When using `copy_component_cross_library` or `merge_libraries`:
+
+- **Embedded models** are copied along with the component
+- **External model references** are removed with a warning, as the file paths are not portable across different machines or directory structures
+
+To preserve 3D models when copying components, ensure they are embedded in the source library (not external references).
+
+### Extracting Embedded Models
+
+Use `extract_step_model` to extract embedded STEP data from a library:
+
+```json
+{
+    "name": "extract_step_model",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib",
+        "output_path": "./extracted_model.step"
     }
 }
 ```

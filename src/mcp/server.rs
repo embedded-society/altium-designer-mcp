@@ -788,7 +788,8 @@ impl McpServer {
             ToolDefinition {
                 name: "list_components".to_string(),
                 description: Some(
-                    "List all component/footprint names in an Altium library file (.PcbLib or .SchLib)."
+                    "List all component/footprint names in an Altium library file (.PcbLib or .SchLib). \
+                     Supports pagination with limit/offset for large libraries."
                         .to_string(),
                 ),
                 input_schema: json!({
@@ -797,6 +798,14 @@ impl McpServer {
                         "filepath": {
                             "type": "string",
                             "description": "Path to the library file"
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of components to return (optional, default: all)"
+                        },
+                        "offset": {
+                            "type": "integer",
+                            "description": "Number of components to skip (optional, default: 0)"
                         }
                     },
                     "required": ["filepath"]
@@ -1154,7 +1163,8 @@ impl McpServer {
                     "Extract embedded STEP 3D models from an Altium .PcbLib file. \
                      Models are stored compressed inside the library and this tool extracts \
                      them to standalone .step files. Use 'list' mode to see available models, \
-                     or specify a model name/ID to extract a specific model."
+                     or specify a model name/ID to extract a specific model. \
+                     Supports pagination with limit/offset when listing models."
                         .to_string(),
                 ),
                 input_schema: json!({
@@ -1171,6 +1181,14 @@ impl McpServer {
                         "model": {
                             "type": "string",
                             "description": "Model name (e.g., 'RESC1005X04L.step') or GUID to extract. If omitted and only one model exists, extracts it automatically. If multiple models exist and no model specified, lists available models."
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of models to list (optional, default: all)"
+                        },
+                        "offset": {
+                            "type": "integer",
+                            "description": "Number of models to skip when listing (optional, default: 0)"
                         }
                     },
                     "required": ["filepath"]
@@ -2451,6 +2469,7 @@ impl McpServer {
     }
 
     /// Lists component names in a library file.
+    #[allow(clippy::cast_possible_truncation)]
     fn call_list_components(&self, arguments: &Value) -> ToolCallResult {
         use crate::altium::{PcbLib, SchLib};
 
@@ -2463,6 +2482,16 @@ impl McpServer {
             return ToolCallResult::error(e);
         }
 
+        // Parse optional pagination parameters
+        let limit = arguments
+            .get("limit")
+            .and_then(Value::as_u64)
+            .map(|v| v as usize);
+        let offset = arguments
+            .get("offset")
+            .and_then(Value::as_u64)
+            .map_or(0, |v| v as usize);
+
         // Try to determine file type from extension
         let path = std::path::Path::new(filepath);
         let extension = path
@@ -2473,12 +2502,28 @@ impl McpServer {
         match extension.as_deref() {
             Some("pcblib") => match PcbLib::open(filepath) {
                 Ok(library) => {
+                    let total_count = library.len();
+                    let all_names = library.names();
+
+                    // Apply pagination
+                    let components: Vec<_> = all_names
+                        .into_iter()
+                        .skip(offset)
+                        .take(limit.unwrap_or(usize::MAX))
+                        .collect();
+
+                    let returned_count = components.len();
+                    let has_more = offset + returned_count < total_count;
+
                     let result = json!({
                         "status": "success",
                         "filepath": filepath,
                         "file_type": "PcbLib",
-                        "component_count": library.len(),
-                        "components": library.names(),
+                        "total_count": total_count,
+                        "returned_count": returned_count,
+                        "offset": offset,
+                        "has_more": has_more,
+                        "components": components,
                     });
                     ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
                 }
@@ -2493,13 +2538,28 @@ impl McpServer {
             },
             Some("schlib") => match SchLib::open(filepath) {
                 Ok(library) => {
-                    let symbol_names: Vec<_> = library.iter().map(|s| s.name.clone()).collect();
+                    let total_count = library.len();
+
+                    // Apply pagination
+                    let components: Vec<_> = library
+                        .iter()
+                        .map(|s| s.name.clone())
+                        .skip(offset)
+                        .take(limit.unwrap_or(usize::MAX))
+                        .collect();
+
+                    let returned_count = components.len();
+                    let has_more = offset + returned_count < total_count;
+
                     let result = json!({
                         "status": "success",
                         "filepath": filepath,
                         "file_type": "SchLib",
-                        "component_count": library.len(),
-                        "components": symbol_names,
+                        "total_count": total_count,
+                        "returned_count": returned_count,
+                        "offset": offset,
+                        "has_more": has_more,
+                        "components": components,
                     });
                     ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
                 }
@@ -4742,7 +4802,7 @@ impl McpServer {
     // ==================== STEP Model Extraction ====================
 
     /// Extracts embedded STEP 3D models from a `PcbLib` file.
-    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines, clippy::cast_possible_truncation)]
     fn call_extract_step_model(&self, arguments: &Value) -> ToolCallResult {
         use crate::altium::PcbLib;
 
@@ -4764,6 +4824,16 @@ impl McpServer {
         }
 
         let model_identifier = arguments.get("model").and_then(Value::as_str);
+
+        // Parse optional pagination parameters (for listing models)
+        let limit = arguments
+            .get("limit")
+            .and_then(Value::as_u64)
+            .map(|v| v as usize);
+        let offset = arguments
+            .get("offset")
+            .and_then(Value::as_u64)
+            .map_or(0, |v| v as usize);
 
         // Read the library
         let library = match PcbLib::open(filepath) {
@@ -4847,9 +4917,12 @@ impl McpServer {
             // Only one model, extract it
             Some(models[0])
         } else {
-            // Multiple models, list them
+            // Multiple models, list them with pagination
+            let total_count = models.len();
             let model_list: Vec<Value> = models
                 .iter()
+                .skip(offset)
+                .take(limit.unwrap_or(usize::MAX))
                 .map(|m| {
                     json!({
                         "id": m.id,
@@ -4859,11 +4932,17 @@ impl McpServer {
                 })
                 .collect();
 
+            let returned_count = model_list.len();
+            let has_more = offset + returned_count < total_count;
+
             let result = json!({
                 "status": "list",
                 "filepath": filepath,
                 "message": "Multiple models found. Specify 'model' parameter with name or ID to extract.",
-                "model_count": models.len(),
+                "total_count": total_count,
+                "returned_count": returned_count,
+                "offset": offset,
+                "has_more": has_more,
                 "models": model_list,
             });
             return ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap());
@@ -10189,7 +10268,10 @@ mod tests {
 
         assert_eq!(parsed["status"], "success");
         assert_eq!(parsed["file_type"], "PcbLib");
-        assert_eq!(parsed["component_count"], 2);
+        assert_eq!(parsed["total_count"], 2);
+        assert_eq!(parsed["returned_count"], 2);
+        assert_eq!(parsed["offset"], 0);
+        assert_eq!(parsed["has_more"], false);
 
         let components = parsed["components"].as_array().unwrap();
         assert!(components.contains(&json!("CHIP_0402")));
@@ -10213,7 +10295,10 @@ mod tests {
 
         assert_eq!(parsed["status"], "success");
         assert_eq!(parsed["file_type"], "SchLib");
-        assert_eq!(parsed["component_count"], 2);
+        assert_eq!(parsed["total_count"], 2);
+        assert_eq!(parsed["returned_count"], 2);
+        assert_eq!(parsed["offset"], 0);
+        assert_eq!(parsed["has_more"], false);
 
         let components = parsed["components"].as_array().unwrap();
         assert!(components.contains(&json!("RESISTOR")));

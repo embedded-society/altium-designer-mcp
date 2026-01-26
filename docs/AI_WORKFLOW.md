@@ -351,15 +351,15 @@ For libraries with many components, use pagination to avoid output limits:
 │ LARGE LIBRARY WORKFLOW                                                       │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  1. LIST COMPONENTS FIRST                                                   │
-│     AI calls: list_components { filepath }                                  │
-│     Returns: ["RESC0402...", "RESC0603...", ...]                            │
+│  1. LIST COMPONENTS (with optional pagination)                              │
+│     AI calls: list_components { filepath, limit: 50, offset: 0 }            │
+│     Returns: { components: [...], total_count: 200, has_more: true }        │
 │                                                                             │
 │  2. FETCH SPECIFIC COMPONENTS                                               │
 │     AI calls: read_pcblib { filepath, component_name: "RESC0603..." }       │
 │     Returns: Single footprint with full details                             │
 │                                                                             │
-│  3. OR PAGINATE THROUGH ALL                                                 │
+│  3. OR PAGINATE THROUGH ALL DETAILS                                         │
 │     AI calls: read_pcblib { filepath, limit: 5, offset: 0 }                 │
 │     Response includes: has_more: true, total_count: 50                      │
 │     AI calls: read_pcblib { filepath, limit: 5, offset: 5 }                 │
