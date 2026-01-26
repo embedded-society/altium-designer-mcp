@@ -320,7 +320,7 @@ The component header contains symbol-level metadata:
 | `CurrentPartId` | int | Currently displayed part (1) |
 | `SourceLibraryName` | string | Source library ("*") |
 | `TargetFileName` | string | Target file ("*") |
-| `AllPinCount` | int | Total number of pins |
+| `AllPinCount` | int | Total number of pins (calculated from symbol) |
 | `AreaColor` | int | Fill colour (BGR, default: 11599871 = light yellow) |
 | `Color` | int | Border colour (BGR, default: 128 = dark red) |
 | `PartIDLocked` | bool | Lock part ID ("T" or "F") |
@@ -379,6 +379,8 @@ The component header contains symbol-level metadata:
 | `AreaColor` | int | Fill colour (BGR) |
 | `IsSolid` | bool | Whether filled |
 | `Transparent` | bool | Whether transparent |
+
+> **Note:** Rectangle `IsSolid` is always written as `T` (filled). The `Transparent` property is not currently parsed.
 
 ### Polyline (RECORD=6)
 
@@ -484,7 +486,6 @@ The designator record identifies the component (e.g., R?, U?, C?).
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `Location.X` | int | Position X |
 | `Location.Y` | int | Position Y (typically -6) |
 | `Text` | string | Designator text |
 | `FontId` | int | Font reference |
@@ -575,6 +576,8 @@ The designator record identifies the component (e.g., R?, U?, C?).
 | `AreaColor` | int | Fill colour (BGR) |
 | `IsSolid` | bool | Whether filled |
 
+> **Note:** If `SecondaryRadius` is missing, it defaults to the value of `Radius` (circle).
+
 ### RoundRectangle (RECORD=10)
 
 | Property | Type | Description |
@@ -594,10 +597,12 @@ The designator record identifies the component (e.g., R?, U?, C?).
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `LocationCount` | int | Number of control points (must be 4) |
+| `LocationCount` | int | Number of control points (always 4) |
 | `X{N}`, `Y{N}` | int | Control point coordinates (1-indexed) |
 | `LineWidth` | int | Line width |
 | `Color` | int | Line colour (BGR) |
+
+> **Note:** Bezier curves always have exactly 4 control points. The `LocationCount` value is not validated during parsing.
 
 ## Default Values
 
@@ -608,7 +613,7 @@ Common default values used when properties are not specified:
 | `FontId` | 1 | Times New Roman, 10pt |
 | `StartAngle` | 0.0 | For Arc and EllipticalArc |
 | `EndAngle` | 360.0 | For Arc and EllipticalArc |
-| `OwnerPartId` | 1 | First part |
+| `OwnerPartId` | 1 | First part (shapes default to 1, not -1) |
 | `OwnerPartDisplayMode` | 0 | Default display mode |
 | `IndexInSheet` | -1 | No specific index |
 | `LineWidth` | 1 | All shapes |

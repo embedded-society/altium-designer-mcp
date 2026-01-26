@@ -68,6 +68,8 @@ Primitive unique IDs are stored as indexed entries within the Storage stream:
 
 > **Note:** All primitives support a `unique_id` field for tracking across edits. The tool preserves existing
 > unique IDs when reading and generates new ones when creating primitives.
+>
+> `PRIMITIVEINDEX` is 1-based, not 0-based. Lookup is by (type, index) tuple.
 
 ## Data Stream Format
 
@@ -373,9 +375,12 @@ Text has 2 blocks:
 | 72 | 1 | Justification (see below) |
 | 73 | 1 | Reserved |
 | 74-77 | 4 | Glyph width |
-| 78+ | var | Additional padding (to ~80-100 bytes) |
+| 78+ | var | Additional padding (minimum 80 bytes total) |
 
 > **Note:** WideStrings index is stored at offset 115 (u16) when text content references the WideStrings stream.
+> Justification offset (67-72) may vary based on font name length.
+>
+> Font style bytes at offset 61-67 are typically: `0x56, 0x40, 0x01, 0x00, 0x00, 0x00, 0x00`.
 
 **Text kinds:**
 
@@ -427,6 +432,8 @@ Length-prefixed string with text content, or index reference to `WideStrings` st
 Where `84,69,83,84` are ASCII codes (e.g., "TEST" = 84,69,83,84).
 
 > **Note:** Inline `.Designator` and `.Comment` text is detected. Full WideStrings stream parsing is documented above.
+>
+> WideStrings indices: Index 0 is reserved for `.Designator`, index 1 for `.Comment`. Actual text content starts at index 2.
 
 ### Fill (0x06)
 
@@ -471,6 +478,8 @@ V7_LAYER={layer}|NAME= |KIND=0|...
 | `NAME` | Region name (usually empty) |
 | `KIND` | Region kind (0 = standard) |
 
+> **Note:** Layer names are formatted by removing spaces and converting to uppercase (e.g., "Top Layer" → "TOPLAYER").
+
 **Block 1:** Outline data for display (usually empty in simple regions).
 
 **Vertex format:**
@@ -507,6 +516,14 @@ Binary header followed by pipe-delimited key=value parameters. Parameters start 
 | `MODEL.SNAPCOUNT` | Snap point count | Integer |
 | `STANDOFFHEIGHT` | Standoff height | "0mil" |
 | `OVERALLHEIGHT` | Overall height | "0.4mm" |
+| `ARCRESOLUTION` | Arc resolution | "0.5mil" |
+| `ISSHAPEBASED` | Shape-based flag | "FALSE" |
+| `CAVITYHEIGHT` | Cavity height | "0mil" |
+| `BODYPROJECTION` | Body projection | "0" |
+| `BODYCOLOR3D` | 3D body colour | "8421504" |
+| `BODYOPACITY3D` | 3D body opacity | "1.000" |
+| `MODEL.MODELTYPE` | Model type | "1" |
+| `MODEL.MODELSOURCE` | Model source | "Undefined" |
 
 > **Note:** Height values can be in "mil" or "mm" units. The tool parses both formats:
 > `15.748mil` → 0.4mm, `0.4mm` → 0.4mm. Mil values are converted using factor 0.0254 (1 mil = 0.0254 mm).
@@ -635,6 +652,8 @@ When writing footprint data, primitives are encoded in this specific order:
 - **Default layer mapping**: Unknown layer IDs default to Multi-Layer (74)
 - **Default hole shape**: Unknown hole shape IDs default to Round (0)
 - **Default stack mode**: Unknown stack mode IDs default to Simple (0)
+- **Default justification**: Unknown justification IDs default to MiddleCenter (4)
+- **Internal OLE entries filtered**: FileHeader, Library, Models, Textures, ModelsNoEmbed, PadViaLibrary, LayerKindMapping, ComponentParamsTOC, FileVersionInfo, PrimitiveGuids
 
 ## References
 

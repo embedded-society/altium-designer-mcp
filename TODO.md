@@ -128,6 +128,40 @@ The `Transparent` property for Rectangle primitives is documented but not parsed
 
 ---
 
+### Parameter ReadOnlyState and ParamType
+
+**Priority:** Low
+
+The `ReadOnlyState` and `ParamType` properties for Parameter primitives are documented but not parsed or stored.
+
+**Files to modify:**
+
+- `src/altium/schlib/primitives.rs` — add `read_only_state` and `param_type` fields to `Parameter` struct
+- `src/altium/schlib/reader.rs` — parse properties
+- `src/altium/schlib/writer.rs` — encode properties
+
+---
+
+### Component Header Additional Fields
+
+**Priority:** Low
+
+Several component header fields are written with hardcoded values but not stored or configurable:
+
+- `SourceLibraryName` (always "*")
+- `TargetFileName` (always "*")
+- `CurrentPartId` (always 1)
+- `PartIDLocked` (always "F")
+- `DisplayModeCount` (always 1)
+
+**Files to modify:**
+
+- `src/altium/schlib/primitives.rs` — add fields to `Symbol` struct
+- `src/altium/schlib/reader.rs` — parse fields from component header
+- `src/altium/schlib/writer.rs` — encode fields (make configurable)
+
+---
+
 ## PcbLib - Potential Improvements
 
 ### Additional Layer Support
