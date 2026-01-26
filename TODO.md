@@ -4,28 +4,6 @@ Missing features and improvements for altium-designer-mcp.
 
 ---
 
-## SchLib - Missing Features
-
-### Component Header Additional Fields
-
-**Priority:** Low
-
-Several component header fields are written with hardcoded values but not stored or configurable:
-
-- `SourceLibraryName` (always "*")
-- `TargetFileName` (always "*")
-- `CurrentPartId` (always 1)
-- `PartIDLocked` (always "F")
-- `DisplayModeCount` (always 1)
-
-**Files to modify:**
-
-- `src/altium/schlib/primitives.rs` — add fields to `Symbol` struct
-- `src/altium/schlib/reader.rs` — parse fields from component header
-- `src/altium/schlib/writer.rs` — encode fields (make configurable)
-
----
-
 ## PcbLib - Potential Improvements
 
 ### Additional Layer Support

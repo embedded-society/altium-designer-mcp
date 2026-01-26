@@ -89,6 +89,7 @@ fn parse_text_record(symbol: &mut Symbol, data: &[u8]) {
 }
 
 /// Parses a text record from a decoded string.
+#[allow(clippy::too_many_lines)] // Property parsing for all record types
 fn parse_text_record_from_string(symbol: &mut Symbol, text: &str) {
     let props = parse_properties(text);
 
@@ -113,6 +114,21 @@ fn parse_text_record_from_string(symbol: &mut Symbol, text: &str) {
                 // Altium stores part_count + 1, so we subtract 1 when reading
                 let raw_count: u32 = part_count.trim().parse().unwrap_or(2);
                 symbol.part_count = raw_count.saturating_sub(1).max(1);
+            }
+            if let Some(display_mode_count) = props.get("displaymodecount") {
+                symbol.display_mode_count = display_mode_count.parse().unwrap_or(1);
+            }
+            if let Some(current_part_id) = props.get("currentpartid") {
+                symbol.current_part_id = current_part_id.parse().unwrap_or(1);
+            }
+            if let Some(part_id_locked) = props.get("partidlocked") {
+                symbol.part_id_locked = part_id_locked == "T";
+            }
+            if let Some(source_lib) = props.get("sourcelibraryname") {
+                symbol.source_library_name.clone_from(source_lib);
+            }
+            if let Some(target_file) = props.get("targetfilename") {
+                symbol.target_file_name.clone_from(target_file);
             }
         }
         14 => {

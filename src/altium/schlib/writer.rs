@@ -212,21 +212,22 @@ fn write_binary_pin(data: &mut Vec<u8>, pin: &Pin) -> crate::altium::error::Alti
 
 /// Encodes a component header record.
 fn encode_component_header(symbol: &Symbol) -> String {
+    let part_id_locked = if symbol.part_id_locked { "T" } else { "F" };
     let parts = vec![
         "RECORD=1".to_string(),
         format!("LibReference={}", symbol.name),
         format!("ComponentDescription={}", symbol.description),
         format!("PartCount={}", symbol.part_count + 1), // Altium uses part_count + 1
-        "DisplayModeCount=1".to_string(),
+        format!("DisplayModeCount={}", symbol.display_mode_count),
         "IndexInSheet=-1".to_string(),
         "OwnerPartId=-1".to_string(),
-        "CurrentPartId=1".to_string(),
-        "SourceLibraryName=*".to_string(),
-        "TargetFileName=*".to_string(),
+        format!("CurrentPartId={}", symbol.current_part_id),
+        format!("SourceLibraryName={}", symbol.source_library_name),
+        format!("TargetFileName={}", symbol.target_file_name),
         format!("AllPinCount={}", symbol.pins.len()),
         "AreaColor=11599871".to_string(), // Light yellow fill
         "Color=128".to_string(),          // Dark red outline
-        "PartIDLocked=F".to_string(),
+        format!("PartIDLocked={part_id_locked}"),
     ];
 
     format!("|{}|", parts.join("|"))

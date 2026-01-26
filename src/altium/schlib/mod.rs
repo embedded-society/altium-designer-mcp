@@ -366,6 +366,21 @@ pub struct Symbol {
     /// Number of parts (for multi-part symbols).
     #[serde(default = "default_part_count")]
     pub part_count: u32,
+    /// Number of display modes.
+    #[serde(default = "default_part_count")]
+    pub display_mode_count: u32,
+    /// Currently displayed part ID.
+    #[serde(default = "default_part_count")]
+    pub current_part_id: u32,
+    /// Whether the part ID is locked.
+    #[serde(default)]
+    pub part_id_locked: bool,
+    /// Source library name.
+    #[serde(default = "default_source_library")]
+    pub source_library_name: String,
+    /// Target file name.
+    #[serde(default = "default_target_file")]
+    pub target_file_name: String,
     /// Pins.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pins: Vec<Pin>,
@@ -411,6 +426,14 @@ const fn default_part_count() -> u32 {
     1
 }
 
+fn default_source_library() -> String {
+    "*".to_string()
+}
+
+fn default_target_file() -> String {
+    "*".to_string()
+}
+
 impl Symbol {
     /// Creates a new symbol with the given name.
     #[must_use]
@@ -418,6 +441,11 @@ impl Symbol {
         Self {
             name: name.into(),
             part_count: 1,
+            display_mode_count: 1,
+            current_part_id: 1,
+            part_id_locked: false,
+            source_library_name: "*".to_string(),
+            target_file_name: "*".to_string(),
             ..Default::default()
         }
     }
