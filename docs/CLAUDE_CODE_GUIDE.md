@@ -178,7 +178,7 @@ You should see the Altium tools listed:
 - `copy_component_cross_library` — Copy a component from one library to another
 - `merge_libraries` — Merge multiple libraries into one (supports `dry_run` for preview)
 - `reorder_components` — Reorder components in a library
-- `update_component` — Update a component in-place, preserving its position
+- `update_component` — Update a component in-place, preserving its position (supports `dry_run`)
 - `search_components` — Search for components across multiple libraries
 - `get_component` — Get a single component by name from a library
 - `compare_components` — Compare two components in detail (primitive-level differences)
