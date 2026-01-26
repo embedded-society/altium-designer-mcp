@@ -13,10 +13,16 @@ use tempfile::TempDir;
 
 /// Creates a temporary directory inside `.tmp/` for test isolation.
 /// The directory is automatically cleaned up when the returned `TempDir` is dropped.
+///
+/// Converts to an absolute path to avoid issues with parallel test execution.
 fn test_temp_dir() -> TempDir {
     let tmp_root = std::path::Path::new(".tmp");
     std::fs::create_dir_all(tmp_root).expect("Failed to create .tmp directory");
-    tempfile::tempdir_in(tmp_root).expect("Failed to create temp dir")
+    // Canonicalize to get absolute path, avoiding cwd-related issues in parallel tests
+    let tmp_root = tmp_root
+        .canonicalize()
+        .expect("Failed to canonicalize .tmp path");
+    tempfile::tempdir_in(&tmp_root).expect("Failed to create temp dir")
 }
 
 // =============================================================================
