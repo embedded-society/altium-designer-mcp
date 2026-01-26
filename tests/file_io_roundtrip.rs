@@ -8,7 +8,7 @@ use altium_designer_mcp::altium::pcblib::{
     TextJustification, TextKind, Track, Via,
 };
 use altium_designer_mcp::altium::schlib::{
-    Pin, PinElectricalType, PinOrientation, Rectangle, SchLib, Symbol,
+    Pin, PinElectricalType, PinOrientation, PinSymbol, Rectangle, SchLib, Symbol,
 };
 use std::fs::File;
 use tempfile::TempDir;
@@ -471,4 +471,49 @@ fn pcblib_file_roundtrip_reorder_preserved() {
         vec!["D", "B", "A", "C"],
         "Reordered component order should be preserved after roundtrip"
     );
+}
+
+#[test]
+fn schlib_file_roundtrip_pin_symbols_and_colour() {
+    let temp_dir = test_temp_dir();
+    let file_path = temp_dir.path().join("test_pin_symbols.SchLib");
+
+    let mut lib = SchLib::new();
+    let mut sym = Symbol::new("IC_WITH_SYMBOLS");
+    sym.designator = "U?".to_string();
+
+    // Pin with symbol decorations and custom colour
+    let mut pin1 = Pin::new("CLK", "1", -40, 20, 10, PinOrientation::Left);
+    pin1.symbol_inner_edge = PinSymbol::Dot;
+    pin1.symbol_outer_edge = PinSymbol::Clock;
+    pin1.colour = 0x00_00FF; // Red in BGR
+
+    // Pin with different symbols
+    let mut pin2 = Pin::new("OUT", "2", 40, 20, 10, PinOrientation::Right);
+    pin2.symbol_inside = PinSymbol::ActiveLowOutput;
+    pin2.symbol_outside = PinSymbol::OpenCollector;
+    pin2.colour = 0xFF_0000; // Blue in BGR
+
+    sym.add_pin(pin1);
+    sym.add_pin(pin2);
+    sym.add_rectangle(Rectangle::new(-30, 0, 30, 40));
+    lib.add(sym);
+
+    // Write and read back
+    let file = File::create(&file_path).expect("Failed to create file");
+    lib.write(file).expect("Failed to write SchLib");
+    let read_lib = SchLib::open(&file_path).expect("Failed to read SchLib");
+
+    let read_sym = read_lib.get("IC_WITH_SYMBOLS").expect("Symbol not found");
+    assert_eq!(read_sym.pins.len(), 2);
+
+    let p1 = read_sym.pins.iter().find(|p| p.designator == "1").unwrap();
+    assert_eq!(p1.symbol_inner_edge, PinSymbol::Dot);
+    assert_eq!(p1.symbol_outer_edge, PinSymbol::Clock);
+    assert_eq!(p1.colour, 0x00_00FF);
+
+    let p2 = read_sym.pins.iter().find(|p| p.designator == "2").unwrap();
+    assert_eq!(p2.symbol_inside, PinSymbol::ActiveLowOutput);
+    assert_eq!(p2.symbol_outside, PinSymbol::OpenCollector);
+    assert_eq!(p2.colour, 0xFF_0000);
 }

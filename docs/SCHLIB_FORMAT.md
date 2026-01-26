@@ -144,7 +144,7 @@ Binary pin records have a variable-length structure with three length-prefixed s
 | 7 | 1 | OwnerPartDisplayMode | Display mode (typically 0) |
 | 8-11 | 4 | Symbol flags | 4 bytes: InnerEdge, OuterEdge, Inside, Outside |
 
-> **Note:** Symbol flags are currently **not implemented** — the tool reads/writes zeros. See [Pin Symbols](#pin-symbols) for the full format specification.
+> **Note:** See [Pin Symbols](#pin-symbols) for the full format specification.
 
 ### Description Block
 
@@ -163,7 +163,7 @@ Binary pin records have a variable-length structure with three length-prefixed s
 | +2-3 | 2 | Length | Schematic units, signed i16, LE |
 | +4-5 | 2 | Location.X | Signed i16, LE |
 | +6-7 | 2 | Location.Y | Signed i16, LE |
-| +8-11 | 4 | Colour | BGR format (currently **not implemented** — defaults to black) |
+| +8-11 | 4 | Colour | BGR format |
 
 ### Name Block (after properties)
 
