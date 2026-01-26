@@ -52,7 +52,29 @@ Key fields:
 | `UseCustomSheet` | Use custom sheet | "T" or "F" |
 | `AreaColor` | Background colour (BGR) | |
 
+**Typical hardcoded values:**
+
+| Key | Value |
+|-----|-------|
+| `WEIGHT` | 47 |
+| `MINORVERSION` | 9 |
+| `FontIdCount` | 1 |
+| `Size1` | 10 |
+| `FontName1` | Times New Roman |
+| `UseMBCS` | T |
+| `IsBOC` | T |
+| `SheetStyle` | 9 |
+| `BorderOn` | T |
+| `SheetNumberSpaceSize` | 12 |
+| `SnapGridSize` | 10 |
+| `VisibleGridSize` | 10 |
+| `CustomX`, `CustomY` | 18000 |
+| `UseCustomSheet` | T |
+| `ReferenceZonesOn` | T |
+| `Display_Unit` | 0 |
+
 > **Note:** `PartCount` is stored as actual_count + 1 in the file. When reading, subtract 1 to get the true part count.
+> A minimum part count of 1 is enforced even if the file contains 0.
 
 ## Data Stream Format
 
@@ -202,6 +224,25 @@ The four symbol positions (InnerEdge, OuterEdge, Inside, Outside) can each have 
 | 0x40 | GraphicallyLocked | Pin is graphically locked | ✗ |
 | 0x80 | Reserved | Reserved | — |
 
+### Pin Constraints
+
+| Field | Limit |
+|-------|-------|
+| Name | 255 bytes max |
+| Designator | 255 bytes max |
+| Description | 255 bytes max |
+| Location.X, Location.Y | i16 range (±32767) |
+| Length | i16 range (±32767) |
+
+### Pin Defaults
+
+| Field | Default |
+|-------|---------|
+| `electrical_type` | Passive (ID 4) |
+| `show_name` | true |
+| `show_designator` | true |
+| `colour` | Black (0x000000) |
+
 ### Pin Orientation
 
 Derived from Rotated and Flipped flags:
@@ -284,6 +325,19 @@ The component header contains symbol-level metadata:
 | `Color` | int | Border colour (BGR, default: 128 = dark red) |
 | `PartIDLocked` | bool | Lock part ID ("T" or "F") |
 
+**Typical hardcoded values:**
+
+| Property | Value |
+|----------|-------|
+| `DisplayModeCount` | 1 |
+| `IndexInSheet` | -1 |
+| `CurrentPartId` | 1 |
+| `SourceLibraryName` | * |
+| `TargetFileName` | * |
+| `AreaColor` | 11599871 (light yellow) |
+| `Color` | 128 (dark red) |
+| `PartIDLocked` | F |
+
 ## Text Record Examples
 
 ### Component Header (RECORD=1)
@@ -340,6 +394,8 @@ The component header contains symbol-level metadata:
 | `LineShapeSize` | int | Size of endpoint shapes | ✗ |
 
 > **Note:** Line style and endpoint shape properties are parsed but not currently stored in the Polyline struct.
+>
+> Polylines require a minimum of 2 vertices.
 
 ### Polygon (RECORD=7)
 
@@ -352,7 +408,9 @@ The component header contains symbol-level metadata:
 | `AreaColor` | int | Fill colour (BGR) |
 | `IsSolid` | bool | Whether border is solid |
 
-> **Note:** The `IsSolid` property uses inverted logic: when `IsSolid=F`, the polygon is filled. Default behaviour is filled.
+> **Note:** When `IsSolid=T`, the polygon is filled. When `IsSolid=F`, only the outline is drawn. Default is filled.
+>
+> Polygons require a minimum of 3 vertices.
 
 **Line shapes:**
 
@@ -420,6 +478,32 @@ Formula: `orientation = (rotation_degrees / 90) % 4`
 | `ReadOnlyState` | int | Read-only flag |
 | `ParamType` | int | 0=String, 1=Boolean, 2=Integer, 3=Float |
 
+### Designator (RECORD=34)
+
+The designator record identifies the component (e.g., R?, U?, C?).
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `Location.X` | int | Position X |
+| `Location.Y` | int | Position Y (typically -6) |
+| `Text` | string | Designator text |
+| `FontId` | int | Font reference |
+| `Color` | int | Text colour (BGR) |
+| `Name` | string | Always "Designator" |
+| `ReadOnlyState` | int | Read-only flag |
+
+**Typical hardcoded values:**
+
+| Property | Value |
+|----------|-------|
+| `Location.Y` | -6 |
+| `Color` | 8388608 (dark blue) |
+| `FontID` | 1 |
+| `Name` | Designator |
+| `ReadOnlyState` | 1 |
+| `IndexInSheet` | -1 |
+| `OwnerPartId` | -1 |
+
 ### Implementation (RECORD=45)
 
 | Property | Type | Description |
@@ -447,6 +531,9 @@ Formula: `orientation = (rotation_degrees / 90) % 4`
 | `Color` | int | Line colour (BGR) |
 
 > **Note:** Fractional radius values are stored multiplied by 100,000 for precision without floating point.
+> Maximum fractional value is 99999 (clamped during writing).
+>
+> `Location.Y` may be omitted if the value is 0.
 >
 > Default values: `StartAngle=0.0`, `EndAngle=360.0` (full ellipse).
 
@@ -524,6 +611,35 @@ Common default values used when properties are not specified:
 | `OwnerPartId` | 1 | First part |
 | `OwnerPartDisplayMode` | 0 | Default display mode |
 | `IndexInSheet` | -1 | No specific index |
+| `LineWidth` | 1 | All shapes |
+| `Color` (lines) | 0x000080 | Dark red (BGR) |
+| `Color` (text) | 0x800000 | Dark blue (BGR) |
+| `AreaColor` | 0xFFFFB0 | Light yellow (BGR) |
+| `PartCount` | 1 | Minimum enforced |
+
+## Symbol Writing Order
+
+When writing symbol data, records are encoded in this specific order:
+
+1. Component header (RECORD=1)
+2. Parameters (RECORD=41)
+3. Pins (binary format, type 0x0001)
+4. Rectangles (RECORD=14)
+5. Lines (RECORD=13)
+6. Polylines (RECORD=6)
+7. Polygons (RECORD=7)
+8. Arcs (RECORD=12)
+9. Bezier curves (RECORD=5)
+10. Ellipses (RECORD=8)
+11. Rounded rectangles (RECORD=10)
+12. Elliptical arcs (RECORD=11)
+13. Labels (RECORD=4)
+14. Designator (RECORD=34)
+15. Implementation list (RECORD=44)
+16. Footprint models (RECORD=45)
+17. End marker (0x0000)
+
+> **Note:** The `IndexInSheet` counter is incremented for each shape record but NOT for pins.
 
 ## Multi-Part Symbols
 

@@ -104,6 +104,14 @@ Most primitives use length-prefixed blocks:
 [block_length:4 LE][block_data:block_length]
 ```
 
+**Block size limits:**
+
+| Block Type | Maximum Size |
+|------------|--------------|
+| Standard block | 100,000 bytes |
+| UniqueID record | 10,000 bytes |
+| String field | 255 bytes |
+
 ## Coordinate System
 
 - Altium uses internal units: **10000 units = 1 mil = 0.0254 mm**
@@ -235,10 +243,18 @@ Pads have 6 blocks:
 | 103-109 | 7 | Reserved |
 | 110-111 | 2 | Jumper ID (internal use) |
 
+**Parsing thresholds:**
+
+| Field | Threshold | Behaviour |
+|-------|-----------|-----------|
+| Hole size | < 0.001 mm | Treated as zero (SMD pad) |
+| Mask expansion | < 0.0001 mm | Filtered out (no manual expansion) |
+
 **Pad shapes:**
 
 | ID | Shape | Notes |
 |----|-------|-------|
+| 0 | RoundedRectangle | Default for unknown IDs |
 | 1 | Round / RoundedRectangle | Distinguished by corner_radius_percent (0 or 100 = Round, 1-99 = RoundedRectangle) |
 | 2 | Rectangular | Sharp corners |
 | 3 | Octagonal | 8-sided (often mapped to Oval) |
@@ -280,6 +296,7 @@ When stack mode is not Simple, Block 6 contains per-layer arrays:
 Total size: 320 bytes minimum (without offsets), 576 bytes with offsets.
 
 > **Note:** Corner radius is stored as a percentage (0-100) of the smaller pad dimension, not as an absolute value.
+> Default corner radius for RoundedRectangle is 50% if not specified.
 
 ### Track (0x04)
 
@@ -544,6 +561,8 @@ Vias have 6 blocks, similar to Pads:
 
 **Diameter stack mode:** Same as Pad stack modes (Simple, TopMiddleBottom, FullStack).
 
+Via geometry block minimum size: 46 bytes.
+
 **Per-layer diameters (Block 6):**
 
 When diameter stack mode is not Simple, Block 6 contains 32 diameter values (4 bytes each as i32), using the same layer index mapping as Pads.
@@ -590,6 +609,20 @@ Each record contains pipe-delimited key=value pairs:
 The record's position (0, 1, 2, ...) corresponds to the model stream index.
 
 > **Note:** STEP models are stored with zlib compression. Models are referenced by GUID in `ComponentBody` records.
+
+## Primitive Writing Order
+
+When writing footprint data, primitives are encoded in this specific order:
+
+1. Arcs (0x01)
+2. Pads (0x02)
+3. Vias (0x03)
+4. Tracks (0x04)
+5. Text (0x05)
+6. Regions (0x0B)
+7. Fills (0x06)
+8. ComponentBodies (0x0C)
+9. End marker (0x00)
 
 ## Notes
 
