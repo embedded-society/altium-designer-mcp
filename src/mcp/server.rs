@@ -10027,10 +10027,13 @@ mod tests {
 
     /// Creates a temporary directory inside `.tmp/` for test isolation.
     /// The directory is automatically cleaned up when the returned `TempDir` is dropped.
+    ///
+    /// Uses an absolute path to avoid issues with parallel test execution.
     fn test_temp_dir() -> TempDir {
-        let tmp_root = std::path::Path::new(".tmp");
-        std::fs::create_dir_all(tmp_root).expect("Failed to create .tmp directory");
-        tempfile::tempdir_in(tmp_root).expect("Failed to create temp dir")
+        let cwd = std::env::current_dir().expect("Failed to get current directory");
+        let tmp_root = cwd.join(".tmp");
+        std::fs::create_dir_all(&tmp_root).expect("Failed to create .tmp directory");
+        tempfile::tempdir_in(&tmp_root).expect("Failed to create temp dir")
     }
 
     /// Helper to create a server with a temp directory as allowed path.
