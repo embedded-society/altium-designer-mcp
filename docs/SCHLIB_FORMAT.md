@@ -341,6 +341,19 @@ The component header contains symbol-level metadata:
 
 > **Note:** Line style and endpoint shape properties are parsed but not currently stored in the Polyline struct.
 
+### Polygon (RECORD=7)
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `LocationCount` | int | Number of vertices |
+| `X{N}`, `Y{N}` | int | Vertex coordinates (1-indexed) |
+| `LineWidth` | int | Border line width |
+| `Color` | int | Border colour (BGR) |
+| `AreaColor` | int | Fill colour (BGR) |
+| `IsSolid` | bool | Whether border is solid |
+
+> **Note:** The `IsSolid` property uses inverted logic: when `IsSolid=F`, the polygon is filled. Default behaviour is filled.
+
 **Line shapes:**
 
 | ID | Shape |
@@ -360,12 +373,37 @@ The component header contains symbol-level metadata:
 | `Location.X` | int | Position X |
 | `Location.Y` | int | Position Y |
 | `Text` | string | Label text |
-| `FontId` | int | Font reference |
+| `FontId` | int | Font reference (default: 1) |
 | `Color` | int | Text colour (BGR) |
-| `Orientation` | int | Text orientation |
-| `Justification` | int | Text alignment |
+| `Orientation` | int | Text orientation (0-3) |
+| `Justification` | int | Text alignment (see below) |
 | `IsMirrored` | bool | Mirror horizontally |
 | `IsHidden` | bool | Hidden from view |
+
+**Orientation values:**
+
+| Value | Rotation |
+|-------|----------|
+| 0 | 0° (horizontal) |
+| 1 | 90° |
+| 2 | 180° |
+| 3 | 270° |
+
+Formula: `orientation = (rotation_degrees / 90) % 4`
+
+**Justification values:**
+
+| ID | Position |
+|----|----------|
+| 0 | Bottom Left |
+| 1 | Bottom Centre |
+| 2 | Bottom Right |
+| 3 | Middle Left |
+| 4 | Middle Centre |
+| 5 | Middle Right |
+| 6 | Top Left |
+| 7 | Top Centre |
+| 8 | Top Right |
 
 ### Parameter (RECORD=41)
 
@@ -409,6 +447,83 @@ The component header contains symbol-level metadata:
 | `Color` | int | Line colour (BGR) |
 
 > **Note:** Fractional radius values are stored multiplied by 100,000 for precision without floating point.
+>
+> Default values: `StartAngle=0.0`, `EndAngle=360.0` (full ellipse).
+
+### Arc (RECORD=12)
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `Location.X` | int | Centre X |
+| `Location.Y` | int | Centre Y |
+| `Radius` | int | Arc radius |
+| `StartAngle` | float | Start angle (degrees, default: 0.0) |
+| `EndAngle` | float | End angle (degrees, default: 360.0) |
+| `LineWidth` | int | Line width |
+| `Color` | int | Line colour (BGR) |
+
+> **Note:** Default angles create a full circle when not specified.
+
+### Line (RECORD=13)
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `Location.X` | int | Start X |
+| `Location.Y` | int | Start Y |
+| `Corner.X` | int | End X |
+| `Corner.Y` | int | End Y |
+| `LineWidth` | int | Line width |
+| `Color` | int | Line colour (BGR) |
+
+### Ellipse (RECORD=8)
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `Location.X` | int | Centre X |
+| `Location.Y` | int | Centre Y |
+| `Radius` | int | X radius |
+| `SecondaryRadius` | int | Y radius |
+| `LineWidth` | int | Border line width |
+| `Color` | int | Border colour (BGR) |
+| `AreaColor` | int | Fill colour (BGR) |
+| `IsSolid` | bool | Whether filled |
+
+### RoundRectangle (RECORD=10)
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `Location.X` | int | First corner X |
+| `Location.Y` | int | First corner Y |
+| `Corner.X` | int | Second corner X |
+| `Corner.Y` | int | Second corner Y |
+| `CornerXRadius` | int | Corner X radius |
+| `CornerYRadius` | int | Corner Y radius |
+| `LineWidth` | int | Border line width |
+| `Color` | int | Border colour (BGR) |
+| `AreaColor` | int | Fill colour (BGR) |
+| `IsSolid` | bool | Whether filled |
+
+### Bezier (RECORD=5)
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `LocationCount` | int | Number of control points (must be 4) |
+| `X{N}`, `Y{N}` | int | Control point coordinates (1-indexed) |
+| `LineWidth` | int | Line width |
+| `Color` | int | Line colour (BGR) |
+
+## Default Values
+
+Common default values used when properties are not specified:
+
+| Property | Default | Notes |
+|----------|---------|-------|
+| `FontId` | 1 | Times New Roman, 10pt |
+| `StartAngle` | 0.0 | For Arc and EllipticalArc |
+| `EndAngle` | 360.0 | For Arc and EllipticalArc |
+| `OwnerPartId` | 1 | First part |
+| `OwnerPartDisplayMode` | 0 | Default display mode |
+| `IndexInSheet` | -1 | No specific index |
 
 ## Multi-Part Symbols
 

@@ -100,6 +100,34 @@ Polyline supports line style and endpoint shape properties that are parsed but n
 
 ---
 
+### Label IsMirrored Property
+
+**Priority:** Low
+
+The `IsMirrored` property for Label primitives is documented but not implemented.
+
+**Files to modify:**
+
+- `src/altium/schlib/primitives.rs` — add `is_mirrored` field to `Label` struct
+- `src/altium/schlib/reader.rs` — parse `IsMirrored` property
+- `src/altium/schlib/writer.rs` — encode `IsMirrored` property
+
+---
+
+### Rectangle Transparent Property
+
+**Priority:** Low
+
+The `Transparent` property for Rectangle primitives is documented but not parsed or stored.
+
+**Files to modify:**
+
+- `src/altium/schlib/primitives.rs` — add `transparent` field to `Rectangle` struct
+- `src/altium/schlib/reader.rs` — parse `Transparent` property
+- `src/altium/schlib/writer.rs` — encode `Transparent` property
+
+---
+
 ## PcbLib - Potential Improvements
 
 ### Additional Layer Support

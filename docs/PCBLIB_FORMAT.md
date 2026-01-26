@@ -110,6 +110,15 @@ Most primitives use length-prefixed blocks:
 - Conversion: `mm = internal_units / 10000.0 * 0.0254`
 - Reverse: `internal_units = mm / 0.0254 * 10000.0`
 
+**Conversion constants:**
+
+| Constant | Value | Formula |
+|----------|-------|---------|
+| MM_TO_INTERNAL | 393700.787... | 10000.0 / 0.0254 |
+| INTERNAL_TO_MM | 2.54e-6 | 0.0254 / 10000.0 |
+
+> **Note:** Results are typically rounded to 6 decimal places (1nm resolution) to avoid floating-point noise.
+
 ## Layer IDs
 
 ### Copper Layers
@@ -186,12 +195,14 @@ These mechanical layers are typically configured as component layer pairs:
 
 Pads have 6 blocks:
 
-1. Designator string block (length-prefixed)
-2. Layer stack data (typically empty for simple pads)
-3. Marker string (`|&|0`) — internal reference marker
-4. Net/connectivity data (typically empty in libraries)
-5. Geometry data (main pad definition)
-6. Per-layer data (for complex pads with different shapes/sizes per layer)
+| Block | Content |
+|-------|---------|
+| 0 | Designator string (length-prefixed) |
+| 1 | Layer stack data (typically empty for simple pads) |
+| 2 | Marker string (`\|&\|0`) — internal reference marker |
+| 3 | Net/connectivity data (typically empty in libraries) |
+| 4 | Geometry data (main pad definition) |
+| 5 | Per-layer data (for complex pads with different shapes/sizes per layer) |
 
 **Geometry block structure:**
 
@@ -251,10 +262,22 @@ Pads have 6 blocks:
 
 When stack mode is not Simple, Block 6 contains per-layer arrays:
 
-- 32 size entries (CoordPoint, 8 bytes each)
-- 32 shape entries (1 byte each)
-- 32 corner radius percentages (1 byte each, 0-100)
-- 32 offset-from-hole-center entries (CoordPoint, 8 bytes each)
+| Offset | Size | Field |
+|--------|------|-------|
+| 0-255 | 256 | 32 size entries (width/height pairs, 4+4 bytes each as i32) |
+| 256-287 | 32 | 32 shape IDs (1 byte each) |
+| 288-319 | 32 | 32 corner radius percentages (1 byte each, 0-100) |
+| 320-575 | 256 | 32 offset entries (x/y pairs, 4+4 bytes each as i32) — optional |
+
+**Layer index mapping:**
+
+| Index | Layer |
+|-------|-------|
+| 0 | Top Layer |
+| 1 | Bottom Layer |
+| 2-31 | Mid Layers 1-30 |
+
+Total size: 320 bytes minimum (without offsets), 576 bytes with offsets.
 
 > **Note:** Corner radius is stored as a percentage (0-100) of the smaller pad dimension, not as an absolute value.
 
@@ -318,13 +341,24 @@ Text has 2 blocks:
 | Offset | Size | Field |
 |--------|------|-------|
 | 0 | 1 | Layer ID |
-| 1-12 | 12 | Flags and padding |
+| 1 | 1 | Text kind (0=Stroke, 1=TrueType, 2=BarCode) |
+| 2-12 | 11 | Flags and padding (0xFF) |
 | 13-16 | 4 | X position (internal units) |
 | 17-20 | 4 | Y position |
 | 21-24 | 4 | Height |
 | 25-26 | 2 | Stroke font ID (see below) |
 | 27-34 | 8 | Rotation (double, degrees) |
-| 35+ | var | Font name and additional data |
+| 35-38 | 4 | Font size (same as height) |
+| 39-42 | 4 | Reserved (zeros) |
+| 43-60 | 18 | Font name (UTF-16LE, null-terminated, e.g., "Arial") |
+| 61-67 | 7 | Font style bytes |
+| 68-71 | 4 | Line spacing |
+| 72 | 1 | Justification (see below) |
+| 73 | 1 | Reserved |
+| 74-77 | 4 | Glyph width |
+| 78+ | var | Additional padding (to ~80-100 bytes) |
+
+> **Note:** WideStrings index is stored at offset 115 (u16) when text content references the WideStrings stream.
 
 **Text kinds:**
 
@@ -379,7 +413,7 @@ Where `84,69,83,84` are ASCII codes (e.g., "TEST" = 84,69,83,84).
 
 ### Fill (0x06)
 
-Filled rectangle, single block:
+Filled rectangle, single block (50 bytes total):
 
 | Offset | Size | Field |
 |--------|------|-------|
@@ -390,6 +424,7 @@ Filled rectangle, single block:
 | 21-24 | 4 | X2 (second corner) |
 | 25-28 | 4 | Y2 |
 | 29-36 | 8 | Rotation (double, degrees) |
+| 37-49 | 13 | Reserved (zeros) |
 
 ### Region (0x0B)
 
@@ -406,6 +441,18 @@ Filled polygon with 2 blocks:
 | 22+ | var | Parameter string (ASCII key=value, pipe-delimited) |
 | 22+len | 4 | Vertex count |
 | 26+len | 16×N | Vertices (N pairs of doubles) |
+
+**Parameter string format:**
+
+```text
+V7_LAYER={layer}|NAME= |KIND=0|...
+```
+
+| Key | Description |
+|-----|-------------|
+| `V7_LAYER` | Layer name (e.g., "TOPLAYER") |
+| `NAME` | Region name (usually empty) |
+| `KIND` | Region kind (0 = standard) |
 
 **Block 1:** Outline data for display (usually empty in simple regions).
 
@@ -466,12 +513,14 @@ Binary header followed by pipe-delimited key=value parameters. Parameters start 
 
 Vias have 6 blocks, similar to Pads:
 
-1. Designator/name block (typically empty)
-2. Layer stack data
-3. Marker string
-4. Net/connectivity data
-5. Geometry data
-6. Per-layer data
+| Block | Content |
+|-------|---------|
+| 0 | Designator/name block (typically empty) |
+| 1 | Layer stack data |
+| 2 | Marker string (`\|&\|0`) |
+| 3 | Net/connectivity data |
+| 4 | Geometry data |
+| 5 | Per-layer diameters (when stack mode ≠ Simple) |
 
 **Geometry block structure:**
 
@@ -494,6 +543,10 @@ Vias have 6 blocks, similar to Pads:
 | 46+ | var | Per-layer diameters (32 × 4 bytes when FullStack) |
 
 **Diameter stack mode:** Same as Pad stack modes (Simple, TopMiddleBottom, FullStack).
+
+**Per-layer diameters (Block 6):**
+
+When diameter stack mode is not Simple, Block 6 contains 32 diameter values (4 bytes each as i32), using the same layer index mapping as Pads.
 
 ### 3D Model Storage
 
