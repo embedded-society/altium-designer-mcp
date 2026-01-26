@@ -460,6 +460,9 @@ pub struct Symbol {
     /// Labels.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub labels: Vec<Label>,
+    /// Text annotations.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub text: Vec<Text>,
     /// Parameters (Value, Part Number, etc.).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub parameters: Vec<Parameter>,
@@ -559,6 +562,11 @@ impl Symbol {
     /// Adds a label to the symbol.
     pub fn add_label(&mut self, label: Label) {
         self.labels.push(label);
+    }
+
+    /// Adds a text annotation to the symbol.
+    pub fn add_text(&mut self, text: Text) {
+        self.text.push(text);
     }
 }
 

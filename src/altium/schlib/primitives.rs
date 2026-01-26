@@ -802,6 +802,41 @@ pub struct Label {
     pub owner_part_id: i32,
 }
 
+/// A text annotation (RECORD=3).
+///
+/// Similar to Label but uses different record format and positioning.
+/// Used for general text annotations on schematic symbols.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Text {
+    /// X position.
+    pub x: i32,
+    /// Y position.
+    pub y: i32,
+    /// Text content.
+    pub text: String,
+    /// Font ID (1-based index into library fonts).
+    #[serde(default = "default_font_id")]
+    pub font_id: u8,
+    /// Text colour (BGR format).
+    #[serde(default)]
+    pub color: u32,
+    /// Text justification.
+    #[serde(default)]
+    pub justification: TextJustification,
+    /// Rotation in degrees.
+    #[serde(default, serialize_with = "float_serde::serialize")]
+    pub rotation: f64,
+    /// Whether the text is mirrored horizontally.
+    #[serde(default)]
+    pub is_mirrored: bool,
+    /// Whether the text is hidden.
+    #[serde(default)]
+    pub is_hidden: bool,
+    /// Owner part ID.
+    #[serde(default = "default_owner_part")]
+    pub owner_part_id: i32,
+}
+
 const fn default_font_id() -> u8 {
     1
 }

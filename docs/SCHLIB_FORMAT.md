@@ -112,6 +112,7 @@ Text records contain pipe-delimited key=value pairs:
 |----|------|-------------|
 | 1 | Component | Symbol header (name, description, part count) |
 | 2 | Pin | Pin (text format, rarely used — binary preferred) |
+| 3 | Text | Text annotation (general-purpose text) |
 | 4 | Label | Text label |
 | 5 | Bezier | Bezier curve |
 | 6 | Polyline | Multiple connected line segments |
@@ -423,6 +424,25 @@ The component header contains symbol-level metadata:
 | 5 | Circle |
 | 6 | Square |
 
+### Text (RECORD=3)
+
+Text annotations are general-purpose text objects used for notes and annotations on schematic symbols.
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `Location.X` | int | Position X |
+| `Location.Y` | int | Position Y |
+| `Text` | string | Text content |
+| `FontId` | int | Font reference (default: 1) |
+| `Color` | int | Text colour (BGR) |
+| `Orientation` | int | Text orientation (0-3) |
+| `Justification` | int | Text alignment (see Label for values) |
+| `IsMirrored` | bool | Mirror horizontally |
+| `IsHidden` | bool | Hidden from view |
+
+> **Note:** Text (RECORD=3) and Label (RECORD=4) have similar properties but are distinct record types.
+> Text is typically used for annotations, while Label is used for pin labels.
+
 ### Label (RECORD=4)
 
 | Property | Type | Description |
@@ -636,10 +656,11 @@ When writing symbol data, records are encoded in this specific order:
 11. Rounded rectangles (RECORD=10)
 12. Elliptical arcs (RECORD=11)
 13. Labels (RECORD=4)
-14. Designator (RECORD=34)
-15. Implementation list (RECORD=44)
-16. Footprint models (RECORD=45)
-17. End marker (0x0000)
+14. Text annotations (RECORD=3)
+15. Designator (RECORD=34)
+16. Implementation list (RECORD=44)
+17. Footprint models (RECORD=45)
+18. End marker (0x0000)
 
 > **Note:** The `IndexInSheet` counter is incremented for each shape record but NOT for pins.
 

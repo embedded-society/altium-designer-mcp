@@ -103,7 +103,7 @@ Read footprints from an Altium `.PcbLib` file. All coordinates are in millimetre
 | `component_name` | Fetch only this specific footprint |
 | `limit` | Maximum footprints to return |
 | `offset` | Skip first N footprints |
-| `compact` | Omit redundant per-layer pad data when `stack_mode` is Simple (default: `true`) |
+| `compact` | Omit redundant per-layer pad data when uniform (default: `true`) |
 
 ### `write_pcblib`
 
@@ -205,6 +205,10 @@ Write symbols to an Altium `.SchLib` file. The AI provides primitive definitions
 | `orientation` | `left`, `right`, `up`, `down` (required) |
 | `electrical_type` | `input`, `output`, `bidirectional`, `passive`, `power` |
 | `owner_part_id` | Part number for multi-part symbols (1-based, default: 1) |
+| `symbol_inner_edge` | Pin symbol at inner edge: `none`, `dot`, `clock`, `schmitt`, etc. |
+| `symbol_outer_edge` | Pin symbol at outer edge: `none`, `dot`, `active_low_input`, etc. |
+| `symbol_inside` | Pin symbol inside: `none`, `dot`, `clock`, etc. |
+| `symbol_outside` | Pin symbol outside: `none`, `dot`, `clock`, etc. |
 
 ### `list_components`
 
@@ -337,7 +341,7 @@ Export an Altium library to JSON or CSV format for version control, backup, or e
 | Parameter | Description |
 |-----------|-------------|
 | `format` | Export format: `json` for full data, `csv` for summary table |
-| `compact` | Omit redundant per-layer pad data when `stack_mode` is Simple (default: `true`) |
+| `compact` | Omit redundant per-layer pad data when uniform (default: `true`) |
 
 **JSON format** returns complete component data including all primitives.
 
@@ -1443,7 +1447,8 @@ This follows the IPC-7351 convention where pin 1 has a distinct shape (typically
 | **Ellipse** | Ellipse or circle (filled or unfilled) |
 | **EllipticalArc** | Elliptical arc segment with fractional radii |
 | **Bezier** | Cubic Bezier curve (4 control points) |
-| **Label** | Text label |
+| **Label** | Text label (RECORD=4) |
+| **Text** | Text annotation (RECORD=3) |
 | **Parameter** | Component parameter (Value, Part Number, etc.) |
 | **FootprintModel** | Reference to a footprint in a PcbLib |
 
@@ -1640,6 +1645,7 @@ recover from a previous version.
 without modifying files:
 
 - `delete_component` — preview which components would be deleted
+- `update_component` — preview component replacement changes
 - `update_pad` / `update_primitive` — preview property changes
 - `bulk_rename` — preview name changes
 - `repair_library` — preview orphaned references to remove

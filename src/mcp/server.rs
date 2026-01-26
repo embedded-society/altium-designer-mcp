@@ -1502,7 +1502,7 @@ impl McpServer {
                 description: Some(
                     "Update a component in-place within an Altium library file, preserving its position. \
                      For PcbLib, provide a footprint object. For SchLib, provide a symbol object. The \
-                     component is matched by name."
+                     component is matched by name. Use dry_run=true to preview changes without modifying."
                         .to_string(),
                 ),
                 input_schema: json!({
@@ -1523,6 +1523,11 @@ impl McpServer {
                         "symbol": {
                             "type": "object",
                             "description": "For SchLib: symbol data (same format as write_schlib)"
+                        },
+                        "dry_run": {
+                            "type": "boolean",
+                            "description": "If true, show what would be updated without actually modifying the file",
+                            "default": false
                         }
                     },
                     "required": ["filepath", "component_name"]
@@ -2001,6 +2006,7 @@ impl McpServer {
     /// Reads a `PcbLib` file and returns its contents.
     /// Supports pagination via limit/offset and filtering by `component_name`.
     #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::too_many_lines)] // Complex formatting logic for compact mode
     fn call_read_pcblib(&self, arguments: &Value) -> ToolCallResult {
         use crate::altium::pcblib::primitives::PadStackMode;
         use crate::altium::PcbLib;
@@ -2045,19 +2051,28 @@ impl McpServer {
                     .skip(offset)
                     .take(limit.unwrap_or(usize::MAX))
                     .map(|fp| {
-                        // If compact mode, strip per-layer data for simple pads
+                        // If compact mode, strip per-layer data when it's redundant
                         let pads: Vec<Value> = if compact {
                             fp.pads
                                 .iter()
                                 .map(|pad| {
                                     let mut pad_json = serde_json::to_value(pad).unwrap();
-                                    // Remove per-layer data if stack_mode is Simple
-                                    if pad.stack_mode == PadStackMode::Simple {
+                                    // Remove per-layer data if stack_mode is Simple OR all values are uniform
+                                    let should_strip = pad.stack_mode == PadStackMode::Simple
+                                        || Self::pad_has_uniform_per_layer_data(pad);
+                                    if should_strip {
                                         if let Value::Object(ref mut obj) = pad_json {
                                             obj.remove("per_layer_sizes");
                                             obj.remove("per_layer_shapes");
                                             obj.remove("per_layer_corner_radii");
                                             obj.remove("per_layer_offsets");
+                                            // Downgrade stack_mode to simple if we stripped uniform data
+                                            if pad.stack_mode != PadStackMode::Simple {
+                                                obj.insert(
+                                                    "stack_mode".to_string(),
+                                                    json!("simple"),
+                                                );
+                                            }
                                         }
                                     }
                                     pad_json
@@ -2325,14 +2340,11 @@ impl McpServer {
                         });
                     } else {
                         // External reference only - create ComponentBody directly
+                        // Preserve the full path for external references so organized subfolders work
                         use crate::altium::pcblib::{ComponentBody, Layer};
-                        let model_name = std::path::Path::new(model_path).file_name().map_or_else(
-                            || model_path.to_string(),
-                            |n| n.to_string_lossy().to_string(),
-                        );
                         footprint.add_component_body(ComponentBody {
-                            model_id: String::new(), // No GUID for external reference
-                            model_name,
+                            model_id: String::new(),            // No GUID for external reference
+                            model_name: model_path.to_string(), // Preserve full path
                             embedded: false,
                             rotation_x: 0.0,
                             rotation_y: 0.0,
@@ -2651,6 +2663,24 @@ impl McpServer {
                 for ellipse_json in ellipses {
                     if let Some(ellipse) = Self::parse_schlib_ellipse(ellipse_json) {
                         symbol.add_ellipse(ellipse);
+                    }
+                }
+            }
+
+            // Parse labels
+            if let Some(labels) = sym_json.get("labels").and_then(Value::as_array) {
+                for label_json in labels {
+                    if let Some(label) = Self::parse_schlib_label(label_json) {
+                        symbol.add_label(label);
+                    }
+                }
+            }
+
+            // Parse text annotations
+            if let Some(texts) = sym_json.get("text").and_then(Value::as_array) {
+                for text_json in texts {
+                    if let Some(text) = Self::parse_schlib_text(text_json) {
+                        symbol.add_text(text);
                     }
                 }
             }
@@ -3191,6 +3221,41 @@ impl McpServer {
         Ok(())
     }
 
+    /// Checks if a pad's per-layer data is uniform (all layers have same values).
+    ///
+    /// When all per-layer values are identical, the data is redundant and can be
+    /// omitted in compact mode, even if the pad was stored with `FullStack` mode.
+    fn pad_has_uniform_per_layer_data(pad: &crate::altium::pcblib::Pad) -> bool {
+        // Check per_layer_sizes - all should match primary width/height
+        let sizes_uniform = pad.per_layer_sizes.as_ref().map_or(true, |sizes| {
+            sizes
+                .iter()
+                .all(|&(w, h)| (w - pad.width).abs() < 0.001 && (h - pad.height).abs() < 0.001)
+        });
+
+        // Check per_layer_shapes - all should match primary shape
+        let shapes_uniform = pad
+            .per_layer_shapes
+            .as_ref()
+            .map_or(true, |shapes| shapes.iter().all(|s| *s == pad.shape));
+
+        // Check per_layer_corner_radii - all should match primary corner_radius_percent
+        let primary_radius = pad.corner_radius_percent.unwrap_or(0);
+        let radii_uniform = pad
+            .per_layer_corner_radii
+            .as_ref()
+            .map_or(true, |radii| radii.iter().all(|&r| r == primary_radius));
+
+        // Check per_layer_offsets - all should be zero (no offset)
+        let offsets_uniform = pad.per_layer_offsets.as_ref().map_or(true, |offsets| {
+            offsets
+                .iter()
+                .all(|&(x, y)| x.abs() < 0.001 && y.abs() < 0.001)
+        });
+
+        sizes_uniform && shapes_uniform && radii_uniform && offsets_uniform
+    }
+
     /// Validates all coordinates in a footprint before writing.
     fn validate_footprint_coordinates(
         footprint: &crate::altium::pcblib::Footprint,
@@ -3404,6 +3469,10 @@ impl McpServer {
             }
         };
 
+        // Parse hole_size first to determine default layer
+        let hole_size = json.get("hole_size").and_then(Value::as_f64);
+        let is_smd = hole_size.map_or(true, |h| h <= 0.0); // SMD if no hole or hole size <= 0
+
         let layer_str = json.get("layer").and_then(Value::as_str);
         let layer = match layer_str {
             Some(s) => Layer::parse(s).ok_or_else(|| {
@@ -3412,10 +3481,15 @@ impl McpServer {
                      Valid layers include: Top Layer, Bottom Layer, Multi-Layer, Top Overlay, etc."
                 )
             })?,
-            None => Layer::MultiLayer, // Default for pads is Multi-Layer
+            // SMD pads default to Top Layer, through-hole pads default to Multi-Layer
+            None => {
+                if is_smd {
+                    Layer::TopLayer
+                } else {
+                    Layer::MultiLayer
+                }
+            }
         };
-
-        let hole_size = json.get("hole_size").and_then(Value::as_f64);
         let rotation = json.get("rotation").and_then(Value::as_f64).unwrap_or(0.0);
 
         // Parse optional hole shape
@@ -3632,8 +3706,9 @@ impl McpServer {
 
     /// Parses a schematic pin from JSON.
     #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::too_many_lines)] // Pin parsing with symbol attributes requires many lines
     fn parse_schlib_pin(json: &Value) -> Option<crate::altium::schlib::Pin> {
-        use crate::altium::schlib::{Pin, PinElectricalType, PinOrientation};
+        use crate::altium::schlib::{Pin, PinElectricalType, PinOrientation, PinSymbol};
 
         let designator = json.get("designator").and_then(Value::as_str)?;
         let name = json
@@ -3682,6 +3757,51 @@ impl McpServer {
             .and_then(Value::as_i64)
             .unwrap_or(1) as i32;
 
+        // Helper to parse PinSymbol from string
+        let parse_pin_symbol = |s: &str| -> PinSymbol {
+            match s.to_lowercase().replace(['-', '_'], "").as_str() {
+                "dot" | "invert" | "inversion" => PinSymbol::Dot,
+                "clock" | "clk" => PinSymbol::Clock,
+                "activelowinput" | "lowinput" => PinSymbol::ActiveLowInput,
+                "activelowoutput" | "lowoutput" => PinSymbol::ActiveLowOutput,
+                "rightleftsignalflow" | "rightleft" => PinSymbol::RightLeftSignalFlow,
+                "leftrrightsignalflow" | "leftright" => PinSymbol::LeftRightSignalFlow,
+                "bidirectionalsignalflow" | "bidirectional" => PinSymbol::BidirectionalSignalFlow,
+                "analogsignalin" | "analog" => PinSymbol::AnalogSignalIn,
+                "digitalsignalin" | "digital" => PinSymbol::DigitalSignalIn,
+                "notlogicconnection" | "notlogic" => PinSymbol::NotLogicConnection,
+                "postponedoutput" | "postponed" => PinSymbol::PostponedOutput,
+                "opencollector" => PinSymbol::OpenCollector,
+                "opencollectorpullup" => PinSymbol::OpenCollectorPullUp,
+                "openemitter" => PinSymbol::OpenEmitter,
+                "openemitterpullup" => PinSymbol::OpenEmitterPullUp,
+                "openoutput" => PinSymbol::OpenOutput,
+                "hiz" | "highimpedance" => PinSymbol::HiZ,
+                "highcurrent" => PinSymbol::HighCurrent,
+                "pulse" => PinSymbol::Pulse,
+                "schmitt" | "schmitttrigger" => PinSymbol::Schmitt,
+                "shiftleft" => PinSymbol::ShiftLeft,
+                _ => PinSymbol::None, // "none" and unknown values
+            }
+        };
+
+        let symbol_inner_edge = json
+            .get("symbol_inner_edge")
+            .and_then(Value::as_str)
+            .map_or(PinSymbol::None, parse_pin_symbol);
+        let symbol_outer_edge = json
+            .get("symbol_outer_edge")
+            .and_then(Value::as_str)
+            .map_or(PinSymbol::None, parse_pin_symbol);
+        let symbol_inside = json
+            .get("symbol_inside")
+            .and_then(Value::as_str)
+            .map_or(PinSymbol::None, parse_pin_symbol);
+        let symbol_outside = json
+            .get("symbol_outside")
+            .and_then(Value::as_str)
+            .map_or(PinSymbol::None, parse_pin_symbol);
+
         Some(Pin {
             name: name.to_string(),
             designator: designator.to_string(),
@@ -3697,10 +3817,10 @@ impl McpServer {
             owner_part_id,
             colour: 0,
             graphically_locked: false,
-            symbol_inner_edge: crate::altium::schlib::PinSymbol::None,
-            symbol_outer_edge: crate::altium::schlib::PinSymbol::None,
-            symbol_inside: crate::altium::schlib::PinSymbol::None,
-            symbol_outside: crate::altium::schlib::PinSymbol::None,
+            symbol_inner_edge,
+            symbol_outer_edge,
+            symbol_inside,
+            symbol_outside,
         })
     }
 
@@ -3814,11 +3934,16 @@ impl McpServer {
     }
 
     /// Parses a schematic polyline from JSON.
+    /// Accepts both "points" and "vertices" field names for the coordinate array.
     #[allow(clippy::cast_possible_truncation)]
     fn parse_schlib_polyline(json: &Value) -> Option<crate::altium::schlib::Polyline> {
         use crate::altium::schlib::Polyline;
 
-        let points_json = json.get("points").and_then(Value::as_array)?;
+        // Accept both "points" and "vertices" for flexibility
+        let points_json = json
+            .get("points")
+            .or_else(|| json.get("vertices"))
+            .and_then(Value::as_array)?;
         let points: Vec<(i32, i32)> = points_json
             .iter()
             .filter_map(|p| {
@@ -3926,6 +4051,130 @@ impl McpServer {
             line_color,
             fill_color,
             filled,
+            owner_part_id,
+        })
+    }
+
+    /// Parses a schematic label from JSON.
+    #[allow(clippy::cast_possible_truncation)]
+    fn parse_schlib_label(json: &Value) -> Option<crate::altium::schlib::Label> {
+        use crate::altium::schlib::{Label, TextJustification};
+
+        let x = json.get("x").and_then(Value::as_i64)? as i32;
+        let y = json.get("y").and_then(Value::as_i64)? as i32;
+        let text = json.get("text").and_then(Value::as_str)?.to_string();
+
+        let font_id = json.get("font_id").and_then(Value::as_u64).unwrap_or(1) as u8;
+        let color = json
+            .get("color")
+            .and_then(Value::as_u64)
+            .unwrap_or(0x00_00_80) as u32;
+        let rotation = json.get("rotation").and_then(Value::as_f64).unwrap_or(0.0);
+        let is_mirrored = json
+            .get("is_mirrored")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let is_hidden = json
+            .get("is_hidden")
+            .or_else(|| json.get("hidden"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let owner_part_id = json
+            .get("owner_part_id")
+            .and_then(Value::as_i64)
+            .unwrap_or(1) as i32;
+
+        let justification = json.get("justification").and_then(Value::as_str).map_or(
+            TextJustification::BottomLeft,
+            |s| {
+                match s.to_lowercase().replace(['-', '_'], "").as_str() {
+                    "bottomcenter" | "bottomcentre" => TextJustification::BottomCenter,
+                    "bottomright" => TextJustification::BottomRight,
+                    "middleleft" | "centerleft" | "centreleft" => TextJustification::MiddleLeft,
+                    "middlecenter" | "middlecentre" | "center" | "centre" => {
+                        TextJustification::MiddleCenter
+                    }
+                    "middleright" | "centerright" | "centreright" => TextJustification::MiddleRight,
+                    "topleft" => TextJustification::TopLeft,
+                    "topcenter" | "topcentre" => TextJustification::TopCenter,
+                    "topright" => TextJustification::TopRight,
+                    _ => TextJustification::BottomLeft, // "bottomleft" and unknown values
+                }
+            },
+        );
+
+        Some(Label {
+            x,
+            y,
+            text,
+            font_id,
+            color,
+            justification,
+            rotation,
+            is_mirrored,
+            is_hidden,
+            owner_part_id,
+        })
+    }
+
+    /// Parses a schematic text annotation from JSON.
+    #[allow(clippy::cast_possible_truncation)]
+    fn parse_schlib_text(json: &Value) -> Option<crate::altium::schlib::Text> {
+        use crate::altium::schlib::{Text, TextJustification};
+
+        let x = json.get("x").and_then(Value::as_i64)? as i32;
+        let y = json.get("y").and_then(Value::as_i64)? as i32;
+        let text = json.get("text").and_then(Value::as_str)?.to_string();
+
+        let font_id = json.get("font_id").and_then(Value::as_u64).unwrap_or(1) as u8;
+        let color = json
+            .get("color")
+            .and_then(Value::as_u64)
+            .unwrap_or(0x00_00_80) as u32;
+        let rotation = json.get("rotation").and_then(Value::as_f64).unwrap_or(0.0);
+        let is_mirrored = json
+            .get("is_mirrored")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let is_hidden = json
+            .get("is_hidden")
+            .or_else(|| json.get("hidden"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let owner_part_id = json
+            .get("owner_part_id")
+            .and_then(Value::as_i64)
+            .unwrap_or(1) as i32;
+
+        let justification = json.get("justification").and_then(Value::as_str).map_or(
+            TextJustification::BottomLeft,
+            |s| {
+                match s.to_lowercase().replace(['-', '_'], "").as_str() {
+                    "bottomcenter" | "bottomcentre" => TextJustification::BottomCenter,
+                    "bottomright" => TextJustification::BottomRight,
+                    "middleleft" | "centerleft" | "centreleft" => TextJustification::MiddleLeft,
+                    "middlecenter" | "middlecentre" | "center" | "centre" => {
+                        TextJustification::MiddleCenter
+                    }
+                    "middleright" | "centerright" | "centreright" => TextJustification::MiddleRight,
+                    "topleft" => TextJustification::TopLeft,
+                    "topcenter" | "topcentre" => TextJustification::TopCenter,
+                    "topright" => TextJustification::TopRight,
+                    _ => TextJustification::BottomLeft, // "bottomleft" and unknown values
+                }
+            },
+        );
+
+        Some(Text {
+            x,
+            y,
+            text,
+            font_id,
+            color,
+            justification,
+            rotation,
+            is_mirrored,
+            is_hidden,
             owner_part_id,
         })
     }
@@ -4728,19 +4977,25 @@ impl McpServer {
             let footprints: Vec<Value> = library
                 .iter()
                 .map(|fp| {
-                    // If compact mode, strip per-layer data for simple pads
+                    // If compact mode, strip per-layer data when it's redundant
                     let pads: Vec<Value> = if compact {
                         fp.pads
                             .iter()
                             .map(|pad| {
                                 let mut pad_json = serde_json::to_value(pad).unwrap();
-                                // Remove per-layer data if stack_mode is Simple
-                                if pad.stack_mode == PadStackMode::Simple {
+                                // Remove per-layer data if stack_mode is Simple OR all values are uniform
+                                let should_strip = pad.stack_mode == PadStackMode::Simple
+                                    || Self::pad_has_uniform_per_layer_data(pad);
+                                if should_strip {
                                     if let Value::Object(ref mut obj) = pad_json {
                                         obj.remove("per_layer_sizes");
                                         obj.remove("per_layer_shapes");
                                         obj.remove("per_layer_corner_radii");
                                         obj.remove("per_layer_offsets");
+                                        // Downgrade stack_mode to simple if we stripped uniform data
+                                        if pad.stack_mode != PadStackMode::Simple {
+                                            obj.insert("stack_mode".to_string(), json!("simple"));
+                                        }
                                     }
                                 }
                                 pad_json
@@ -8046,7 +8301,10 @@ impl McpServer {
 
         // Collect warnings
         let mut warnings: Vec<String> = Vec::new();
-        if had_model_3d && !preserved_model_3d {
+        // Only warn about external 3D model removal if the component had no embedded models.
+        // If embedded models exist, the model_3d field was just a convenience reference
+        // populated from ComponentBody during reading, not a true external reference.
+        if had_model_3d && !preserved_model_3d && embedded_model_ids.is_empty() {
             warnings.push(
                 "External 3D model reference was removed (STEP file path not portable across libraries)".to_string()
             );
@@ -8808,6 +9066,11 @@ impl McpServer {
             return ToolCallResult::error("Missing required parameter: component_name");
         };
 
+        let dry_run = arguments
+            .get("dry_run")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
         // Determine file type from extension
         let path = std::path::Path::new(filepath);
         let extension = path
@@ -8822,7 +9085,7 @@ impl McpServer {
                         "Missing required parameter: footprint (required for .PcbLib files)",
                     );
                 };
-                Self::update_pcblib_component(filepath, component_name, fp_json)
+                Self::update_pcblib_component(filepath, component_name, fp_json, dry_run)
             }
             Some("schlib") => {
                 let Some(sym_json) = arguments.get("symbol") else {
@@ -8830,17 +9093,19 @@ impl McpServer {
                         "Missing required parameter: symbol (required for .SchLib files)",
                     );
                 };
-                Self::update_schlib_component(filepath, component_name, sym_json)
+                Self::update_schlib_component(filepath, component_name, sym_json, dry_run)
             }
             _ => ToolCallResult::error("Unknown file type. Expected .PcbLib or .SchLib extension."),
         }
     }
 
     /// Updates a footprint in-place within a `PcbLib` file.
+    #[allow(clippy::too_many_lines)] // Includes parsing and dry_run logic
     fn update_pcblib_component(
         filepath: &str,
         component_name: &str,
         fp_json: &Value,
+        dry_run: bool,
     ) -> ToolCallResult {
         use crate::altium::pcblib::{Footprint, PcbLib};
 
@@ -8919,8 +9184,36 @@ impl McpServer {
             }
         }
 
-        // Perform the update
-        let old = library.update(component_name, footprint);
+        // Get the old component for comparison
+        let old = library.get(component_name).cloned();
+
+        if dry_run {
+            // Build preview of changes
+            let changes = Self::preview_footprint_changes(old.as_ref(), &footprint);
+
+            let result = json!({
+                "status": "dry_run",
+                "filepath": filepath,
+                "file_type": "PcbLib",
+                "component_name": component_name,
+                "new_name": name,
+                "would_rename": name != component_name,
+                "changes": changes,
+                "message": format!(
+                    "Would update component '{component_name}'{}",
+                    if name == component_name {
+                        String::new()
+                    } else {
+                        format!(" and rename to '{name}'")
+                    }
+                ),
+            });
+
+            return ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap());
+        }
+
+        // Perform the actual update
+        library.update(component_name, footprint);
 
         // Create backup before destructive operation
         if let Err(e) = Self::create_backup(filepath) {
@@ -8959,12 +9252,73 @@ impl McpServer {
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
 
+    /// Compares two footprints and returns a list of changes for `dry_run` preview.
+    fn preview_footprint_changes(
+        old: Option<&crate::altium::pcblib::Footprint>,
+        new: &crate::altium::pcblib::Footprint,
+    ) -> Vec<String> {
+        let mut changes = Vec::new();
+
+        if let Some(old) = old {
+            if old.description != new.description {
+                changes.push(format!(
+                    "description: '{}' -> '{}'",
+                    old.description, new.description
+                ));
+            }
+            if old.pads.len() != new.pads.len() {
+                changes.push(format!(
+                    "pad_count: {} -> {}",
+                    old.pads.len(),
+                    new.pads.len()
+                ));
+            }
+            if old.tracks.len() != new.tracks.len() {
+                changes.push(format!(
+                    "track_count: {} -> {}",
+                    old.tracks.len(),
+                    new.tracks.len()
+                ));
+            }
+            if old.arcs.len() != new.arcs.len() {
+                changes.push(format!(
+                    "arc_count: {} -> {}",
+                    old.arcs.len(),
+                    new.arcs.len()
+                ));
+            }
+            if old.regions.len() != new.regions.len() {
+                changes.push(format!(
+                    "region_count: {} -> {}",
+                    old.regions.len(),
+                    new.regions.len()
+                ));
+            }
+            if old.text.len() != new.text.len() {
+                changes.push(format!(
+                    "text_count: {} -> {}",
+                    old.text.len(),
+                    new.text.len()
+                ));
+            }
+        } else {
+            changes.push("component will be created".to_string());
+        }
+
+        if changes.is_empty() {
+            changes.push("no structural changes detected".to_string());
+        }
+
+        changes
+    }
+
     /// Updates a symbol in-place within a `SchLib` file.
     #[allow(clippy::too_many_lines)]
     fn update_schlib_component(
         filepath: &str,
         component_name: &str,
         sym_json: &Value,
+        dry_run: bool,
     ) -> ToolCallResult {
         use crate::altium::schlib::{SchLib, Symbol};
 
@@ -9062,8 +9416,36 @@ impl McpServer {
             }
         }
 
-        // Perform the update
-        let old = library.update(component_name, symbol);
+        // Get the old component for comparison
+        let old = library.get(component_name).cloned();
+
+        if dry_run {
+            // Build preview of changes
+            let changes = Self::preview_symbol_changes(old.as_ref(), &symbol);
+
+            let result = json!({
+                "status": "dry_run",
+                "filepath": filepath,
+                "file_type": "SchLib",
+                "component_name": component_name,
+                "new_name": name,
+                "would_rename": name != component_name,
+                "changes": changes,
+                "message": format!(
+                    "Would update component '{component_name}'{}",
+                    if name == component_name {
+                        String::new()
+                    } else {
+                        " (note: name in library key unchanged)".to_string()
+                    }
+                ),
+            });
+
+            return ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap());
+        }
+
+        // Perform the actual update
+        library.update(component_name, symbol);
 
         // Create backup before destructive operation
         if let Err(e) = Self::create_backup(filepath) {
@@ -9100,6 +9482,100 @@ impl McpServer {
         }
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Compares two symbols and returns a list of changes for `dry_run` preview.
+    fn preview_symbol_changes(
+        old: Option<&crate::altium::schlib::Symbol>,
+        new: &crate::altium::schlib::Symbol,
+    ) -> Vec<String> {
+        let mut changes = Vec::new();
+
+        if let Some(old) = old {
+            if old.description != new.description {
+                changes.push(format!(
+                    "description: '{}' -> '{}'",
+                    old.description, new.description
+                ));
+            }
+            if old.designator != new.designator {
+                changes.push(format!(
+                    "designator: '{}' -> '{}'",
+                    old.designator, new.designator
+                ));
+            }
+            if old.pins.len() != new.pins.len() {
+                changes.push(format!(
+                    "pin_count: {} -> {}",
+                    old.pins.len(),
+                    new.pins.len()
+                ));
+            }
+            if old.rectangles.len() != new.rectangles.len() {
+                changes.push(format!(
+                    "rectangle_count: {} -> {}",
+                    old.rectangles.len(),
+                    new.rectangles.len()
+                ));
+            }
+            if old.lines.len() != new.lines.len() {
+                changes.push(format!(
+                    "line_count: {} -> {}",
+                    old.lines.len(),
+                    new.lines.len()
+                ));
+            }
+            if old.polylines.len() != new.polylines.len() {
+                changes.push(format!(
+                    "polyline_count: {} -> {}",
+                    old.polylines.len(),
+                    new.polylines.len()
+                ));
+            }
+            if old.arcs.len() != new.arcs.len() {
+                changes.push(format!(
+                    "arc_count: {} -> {}",
+                    old.arcs.len(),
+                    new.arcs.len()
+                ));
+            }
+            if old.ellipses.len() != new.ellipses.len() {
+                changes.push(format!(
+                    "ellipse_count: {} -> {}",
+                    old.ellipses.len(),
+                    new.ellipses.len()
+                ));
+            }
+            if old.labels.len() != new.labels.len() {
+                changes.push(format!(
+                    "label_count: {} -> {}",
+                    old.labels.len(),
+                    new.labels.len()
+                ));
+            }
+            if old.text.len() != new.text.len() {
+                changes.push(format!(
+                    "text_count: {} -> {}",
+                    old.text.len(),
+                    new.text.len()
+                ));
+            }
+            if old.parameters.len() != new.parameters.len() {
+                changes.push(format!(
+                    "parameter_count: {} -> {}",
+                    old.parameters.len(),
+                    new.parameters.len()
+                ));
+            }
+        } else {
+            changes.push("component will be created".to_string());
+        }
+
+        if changes.is_empty() {
+            changes.push("no structural changes detected".to_string());
+        }
+
+        changes
     }
 
     /// Searches for components across multiple libraries using regex or glob patterns.
@@ -11307,17 +11783,131 @@ impl McpServer {
         };
 
         // Parse layer from string if provided
+        // Use Layer::parse for exact Altium names (e.g., "Top Overlay")
+        // Also support common aliases for convenience
         let parse_layer = |s: &str| -> Option<Layer> {
-            match s.to_lowercase().as_str() {
+            // First try exact parse (handles all Altium layer names like "Top Overlay")
+            if let Some(layer) = Layer::parse(s) {
+                return Some(layer);
+            }
+            // Fall back to common aliases (case-insensitive)
+            match s.to_lowercase().replace([' ', '-'], "").as_str() {
                 "toplayer" | "top" => Some(Layer::TopLayer),
                 "bottomlayer" | "bottom" => Some(Layer::BottomLayer),
                 "topoverlay" | "topsilk" => Some(Layer::TopOverlay),
                 "bottomoverlay" | "bottomsilk" => Some(Layer::BottomOverlay),
                 "multilayer" => Some(Layer::MultiLayer),
-                "mechanical1" => Some(Layer::Mechanical1),
-                "mechanical2" => Some(Layer::Mechanical2),
-                "mechanical3" => Some(Layer::Mechanical3),
-                "mechanical4" => Some(Layer::Mechanical4),
+                "topsolder" => Some(Layer::TopSolder),
+                "bottomsolder" => Some(Layer::BottomSolder),
+                "toppaste" => Some(Layer::TopPaste),
+                "bottompaste" => Some(Layer::BottomPaste),
+                "topassembly" => Some(Layer::TopAssembly),
+                "bottomassembly" => Some(Layer::BottomAssembly),
+                "top3dbody" => Some(Layer::Top3DBody),
+                "bottom3dbody" => Some(Layer::Bottom3DBody),
+                "keepout" | "keepoutlayer" => Some(Layer::KeepOut),
+                s if s.starts_with("mechanical") => {
+                    // Handle Mechanical1-32
+                    let num_str = s.strip_prefix("mechanical")?;
+                    let num: u8 = num_str.parse().ok()?;
+                    match num {
+                        1 => Some(Layer::Mechanical1),
+                        2 => Some(Layer::Mechanical2),
+                        3 => Some(Layer::Mechanical3),
+                        4 => Some(Layer::Mechanical4),
+                        5 => Some(Layer::Mechanical5),
+                        6 => Some(Layer::Mechanical6),
+                        7 => Some(Layer::Mechanical7),
+                        8 => Some(Layer::Mechanical8),
+                        9 => Some(Layer::Mechanical9),
+                        10 => Some(Layer::Mechanical10),
+                        11 => Some(Layer::Mechanical11),
+                        12 => Some(Layer::Mechanical12),
+                        13 => Some(Layer::Mechanical13),
+                        14 => Some(Layer::Mechanical14),
+                        15 => Some(Layer::Mechanical15),
+                        16 => Some(Layer::Mechanical16),
+                        17 => Some(Layer::Mechanical17),
+                        18 => Some(Layer::Mechanical18),
+                        19 => Some(Layer::Mechanical19),
+                        20 => Some(Layer::Mechanical20),
+                        21 => Some(Layer::Mechanical21),
+                        22 => Some(Layer::Mechanical22),
+                        23 => Some(Layer::Mechanical23),
+                        24 => Some(Layer::Mechanical24),
+                        25 => Some(Layer::Mechanical25),
+                        26 => Some(Layer::Mechanical26),
+                        27 => Some(Layer::Mechanical27),
+                        28 => Some(Layer::Mechanical28),
+                        29 => Some(Layer::Mechanical29),
+                        30 => Some(Layer::Mechanical30),
+                        31 => Some(Layer::Mechanical31),
+                        32 => Some(Layer::Mechanical32),
+                        _ => None,
+                    }
+                }
+                s if s.starts_with("midlayer") => {
+                    // Handle Mid-Layer 1-30
+                    let num_str = s.strip_prefix("midlayer")?;
+                    let num: u8 = num_str.parse().ok()?;
+                    match num {
+                        1 => Some(Layer::MidLayer1),
+                        2 => Some(Layer::MidLayer2),
+                        3 => Some(Layer::MidLayer3),
+                        4 => Some(Layer::MidLayer4),
+                        5 => Some(Layer::MidLayer5),
+                        6 => Some(Layer::MidLayer6),
+                        7 => Some(Layer::MidLayer7),
+                        8 => Some(Layer::MidLayer8),
+                        9 => Some(Layer::MidLayer9),
+                        10 => Some(Layer::MidLayer10),
+                        11 => Some(Layer::MidLayer11),
+                        12 => Some(Layer::MidLayer12),
+                        13 => Some(Layer::MidLayer13),
+                        14 => Some(Layer::MidLayer14),
+                        15 => Some(Layer::MidLayer15),
+                        16 => Some(Layer::MidLayer16),
+                        17 => Some(Layer::MidLayer17),
+                        18 => Some(Layer::MidLayer18),
+                        19 => Some(Layer::MidLayer19),
+                        20 => Some(Layer::MidLayer20),
+                        21 => Some(Layer::MidLayer21),
+                        22 => Some(Layer::MidLayer22),
+                        23 => Some(Layer::MidLayer23),
+                        24 => Some(Layer::MidLayer24),
+                        25 => Some(Layer::MidLayer25),
+                        26 => Some(Layer::MidLayer26),
+                        27 => Some(Layer::MidLayer27),
+                        28 => Some(Layer::MidLayer28),
+                        29 => Some(Layer::MidLayer29),
+                        30 => Some(Layer::MidLayer30),
+                        _ => None,
+                    }
+                }
+                s if s.starts_with("internalplane") => {
+                    // Handle Internal Plane 1-16
+                    let num_str = s.strip_prefix("internalplane")?;
+                    let num: u8 = num_str.parse().ok()?;
+                    match num {
+                        1 => Some(Layer::InternalPlane1),
+                        2 => Some(Layer::InternalPlane2),
+                        3 => Some(Layer::InternalPlane3),
+                        4 => Some(Layer::InternalPlane4),
+                        5 => Some(Layer::InternalPlane5),
+                        6 => Some(Layer::InternalPlane6),
+                        7 => Some(Layer::InternalPlane7),
+                        8 => Some(Layer::InternalPlane8),
+                        9 => Some(Layer::InternalPlane9),
+                        10 => Some(Layer::InternalPlane10),
+                        11 => Some(Layer::InternalPlane11),
+                        12 => Some(Layer::InternalPlane12),
+                        13 => Some(Layer::InternalPlane13),
+                        14 => Some(Layer::InternalPlane14),
+                        15 => Some(Layer::InternalPlane15),
+                        16 => Some(Layer::InternalPlane16),
+                        _ => None,
+                    }
+                }
                 _ => None,
             }
         };

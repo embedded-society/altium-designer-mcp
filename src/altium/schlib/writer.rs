@@ -17,7 +17,7 @@
 
 use super::primitives::{
     Arc, Bezier, Ellipse, EllipticalArc, FootprintModel, Label, Line, Parameter, Pin, Polygon,
-    Polyline, Rectangle, RoundRect, TextJustification,
+    Polyline, Rectangle, RoundRect, Text, TextJustification,
 };
 use super::Symbol;
 
@@ -487,6 +487,30 @@ fn encode_label(label: &Label, index: usize) -> String {
     )
 }
 
+/// Encodes a text annotation record.
+fn encode_text(text: &Text, index: usize) -> String {
+    #[allow(clippy::cast_possible_truncation)]
+    let orientation = (text.rotation / 90.0).round() as i32 % 4;
+    let justification = justification_to_id(text.justification);
+    let is_mirrored = if text.is_mirrored { "T" } else { "F" };
+    let is_hidden = if text.is_hidden { "T" } else { "F" };
+    format!(
+        "|RECORD=3|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Color={}|FontID={}|Orientation={}|Justification={}|IsMirrored={}|IsHidden={}|Text={}|UniqueID={}|",
+        index,
+        text.owner_part_id,
+        text.x,
+        text.y,
+        text.color,
+        text.font_id,
+        orientation,
+        justification,
+        is_mirrored,
+        is_hidden,
+        text.text,
+        generate_unique_id()
+    )
+}
+
 /// Converts `TextJustification` to Altium ID.
 const fn justification_to_id(justification: TextJustification) -> u8 {
     match justification {
@@ -644,13 +668,20 @@ pub fn encode_data_stream(symbol: &Symbol) -> crate::altium::error::AltiumResult
         index_counter += 1;
     }
 
-    // 14. Designator
+    // 14. Text annotations
+    for text in &symbol.text {
+        let record = encode_text(text, index_counter);
+        write_text_record(&mut data, &record);
+        index_counter += 1;
+    }
+
+    // 15. Designator
     if !symbol.designator.is_empty() {
         let record = encode_designator(&symbol.designator);
         write_text_record(&mut data, &record);
     }
 
-    // 15. Implementation list (if we have footprints)
+    // 16. Implementation list (if we have footprints)
     if !symbol.footprints.is_empty() {
         let impl_list = encode_implementation_list();
         write_text_record(&mut data, &impl_list);

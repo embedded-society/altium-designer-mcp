@@ -18,7 +18,7 @@
 
 use super::primitives::{
     Arc, Bezier, Ellipse, EllipticalArc, FootprintModel, Label, Line, Parameter, Pin,
-    PinElectricalType, PinOrientation, PinSymbol, Polygon, Polyline, Rectangle, RoundRect,
+    PinElectricalType, PinOrientation, PinSymbol, Polygon, Polyline, Rectangle, RoundRect, Text,
     TextJustification,
 };
 use super::Symbol;
@@ -181,6 +181,12 @@ fn parse_text_record_from_string(symbol: &mut Symbol, text: &str) {
             // Arc
             if let Some(arc) = parse_arc(&props) {
                 symbol.add_arc(arc);
+            }
+        }
+        3 => {
+            // Text annotation
+            if let Some(text) = parse_text(&props) {
+                symbol.add_text(text);
             }
         }
         4 => {
@@ -843,6 +849,49 @@ fn parse_label(props: &HashMap<String, String>) -> Option<Label> {
         .unwrap_or(1);
 
     Some(Label {
+        x,
+        y,
+        text,
+        font_id,
+        color,
+        justification,
+        rotation,
+        is_mirrored,
+        is_hidden,
+        owner_part_id,
+    })
+}
+
+/// Parses a text annotation from properties.
+fn parse_text(props: &HashMap<String, String>) -> Option<Text> {
+    let x = props.get("location.x")?.parse().ok()?;
+    let y = props.get("location.y")?.parse().ok()?;
+    let text = props.get("text").cloned().unwrap_or_default();
+
+    let font_id = props
+        .get("fontid")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+    let color = props
+        .get("color")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0x80_00_00); // Dark blue
+    let rotation = props
+        .get("orientation")
+        .and_then(|s| s.parse::<i32>().ok())
+        .map_or(0.0, |o| f64::from(o) * 90.0);
+    let justification = props
+        .get("justification")
+        .and_then(|s| s.parse::<u8>().ok())
+        .map_or(TextJustification::BottomLeft, justification_from_id);
+    let is_mirrored = props.get("ismirrored").is_some_and(|s| s == "T");
+    let is_hidden = props.get("ishidden").is_some_and(|s| s == "T");
+    let owner_part_id = props
+        .get("ownerpartid")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+
+    Some(Text {
         x,
         y,
         text,
