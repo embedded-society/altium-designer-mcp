@@ -1164,37 +1164,55 @@ pub fn compress_model_data(data: &[u8]) -> crate::altium::error::AltiumResult<Ve
 ///
 /// # Format
 ///
-/// ```text
-/// |HEADER=Protel for Windows - PCB Models Library|RECORD_COUNT={count}|
-/// ```
-#[allow(clippy::cast_possible_truncation)] // Model count always fits in usize
+/// The Header stream is a 4-byte little-endian unsigned integer containing
+/// the number of embedded models in the library.
+#[allow(clippy::cast_possible_truncation)] // Model count always fits in u32
 pub fn encode_model_header_stream(model_count: usize) -> Vec<u8> {
-    format!("|HEADER=Protel for Windows - PCB Models Library|RECORD_COUNT={model_count}|")
-        .into_bytes()
+    (model_count as u32).to_le_bytes().to_vec()
 }
 
 /// Encodes the `/Library/Models/Data` stream.
 ///
 /// # Format
 ///
+/// The Data stream contains a sequence of length-prefixed records:
 /// ```text
-/// |RECORD0={GUID}|NAME0=filename.step|RECORD1={GUID2}|NAME1=filename2.step|...
+/// [record_len:4 LE][pipe-delimited params][null:1]
+/// [record_len:4 LE][pipe-delimited params][null:1]
+/// ...
 /// ```
+///
+/// Each record contains pipe-delimited key=value pairs:
+/// - `EMBED=TRUE` - Indicates model is embedded
+/// - `MODELSOURCE=Undefined` - Model source
+/// - `ID={GUID}` - The model's unique identifier
+/// - `ROTX=0.000|ROTY=0.000|ROTZ=0.000` - Rotation values
+/// - `DZ=0` - Z offset
+/// - `CHECKSUM={value}` - Model checksum
+/// - `NAME=filename.step` - The model filename
+#[allow(clippy::cast_possible_truncation)] // Record lengths are always small enough for u32
 pub fn encode_model_data_stream(models: &[EmbeddedModel]) -> Vec<u8> {
-    use std::fmt::Write;
+    let mut output = Vec::new();
 
-    let mut output = String::new();
+    for model in models {
+        // Build the record content
+        let record = format!(
+            "EMBED=TRUE|MODELSOURCE=Undefined|ID={}|ROTX=0.000|ROTY=0.000|ROTZ=0.000|DZ=0|CHECKSUM=0|NAME={}",
+            model.id, model.name
+        );
+        let record_bytes = record.as_bytes();
 
-    for (index, model) in models.iter().enumerate() {
-        let _ = write!(output, "|RECORD{index}={}", model.id);
-        let _ = write!(output, "|NAME{index}={}", model.name);
+        // Write 4-byte little-endian length
+        output.extend_from_slice(&(record_bytes.len() as u32).to_le_bytes());
+
+        // Write record content
+        output.extend_from_slice(record_bytes);
+
+        // Write null terminator
+        output.push(0x00);
     }
 
-    if !output.is_empty() {
-        output.push('|');
-    }
-
-    output.into_bytes()
+    output
 }
 
 /// Prepares models for writing by compressing and indexing them.
@@ -1580,11 +1598,13 @@ mod tests {
 
     #[test]
     fn test_encode_model_header_stream() {
+        // Header is a 4-byte LE u32
         let data = encode_model_header_stream(5);
-        let text = String::from_utf8(data).unwrap();
+        assert_eq!(data.len(), 4);
+        assert_eq!(data, [0x05, 0x00, 0x00, 0x00]);
 
-        assert!(text.contains("HEADER=Protel for Windows"));
-        assert!(text.contains("RECORD_COUNT=5"));
+        let data = encode_model_header_stream(13);
+        assert_eq!(data, [0x0d, 0x00, 0x00, 0x00]);
     }
 
     #[test]
@@ -1595,12 +1615,20 @@ mod tests {
         ];
 
         let data = encode_model_data_stream(&models);
-        let text = String::from_utf8(data).unwrap();
 
-        assert!(text.contains("|RECORD0={GUID-1}"));
-        assert!(text.contains("|NAME0=model1.step"));
-        assert!(text.contains("|RECORD1={GUID-2}"));
-        assert!(text.contains("|NAME1=model2.step"));
+        // Verify we can parse it back with our reader
+        let parsed = super::super::reader::parse_model_data_stream(&data);
+        assert_eq!(parsed.len(), 2);
+
+        // Check GUID-1 maps to stream index 0
+        let (idx1, name1) = parsed.get("{GUID-1}").expect("Should have GUID-1");
+        assert_eq!(*idx1, 0);
+        assert_eq!(name1, "model1.step");
+
+        // Check GUID-2 maps to stream index 1
+        let (idx2, name2) = parsed.get("{GUID-2}").expect("Should have GUID-2");
+        assert_eq!(*idx2, 1);
+        assert_eq!(name2, "model2.step");
     }
 
     #[test]

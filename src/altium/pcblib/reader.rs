@@ -1981,54 +1981,90 @@ pub type ModelIndex = HashMap<String, (usize, String)>;
 ///
 /// # Format
 ///
-/// The Data stream contains pipe-delimited key=value pairs:
+/// The Data stream contains a sequence of length-prefixed records:
 /// ```text
-/// |RECORD0={GUID}|NAME0=filename.step|...
+/// [record_len:4 LE][pipe-delimited params][null:1]
+/// [record_len:4 LE][pipe-delimited params][null:1]
+/// ...
 /// ```
 ///
-/// Each model has:
-/// - `RECORD{N}` - The GUID (model ID)
-/// - `NAME{N}` - The model filename
+/// Each record contains pipe-delimited key=value pairs including:
+/// - `ID={GUID}` - The model's unique identifier
+/// - `NAME=filename.step` - The model filename
+/// - `EMBED=TRUE|FALSE` - Whether the model is embedded
+/// - `CHECKSUM=...` - Model checksum
+///
+/// The record's position (0, 1, 2, ...) corresponds to the model stream index
+/// (`/Library/Models/0`, `/Library/Models/1`, etc.).
 ///
 /// # Returns
 ///
-/// A `HashMap` mapping GUID strings to their stream index.
+/// A `HashMap` mapping GUID strings to their stream index and filename.
 pub fn parse_model_data_stream(data: &[u8]) -> ModelIndex {
     let mut index = ModelIndex::new();
+    let mut offset = 0usize;
+    let mut stream_index = 0usize;
 
-    let Ok(text) = String::from_utf8(data.to_vec()) else {
-        tracing::debug!("Models/Data stream is not valid UTF-8");
-        return index;
-    };
+    while offset + 4 <= data.len() {
+        // Read 4-byte little-endian record length
+        let record_len = u32::from_le_bytes([
+            data[offset],
+            data[offset + 1],
+            data[offset + 2],
+            data[offset + 3],
+        ]) as usize;
+        offset += 4;
 
-    // Parse pipe-delimited key=value pairs
-    // Format: |RECORD0={GUID}|NAME0=filename.step|RECORD1={GUID2}|NAME1=...
-    // We need to collect all RECORD{N} and NAME{N} entries, then match them by index
-    let mut records: HashMap<usize, String> = HashMap::new(); // index -> GUID
-    let mut names: HashMap<usize, String> = HashMap::new(); // index -> name
-
-    for pair in text.split('|') {
-        if pair.is_empty() {
-            continue;
+        if record_len == 0 || offset + record_len > data.len() {
+            tracing::debug!(
+                offset,
+                record_len,
+                data_len = data.len(),
+                "Invalid record length in Models/Data stream"
+            );
+            break;
         }
 
-        if let Some((key, value)) = pair.split_once('=') {
-            if let Some(idx_str) = key.strip_prefix("RECORD") {
-                if let Ok(idx) = idx_str.parse::<usize>() {
-                    records.insert(idx, value.to_string());
-                }
-            } else if let Some(idx_str) = key.strip_prefix("NAME") {
-                if let Ok(idx) = idx_str.parse::<usize>() {
-                    names.insert(idx, value.to_string());
+        // Parse the record content as UTF-8 (or Latin-1 fallback)
+        let record_data = &data[offset..offset + record_len];
+        let record_text = String::from_utf8(record_data.to_vec())
+            .unwrap_or_else(|_| record_data.iter().map(|&b| b as char).collect());
+
+        // Extract ID (GUID) and NAME from the record
+        let mut guid = String::new();
+        let mut name = String::new();
+
+        for pair in record_text.split('|') {
+            if pair.is_empty() {
+                continue;
+            }
+
+            if let Some((key, value)) = pair.split_once('=') {
+                match key {
+                    "ID" => guid = value.trim_end_matches('\0').to_string(),
+                    "NAME" => name = value.trim_end_matches('\0').to_string(),
+                    _ => {}
                 }
             }
         }
-    }
 
-    // Combine records and names into the final index
-    for (idx, guid) in records {
-        let name = names.get(&idx).cloned().unwrap_or_default();
-        index.insert(guid, (idx, name));
+        if !guid.is_empty() {
+            tracing::trace!(
+                stream_index,
+                guid = %guid,
+                name = %name,
+                "Parsed model record from Data stream"
+            );
+            index.insert(guid, (stream_index, name));
+        }
+
+        // Move past record content and null terminator
+        offset += record_len;
+        if offset < data.len() && data[offset] == 0 {
+            offset += 1;
+        }
+
+        stream_index += 1;
     }
 
     tracing::debug!(count = index.len(), "Parsed model index from Data stream");
@@ -2039,36 +2075,24 @@ pub fn parse_model_data_stream(data: &[u8]) -> ModelIndex {
 ///
 /// # Format
 ///
-/// The Header stream contains pipe-delimited key=value pairs:
-/// ```text
-/// |HEADER=Protel for Windows...|RECORD_COUNT=2|
-/// ```
+/// The Header stream is a 4-byte little-endian unsigned integer containing
+/// the number of embedded models in the library.
 ///
 /// # Returns
 ///
 /// The number of models in the library, or 0 if parsing fails.
 pub fn parse_model_header_stream(data: &[u8]) -> usize {
-    let Ok(text) = String::from_utf8(data.to_vec()) else {
-        tracing::debug!("Models/Header stream is not valid UTF-8");
+    if data.len() < 4 {
+        tracing::debug!(
+            len = data.len(),
+            "Models/Header stream too short (expected 4 bytes)"
+        );
         return 0;
-    };
-
-    for pair in text.split('|') {
-        if pair.is_empty() {
-            continue;
-        }
-
-        if let Some((key, value)) = pair.split_once('=') {
-            if key == "RECORD_COUNT" {
-                if let Ok(count) = value.parse::<usize>() {
-                    tracing::debug!(count, "Parsed model count from Header stream");
-                    return count;
-                }
-            }
-        }
     }
 
-    0
+    let count = u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as usize;
+    tracing::debug!(count, "Parsed model count from Header stream");
+    count
 }
 
 /// Decompresses a zlib-compressed model stream.
@@ -2318,9 +2342,26 @@ mod tests {
     // =============================================================================
 
     #[test]
+    #[allow(clippy::cast_possible_truncation)] // Test data lengths always fit in u32
     fn test_parse_model_data_stream() {
-        let data = b"|RECORD0={GUID-1234}|NAME0=model1.step|RECORD1={GUID-5678}|NAME1=model2.step|";
-        let index = parse_model_data_stream(data);
+        // Build test data in the actual Altium format:
+        // [record_len:4 LE][pipe-delimited params][null:1]
+        let record1 = b"EMBED=TRUE|ID={GUID-1234}|NAME=model1.step|CHECKSUM=123";
+        let record2 = b"EMBED=TRUE|ID={GUID-5678}|NAME=model2.step|CHECKSUM=456";
+
+        let mut data = Vec::new();
+
+        // Record 1
+        data.extend_from_slice(&(record1.len() as u32).to_le_bytes());
+        data.extend_from_slice(record1);
+        data.push(0x00); // null terminator
+
+        // Record 2
+        data.extend_from_slice(&(record2.len() as u32).to_le_bytes());
+        data.extend_from_slice(record2);
+        data.push(0x00); // null terminator
+
+        let index = parse_model_data_stream(&data);
 
         assert_eq!(index.len(), 2);
         assert_eq!(
@@ -2335,15 +2376,23 @@ mod tests {
 
     #[test]
     fn test_parse_model_data_stream_empty() {
-        let data = b"";
-        let index = parse_model_data_stream(data);
+        let data: [u8; 0] = [];
+        let index = parse_model_data_stream(&data);
         assert!(index.is_empty());
     }
 
     #[test]
+    #[allow(clippy::cast_possible_truncation)] // Test data lengths always fit in u32
     fn test_parse_model_data_stream_single() {
-        let data = b"|RECORD0={ABC-DEF}|NAME0=test.step|";
-        let index = parse_model_data_stream(data);
+        // Single record with length prefix
+        let record = b"ID={ABC-DEF}|NAME=test.step";
+
+        let mut data = Vec::new();
+        data.extend_from_slice(&(record.len() as u32).to_le_bytes());
+        data.extend_from_slice(record);
+        data.push(0x00);
+
+        let index = parse_model_data_stream(&data);
 
         assert_eq!(index.len(), 1);
         assert_eq!(index.get("{ABC-DEF}"), Some(&(0, "test.step".to_string())));
@@ -2351,22 +2400,24 @@ mod tests {
 
     #[test]
     fn test_parse_model_header_stream() {
-        let data = b"|HEADER=Protel for Windows - PCB Models Library|RECORD_COUNT=3|";
-        let count = parse_model_header_stream(data);
+        // Header is a 4-byte LE u32 containing the model count
+        let data: [u8; 4] = [0x03, 0x00, 0x00, 0x00]; // 3 in little-endian
+        let count = parse_model_header_stream(&data);
         assert_eq!(count, 3);
     }
 
     #[test]
     fn test_parse_model_header_stream_empty() {
-        let data = b"";
-        let count = parse_model_header_stream(data);
+        let data: [u8; 0] = [];
+        let count = parse_model_header_stream(&data);
         assert_eq!(count, 0);
     }
 
     #[test]
-    fn test_parse_model_header_stream_missing_count() {
-        let data = b"|HEADER=Protel for Windows|";
-        let count = parse_model_header_stream(data);
+    fn test_parse_model_header_stream_short() {
+        // Data too short (less than 4 bytes)
+        let data: [u8; 2] = [0x03, 0x00];
+        let count = parse_model_header_stream(&data);
         assert_eq!(count, 0);
     }
 

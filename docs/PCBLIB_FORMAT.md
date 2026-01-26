@@ -449,12 +449,40 @@ Altium embeds 3D models in the library file:
 
 ```text
 /Library/Models/
-├── Header          # Model count and metadata
-├── Data            # Model references indexed by GUID
+├── Header          # 4-byte LE u32 model count
+├── Data            # Length-prefixed model records
 ├── 0               # First embedded model (zlib-compressed STEP)
 ├── 1               # Second embedded model
 └── ...
 ```
+
+**Header stream format:**
+
+A single 4-byte little-endian unsigned integer containing the number of embedded models.
+
+**Data stream format:**
+
+A sequence of length-prefixed records, one per embedded model:
+
+```text
+[record_len:4 LE][pipe-delimited params][null:1]
+[record_len:4 LE][pipe-delimited params][null:1]
+...
+```
+
+Each record contains pipe-delimited key=value pairs:
+
+| Field | Description |
+|-------|-------------|
+| `EMBED` | `TRUE` if model is embedded |
+| `MODELSOURCE` | Model source (usually `Undefined`) |
+| `ID` | GUID matching `MODELID` in ComponentBody |
+| `ROTX`, `ROTY`, `ROTZ` | Rotation values (degrees) |
+| `DZ` | Z offset |
+| `CHECKSUM` | Model checksum |
+| `NAME` | Model filename (e.g., `model.step`) |
+
+The record's position (0, 1, 2, ...) corresponds to the model stream index.
 
 > **Note:** STEP models are stored with zlib compression. Models are referenced by GUID in `ComponentBody` records.
 
