@@ -18,8 +18,10 @@ use tempfile::TempDir;
 ///
 /// Uses an absolute path to avoid issues with parallel test execution.
 fn test_temp_dir() -> TempDir {
-    let cwd = std::env::current_dir().expect("Failed to get current directory");
-    let tmp_root = cwd.join(".tmp");
+    // Use CARGO_MANIFEST_DIR instead of current_dir() to avoid issues with
+    // parallel test execution or tests that change the working directory.
+    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let tmp_root = manifest_dir.join(".tmp");
     std::fs::create_dir_all(&tmp_root).expect("Failed to create .tmp directory");
     tempfile::tempdir_in(&tmp_root).expect("Failed to create temp dir")
 }
