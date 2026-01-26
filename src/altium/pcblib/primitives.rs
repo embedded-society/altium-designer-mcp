@@ -39,6 +39,101 @@
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
 
+/// Custom serialisation for coordinate values to avoid floating-point precision artifacts.
+///
+/// Rounds values to 6 decimal places (1 nanometre precision) to prevent output like
+/// `-0.750001` instead of `-0.75`.
+mod coord_serde {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    /// Rounds a coordinate value to 6 decimal places.
+    #[inline]
+    fn round_coord(value: f64) -> f64 {
+        (value * 1_000_000.0).round() / 1_000_000.0
+    }
+
+    /// Serialises an f64 coordinate with rounding.
+    #[allow(clippy::trivially_copy_pass_by_ref)] // serde requires &T signature
+    pub fn serialize<S: Serializer>(value: &f64, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_f64(round_coord(*value))
+    }
+
+    /// Serialises an optional f64 coordinate with rounding.
+    pub mod option {
+        use super::{round_coord, Deserialize, Deserializer, Serializer};
+
+        #[allow(clippy::ref_option)] // serde requires &Option<T> signature
+        pub fn serialize<S: Serializer>(
+            value: &Option<f64>,
+            serializer: S,
+        ) -> Result<S::Ok, S::Error> {
+            match value {
+                Some(v) => serializer.serialize_some(&round_coord(*v)),
+                None => serializer.serialize_none(),
+            }
+        }
+
+        pub fn deserialize<'de, D: Deserializer<'de>>(
+            deserializer: D,
+        ) -> Result<Option<f64>, D::Error> {
+            Option::<f64>::deserialize(deserializer)
+        }
+    }
+
+    /// Serialises a Vec of (f64, f64) coordinate tuples with rounding.
+    pub mod vec_tuple {
+        use super::{round_coord, Deserialize, Deserializer, Serialize, Serializer};
+
+        #[allow(clippy::ref_option)] // serde requires &Option<T> signature
+        pub fn serialize<S: Serializer>(
+            value: &Option<Vec<(f64, f64)>>,
+            serializer: S,
+        ) -> Result<S::Ok, S::Error> {
+            match value {
+                Some(v) => {
+                    let rounded: Vec<(f64, f64)> = v
+                        .iter()
+                        .map(|(a, b)| (round_coord(*a), round_coord(*b)))
+                        .collect();
+                    rounded.serialize(serializer)
+                }
+                None => serializer.serialize_none(),
+            }
+        }
+
+        pub fn deserialize<'de, D: Deserializer<'de>>(
+            deserializer: D,
+        ) -> Result<Option<Vec<(f64, f64)>>, D::Error> {
+            Option::<Vec<(f64, f64)>>::deserialize(deserializer)
+        }
+    }
+
+    /// Serialises a Vec of f64 coordinates with rounding.
+    pub mod vec_f64 {
+        use super::{round_coord, Deserialize, Deserializer, Serialize, Serializer};
+
+        #[allow(clippy::ref_option)] // serde requires &Option<T> signature
+        pub fn serialize<S: Serializer>(
+            value: &Option<Vec<f64>>,
+            serializer: S,
+        ) -> Result<S::Ok, S::Error> {
+            match value {
+                Some(v) => {
+                    let rounded: Vec<f64> = v.iter().map(|x| round_coord(*x)).collect();
+                    rounded.serialize(serializer)
+                }
+                None => serializer.serialize_none(),
+            }
+        }
+
+        pub fn deserialize<'de, D: Deserializer<'de>>(
+            deserializer: D,
+        ) -> Result<Option<Vec<f64>>, D::Error> {
+            Option::<Vec<f64>>::deserialize(deserializer)
+        }
+    }
+}
+
 bitflags! {
     /// Flags for PCB primitives stored in the common header (bytes 1-2).
     ///
@@ -93,15 +188,19 @@ pub struct Pad {
     pub designator: String,
 
     /// X position in mm (from footprint origin).
+    #[serde(serialize_with = "coord_serde::serialize")]
     pub x: f64,
 
     /// Y position in mm (from footprint origin).
+    #[serde(serialize_with = "coord_serde::serialize")]
     pub y: f64,
 
     /// Pad width in mm.
+    #[serde(serialize_with = "coord_serde::serialize")]
     pub width: f64,
 
     /// Pad height in mm.
+    #[serde(serialize_with = "coord_serde::serialize")]
     pub height: f64,
 
     /// Pad shape.
@@ -113,7 +212,11 @@ pub struct Pad {
     pub layer: Layer,
 
     /// Hole diameter for through-hole pads (mm). None for SMD pads.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "coord_serde::option"
+    )]
     pub hole_size: Option<f64>,
 
     /// Hole shape for through-hole pads.
@@ -121,15 +224,23 @@ pub struct Pad {
     pub hole_shape: HoleShape,
 
     /// Rotation angle in degrees.
-    #[serde(default)]
+    #[serde(default, serialize_with = "coord_serde::serialize")]
     pub rotation: f64,
 
     /// Paste mask expansion in mm. None uses design rules.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "coord_serde::option"
+    )]
     pub paste_mask_expansion: Option<f64>,
 
     /// Solder mask expansion in mm. None uses design rules.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "coord_serde::option"
+    )]
     pub solder_mask_expansion: Option<f64>,
 
     /// Whether paste mask expansion is manually set.
@@ -152,7 +263,11 @@ pub struct Pad {
     /// Per-layer pad sizes in mm (width, height) for 32 layers.
     /// Only used when `stack_mode` != `Simple`.
     /// Index 0 = Top Layer, Index 1 = Bottom Layer, Index 2-31 = Mid Layers.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "coord_serde::vec_tuple"
+    )]
     pub per_layer_sizes: Option<Vec<(f64, f64)>>,
 
     /// Per-layer pad shapes for 32 layers.
@@ -167,7 +282,11 @@ pub struct Pad {
 
     /// Per-layer offset from hole centre in mm (x, y) for 32 layers.
     /// Only used when `stack_mode` != `Simple`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "coord_serde::vec_tuple"
+    )]
     pub per_layer_offsets: Option<Vec<(f64, f64)>>,
 
     /// Primitive flags (locked, keepout, tenting, etc.).
@@ -179,7 +298,7 @@ pub struct Pad {
     pub unique_id: Option<String>,
 }
 
-/// Helper for serde to skip default hole shape in serialization.
+/// Helper for serde to skip default hole shape in serialisation.
 #[allow(clippy::trivially_copy_pass_by_ref)] // serde requires reference
 fn is_default_hole_shape(shape: &HoleShape) -> bool {
     *shape == HoleShape::default()
@@ -320,15 +439,19 @@ pub enum ViaStackMode {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Via {
     /// X position in mm (from footprint origin).
+    #[serde(serialize_with = "coord_serde::serialize")]
     pub x: f64,
 
     /// Y position in mm (from footprint origin).
+    #[serde(serialize_with = "coord_serde::serialize")]
     pub y: f64,
 
     /// Via diameter (annular ring outer diameter) in mm.
+    #[serde(serialize_with = "coord_serde::serialize")]
     pub diameter: f64,
 
     /// Hole diameter in mm.
+    #[serde(serialize_with = "coord_serde::serialize")]
     pub hole_size: f64,
 
     /// Starting layer for the via.
@@ -340,7 +463,7 @@ pub struct Via {
     pub to_layer: Layer,
 
     /// Solder mask expansion in mm (negative = tented).
-    #[serde(default)]
+    #[serde(default, serialize_with = "coord_serde::serialize")]
     pub solder_mask_expansion: f64,
 
     /// Whether solder mask expansion is manually set.
@@ -349,7 +472,10 @@ pub struct Via {
 
     // Thermal relief settings (for polygon pours)
     /// Thermal relief air gap width in mm (default: 0.254mm = 10 mils).
-    #[serde(default = "default_thermal_relief_gap")]
+    #[serde(
+        default = "default_thermal_relief_gap",
+        serialize_with = "coord_serde::serialize"
+    )]
     pub thermal_relief_gap: f64,
 
     /// Number of thermal relief conductors (default: 4).
@@ -357,7 +483,10 @@ pub struct Via {
     pub thermal_relief_conductors: u8,
 
     /// Thermal relief conductor width in mm (default: 0.254mm = 10 mils).
-    #[serde(default = "default_thermal_relief_width")]
+    #[serde(
+        default = "default_thermal_relief_width",
+        serialize_with = "coord_serde::serialize"
+    )]
     pub thermal_relief_width: f64,
 
     // Diameter stack mode
@@ -367,7 +496,11 @@ pub struct Via {
 
     /// Per-layer diameters in mm (32 layers). Only used when `stack_mode` != `Simple`.
     /// Index 0 = Top Layer, Index 1 = Bottom Layer, Index 2-31 = Mid Layers.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "coord_serde::vec_f64"
+    )]
     pub per_layer_diameters: Option<Vec<f64>>,
 
     /// Unique ID assigned by Altium (8-character alphanumeric string).
@@ -467,14 +600,19 @@ impl Via {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Track {
     /// Start X position in mm.
+    #[serde(serialize_with = "coord_serde::serialize")]
     pub x1: f64,
     /// Start Y position in mm.
+    #[serde(serialize_with = "coord_serde::serialize")]
     pub y1: f64,
     /// End X position in mm.
+    #[serde(serialize_with = "coord_serde::serialize")]
     pub x2: f64,
     /// End Y position in mm.
+    #[serde(serialize_with = "coord_serde::serialize")]
     pub y2: f64,
     /// Line width in mm.
+    #[serde(serialize_with = "coord_serde::serialize")]
     pub width: f64,
     /// Layer the track is on.
     pub layer: Layer,
@@ -540,16 +678,22 @@ impl Track {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Arc {
     /// Centre X position in mm.
+    #[serde(serialize_with = "coord_serde::serialize")]
     pub x: f64,
     /// Centre Y position in mm.
+    #[serde(serialize_with = "coord_serde::serialize")]
     pub y: f64,
     /// Radius in mm.
+    #[serde(serialize_with = "coord_serde::serialize")]
     pub radius: f64,
     /// Start angle in degrees (0 = right, counter-clockwise).
+    #[serde(serialize_with = "coord_serde::serialize")]
     pub start_angle: f64,
     /// End angle in degrees.
+    #[serde(serialize_with = "coord_serde::serialize")]
     pub end_angle: f64,
     /// Line width in mm.
+    #[serde(serialize_with = "coord_serde::serialize")]
     pub width: f64,
     /// Layer the arc is on.
     pub layer: Layer,
@@ -616,8 +760,10 @@ impl Region {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Vertex {
     /// X position in mm.
+    #[serde(serialize_with = "coord_serde::serialize")]
     pub x: f64,
     /// Y position in mm.
+    #[serde(serialize_with = "coord_serde::serialize")]
     pub y: f64,
 }
 
@@ -688,17 +834,20 @@ pub enum TextJustification {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Text {
     /// X position in mm.
+    #[serde(serialize_with = "coord_serde::serialize")]
     pub x: f64,
     /// Y position in mm.
+    #[serde(serialize_with = "coord_serde::serialize")]
     pub y: f64,
     /// Text content.
     pub text: String,
     /// Text height in mm.
+    #[serde(serialize_with = "coord_serde::serialize")]
     pub height: f64,
     /// Layer the text is on.
     pub layer: Layer,
     /// Rotation angle in degrees.
-    #[serde(default)]
+    #[serde(default, serialize_with = "coord_serde::serialize")]
     pub rotation: f64,
     /// Text rendering kind (Stroke, TrueType, or `BarCode`).
     #[serde(default)]
@@ -721,17 +870,21 @@ pub struct Text {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Fill {
     /// First corner X position in mm.
+    #[serde(serialize_with = "coord_serde::serialize")]
     pub x1: f64,
     /// First corner Y position in mm.
+    #[serde(serialize_with = "coord_serde::serialize")]
     pub y1: f64,
     /// Second corner X position in mm.
+    #[serde(serialize_with = "coord_serde::serialize")]
     pub x2: f64,
     /// Second corner Y position in mm.
+    #[serde(serialize_with = "coord_serde::serialize")]
     pub y2: f64,
     /// Layer the fill is on.
     pub layer: Layer,
     /// Rotation angle in degrees.
-    #[serde(default)]
+    #[serde(default, serialize_with = "coord_serde::serialize")]
     pub rotation: f64,
     /// Primitive flags (locked, keepout, etc.).
     #[serde(default, skip_serializing_if = "PcbFlags::is_empty")]
@@ -781,16 +934,16 @@ pub struct Model3D {
     /// Path to the STEP file.
     pub filepath: String,
     /// X offset from footprint origin in mm.
-    #[serde(default)]
+    #[serde(default, serialize_with = "coord_serde::serialize")]
     pub x_offset: f64,
     /// Y offset from footprint origin in mm.
-    #[serde(default)]
+    #[serde(default, serialize_with = "coord_serde::serialize")]
     pub y_offset: f64,
     /// Z offset from board surface in mm.
-    #[serde(default)]
+    #[serde(default, serialize_with = "coord_serde::serialize")]
     pub z_offset: f64,
     /// Rotation around Z axis in degrees.
-    #[serde(default)]
+    #[serde(default, serialize_with = "coord_serde::serialize")]
     pub rotation: f64,
 }
 
@@ -863,27 +1016,27 @@ pub struct ComponentBody {
     pub embedded: bool,
 
     /// Rotation around X axis in degrees.
-    #[serde(default)]
+    #[serde(default, serialize_with = "coord_serde::serialize")]
     pub rotation_x: f64,
 
     /// Rotation around Y axis in degrees.
-    #[serde(default)]
+    #[serde(default, serialize_with = "coord_serde::serialize")]
     pub rotation_y: f64,
 
     /// Rotation around Z axis in degrees.
-    #[serde(default)]
+    #[serde(default, serialize_with = "coord_serde::serialize")]
     pub rotation_z: f64,
 
     /// Z offset (standoff from board) in mm.
-    #[serde(default)]
+    #[serde(default, serialize_with = "coord_serde::serialize")]
     pub z_offset: f64,
 
     /// Overall height in mm.
-    #[serde(default)]
+    #[serde(default, serialize_with = "coord_serde::serialize")]
     pub overall_height: f64,
 
     /// Standoff height in mm.
-    #[serde(default)]
+    #[serde(default, serialize_with = "coord_serde::serialize")]
     pub standoff_height: f64,
 
     /// Layer the body outline is on.

@@ -5,6 +5,25 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Custom serialisation for floating-point values to avoid precision artifacts.
+///
+/// Rounds values to 6 decimal places to prevent output like `359.999999` instead of `360.0`.
+mod float_serde {
+    use serde::Serializer;
+
+    /// Rounds a floating-point value to 6 decimal places.
+    #[inline]
+    fn round_float(value: f64) -> f64 {
+        (value * 1_000_000.0).round() / 1_000_000.0
+    }
+
+    /// Serialises an f64 with rounding.
+    #[allow(clippy::trivially_copy_pass_by_ref)] // serde requires &T signature
+    pub fn serialize<S: Serializer>(value: &f64, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_f64(round_float(*value))
+    }
+}
+
 /// A schematic symbol pin.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[allow(clippy::struct_excessive_bools)] // Pin flags match Altium binary format
@@ -481,10 +500,13 @@ pub struct Arc {
     /// Radius.
     pub radius: i32,
     /// Start angle in degrees (0 = right, counter-clockwise).
-    #[serde(default)]
+    #[serde(default, serialize_with = "float_serde::serialize")]
     pub start_angle: f64,
     /// End angle in degrees.
-    #[serde(default = "default_end_angle")]
+    #[serde(
+        default = "default_end_angle",
+        serialize_with = "float_serde::serialize"
+    )]
     pub end_angle: f64,
     /// Line width.
     #[serde(default = "default_line_width")]
@@ -692,14 +714,19 @@ pub struct EllipticalArc {
     /// Centre Y coordinate.
     pub y: i32,
     /// Primary radius (horizontal).
+    #[serde(serialize_with = "float_serde::serialize")]
     pub radius: f64,
     /// Secondary radius (vertical).
+    #[serde(serialize_with = "float_serde::serialize")]
     pub secondary_radius: f64,
     /// Start angle in degrees (0 = right, counter-clockwise).
-    #[serde(default)]
+    #[serde(default, serialize_with = "float_serde::serialize")]
     pub start_angle: f64,
     /// End angle in degrees.
-    #[serde(default = "default_end_angle")]
+    #[serde(
+        default = "default_end_angle",
+        serialize_with = "float_serde::serialize"
+    )]
     pub end_angle: f64,
     /// Line width.
     #[serde(default = "default_line_width")]
@@ -762,7 +789,7 @@ pub struct Label {
     #[serde(default)]
     pub justification: TextJustification,
     /// Rotation in degrees.
-    #[serde(default)]
+    #[serde(default, serialize_with = "float_serde::serialize")]
     pub rotation: f64,
     /// Whether the label is mirrored horizontally.
     #[serde(default)]
@@ -810,10 +837,13 @@ pub struct Parameter {
     /// Parameter name (e.g., "Value", "Part Number").
     pub name: String,
     /// Parameter value (e.g., "10k", "*").
+    #[serde(default)]
     pub value: String,
     /// X position.
+    #[serde(default)]
     pub x: i32,
     /// Y position.
+    #[serde(default)]
     pub y: i32,
     /// Font ID.
     #[serde(default = "default_font_id")]

@@ -92,7 +92,8 @@ Read footprints from an Altium `.PcbLib` file. All coordinates are in millimetre
         "filepath": "./LargeLibrary.PcbLib",
         "component_name": "RESC1608X55N",
         "limit": 10,
-        "offset": 0
+        "offset": 0,
+        "compact": true
     }
 }
 ```
@@ -102,6 +103,7 @@ Read footprints from an Altium `.PcbLib` file. All coordinates are in millimetre
 | `component_name` | Fetch only this specific footprint |
 | `limit` | Maximum footprints to return |
 | `offset` | Skip first N footprints |
+| `compact` | Omit redundant per-layer pad data when `stack_mode` is Simple (default: `true`) |
 
 ### `write_pcblib`
 
@@ -214,7 +216,8 @@ List component names in an Altium library file. Supports pagination for large li
     "arguments": {
         "filepath": "./MyLibrary.PcbLib",
         "limit": 50,
-        "offset": 0
+        "offset": 0,
+        "include_metadata": true
     }
 }
 ```
@@ -224,6 +227,7 @@ List component names in an Altium library file. Supports pagination for large li
 | `filepath` | Yes | Path to the library file |
 | `limit` | No | Maximum number of components to return (default: all) |
 | `offset` | No | Number of components to skip (default: 0) |
+| `include_metadata` | No | Include component metadata like pad/pin counts (default: `false`) |
 
 **Response includes:**
 
@@ -231,6 +235,26 @@ List component names in an Altium library file. Supports pagination for large li
 - `returned_count`: Number of components in this response
 - `offset`: Current offset
 - `has_more`: Whether more components are available
+
+**With `include_metadata: true` (PcbLib):**
+
+```json
+{
+    "components": [
+        { "name": "RESC0603", "pad_count": 2, "track_count": 4, "has_3d_model": true }
+    ]
+}
+```
+
+**With `include_metadata: true` (SchLib):**
+
+```json
+{
+    "components": [
+        { "name": "RESISTOR", "part_count": 1, "pin_count": 2, "footprint_count": 1 }
+    ]
+}
+```
 
 ### `extract_style`
 
@@ -304,7 +328,8 @@ Export an Altium library to JSON or CSV format for version control, backup, or e
     "name": "export_library",
     "arguments": {
         "filepath": "./MyLibrary.PcbLib",
-        "format": "json"
+        "format": "json",
+        "compact": true
     }
 }
 ```
@@ -312,6 +337,7 @@ Export an Altium library to JSON or CSV format for version control, backup, or e
 | Parameter | Description |
 |-----------|-------------|
 | `format` | Export format: `json` for full data, `csv` for summary table |
+| `compact` | Omit redundant per-layer pad data when `stack_mode` is Simple (default: `true`) |
 
 **JSON format** returns complete component data including all primitives.
 
@@ -320,7 +346,7 @@ Export an Altium library to JSON or CSV format for version control, backup, or e
 ### `extract_step_model`
 
 Extract embedded STEP 3D models from an Altium .PcbLib file. Models are stored compressed inside the library;
-this tool extracts them to standalone .step files. Supports pagination when listing models.
+this tool extracts them to standalone .step files. Supports multiple extraction modes and pagination.
 
 ```json
 {
@@ -328,7 +354,8 @@ this tool extracts them to standalone .step files. Supports pagination when list
     "arguments": {
         "filepath": "./MyLibrary.PcbLib",
         "output_path": "./extracted_model.step",
-        "model": "RESC1005X04L.step"
+        "model": "RESC1005X04L.step",
+        "mode": "auto"
     }
 }
 ```
@@ -338,8 +365,19 @@ this tool extracts them to standalone .step files. Supports pagination when list
 | `filepath` | Yes | Path to the .PcbLib file containing embedded 3D models |
 | `output_path` | No | Path where the extracted .step file will be saved. If omitted, returns base64-encoded data. |
 | `model` | No | Model name (e.g., `RESC1005X04L.step`) or GUID to extract. If omitted and only one model exists, extracts it automatically. If multiple models exist and no model specified, lists available models. |
+| `mode` | No | Extraction mode: `auto` (default), `list`, `extract_all`, `extract_by_footprint` |
+| `footprint_name` | No | Footprint name (required for `extract_by_footprint` mode) |
 | `limit` | No | Maximum number of models to list (default: all) |
 | `offset` | No | Number of models to skip when listing (default: 0) |
+
+**Extraction Modes:**
+
+| Mode | Description |
+|------|-------------|
+| `auto` | Default behaviour — extract single model, or list if multiple exist |
+| `list` | List all available models without extracting |
+| `extract_all` | Extract all models to a directory (requires `output_path` to be a directory) |
+| `extract_by_footprint` | Extract models used by a specific footprint (requires `footprint_name`) |
 
 **Response (listing models):**
 
@@ -615,7 +653,8 @@ components between projects.
         "component_name": "RESC0603_IPC_MEDIUM",
         "new_name": "RESC0603_COPIED",
         "description": "Copied from SourceLibrary",
-        "ignore_missing_models": false
+        "ignore_missing_models": false,
+        "preserve_external_paths": false
     }
 }
 ```
@@ -628,6 +667,7 @@ components between projects.
 | `new_name` | Optional new name for the component in the target library (defaults to original name) |
 | `description` | Optional new description for the component (defaults to original description) |
 | `ignore_missing_models` | If `true`, copy the component even if referenced embedded 3D models are missing (PcbLib only). The component body references will be removed. (default: `false`) |
+| `preserve_external_paths` | If `true`, keep external 3D model file path references (default: `false` — external paths are removed as they are not portable) |
 
 **Behaviour:**
 
@@ -635,7 +675,7 @@ components between projects.
 - If the target file exists, the component will be added to it
 - If a component with the same name already exists in the target, an error is returned
 - Embedded 3D models are copied along with the component (if present and valid)
-- External STEP file references are removed (paths are not portable across libraries)
+- External STEP file references are removed by default (paths are not portable); use `preserve_external_paths: true` to keep them
 
 ### `merge_libraries`
 
@@ -1140,6 +1180,214 @@ regex with capture groups for flexible bulk renaming operations.
 | regex | `^RESC(.*)$` | `RES_$1` | `RESC0603` | `RES_0603` |
 | regex | `^(.*)_V(\d+)$` | `$1_REV$2` | `CAP_V2` | `CAP_REV2` |
 
+### `component_exists`
+
+Check if one or more components exist in an Altium library. Useful for validating references
+before performing operations like copy or merge.
+
+```json
+{
+    "name": "component_exists",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib",
+        "component_names": ["RESC0603", "CAPC0402", "MISSING_COMPONENT"]
+    }
+}
+```
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `filepath` | Yes | Path to the library file (.PcbLib or .SchLib) |
+| `component_names` | Yes | Array of component names to check |
+
+**Response:**
+
+```json
+{
+    "status": "success",
+    "filepath": "./MyLibrary.PcbLib",
+    "file_type": "PcbLib",
+    "results": [
+        { "name": "RESC0603", "exists": true },
+        { "name": "CAPC0402", "exists": true },
+        { "name": "MISSING_COMPONENT", "exists": false }
+    ],
+    "all_exist": false,
+    "found_count": 2,
+    "missing_count": 1
+}
+```
+
+### `update_pad`
+
+Update specific properties of a pad in a PcbLib footprint without replacing the entire component.
+Find the pad by designator and update only the specified properties.
+
+```json
+{
+    "name": "update_pad",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib",
+        "component_name": "RESC0603",
+        "designator": "1",
+        "updates": {
+            "width": 1.0,
+            "height": 0.9,
+            "shape": "rectangle"
+        },
+        "dry_run": false
+    }
+}
+```
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `filepath` | Yes | Path to the PcbLib file |
+| `component_name` | Yes | Name of the footprint |
+| `designator` | Yes | Pad designator to update (e.g., "1", "A1") |
+| `updates` | Yes | Object with properties to update |
+| `dry_run` | No | Preview changes without modifying the file (default: `false`) |
+
+**Updatable Pad Properties:**
+
+| Property | Description |
+|----------|-------------|
+| `x`, `y` | Position in mm |
+| `width`, `height` | Pad dimensions in mm |
+| `shape` | Pad shape: `rectangle`, `round`, `oval`, `rounded_rectangle` |
+| `rotation` | Rotation angle in degrees |
+| `hole_size` | Hole diameter in mm (for through-hole pads) |
+
+**Response:**
+
+```json
+{
+    "status": "success",
+    "component_name": "RESC0603",
+    "designator": "1",
+    "changes": [
+        { "property": "width", "old": 0.9, "new": 1.0 },
+        { "property": "height", "old": 0.95, "new": 0.9 },
+        { "property": "shape", "old": "RoundedRectangle", "new": "rectangle" }
+    ]
+}
+```
+
+### `update_primitive`
+
+Update specific properties of a primitive (track, arc, text, fill, region) in a PcbLib footprint.
+Find the primitive by type and index, and update only the specified properties.
+
+```json
+{
+    "name": "update_primitive",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib",
+        "component_name": "RESC0603",
+        "primitive_type": "track",
+        "index": 0,
+        "updates": {
+            "width": 0.15,
+            "layer": "Top Overlay"
+        },
+        "dry_run": false
+    }
+}
+```
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `filepath` | Yes | Path to the PcbLib file |
+| `component_name` | Yes | Name of the footprint |
+| `primitive_type` | Yes | Type: `track`, `arc`, `text`, `fill`, `region` |
+| `index` | Yes | Zero-based index of the primitive in its type array |
+| `updates` | Yes | Object with properties to update |
+| `dry_run` | No | Preview changes without modifying the file (default: `false`) |
+
+**Updatable Properties by Type:**
+
+| Type | Properties |
+|------|------------|
+| `track` | `x1`, `y1`, `x2`, `y2`, `width`, `layer` |
+| `arc` | `x`, `y`, `radius`, `start_angle`, `end_angle`, `width`, `layer` |
+| `text` | `x`, `y`, `text`, `height`, `rotation`, `layer` |
+| `fill` | `x1`, `y1`, `x2`, `y2`, `rotation`, `layer` |
+| `region` | `layer` |
+
+### `list_backups`
+
+List available backup files for an Altium library. Backups are created automatically before
+destructive operations.
+
+```json
+{
+    "name": "list_backups",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib"
+    }
+}
+```
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `filepath` | Yes | Path to the library file |
+
+**Response:**
+
+```json
+{
+    "status": "success",
+    "filepath": "./MyLibrary.PcbLib",
+    "backups": [
+        {
+            "filename": "MyLibrary.PcbLib.20260126_143022.bak",
+            "path": "./MyLibrary.PcbLib.20260126_143022.bak",
+            "timestamp": "2026-01-26T14:30:22",
+            "size_bytes": 45678
+        },
+        {
+            "filename": "MyLibrary.PcbLib.20260125_091500.bak",
+            "path": "./MyLibrary.PcbLib.20260125_091500.bak",
+            "timestamp": "2026-01-25T09:15:00",
+            "size_bytes": 44123
+        }
+    ],
+    "backup_count": 2
+}
+```
+
+### `restore_backup`
+
+Restore an Altium library from a backup file. If no specific backup is specified, restores
+from the most recent backup.
+
+```json
+{
+    "name": "restore_backup",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib",
+        "backup_filename": "MyLibrary.PcbLib.20260125_091500.bak"
+    }
+}
+```
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `filepath` | Yes | Path to the library file to restore |
+| `backup_filename` | No | Specific backup filename to restore (default: most recent) |
+
+**Response:**
+
+```json
+{
+    "status": "success",
+    "filepath": "./MyLibrary.PcbLib",
+    "restored_from": "MyLibrary.PcbLib.20260125_091500.bak",
+    "backup_timestamp": "2026-01-25T09:15:00",
+    "message": "Restored './MyLibrary.PcbLib' from backup 'MyLibrary.PcbLib.20260125_091500.bak'"
+}
+```
+
 ---
 
 ## Primitive Types
@@ -1359,17 +1607,45 @@ automatically removed to prevent unbounded disk usage.
 
 - `delete_component`
 - `update_component`
+- `update_pad`
+- `update_primitive`
 - `rename_component`
+- `copy_component`
 - `copy_component_cross_library` (target file)
 - `merge_libraries` (target file)
+- `reorder_components`
 - `batch_update`
+- `bulk_rename`
 - `write_pcblib` / `write_schlib` (when overwriting)
+- `import_library` (when overwriting)
 
-**Dry-run support:** Some destructive operations support `dry_run=true` to preview changes
+**Disabling backups:** All write operations accept a `create_backup` parameter (default: `true`).
+Set to `false` to skip backup creation:
+
+```json
+{
+    "name": "delete_component",
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib",
+        "component_names": ["OLD_COMPONENT"],
+        "create_backup": false
+    }
+}
+```
+
+**Managing backups:** Use `list_backups` to view available backups and `restore_backup` to
+recover from a previous version.
+
+**Dry-run support:** Most destructive operations support `dry_run=true` to preview changes
 without modifying files:
 
 - `delete_component` — preview which components would be deleted
-- `merge_libraries` — preview merge results without writing
+- `update_pad` / `update_primitive` — preview property changes
+- `bulk_rename` — preview name changes
+- `repair_library` — preview orphaned references to remove
+- `copy_component` / `rename_component` / `reorder_components`
+- `write_pcblib` / `write_schlib` / `import_library`
+- `copy_component_cross_library` / `merge_libraries`
 
 ---
 

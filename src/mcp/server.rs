@@ -274,6 +274,23 @@ impl McpServer {
         self.state
     }
 
+    /// Escapes a field value for RFC 4180 compliant CSV output.
+    ///
+    /// If the field contains commas, double quotes, or newlines, it is wrapped
+    /// in double quotes with any internal quotes doubled.
+    fn escape_csv_field(field: &str) -> String {
+        if field.contains(',')
+            || field.contains('"')
+            || field.contains('\n')
+            || field.contains('\r')
+        {
+            // Wrap in quotes, escaping any internal quotes by doubling them
+            format!("\"{}\"", field.replace('"', "\"\""))
+        } else {
+            field.to_string()
+        }
+    }
+
     /// Validates that a path is within one of the allowed paths.
     ///
     /// Returns `Ok(())` if the path is allowed, or an error message if not.
@@ -669,13 +686,18 @@ impl McpServer {
             "update_component" => self.call_update_component(&params.arguments),
             "search_components" => self.call_search_components(&params.arguments),
             "get_component" => self.call_get_component(&params.arguments),
+            "component_exists" => self.call_component_exists(&params.arguments),
             "render_footprint" => self.call_render_footprint(&params.arguments),
             "render_symbol" => self.call_render_symbol(&params.arguments),
             "manage_schlib_parameters" => self.call_manage_schlib_parameters(&params.arguments),
             "manage_schlib_footprints" => self.call_manage_schlib_footprints(&params.arguments),
             "compare_components" => self.call_compare_components(&params.arguments),
             "repair_library" => self.call_repair_library(&params.arguments),
+            "list_backups" => self.call_list_backups(&params.arguments),
+            "restore_backup" => self.call_restore_backup(&params.arguments),
             "bulk_rename" => self.call_bulk_rename(&params.arguments),
+            "update_pad" => self.call_update_pad(&params.arguments),
+            "update_primitive" => self.call_update_primitive(&params.arguments),
             // Unknown tool
             _ => ToolCallResult::error(format!("Unknown tool: {}", params.name)),
         };
@@ -747,6 +769,10 @@ impl McpServer {
                         "offset": {
                             "type": "integer",
                             "description": "Optional: skip first N footprints (default: 0)"
+                        },
+                        "compact": {
+                            "type": "boolean",
+                            "description": "If true (default), omit per-layer pad data when stack_mode is Simple. Set to false for full output."
                         }
                     },
                     "required": ["filepath"]
@@ -789,7 +815,8 @@ impl McpServer {
                 name: "list_components".to_string(),
                 description: Some(
                     "List all component/footprint names in an Altium library file (.PcbLib or .SchLib). \
-                     Supports pagination with limit/offset for large libraries."
+                     Supports pagination with limit/offset for large libraries. Use include_metadata \
+                     for additional details like part_count and pin_count."
                         .to_string(),
                 ),
                 input_schema: json!({
@@ -806,6 +833,10 @@ impl McpServer {
                         "offset": {
                             "type": "integer",
                             "description": "Number of components to skip (optional, default: 0)"
+                        },
+                        "include_metadata": {
+                            "type": "boolean",
+                            "description": "If true, return objects with metadata (part_count, pin_count, etc.) instead of just names. Default: false"
                         }
                     },
                     "required": ["filepath"]
@@ -816,7 +847,7 @@ impl McpServer {
                 name: "extract_style".to_string(),
                 description: Some(
                     "Extract style information from an existing Altium library file. Returns \
-                     statistics about track widths, colors, pin lengths, layer usage, and other \
+                     statistics about track widths, colours, pin lengths, layer usage, and other \
                      styling parameters. Use this to learn from existing libraries and create \
                      consistent new components."
                         .to_string(),
@@ -1125,6 +1156,10 @@ impl McpServer {
                             "type": "string",
                             "enum": ["json", "csv"],
                             "description": "Export format: 'json' for full data, 'csv' for summary table"
+                        },
+                        "compact": {
+                            "type": "boolean",
+                            "description": "For PcbLib JSON export: if true (default), omit per-layer pad data when stack_mode is Simple"
                         }
                     },
                     "required": ["filepath", "format"]
@@ -1162,9 +1197,8 @@ impl McpServer {
                 description: Some(
                     "Extract embedded STEP 3D models from an Altium .PcbLib file. \
                      Models are stored compressed inside the library and this tool extracts \
-                     them to standalone .step files. Use 'list' mode to see available models, \
-                     or specify a model name/ID to extract a specific model. \
-                     Supports pagination with limit/offset when listing models."
+                     them to standalone .step files. Supports multiple modes: 'auto' (default), \
+                     'list', 'extract_all', or 'extract_by_footprint'."
                         .to_string(),
                 ),
                 input_schema: json!({
@@ -1174,21 +1208,30 @@ impl McpServer {
                             "type": "string",
                             "description": "Path to the .PcbLib file containing embedded 3D models"
                         },
+                        "mode": {
+                            "type": "string",
+                            "enum": ["auto", "list", "extract_all", "extract_by_footprint"],
+                            "description": "Extraction mode: 'auto' (default) extracts single model or lists if multiple; 'list' always lists models; 'extract_all' extracts all models to output_dir; 'extract_by_footprint' extracts models used by specified footprint"
+                        },
                         "output_path": {
                             "type": "string",
-                            "description": "Path where the extracted .step file will be saved. If omitted, returns base64-encoded data."
+                            "description": "For single extraction: file path for .step file. For extract_all: directory path for all models."
                         },
                         "model": {
                             "type": "string",
-                            "description": "Model name (e.g., 'RESC1005X04L.step') or GUID to extract. If omitted and only one model exists, extracts it automatically. If multiple models exist and no model specified, lists available models."
+                            "description": "Model name (e.g., 'RESC1005X04L.step') or GUID to extract (for 'auto' mode)"
+                        },
+                        "footprint_name": {
+                            "type": "string",
+                            "description": "Footprint name to extract models for (required for 'extract_by_footprint' mode)"
                         },
                         "limit": {
                             "type": "integer",
-                            "description": "Maximum number of models to list (optional, default: all)"
+                            "description": "Maximum number of models to list (for 'list' mode)"
                         },
                         "offset": {
                             "type": "integer",
-                            "description": "Number of models to skip when listing (optional, default: 0)"
+                            "description": "Number of models to skip when listing (for 'list' mode)"
                         }
                     },
                     "required": ["filepath"]
@@ -1313,6 +1356,10 @@ impl McpServer {
                         "description": {
                             "type": "string",
                             "description": "Optional description for the new component (defaults to source description)"
+                        },
+                        "dry_run": {
+                            "type": "boolean",
+                            "description": "If true, validate the operation without modifying the file. Default: false"
                         }
                     },
                     "required": ["filepath", "source_name", "target_name"]
@@ -1340,6 +1387,10 @@ impl McpServer {
                         "new_name": {
                             "type": "string",
                             "description": "New name for the component"
+                        },
+                        "dry_run": {
+                            "type": "boolean",
+                            "description": "If true, validate the operation without modifying the file. Default: false"
                         }
                     },
                     "required": ["filepath", "old_name", "new_name"]
@@ -1379,6 +1430,10 @@ impl McpServer {
                         "ignore_missing_models": {
                             "type": "boolean",
                             "description": "If true, copy the component even if referenced embedded 3D models are missing (PcbLib only). The component body references will be removed. Defaults to false."
+                        },
+                        "preserve_external_paths": {
+                            "type": "boolean",
+                            "description": "If true, preserve external 3D model paths (model_3d field) instead of removing them. The path may need manual adjustment in the target location. Defaults to false."
                         }
                     },
                     "required": ["source_filepath", "target_filepath", "component_name"]
@@ -1523,6 +1578,30 @@ impl McpServer {
                         }
                     },
                     "required": ["filepath", "component_name"]
+                }),
+            },
+            ToolDefinition {
+                name: "component_exists".to_string(),
+                description: Some(
+                    "Check if one or more components exist in an Altium library. Use this to validate \
+                     component names before operations like rename, copy, or delete. Supports both \
+                     `.PcbLib` and `.SchLib` files."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepath": {
+                            "type": "string",
+                            "description": "Path to the Altium library file (.PcbLib or .SchLib)"
+                        },
+                        "component_names": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "List of component names to check"
+                        }
+                    },
+                    "required": ["filepath", "component_names"]
                 }),
             },
             ToolDefinition {
@@ -1747,6 +1826,46 @@ impl McpServer {
                 }),
             },
             ToolDefinition {
+                name: "list_backups".to_string(),
+                description: Some(
+                    "List available backup files for an Altium library. Shows timestamped .bak files \
+                     that were automatically created before write operations."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepath": {
+                            "type": "string",
+                            "description": "Path to the library file (.PcbLib or .SchLib)"
+                        }
+                    },
+                    "required": ["filepath"]
+                }),
+            },
+            ToolDefinition {
+                name: "restore_backup".to_string(),
+                description: Some(
+                    "Restore an Altium library file from a backup. If no specific backup is specified, \
+                     restores from the most recent backup."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepath": {
+                            "type": "string",
+                            "description": "Path to the library file to restore"
+                        },
+                        "backup_path": {
+                            "type": "string",
+                            "description": "Optional: specific backup file to restore from. If not provided, uses most recent backup."
+                        }
+                    },
+                    "required": ["filepath"]
+                }),
+            },
+            ToolDefinition {
                 name: "bulk_rename".to_string(),
                 description: Some(
                     "Rename multiple components in a library using regex pattern matching. \
@@ -1776,6 +1895,104 @@ impl McpServer {
                     "required": ["filepath", "pattern", "replacement"]
                 }),
             },
+            ToolDefinition {
+                name: "update_pad".to_string(),
+                description: Some(
+                    "Update specific properties of a pad in a PcbLib footprint without replacing \
+                     the entire component. Find pad by designator and apply only the specified updates."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepath": {
+                            "type": "string",
+                            "description": "Path to the .PcbLib file"
+                        },
+                        "component_name": {
+                            "type": "string",
+                            "description": "Name of the footprint containing the pad"
+                        },
+                        "designator": {
+                            "type": "string",
+                            "description": "Pad designator (e.g., '1', '2', 'A1')"
+                        },
+                        "updates": {
+                            "type": "object",
+                            "description": "Properties to update (only specified properties are changed)",
+                            "properties": {
+                                "x": { "type": "number", "description": "New X position in mm" },
+                                "y": { "type": "number", "description": "New Y position in mm" },
+                                "width": { "type": "number", "description": "New width in mm" },
+                                "height": { "type": "number", "description": "New height in mm" },
+                                "shape": { "type": "string", "description": "New shape (Rectangle, Round, Oval, RoundedRectangle)" },
+                                "rotation": { "type": "number", "description": "New rotation in degrees" },
+                                "hole_size": { "type": "number", "description": "New hole diameter for through-hole pads" }
+                            }
+                        },
+                        "dry_run": {
+                            "type": "boolean",
+                            "description": "If true, show what would change without saving (default: false)"
+                        }
+                    },
+                    "required": ["filepath", "component_name", "designator", "updates"]
+                }),
+            },
+            ToolDefinition {
+                name: "update_primitive".to_string(),
+                description: Some(
+                    "Update specific properties of a primitive (track, arc, region, or text) in a \
+                     PcbLib footprint. Find primitive by type and index, apply only specified updates."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepath": {
+                            "type": "string",
+                            "description": "Path to the .PcbLib file"
+                        },
+                        "component_name": {
+                            "type": "string",
+                            "description": "Name of the footprint containing the primitive"
+                        },
+                        "primitive_type": {
+                            "type": "string",
+                            "enum": ["track", "arc", "region", "text", "fill"],
+                            "description": "Type of primitive to update"
+                        },
+                        "index": {
+                            "type": "integer",
+                            "description": "Zero-based index of the primitive within its type array"
+                        },
+                        "updates": {
+                            "type": "object",
+                            "description": "Properties to update (only specified properties are changed). Valid properties depend on primitive_type.",
+                            "properties": {
+                                "x1": { "type": "number", "description": "Start X (track) or centre X (arc)" },
+                                "y1": { "type": "number", "description": "Start Y (track) or centre Y (arc)" },
+                                "x2": { "type": "number", "description": "End X (track)" },
+                                "y2": { "type": "number", "description": "End Y (track)" },
+                                "x": { "type": "number", "description": "X position (text, fill)" },
+                                "y": { "type": "number", "description": "Y position (text, fill)" },
+                                "width": { "type": "number", "description": "Line width (track, arc) or width (fill)" },
+                                "height": { "type": "number", "description": "Height (text, fill)" },
+                                "radius": { "type": "number", "description": "Radius (arc)" },
+                                "start_angle": { "type": "number", "description": "Start angle in degrees (arc)" },
+                                "end_angle": { "type": "number", "description": "End angle in degrees (arc)" },
+                                "text": { "type": "string", "description": "Text content (text primitive)" },
+                                "rotation": { "type": "number", "description": "Rotation angle" },
+                                "layer": { "type": "string", "description": "Layer name" }
+                            }
+                        },
+                        "dry_run": {
+                            "type": "boolean",
+                            "description": "If true, show what would change without saving (default: false)"
+                        }
+                    },
+                    "required": ["filepath", "component_name", "primitive_type", "index", "updates"]
+                }),
+            },
         ]
     }
 
@@ -1785,6 +2002,7 @@ impl McpServer {
     /// Supports pagination via limit/offset and filtering by `component_name`.
     #[allow(clippy::cast_possible_truncation)]
     fn call_read_pcblib(&self, arguments: &Value) -> ToolCallResult {
+        use crate::altium::pcblib::primitives::PadStackMode;
         use crate::altium::PcbLib;
 
         let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
@@ -1807,6 +2025,12 @@ impl McpServer {
             .and_then(Value::as_u64)
             .map_or(0, |v| v as usize);
 
+        // Parse compact parameter (default: true - omit redundant per-layer data)
+        let compact = arguments
+            .get("compact")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+
         match PcbLib::open(filepath) {
             Ok(library) => {
                 let total_count = library.len();
@@ -1821,10 +2045,35 @@ impl McpServer {
                     .skip(offset)
                     .take(limit.unwrap_or(usize::MAX))
                     .map(|fp| {
+                        // If compact mode, strip per-layer data for simple pads
+                        let pads: Vec<Value> = if compact {
+                            fp.pads
+                                .iter()
+                                .map(|pad| {
+                                    let mut pad_json = serde_json::to_value(pad).unwrap();
+                                    // Remove per-layer data if stack_mode is Simple
+                                    if pad.stack_mode == PadStackMode::Simple {
+                                        if let Value::Object(ref mut obj) = pad_json {
+                                            obj.remove("per_layer_sizes");
+                                            obj.remove("per_layer_shapes");
+                                            obj.remove("per_layer_corner_radii");
+                                            obj.remove("per_layer_offsets");
+                                        }
+                                    }
+                                    pad_json
+                                })
+                                .collect()
+                        } else {
+                            fp.pads
+                                .iter()
+                                .map(|p| serde_json::to_value(p).unwrap())
+                                .collect()
+                        };
+
                         json!({
                             "name": fp.name,
                             "description": fp.description,
-                            "pads": fp.pads,
+                            "pads": pads,
                             "tracks": fp.tracks,
                             "arcs": fp.arcs,
                             "regions": fp.regions,
@@ -1850,6 +2099,7 @@ impl McpServer {
                     "returned_count": returned_count,
                     "offset": offset,
                     "has_more": has_more,
+                    "compact": compact,
                     "footprints": footprints,
                 });
 
@@ -2469,7 +2719,7 @@ impl McpServer {
     }
 
     /// Lists component names in a library file.
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::cast_possible_truncation, clippy::too_many_lines)]
     fn call_list_components(&self, arguments: &Value) -> ToolCallResult {
         use crate::altium::{PcbLib, SchLib};
 
@@ -2492,6 +2742,12 @@ impl McpServer {
             .and_then(Value::as_u64)
             .map_or(0, |v| v as usize);
 
+        // Parse include_metadata parameter (default: false)
+        let include_metadata = arguments
+            .get("include_metadata")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
         // Try to determine file type from extension
         let path = std::path::Path::new(filepath);
         let extension = path
@@ -2503,14 +2759,35 @@ impl McpServer {
             Some("pcblib") => match PcbLib::open(filepath) {
                 Ok(library) => {
                     let total_count = library.len();
-                    let all_names = library.names();
 
-                    // Apply pagination
-                    let components: Vec<_> = all_names
-                        .into_iter()
-                        .skip(offset)
-                        .take(limit.unwrap_or(usize::MAX))
-                        .collect();
+                    // Apply pagination and optionally include metadata
+                    let components: Vec<Value> = if include_metadata {
+                        library
+                            .iter()
+                            .skip(offset)
+                            .take(limit.unwrap_or(usize::MAX))
+                            .map(|fp| {
+                                json!({
+                                    "name": fp.name,
+                                    "description": fp.description,
+                                    "pad_count": fp.pads.len(),
+                                    "track_count": fp.tracks.len(),
+                                    "arc_count": fp.arcs.len(),
+                                    "region_count": fp.regions.len(),
+                                    "text_count": fp.text.len(),
+                                    "has_3d_model": fp.model_3d.is_some() || !fp.component_bodies.is_empty(),
+                                })
+                            })
+                            .collect()
+                    } else {
+                        library
+                            .names()
+                            .into_iter()
+                            .skip(offset)
+                            .take(limit.unwrap_or(usize::MAX))
+                            .map(|n| json!(n))
+                            .collect()
+                    };
 
                     let returned_count = components.len();
                     let has_more = offset + returned_count < total_count;
@@ -2523,6 +2800,7 @@ impl McpServer {
                         "returned_count": returned_count,
                         "offset": offset,
                         "has_more": has_more,
+                        "include_metadata": include_metadata,
                         "components": components,
                     });
                     ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
@@ -2540,13 +2818,31 @@ impl McpServer {
                 Ok(library) => {
                     let total_count = library.len();
 
-                    // Apply pagination
-                    let components: Vec<_> = library
-                        .iter()
-                        .map(|s| s.name.clone())
-                        .skip(offset)
-                        .take(limit.unwrap_or(usize::MAX))
-                        .collect();
+                    // Apply pagination and optionally include metadata
+                    let components: Vec<Value> = if include_metadata {
+                        library
+                            .iter()
+                            .skip(offset)
+                            .take(limit.unwrap_or(usize::MAX))
+                            .map(|s| {
+                                json!({
+                                    "name": s.name,
+                                    "description": s.description,
+                                    "designator": s.designator,
+                                    "part_count": s.part_count,
+                                    "pin_count": s.pins.len(),
+                                    "footprint_count": s.footprints.len(),
+                                })
+                            })
+                            .collect()
+                    } else {
+                        library
+                            .iter()
+                            .map(|s| json!(s.name.clone()))
+                            .skip(offset)
+                            .take(limit.unwrap_or(usize::MAX))
+                            .collect()
+                    };
 
                     let returned_count = components.len();
                     let has_more = offset + returned_count < total_count;
@@ -2559,6 +2855,7 @@ impl McpServer {
                         "returned_count": returned_count,
                         "offset": offset,
                         "has_more": has_more,
+                        "include_metadata": include_metadata,
                         "components": components,
                     });
                     ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
@@ -4380,6 +4677,12 @@ impl McpServer {
             return ToolCallResult::error("Invalid format. Expected 'json' or 'csv'.");
         }
 
+        // Parse compact parameter (default: true)
+        let compact = arguments
+            .get("compact")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+
         // Determine file type from extension
         let path = std::path::Path::new(filepath);
         let extension = path
@@ -4388,7 +4691,7 @@ impl McpServer {
             .map(str::to_lowercase);
 
         match extension.as_deref() {
-            Some("pcblib") => Self::export_pcblib(filepath, &format_lower),
+            Some("pcblib") => Self::export_pcblib(filepath, &format_lower, compact),
             Some("schlib") => Self::export_schlib(filepath, &format_lower),
             _ => {
                 let result = json!({
@@ -4403,7 +4706,8 @@ impl McpServer {
 
     /// Exports a `PcbLib` file to JSON or CSV.
     #[allow(clippy::too_many_lines)]
-    fn export_pcblib(filepath: &str, format: &str) -> ToolCallResult {
+    fn export_pcblib(filepath: &str, format: &str, compact: bool) -> ToolCallResult {
+        use crate::altium::pcblib::primitives::PadStackMode;
         use crate::altium::PcbLib;
 
         // Read the library
@@ -4424,10 +4728,35 @@ impl McpServer {
             let footprints: Vec<Value> = library
                 .iter()
                 .map(|fp| {
+                    // If compact mode, strip per-layer data for simple pads
+                    let pads: Vec<Value> = if compact {
+                        fp.pads
+                            .iter()
+                            .map(|pad| {
+                                let mut pad_json = serde_json::to_value(pad).unwrap();
+                                // Remove per-layer data if stack_mode is Simple
+                                if pad.stack_mode == PadStackMode::Simple {
+                                    if let Value::Object(ref mut obj) = pad_json {
+                                        obj.remove("per_layer_sizes");
+                                        obj.remove("per_layer_shapes");
+                                        obj.remove("per_layer_corner_radii");
+                                        obj.remove("per_layer_offsets");
+                                    }
+                                }
+                                pad_json
+                            })
+                            .collect()
+                    } else {
+                        fp.pads
+                            .iter()
+                            .map(|p| serde_json::to_value(p).unwrap())
+                            .collect()
+                    };
+
                     json!({
                         "name": fp.name,
                         "description": fp.description,
-                        "pads": fp.pads,
+                        "pads": pads,
                         "tracks": fp.tracks,
                         "arcs": fp.arcs,
                         "regions": fp.regions,
@@ -4455,13 +4784,12 @@ impl McpServer {
             csv_lines.push("name,description,pad_count,track_count,arc_count,region_count,text_count,external_3d_model,embedded_3d_bodies".to_string());
 
             for fp in library.iter() {
-                let description = fp.description.replace(',', ";").replace('\n', " ");
                 let has_external_model = if fp.model_3d.is_some() { "yes" } else { "no" };
                 let embedded_body_count = fp.component_bodies.len();
                 csv_lines.push(format!(
                     "{},{},{},{},{},{},{},{},{}",
-                    fp.name,
-                    description,
+                    Self::escape_csv_field(&fp.name),
+                    Self::escape_csv_field(&fp.description),
                     fp.pads.len(),
                     fp.tracks.len(),
                     fp.arcs.len(),
@@ -4546,12 +4874,11 @@ impl McpServer {
             );
 
             for symbol in library.iter() {
-                let description = symbol.description.replace(',', ";").replace('\n', " ");
                 csv_lines.push(format!(
                     "{},{},{},{},{},{},{}",
-                    symbol.name,
-                    description,
-                    symbol.designator,
+                    Self::escape_csv_field(&symbol.name),
+                    Self::escape_csv_field(&symbol.description),
+                    Self::escape_csv_field(&symbol.designator),
                     symbol.pins.len(),
                     symbol.rectangles.len(),
                     symbol.lines.len(),
@@ -4713,6 +5040,111 @@ impl McpServer {
     }
 
     /// Imports symbols from JSON into a `SchLib` file.
+    /// Validates a symbol JSON structure before serde parsing to provide clearer error messages.
+    ///
+    /// Returns `Ok(())` if validation passes, or an error message with context about
+    /// which specific field is missing and in which primitive.
+    fn validate_symbol_json(sym_json: &Value) -> Result<(), String> {
+        let name = sym_json
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("Unnamed");
+
+        // Validate pins have required x/y
+        if let Some(pins) = sym_json.get("pins").and_then(Value::as_array) {
+            for (pin_idx, pin) in pins.iter().enumerate() {
+                let pin_name = pin.get("name").and_then(Value::as_str).unwrap_or("?");
+                let pin_designator = pin.get("designator").and_then(Value::as_str).unwrap_or("?");
+
+                if pin.get("x").is_none() {
+                    return Err(format!(
+                        "Symbol '{name}' pin {pin_idx} (name='{pin_name}', designator='{pin_designator}') missing required field 'x'"
+                    ));
+                }
+                if pin.get("y").is_none() {
+                    return Err(format!(
+                        "Symbol '{name}' pin {pin_idx} (name='{pin_name}', designator='{pin_designator}') missing required field 'y'"
+                    ));
+                }
+                if pin.get("length").is_none() {
+                    return Err(format!(
+                        "Symbol '{name}' pin {pin_idx} (name='{pin_name}', designator='{pin_designator}') missing required field 'length'"
+                    ));
+                }
+            }
+        }
+
+        // Validate rectangles have required coordinates
+        if let Some(rects) = sym_json.get("rectangles").and_then(Value::as_array) {
+            for (rect_idx, rect) in rects.iter().enumerate() {
+                for field in ["x1", "y1", "x2", "y2"] {
+                    if rect.get(field).is_none() {
+                        return Err(format!(
+                            "Symbol '{name}' rectangle {rect_idx} missing required field '{field}'"
+                        ));
+                    }
+                }
+            }
+        }
+
+        // Validate lines have required coordinates
+        if let Some(lines) = sym_json.get("lines").and_then(Value::as_array) {
+            for (line_idx, line) in lines.iter().enumerate() {
+                for field in ["x1", "y1", "x2", "y2"] {
+                    if line.get(field).is_none() {
+                        return Err(format!(
+                            "Symbol '{name}' line {line_idx} missing required field '{field}'"
+                        ));
+                    }
+                }
+            }
+        }
+
+        // Validate arcs have required fields
+        if let Some(arcs) = sym_json.get("arcs").and_then(Value::as_array) {
+            for (arc_idx, arc) in arcs.iter().enumerate() {
+                for field in ["x", "y", "radius"] {
+                    if arc.get(field).is_none() {
+                        return Err(format!(
+                            "Symbol '{name}' arc {arc_idx} missing required field '{field}'"
+                        ));
+                    }
+                }
+            }
+        }
+
+        // Validate ellipses have required fields
+        if let Some(ellipses) = sym_json.get("ellipses").and_then(Value::as_array) {
+            for (ellipse_idx, ellipse) in ellipses.iter().enumerate() {
+                for field in ["x", "y", "radius_x", "radius_y"] {
+                    if ellipse.get(field).is_none() {
+                        return Err(format!(
+                            "Symbol '{name}' ellipse {ellipse_idx} missing required field '{field}'"
+                        ));
+                    }
+                }
+            }
+        }
+
+        // Validate labels have required fields
+        if let Some(labels) = sym_json.get("labels").and_then(Value::as_array) {
+            for (label_idx, label) in labels.iter().enumerate() {
+                let label_text = label.get("text").and_then(Value::as_str).unwrap_or("?");
+                for field in ["x", "y", "text"] {
+                    if label.get(field).is_none() {
+                        return Err(format!(
+                            "Symbol '{name}' label {label_idx} (text='{label_text}') missing required field '{field}'"
+                        ));
+                    }
+                }
+            }
+        }
+
+        // Note: parameters now have defaults for x/y/value, so no validation needed
+
+        Ok(())
+    }
+
     fn import_schlib(output_path: &str, json_data: &Value, append: bool) -> ToolCallResult {
         use crate::altium::schlib::Symbol;
         use crate::altium::SchLib;
@@ -4750,6 +5182,11 @@ impl McpServer {
                 return ToolCallResult::error(format!(
                     "Component '{name}' already exists in library"
                 ));
+            }
+
+            // Validate symbol structure before serde parsing for better error messages
+            if let Err(e) = Self::validate_symbol_json(sym_json) {
+                return ToolCallResult::error(e);
             }
 
             // Parse symbol via serde
@@ -4815,6 +5252,12 @@ impl McpServer {
             return ToolCallResult::error(e);
         }
 
+        // Get extraction mode (default: auto)
+        let mode = arguments
+            .get("mode")
+            .and_then(Value::as_str)
+            .unwrap_or("auto");
+
         // Validate output path if provided
         let output_path = arguments.get("output_path").and_then(Value::as_str);
         if let Some(out_path) = output_path {
@@ -4824,6 +5267,7 @@ impl McpServer {
         }
 
         let model_identifier = arguments.get("model").and_then(Value::as_str);
+        let footprint_name = arguments.get("footprint_name").and_then(Value::as_str);
 
         // Parse optional pagination parameters (for listing models)
         let limit = arguments
@@ -4900,29 +5344,252 @@ impl McpServer {
             return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
         }
 
-        // Find the model to extract
-        let target_model = if let Some(identifier) = model_identifier {
-            // Look up by name or GUID
-            models
-                .iter()
-                .find(|m| {
-                    m.name.eq_ignore_ascii_case(identifier)
-                        || m.id.eq_ignore_ascii_case(identifier)
-                        || m.id
-                            .trim_matches(|c| c == '{' || c == '}')
-                            .eq_ignore_ascii_case(identifier)
+        // Handle different modes
+        match mode {
+            "list" => {
+                // Force list mode - always list models
+                Self::list_step_models(filepath, &models, limit, offset)
+            }
+            "extract_all" => {
+                // Extract all models to output directory
+                Self::extract_all_step_models(filepath, output_path, &models)
+            }
+            "extract_by_footprint" => {
+                // Extract models used by a specific footprint
+                let Some(fp_name) = footprint_name else {
+                    return ToolCallResult::error(
+                        "Missing required parameter 'footprint_name' for extract_by_footprint mode",
+                    );
+                };
+                Self::extract_step_by_footprint(filepath, output_path, &library, &models, fp_name)
+            }
+            _ => {
+                // Default "auto" mode - original behaviour
+                let target_model = if let Some(identifier) = model_identifier {
+                    // Look up by name or GUID
+                    models
+                        .iter()
+                        .find(|m| {
+                            m.name.eq_ignore_ascii_case(identifier)
+                                || m.id.eq_ignore_ascii_case(identifier)
+                                || m.id
+                                    .trim_matches(|c| c == '{' || c == '}')
+                                    .eq_ignore_ascii_case(identifier)
+                        })
+                        .copied()
+                } else if models.len() == 1 {
+                    // Only one model, extract it
+                    Some(models[0])
+                } else {
+                    // Multiple models, list them with pagination
+                    return Self::list_step_models(filepath, &models, limit, offset);
+                };
+
+                let Some(model) = target_model else {
+                    let model_list: Vec<Value> = models
+                        .iter()
+                        .map(|m| {
+                            json!({
+                                "id": m.id,
+                                "name": m.name,
+                            })
+                        })
+                        .collect();
+
+                    let result = json!({
+                        "status": "error",
+                        "filepath": filepath,
+                        "error": format!("Model '{}' not found.", model_identifier.unwrap_or("")),
+                        "available_models": model_list,
+                    });
+                    return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
+                };
+
+                // Extract the model - write to file or return as base64
+                Self::extract_model_output(filepath, output_path, model)
+            }
+        }
+    }
+
+    /// Lists embedded STEP models with pagination.
+    fn list_step_models(
+        filepath: &str,
+        models: &[&crate::altium::pcblib::EmbeddedModel],
+        limit: Option<usize>,
+        offset: usize,
+    ) -> ToolCallResult {
+        let total_count = models.len();
+        let model_list: Vec<Value> = models
+            .iter()
+            .skip(offset)
+            .take(limit.unwrap_or(usize::MAX))
+            .map(|m| {
+                json!({
+                    "id": m.id,
+                    "name": m.name,
+                    "size_bytes": m.data.len(),
                 })
-                .copied()
-        } else if models.len() == 1 {
-            // Only one model, extract it
-            Some(models[0])
+            })
+            .collect();
+
+        let returned_count = model_list.len();
+        let has_more = offset + returned_count < total_count;
+
+        let result = json!({
+            "status": "list",
+            "filepath": filepath,
+            "total_count": total_count,
+            "returned_count": returned_count,
+            "offset": offset,
+            "has_more": has_more,
+            "models": model_list,
+        });
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Extracts all STEP models to an output directory.
+    fn extract_all_step_models(
+        filepath: &str,
+        output_path: Option<&str>,
+        models: &[&crate::altium::pcblib::EmbeddedModel],
+    ) -> ToolCallResult {
+        let Some(output_dir) = output_path else {
+            return ToolCallResult::error(
+                "Missing required parameter 'output_path' (directory) for extract_all mode",
+            );
+        };
+
+        // Create output directory if it doesn't exist
+        let out_dir = std::path::Path::new(output_dir);
+        if let Err(e) = std::fs::create_dir_all(out_dir) {
+            return ToolCallResult::error(format!("Failed to create output directory: {e}"));
+        }
+
+        let mut extracted: Vec<Value> = Vec::new();
+        let mut errors: Vec<Value> = Vec::new();
+
+        for model in models {
+            let output_file = out_dir.join(&model.name);
+            match std::fs::write(&output_file, &model.data) {
+                Ok(()) => {
+                    extracted.push(json!({
+                        "id": model.id,
+                        "name": model.name,
+                        "output_path": output_file.to_string_lossy(),
+                        "size_bytes": model.data.len(),
+                    }));
+                }
+                Err(e) => {
+                    errors.push(json!({
+                        "id": model.id,
+                        "name": model.name,
+                        "error": e.to_string(),
+                    }));
+                }
+            }
+        }
+
+        let result = json!({
+            "status": if errors.is_empty() { "success" } else { "partial" },
+            "filepath": filepath,
+            "output_directory": output_dir,
+            "total_models": models.len(),
+            "extracted_count": extracted.len(),
+            "error_count": errors.len(),
+            "extracted": extracted,
+            "errors": errors,
+        });
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Extracts STEP models used by a specific footprint.
+    fn extract_step_by_footprint(
+        filepath: &str,
+        output_path: Option<&str>,
+        library: &crate::altium::PcbLib,
+        models: &[&crate::altium::pcblib::EmbeddedModel],
+        footprint_name: &str,
+    ) -> ToolCallResult {
+        // Find the footprint
+        let Some(footprint) = library.get(footprint_name) else {
+            let available: Vec<&str> = library.iter().map(|fp| fp.name.as_str()).collect();
+            let result = json!({
+                "status": "error",
+                "filepath": filepath,
+                "error": format!("Footprint '{}' not found", footprint_name),
+                "available_footprints": available,
+            });
+            return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
+        };
+
+        // Collect model IDs used by this footprint
+        let mut model_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        // From component bodies
+        for cb in &footprint.component_bodies {
+            model_ids.insert(cb.model_id.to_lowercase());
+        }
+
+        // From model_3d reference (if it points to an embedded model)
+        if let Some(ref m3d) = footprint.model_3d {
+            if !m3d.filepath.is_empty() {
+                // Try to match by name
+                for model in models {
+                    if model.name.eq_ignore_ascii_case(&m3d.filepath) {
+                        model_ids.insert(model.id.to_lowercase());
+                    }
+                }
+            }
+        }
+
+        if model_ids.is_empty() {
+            let result = json!({
+                "status": "error",
+                "filepath": filepath,
+                "footprint": footprint_name,
+                "error": "No 3D model references found for this footprint",
+            });
+            return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
+        }
+
+        // Find matching models
+        let matching_models: Vec<&crate::altium::pcblib::EmbeddedModel> = models
+            .iter()
+            .filter(|m| {
+                let id_lower = m.id.to_lowercase();
+                let id_trimmed = id_lower.trim_matches(|c| c == '{' || c == '}');
+                model_ids.contains(&id_lower)
+                    || model_ids.contains(id_trimmed)
+                    || model_ids
+                        .iter()
+                        .any(|mid| mid.trim_matches(|c| c == '{' || c == '}') == id_trimmed)
+            })
+            .copied()
+            .collect();
+
+        if matching_models.is_empty() {
+            let result = json!({
+                "status": "error",
+                "filepath": filepath,
+                "footprint": footprint_name,
+                "error": "Referenced model IDs not found in embedded models",
+                "referenced_ids": model_ids.iter().collect::<Vec<_>>(),
+                "available_model_ids": models.iter().map(|m| &m.id).collect::<Vec<_>>(),
+            });
+            return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
+        }
+
+        // Extract or return the models
+        if matching_models.len() == 1 {
+            // Single model - use standard extraction
+            Self::extract_model_output(filepath, output_path, matching_models[0])
+        } else if let Some(out_dir) = output_path {
+            // Multiple models - extract to directory
+            Self::extract_all_step_models(filepath, Some(out_dir), &matching_models)
         } else {
-            // Multiple models, list them with pagination
-            let total_count = models.len();
-            let model_list: Vec<Value> = models
+            // Multiple models, no output - return info
+            let model_info: Vec<Value> = matching_models
                 .iter()
-                .skip(offset)
-                .take(limit.unwrap_or(usize::MAX))
                 .map(|m| {
                     json!({
                         "id": m.id,
@@ -4932,44 +5599,16 @@ impl McpServer {
                 })
                 .collect();
 
-            let returned_count = model_list.len();
-            let has_more = offset + returned_count < total_count;
-
             let result = json!({
                 "status": "list",
                 "filepath": filepath,
-                "message": "Multiple models found. Specify 'model' parameter with name or ID to extract.",
-                "total_count": total_count,
-                "returned_count": returned_count,
-                "offset": offset,
-                "has_more": has_more,
-                "models": model_list,
+                "footprint": footprint_name,
+                "message": "Multiple models found for footprint. Specify 'output_path' to extract all.",
+                "model_count": matching_models.len(),
+                "models": model_info,
             });
-            return ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap());
-        };
-
-        let Some(model) = target_model else {
-            let model_list: Vec<Value> = models
-                .iter()
-                .map(|m| {
-                    json!({
-                        "id": m.id,
-                        "name": m.name,
-                    })
-                })
-                .collect();
-
-            let result = json!({
-                "status": "error",
-                "filepath": filepath,
-                "error": format!("Model '{}' not found.", model_identifier.unwrap_or("")),
-                "available_models": model_list,
-            });
-            return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
-        };
-
-        // Extract the model - write to file or return as base64
-        Self::extract_model_output(filepath, output_path, model)
+            ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+        }
     }
 
     /// Helper to output extracted model data (to file or base64).
@@ -6773,6 +7412,10 @@ impl McpServer {
         };
 
         let description = arguments.get("description").and_then(Value::as_str);
+        let dry_run = arguments
+            .get("dry_run")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
 
         // Validate path is within allowed directories
         if let Err(e) = self.validate_path(filepath) {
@@ -6791,12 +7434,20 @@ impl McpServer {
             .map(str::to_lowercase);
 
         match ext.as_deref() {
-            Some("pcblib") => {
-                Self::copy_pcblib_component(filepath, source_name, target_name, description)
-            }
-            Some("schlib") => {
-                Self::copy_schlib_component(filepath, source_name, target_name, description)
-            }
+            Some("pcblib") => Self::copy_pcblib_component(
+                filepath,
+                source_name,
+                target_name,
+                description,
+                dry_run,
+            ),
+            Some("schlib") => Self::copy_schlib_component(
+                filepath,
+                source_name,
+                target_name,
+                description,
+                dry_run,
+            ),
             Some(ext) => ToolCallResult::error(format!(
                 "Unsupported file type: .{ext}. Use .PcbLib or .SchLib"
             )),
@@ -6810,6 +7461,7 @@ impl McpServer {
         source_name: &str,
         target_name: &str,
         description: Option<&str>,
+        dry_run: bool,
     ) -> ToolCallResult {
         use crate::altium::PcbLib;
 
@@ -6843,6 +7495,21 @@ impl McpServer {
         // Add the new footprint
         library.add(new_footprint);
 
+        // If dry_run, return what would happen without writing
+        if dry_run {
+            let result = json!({
+                "status": "dry_run",
+                "filepath": filepath,
+                "file_type": "PcbLib",
+                "source_name": source_name,
+                "target_name": target_name,
+                "component_count_after": library.len(),
+                "dry_run": true,
+                "message": format!("Would copy '{}' to '{}'", source_name, target_name),
+            });
+            return ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap());
+        }
+
         // Create backup before destructive operation
         if let Err(e) = Self::create_backup(filepath) {
             return ToolCallResult::error(e);
@@ -6860,6 +7527,7 @@ impl McpServer {
             "source_name": source_name,
             "target_name": target_name,
             "component_count": library.len(),
+            "dry_run": false,
         });
 
         // Run post-write validation
@@ -6876,6 +7544,7 @@ impl McpServer {
         source_name: &str,
         target_name: &str,
         description: Option<&str>,
+        dry_run: bool,
     ) -> ToolCallResult {
         use crate::altium::SchLib;
 
@@ -6909,6 +7578,21 @@ impl McpServer {
         // Add the new symbol
         library.add(new_symbol);
 
+        // If dry_run, return what would happen without writing
+        if dry_run {
+            let result = json!({
+                "status": "dry_run",
+                "filepath": filepath,
+                "file_type": "SchLib",
+                "source_name": source_name,
+                "target_name": target_name,
+                "component_count_after": library.len(),
+                "dry_run": true,
+                "message": format!("Would copy '{}' to '{}'", source_name, target_name),
+            });
+            return ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap());
+        }
+
         // Create backup before destructive operation
         if let Err(e) = Self::create_backup(filepath) {
             return ToolCallResult::error(e);
@@ -6926,6 +7610,7 @@ impl McpServer {
             "source_name": source_name,
             "target_name": target_name,
             "component_count": library.len(),
+            "dry_run": false,
         });
 
         // Run post-write validation
@@ -6952,6 +7637,11 @@ impl McpServer {
             return ToolCallResult::error("Missing required parameter: new_name");
         };
 
+        let dry_run = arguments
+            .get("dry_run")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
         // Validate path is within allowed directories
         if let Err(e) = self.validate_path(filepath) {
             return ToolCallResult::error(e);
@@ -6974,8 +7664,8 @@ impl McpServer {
             .map(str::to_lowercase);
 
         match ext.as_deref() {
-            Some("pcblib") => Self::rename_pcblib_component(filepath, old_name, new_name),
-            Some("schlib") => Self::rename_schlib_component(filepath, old_name, new_name),
+            Some("pcblib") => Self::rename_pcblib_component(filepath, old_name, new_name, dry_run),
+            Some("schlib") => Self::rename_schlib_component(filepath, old_name, new_name, dry_run),
             Some(ext) => ToolCallResult::error(format!(
                 "Unsupported file type: .{ext}. Use .PcbLib or .SchLib"
             )),
@@ -6984,7 +7674,12 @@ impl McpServer {
     }
 
     /// Renames a footprint within a `PcbLib` file.
-    fn rename_pcblib_component(filepath: &str, old_name: &str, new_name: &str) -> ToolCallResult {
+    fn rename_pcblib_component(
+        filepath: &str,
+        old_name: &str,
+        new_name: &str,
+        dry_run: bool,
+    ) -> ToolCallResult {
         use crate::altium::PcbLib;
 
         // Read the library
@@ -7009,6 +7704,20 @@ impl McpServer {
         footprint.name = new_name.to_string();
         library.add(footprint);
 
+        // If dry_run, return what would happen without writing
+        if dry_run {
+            let result = json!({
+                "status": "dry_run",
+                "filepath": filepath,
+                "file_type": "PcbLib",
+                "old_name": old_name,
+                "new_name": new_name,
+                "dry_run": true,
+                "message": format!("Would rename '{}' to '{}'", old_name, new_name),
+            });
+            return ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap());
+        }
+
         // Create backup before destructive operation
         if let Err(e) = Self::create_backup(filepath) {
             return ToolCallResult::error(e);
@@ -7026,6 +7735,7 @@ impl McpServer {
             "old_name": old_name,
             "new_name": new_name,
             "component_count": library.len(),
+            "dry_run": false,
         });
 
         // Run post-write validation
@@ -7037,7 +7747,12 @@ impl McpServer {
     }
 
     /// Renames a symbol within a `SchLib` file.
-    fn rename_schlib_component(filepath: &str, old_name: &str, new_name: &str) -> ToolCallResult {
+    fn rename_schlib_component(
+        filepath: &str,
+        old_name: &str,
+        new_name: &str,
+        dry_run: bool,
+    ) -> ToolCallResult {
         use crate::altium::SchLib;
 
         // Read the library
@@ -7062,6 +7777,20 @@ impl McpServer {
         symbol.name = new_name.to_string();
         library.add(symbol);
 
+        // If dry_run, return what would happen without writing
+        if dry_run {
+            let result = json!({
+                "status": "dry_run",
+                "filepath": filepath,
+                "file_type": "SchLib",
+                "old_name": old_name,
+                "new_name": new_name,
+                "dry_run": true,
+                "message": format!("Would rename '{}' to '{}'", old_name, new_name),
+            });
+            return ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap());
+        }
+
         // Create backup before destructive operation
         if let Err(e) = Self::create_backup(filepath) {
             return ToolCallResult::error(e);
@@ -7079,6 +7808,7 @@ impl McpServer {
             "old_name": old_name,
             "new_name": new_name,
             "component_count": library.len(),
+            "dry_run": false,
         });
 
         // Run post-write validation
@@ -7109,6 +7839,10 @@ impl McpServer {
         let description = arguments.get("description").and_then(Value::as_str);
         let ignore_missing_models = arguments
             .get("ignore_missing_models")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let preserve_external_paths = arguments
+            .get("preserve_external_paths")
             .and_then(Value::as_bool)
             .unwrap_or(false);
 
@@ -7153,6 +7887,7 @@ impl McpServer {
                 target_name,
                 description,
                 ignore_missing_models,
+                preserve_external_paths,
             ),
             Some("schlib") => Self::copy_schlib_component_cross_library(
                 source_filepath,
@@ -7169,7 +7904,7 @@ impl McpServer {
     }
 
     /// Copies a footprint from one `PcbLib` to another.
-    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines, clippy::too_many_arguments)]
     fn copy_pcblib_component_cross_library(
         source_filepath: &str,
         target_filepath: &str,
@@ -7177,6 +7912,7 @@ impl McpServer {
         target_name: &str,
         description: Option<&str>,
         ignore_missing_models: bool,
+        preserve_external_paths: bool,
     ) -> ToolCallResult {
         use crate::altium::PcbLib;
 
@@ -7200,9 +7936,16 @@ impl McpServer {
             new_footprint.description = desc.to_string();
         }
 
-        // Clear model_3d reference - the STEP file path is relative to the source library
-        // and won't be valid in the target location. Users can re-attach 3D models later.
-        let had_model_3d = new_footprint.model_3d.take().is_some();
+        // Handle model_3d reference - the STEP file path is relative to the source library
+        // and may not be valid in the target location.
+        let had_model_3d = new_footprint.model_3d.is_some();
+        let preserved_model_3d = if preserve_external_paths {
+            // Keep the external path - user explicitly requested this
+            new_footprint.model_3d.is_some()
+        } else {
+            new_footprint.model_3d.take();
+            false
+        };
 
         // Collect embedded model IDs referenced by this footprint and check availability
         let mut embedded_model_ids: Vec<String> = Vec::new();
@@ -7303,9 +8046,14 @@ impl McpServer {
 
         // Collect warnings
         let mut warnings: Vec<String> = Vec::new();
-        if had_model_3d {
+        if had_model_3d && !preserved_model_3d {
             warnings.push(
                 "External 3D model reference was removed (STEP file path not portable across libraries)".to_string()
+            );
+        }
+        if preserved_model_3d {
+            warnings.push(
+                "External 3D model path was preserved - verify the path is valid in the target location".to_string()
             );
         }
         if !missing_model_ids.is_empty() {
@@ -7318,6 +8066,7 @@ impl McpServer {
         if !warnings.is_empty() {
             result["warnings"] = json!(warnings);
         }
+        result["preserve_external_paths"] = json!(preserve_external_paths);
 
         // Run post-write validation
         if let Some(validation) = Self::post_write_validation_pcblib(target_filepath) {
@@ -8611,6 +9360,96 @@ impl McpServer {
             "units": "schematic units (10 = 1 grid)",
             "component": symbol,
             "message": format!("Retrieved symbol '{}' from '{}'", component_name, filepath),
+        });
+
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Checks if one or more components exist in an Altium library.
+    fn call_component_exists(&self, arguments: &Value) -> ToolCallResult {
+        use crate::altium::{PcbLib, SchLib};
+
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        let Some(names) = arguments.get("component_names").and_then(Value::as_array) else {
+            return ToolCallResult::error("Missing required parameter: component_names");
+        };
+
+        // Convert names to strings
+        let names: Vec<&str> = names.iter().filter_map(Value::as_str).collect();
+
+        if names.is_empty() {
+            return ToolCallResult::error(
+                "component_names array is empty or contains non-string values",
+            );
+        }
+
+        // Validate path
+        if let Err(e) = self.validate_path(filepath) {
+            return ToolCallResult::error(e);
+        }
+
+        let ext = std::path::Path::new(filepath)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_lowercase);
+
+        let results: Vec<Value> = match ext.as_deref() {
+            Some("pcblib") => {
+                let library = match PcbLib::open(filepath) {
+                    Ok(lib) => lib,
+                    Err(e) => return ToolCallResult::error(format!("Failed to read library: {e}")),
+                };
+                names
+                    .iter()
+                    .map(|name| {
+                        json!({
+                            "name": *name,
+                            "exists": library.get(name).is_some(),
+                        })
+                    })
+                    .collect()
+            }
+            Some("schlib") => {
+                let library = match SchLib::open(filepath) {
+                    Ok(lib) => lib,
+                    Err(e) => return ToolCallResult::error(format!("Failed to read library: {e}")),
+                };
+                names
+                    .iter()
+                    .map(|name| {
+                        json!({
+                            "name": *name,
+                            "exists": library.get(name).is_some(),
+                        })
+                    })
+                    .collect()
+            }
+            Some(ext) => {
+                return ToolCallResult::error(format!(
+                    "Unsupported file type: .{ext}. Use .PcbLib or .SchLib"
+                ))
+            }
+            None => return ToolCallResult::error("File has no extension. Use .PcbLib or .SchLib"),
+        };
+
+        let all_exist = results
+            .iter()
+            .all(|r| r["exists"].as_bool().unwrap_or(false));
+        let exists_count = results
+            .iter()
+            .filter(|r| r["exists"].as_bool().unwrap_or(false))
+            .count();
+
+        let result = json!({
+            "status": "success",
+            "filepath": filepath,
+            "checked_count": results.len(),
+            "exists_count": exists_count,
+            "all_exist": all_exist,
+            "results": results,
         });
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
@@ -10104,6 +10943,622 @@ impl McpServer {
             "renames": renames.iter()
                 .map(|(old, new)| json!({"from": old, "to": new}))
                 .collect::<Vec<_>>()
+        });
+
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Lists available backup files for an Altium library.
+    fn call_list_backups(&self, arguments: &Value) -> ToolCallResult {
+        use std::path::Path;
+
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        // Validate path is within allowed directories
+        if let Err(e) = self.validate_path(filepath) {
+            return ToolCallResult::error(e);
+        }
+
+        let path = Path::new(filepath);
+        let Some(parent) = path.parent() else {
+            return ToolCallResult::error("Cannot determine parent directory");
+        };
+        let Some(filename) = path.file_name().and_then(|n| n.to_str()) else {
+            return ToolCallResult::error("Cannot determine filename");
+        };
+
+        // Find backup files matching pattern: {filename}.{timestamp}.bak
+        let backup_pattern = format!("{filename}.");
+        let mut backups: Vec<Value> = Vec::new();
+
+        let entries = match std::fs::read_dir(parent) {
+            Ok(e) => e,
+            Err(e) => return ToolCallResult::error(format!("Failed to read directory: {e}")),
+        };
+
+        for entry in entries.flatten() {
+            let entry_name = entry.file_name();
+            let Some(name) = entry_name.to_str() else {
+                continue;
+            };
+
+            // Check if this is a backup file for our target
+            let is_bak = Path::new(name)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("bak"));
+            if name.starts_with(&backup_pattern) && is_bak {
+                // Extract timestamp from filename
+                let middle = &name[backup_pattern.len()..name.len() - 4]; // Remove prefix and ".bak"
+
+                // Validate timestamp format (YYYYMMDD_HHMMSS)
+                if middle.len() == 15 && middle.chars().nth(8) == Some('_') {
+                    let metadata = entry.metadata().ok();
+                    let size = metadata.as_ref().map_or(0, std::fs::Metadata::len);
+                    let modified = metadata.and_then(|m| m.modified().ok()).and_then(|t| {
+                        t.duration_since(std::time::UNIX_EPOCH)
+                            .ok()
+                            .map(|d| d.as_secs())
+                    });
+
+                    backups.push(json!({
+                        "path": entry.path().to_string_lossy(),
+                        "timestamp": middle,
+                        "size_bytes": size,
+                        "modified_unix": modified
+                    }));
+                }
+            }
+        }
+
+        // Sort by timestamp descending (most recent first)
+        backups.sort_by(|a, b| {
+            let ts_a = a.get("timestamp").and_then(Value::as_str).unwrap_or("");
+            let ts_b = b.get("timestamp").and_then(Value::as_str).unwrap_or("");
+            ts_b.cmp(ts_a)
+        });
+
+        let result = json!({
+            "filepath": filepath,
+            "backup_count": backups.len(),
+            "backups": backups
+        });
+
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Restores an Altium library from a backup file.
+    fn call_restore_backup(&self, arguments: &Value) -> ToolCallResult {
+        use std::path::Path;
+
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        // Validate path is within allowed directories
+        if let Err(e) = self.validate_path(filepath) {
+            return ToolCallResult::error(e);
+        }
+
+        let backup_path = if let Some(bp) = arguments.get("backup_path").and_then(Value::as_str) {
+            // User specified a backup path - validate it
+            if let Err(e) = self.validate_path(bp) {
+                return ToolCallResult::error(e);
+            }
+            bp.to_string()
+        } else {
+            // Find the most recent backup
+            let path = Path::new(filepath);
+            let Some(parent) = path.parent() else {
+                return ToolCallResult::error("Cannot determine parent directory");
+            };
+            let Some(filename) = path.file_name().and_then(|n| n.to_str()) else {
+                return ToolCallResult::error("Cannot determine filename");
+            };
+
+            let backup_pattern = format!("{filename}.");
+            let mut most_recent: Option<(String, String)> = None;
+
+            let entries = match std::fs::read_dir(parent) {
+                Ok(e) => e,
+                Err(e) => return ToolCallResult::error(format!("Failed to read directory: {e}")),
+            };
+
+            for entry in entries.flatten() {
+                let entry_name = entry.file_name();
+                let Some(name) = entry_name.to_str() else {
+                    continue;
+                };
+
+                let is_bak = Path::new(name)
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("bak"));
+                if name.starts_with(&backup_pattern) && is_bak {
+                    let middle = &name[backup_pattern.len()..name.len() - 4];
+                    if middle.len() == 15 && middle.chars().nth(8) == Some('_') {
+                        let entry_path = entry.path().to_string_lossy().into_owned();
+                        if most_recent
+                            .as_ref()
+                            .map_or(true, |(_, ts)| middle > ts.as_str())
+                        {
+                            most_recent = Some((entry_path, middle.to_string()));
+                        }
+                    }
+                }
+            }
+
+            match most_recent {
+                Some((path, _)) => path,
+                None => {
+                    return ToolCallResult::error(format!(
+                        "No backup files found for '{}'",
+                        path.file_name().map_or_else(
+                            || "file".to_string(),
+                            |n| n.to_string_lossy().into_owned()
+                        )
+                    ))
+                }
+            }
+        };
+
+        // Verify backup exists
+        let backup = Path::new(&backup_path);
+        if !backup.exists() {
+            return ToolCallResult::error(format!("Backup file does not exist: {backup_path}"));
+        }
+
+        // Get file sizes for reporting
+        let backup_size = std::fs::metadata(&backup_path).map_or(0, |m| m.len());
+        let original_size = std::fs::metadata(filepath).map(|m| m.len()).ok();
+
+        // Copy backup over the original
+        if let Err(e) = std::fs::copy(&backup_path, filepath) {
+            return ToolCallResult::error(format!("Failed to restore backup: {e}"));
+        }
+
+        let result = json!({
+            "status": "success",
+            "filepath": filepath,
+            "restored_from": backup_path,
+            "backup_size_bytes": backup_size,
+            "original_size_bytes": original_size
+        });
+
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Updates specific properties of a pad in a `PcbLib` footprint.
+    #[allow(clippy::too_many_lines)]
+    fn call_update_pad(&self, arguments: &Value) -> ToolCallResult {
+        use crate::altium::pcblib::primitives::PadShape;
+        use crate::altium::PcbLib;
+
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+        let Some(component_name) = arguments.get("component_name").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: component_name");
+        };
+        let Some(designator) = arguments.get("designator").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: designator");
+        };
+        let Some(updates) = arguments.get("updates") else {
+            return ToolCallResult::error("Missing required parameter: updates");
+        };
+
+        // Validate path
+        if let Err(e) = self.validate_path(filepath) {
+            return ToolCallResult::error(e);
+        }
+
+        let dry_run = arguments
+            .get("dry_run")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+        // Read library
+        let mut library = match PcbLib::open(filepath) {
+            Ok(lib) => lib,
+            Err(e) => return ToolCallResult::error(format!("Failed to read library: {e}")),
+        };
+
+        // Find footprint
+        let Some(footprint) = library.get_mut(component_name) else {
+            let available: Vec<String> = library.names();
+            return ToolCallResult::error(format!(
+                "Footprint '{component_name}' not found. Available: {available:?}"
+            ));
+        };
+
+        // Find pad by designator
+        let Some(pad) = footprint
+            .pads
+            .iter_mut()
+            .find(|p| p.designator == designator)
+        else {
+            let available: Vec<&str> = footprint
+                .pads
+                .iter()
+                .map(|p| p.designator.as_str())
+                .collect();
+            return ToolCallResult::error(format!(
+                "Pad '{designator}' not found in footprint '{component_name}'. Available: {available:?}"
+            ));
+        };
+
+        // Track changes for reporting
+        let mut changes: Vec<Value> = Vec::new();
+
+        // Apply updates
+        if let Some(x) = updates.get("x").and_then(Value::as_f64) {
+            changes.push(json!({"property": "x", "old": pad.x, "new": x}));
+            pad.x = x;
+        }
+        if let Some(y) = updates.get("y").and_then(Value::as_f64) {
+            changes.push(json!({"property": "y", "old": pad.y, "new": y}));
+            pad.y = y;
+        }
+        if let Some(width) = updates.get("width").and_then(Value::as_f64) {
+            changes.push(json!({"property": "width", "old": pad.width, "new": width}));
+            pad.width = width;
+        }
+        if let Some(height) = updates.get("height").and_then(Value::as_f64) {
+            changes.push(json!({"property": "height", "old": pad.height, "new": height}));
+            pad.height = height;
+        }
+        if let Some(rotation) = updates.get("rotation").and_then(Value::as_f64) {
+            changes.push(json!({"property": "rotation", "old": pad.rotation, "new": rotation}));
+            pad.rotation = rotation;
+        }
+        if let Some(hole_size) = updates.get("hole_size").and_then(Value::as_f64) {
+            changes.push(json!({"property": "hole_size", "old": pad.hole_size, "new": hole_size}));
+            pad.hole_size = Some(hole_size);
+        }
+        if let Some(shape_str) = updates.get("shape").and_then(Value::as_str) {
+            let new_shape = match shape_str.to_lowercase().as_str() {
+                "rectangle" | "rect" => PadShape::Rectangle,
+                "round" | "circular" => PadShape::Round,
+                "oval" | "oblong" => PadShape::Oval,
+                "roundedrectangle" | "rounded" => PadShape::RoundedRectangle,
+                _ => {
+                    return ToolCallResult::error(format!(
+                    "Invalid shape '{shape_str}'. Valid: Rectangle, Round, Oval, RoundedRectangle"
+                ))
+                }
+            };
+            changes.push(
+                json!({"property": "shape", "old": format!("{:?}", pad.shape), "new": shape_str}),
+            );
+            pad.shape = new_shape;
+        }
+
+        if changes.is_empty() {
+            return ToolCallResult::error("No valid updates specified");
+        }
+
+        // Save if not dry run
+        if !dry_run {
+            if let Err(e) = Self::create_backup(filepath) {
+                return ToolCallResult::error(e);
+            }
+            if let Err(e) = library.save(filepath) {
+                return ToolCallResult::error(format!("Failed to save library: {e}"));
+            }
+        }
+
+        let result = json!({
+            "status": if dry_run { "dry_run" } else { "success" },
+            "filepath": filepath,
+            "component_name": component_name,
+            "designator": designator,
+            "changes": changes,
+            "dry_run": dry_run
+        });
+
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Updates specific properties of a primitive in a `PcbLib` footprint.
+    #[allow(clippy::too_many_lines, clippy::cast_possible_truncation)]
+    fn call_update_primitive(&self, arguments: &Value) -> ToolCallResult {
+        use crate::altium::pcblib::primitives::Layer;
+        use crate::altium::PcbLib;
+
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+        let Some(component_name) = arguments.get("component_name").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: component_name");
+        };
+        let Some(primitive_type) = arguments.get("primitive_type").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: primitive_type");
+        };
+        let Some(index) = arguments.get("index").and_then(Value::as_u64) else {
+            return ToolCallResult::error("Missing required parameter: index");
+        };
+        let index = index as usize;
+        let Some(updates) = arguments.get("updates") else {
+            return ToolCallResult::error("Missing required parameter: updates");
+        };
+
+        // Validate path
+        if let Err(e) = self.validate_path(filepath) {
+            return ToolCallResult::error(e);
+        }
+
+        let dry_run = arguments
+            .get("dry_run")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+        // Read library
+        let mut library = match PcbLib::open(filepath) {
+            Ok(lib) => lib,
+            Err(e) => return ToolCallResult::error(format!("Failed to read library: {e}")),
+        };
+
+        // Find footprint
+        let Some(footprint) = library.get_mut(component_name) else {
+            let available: Vec<String> = library.names();
+            return ToolCallResult::error(format!(
+                "Footprint '{component_name}' not found. Available: {available:?}"
+            ));
+        };
+
+        // Parse layer from string if provided
+        let parse_layer = |s: &str| -> Option<Layer> {
+            match s.to_lowercase().as_str() {
+                "toplayer" | "top" => Some(Layer::TopLayer),
+                "bottomlayer" | "bottom" => Some(Layer::BottomLayer),
+                "topoverlay" | "topsilk" => Some(Layer::TopOverlay),
+                "bottomoverlay" | "bottomsilk" => Some(Layer::BottomOverlay),
+                "multilayer" => Some(Layer::MultiLayer),
+                "mechanical1" => Some(Layer::Mechanical1),
+                "mechanical2" => Some(Layer::Mechanical2),
+                "mechanical3" => Some(Layer::Mechanical3),
+                "mechanical4" => Some(Layer::Mechanical4),
+                _ => None,
+            }
+        };
+
+        let mut changes: Vec<Value> = Vec::new();
+
+        match primitive_type {
+            "track" => {
+                if index >= footprint.tracks.len() {
+                    return ToolCallResult::error(format!(
+                        "Track index {} out of range (0..{})",
+                        index,
+                        footprint.tracks.len()
+                    ));
+                }
+                let track = &mut footprint.tracks[index];
+
+                if let Some(x1) = updates.get("x1").and_then(Value::as_f64) {
+                    changes.push(json!({"property": "x1", "old": track.x1, "new": x1}));
+                    track.x1 = x1;
+                }
+                if let Some(y1) = updates.get("y1").and_then(Value::as_f64) {
+                    changes.push(json!({"property": "y1", "old": track.y1, "new": y1}));
+                    track.y1 = y1;
+                }
+                if let Some(x2) = updates.get("x2").and_then(Value::as_f64) {
+                    changes.push(json!({"property": "x2", "old": track.x2, "new": x2}));
+                    track.x2 = x2;
+                }
+                if let Some(y2) = updates.get("y2").and_then(Value::as_f64) {
+                    changes.push(json!({"property": "y2", "old": track.y2, "new": y2}));
+                    track.y2 = y2;
+                }
+                if let Some(width) = updates.get("width").and_then(Value::as_f64) {
+                    changes.push(json!({"property": "width", "old": track.width, "new": width}));
+                    track.width = width;
+                }
+                if let Some(layer_str) = updates.get("layer").and_then(Value::as_str) {
+                    if let Some(layer) = parse_layer(layer_str) {
+                        changes.push(json!({"property": "layer", "old": format!("{:?}", track.layer), "new": layer_str}));
+                        track.layer = layer;
+                    } else {
+                        return ToolCallResult::error(format!("Invalid layer: {layer_str}"));
+                    }
+                }
+            }
+            "arc" => {
+                if index >= footprint.arcs.len() {
+                    return ToolCallResult::error(format!(
+                        "Arc index {} out of range (0..{})",
+                        index,
+                        footprint.arcs.len()
+                    ));
+                }
+                let arc = &mut footprint.arcs[index];
+
+                if let Some(x) = updates
+                    .get("x1")
+                    .or_else(|| updates.get("x"))
+                    .and_then(Value::as_f64)
+                {
+                    changes.push(json!({"property": "x", "old": arc.x, "new": x}));
+                    arc.x = x;
+                }
+                if let Some(y) = updates
+                    .get("y1")
+                    .or_else(|| updates.get("y"))
+                    .and_then(Value::as_f64)
+                {
+                    changes.push(json!({"property": "y", "old": arc.y, "new": y}));
+                    arc.y = y;
+                }
+                if let Some(radius) = updates.get("radius").and_then(Value::as_f64) {
+                    changes.push(json!({"property": "radius", "old": arc.radius, "new": radius}));
+                    arc.radius = radius;
+                }
+                if let Some(start_angle) = updates.get("start_angle").and_then(Value::as_f64) {
+                    changes.push(json!({"property": "start_angle", "old": arc.start_angle, "new": start_angle}));
+                    arc.start_angle = start_angle;
+                }
+                if let Some(end_angle) = updates.get("end_angle").and_then(Value::as_f64) {
+                    changes.push(
+                        json!({"property": "end_angle", "old": arc.end_angle, "new": end_angle}),
+                    );
+                    arc.end_angle = end_angle;
+                }
+                if let Some(width) = updates.get("width").and_then(Value::as_f64) {
+                    changes.push(json!({"property": "width", "old": arc.width, "new": width}));
+                    arc.width = width;
+                }
+                if let Some(layer_str) = updates.get("layer").and_then(Value::as_str) {
+                    if let Some(layer) = parse_layer(layer_str) {
+                        changes.push(json!({"property": "layer", "old": format!("{:?}", arc.layer), "new": layer_str}));
+                        arc.layer = layer;
+                    } else {
+                        return ToolCallResult::error(format!("Invalid layer: {layer_str}"));
+                    }
+                }
+            }
+            "text" => {
+                if index >= footprint.text.len() {
+                    return ToolCallResult::error(format!(
+                        "Text index {} out of range (0..{})",
+                        index,
+                        footprint.text.len()
+                    ));
+                }
+                let text = &mut footprint.text[index];
+
+                if let Some(x) = updates.get("x").and_then(Value::as_f64) {
+                    changes.push(json!({"property": "x", "old": text.x, "new": x}));
+                    text.x = x;
+                }
+                if let Some(y) = updates.get("y").and_then(Value::as_f64) {
+                    changes.push(json!({"property": "y", "old": text.y, "new": y}));
+                    text.y = y;
+                }
+                if let Some(height) = updates.get("height").and_then(Value::as_f64) {
+                    changes.push(json!({"property": "height", "old": text.height, "new": height}));
+                    text.height = height;
+                }
+                if let Some(rotation) = updates.get("rotation").and_then(Value::as_f64) {
+                    changes.push(
+                        json!({"property": "rotation", "old": text.rotation, "new": rotation}),
+                    );
+                    text.rotation = rotation;
+                }
+                if let Some(content) = updates.get("text").and_then(Value::as_str) {
+                    changes.push(
+                        json!({"property": "text", "old": text.text.clone(), "new": content}),
+                    );
+                    text.text = content.to_string();
+                }
+                if let Some(layer_str) = updates.get("layer").and_then(Value::as_str) {
+                    if let Some(layer) = parse_layer(layer_str) {
+                        changes.push(json!({"property": "layer", "old": format!("{:?}", text.layer), "new": layer_str}));
+                        text.layer = layer;
+                    } else {
+                        return ToolCallResult::error(format!("Invalid layer: {layer_str}"));
+                    }
+                }
+            }
+            "fill" => {
+                if index >= footprint.fills.len() {
+                    return ToolCallResult::error(format!(
+                        "Fill index {} out of range (0..{})",
+                        index,
+                        footprint.fills.len()
+                    ));
+                }
+                let fill = &mut footprint.fills[index];
+
+                if let Some(x1) = updates
+                    .get("x1")
+                    .or_else(|| updates.get("x"))
+                    .and_then(Value::as_f64)
+                {
+                    changes.push(json!({"property": "x1", "old": fill.x1, "new": x1}));
+                    fill.x1 = x1;
+                }
+                if let Some(y1) = updates
+                    .get("y1")
+                    .or_else(|| updates.get("y"))
+                    .and_then(Value::as_f64)
+                {
+                    changes.push(json!({"property": "y1", "old": fill.y1, "new": y1}));
+                    fill.y1 = y1;
+                }
+                if let Some(x2) = updates.get("x2").and_then(Value::as_f64) {
+                    changes.push(json!({"property": "x2", "old": fill.x2, "new": x2}));
+                    fill.x2 = x2;
+                }
+                if let Some(y2) = updates.get("y2").and_then(Value::as_f64) {
+                    changes.push(json!({"property": "y2", "old": fill.y2, "new": y2}));
+                    fill.y2 = y2;
+                }
+                if let Some(rotation) = updates.get("rotation").and_then(Value::as_f64) {
+                    changes.push(
+                        json!({"property": "rotation", "old": fill.rotation, "new": rotation}),
+                    );
+                    fill.rotation = rotation;
+                }
+                if let Some(layer_str) = updates.get("layer").and_then(Value::as_str) {
+                    if let Some(layer) = parse_layer(layer_str) {
+                        changes.push(json!({"property": "layer", "old": format!("{:?}", fill.layer), "new": layer_str}));
+                        fill.layer = layer;
+                    } else {
+                        return ToolCallResult::error(format!("Invalid layer: {layer_str}"));
+                    }
+                }
+            }
+            "region" => {
+                if index >= footprint.regions.len() {
+                    return ToolCallResult::error(format!(
+                        "Region index {} out of range (0..{})",
+                        index,
+                        footprint.regions.len()
+                    ));
+                }
+                let region = &mut footprint.regions[index];
+
+                // Regions mainly have vertices and layer
+                if let Some(layer_str) = updates.get("layer").and_then(Value::as_str) {
+                    if let Some(layer) = parse_layer(layer_str) {
+                        changes.push(json!({"property": "layer", "old": format!("{:?}", region.layer), "new": layer_str}));
+                        region.layer = layer;
+                    } else {
+                        return ToolCallResult::error(format!("Invalid layer: {layer_str}"));
+                    }
+                }
+                // Note: Updating region vertices would require array-based updates, which is more complex
+            }
+            _ => {
+                return ToolCallResult::error(format!(
+                    "Invalid primitive_type '{primitive_type}'. Valid: track, arc, region, text, fill"
+                ));
+            }
+        }
+
+        if changes.is_empty() {
+            return ToolCallResult::error("No valid updates specified for this primitive type");
+        }
+
+        // Save if not dry run
+        if !dry_run {
+            if let Err(e) = Self::create_backup(filepath) {
+                return ToolCallResult::error(e);
+            }
+            if let Err(e) = library.save(filepath) {
+                return ToolCallResult::error(format!("Failed to save library: {e}"));
+            }
+        }
+
+        let result = json!({
+            "status": if dry_run { "dry_run" } else { "success" },
+            "filepath": filepath,
+            "component_name": component_name,
+            "primitive_type": primitive_type,
+            "index": index,
+            "changes": changes,
+            "dry_run": dry_run
         });
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())

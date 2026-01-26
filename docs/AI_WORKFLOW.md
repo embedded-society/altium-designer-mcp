@@ -1144,6 +1144,71 @@ Use `update_component` to replace a component while preserving its position in t
 - Replace outdated components with new versions
 - Fix errors in existing components without changing library order
 
+### Incremental Primitive Updates
+
+Use `update_pad` and `update_primitive` for targeted changes to individual primitives without
+replacing the entire component. This is more efficient when making small adjustments.
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ INCREMENTAL UPDATE WORKFLOW                                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  UPDATE A SINGLE PAD                                                        │
+│  AI calls: update_pad {                                                     │
+│      filepath: "./Passives.PcbLib",                                         │
+│      component_name: "RESC0603",                                            │
+│      designator: "1",                                                       │
+│      updates: { width: 1.0, shape: "rectangle" }                            │
+│  }                                                                          │
+│                                                                             │
+│  UPDATE A TRACK                                                             │
+│  AI calls: update_primitive {                                               │
+│      filepath: "./Passives.PcbLib",                                         │
+│      component_name: "RESC0603",                                            │
+│      primitive_type: "track",                                               │
+│      index: 0,                                                              │
+│      updates: { width: 0.15 }                                               │
+│  }                                                                          │
+│                                                                             │
+│  PREVIEW CHANGES (dry run)                                                  │
+│  AI calls: update_pad { ..., dry_run: true }                                │
+│  Returns: preview of what would change without modifying the file           │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Use cases:**
+
+- Adjust pad size for pin 1 indicator
+- Change track width across silkscreen
+- Update text position or content
+- Fine-tune primitive properties without full component rebuild
+
+### Checking Component Existence
+
+Use `component_exists` to verify components exist before operations like copy or merge:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ COMPONENT VALIDATION WORKFLOW                                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  CHECK MULTIPLE COMPONENTS                                                  │
+│  AI calls: component_exists {                                               │
+│      filepath: "./MyLibrary.PcbLib",                                        │
+│      component_names: ["RESC0603", "CAPC0402", "MISSING"]                   │
+│  }                                                                          │
+│  Returns: { all_exist: false, results: [...] }                              │
+│                                                                             │
+│  VALIDATE BEFORE CROSS-LIBRARY COPY                                         │
+│  1. AI calls: component_exists to verify source exists                      │
+│  2. AI calls: component_exists to verify target doesn't have conflicts      │
+│  3. AI calls: copy_component_cross_library                                  │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
 ### Searching Components
 
 Use `search_components` to find components across multiple libraries using glob or regex patterns:
@@ -1452,6 +1517,53 @@ Use `manage_schlib_footprints` to link schematic symbols to PCB footprints:
 - Link symbols to multiple package variants (SOIC, DIP, QFN)
 - Update footprint references when libraries change
 - Clean up obsolete footprint links
+
+### Managing Backups
+
+Use `list_backups` and `restore_backup` to manage automatic backups created before destructive
+operations:
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ BACKUP MANAGEMENT WORKFLOW                                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  LIST AVAILABLE BACKUPS                                                     │
+│  AI calls: list_backups {                                                   │
+│      filepath: "./MyLibrary.PcbLib"                                         │
+│  }                                                                          │
+│  Returns: list of backup files with timestamps and sizes                    │
+│                                                                             │
+│  RESTORE FROM MOST RECENT BACKUP                                            │
+│  AI calls: restore_backup {                                                 │
+│      filepath: "./MyLibrary.PcbLib"                                         │
+│  }                                                                          │
+│  Restores the file from the most recent backup                              │
+│                                                                             │
+│  RESTORE FROM SPECIFIC BACKUP                                               │
+│  AI calls: restore_backup {                                                 │
+│      filepath: "./MyLibrary.PcbLib",                                        │
+│      backup_filename: "MyLibrary.PcbLib.20260125_091500.bak"                │
+│  }                                                                          │
+│  Restores the file from the specified backup                                │
+│                                                                             │
+│  DISABLE BACKUP FOR AN OPERATION                                            │
+│  AI calls: delete_component {                                               │
+│      filepath: "./MyLibrary.PcbLib",                                        │
+│      component_names: ["TEST_COMPONENT"],                                   │
+│      create_backup: false                                                   │
+│  }                                                                          │
+│  Skips backup creation (use with caution)                                   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Use cases:**
+
+- Recover from accidental deletions or modifications
+- Compare current version with previous states
+- Roll back failed batch operations
+- Clean up test changes
 
 ---
 
