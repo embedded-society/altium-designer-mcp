@@ -10741,6 +10741,78 @@ mod tests {
         assert!(text.contains("RESISTOR"), "Should contain symbol name");
     }
 
+    #[test]
+    fn render_footprint_multidigit_designators() {
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("multidigit.PcbLib");
+
+        // Create footprint with multi-digit pad designators
+        let mut lib = PcbLib::new();
+        let mut fp = Footprint::new("BGA_100");
+        // Add pads with various designator lengths
+        fp.add_pad(Pad::smd("1", -2.0, 2.0, 0.5, 0.5));
+        fp.add_pad(Pad::smd("10", -1.0, 2.0, 0.5, 0.5));
+        fp.add_pad(Pad::smd("100", 0.0, 2.0, 0.5, 0.5));
+        fp.add_pad(Pad::smd("A01", 1.0, 2.0, 0.5, 0.5));
+        fp.add_pad(Pad::smd("AA01", 2.0, 2.0, 0.5, 0.5));
+        lib.add(fp);
+        lib.save(&lib_path).expect("Failed to create test PcbLib");
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepath": lib_path.to_string_lossy(),
+            "component_name": "BGA_100",
+            "scale": 4.0
+        });
+
+        let result = server.call_render_footprint(&args);
+        assert!(!result.is_error, "Expected success, got: {}", get_result_text(&result));
+
+        let text = get_result_text(&result);
+        // Verify full designators are shown (not truncated)
+        assert!(text.contains("10"), "Should show full '10' designator");
+        assert!(text.contains("100"), "Should show full '100' designator");
+        assert!(text.contains("A01"), "Should show full 'A01' designator");
+        assert!(text.contains("AA01"), "Should show full 'AA01' designator");
+    }
+
+    #[test]
+    fn render_symbol_multidigit_designators() {
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("multidigit.SchLib");
+
+        // Create symbol with multi-digit pin designators
+        let mut lib = SchLib::new();
+        let mut sym = Symbol::new("IC_100PIN");
+        sym.designator = "U?".to_string();
+        // Add pins with various designator lengths
+        sym.add_pin(Pin::new("1", "PIN1", -40, 30, 10, PinOrientation::Right));
+        sym.add_pin(Pin::new("10", "PIN10", -40, 20, 10, PinOrientation::Right));
+        sym.add_pin(Pin::new("100", "PIN100", -40, 10, 10, PinOrientation::Right));
+        sym.add_pin(Pin::new("VCC", "VCC", -40, 0, 10, PinOrientation::Right));
+        sym.add_pin(Pin::new("GND", "GND", -40, -10, 10, PinOrientation::Right));
+        sym.add_rectangle(Rectangle::new(-30, -20, 30, 40));
+        lib.add(sym);
+        lib.save(&lib_path).expect("Failed to create test SchLib");
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepath": lib_path.to_string_lossy(),
+            "component_name": "IC_100PIN",
+            "scale": 1.5
+        });
+
+        let result = server.call_render_symbol(&args);
+        assert!(!result.is_error, "Expected success, got: {}", get_result_text(&result));
+
+        let text = get_result_text(&result);
+        // Verify full designators are shown (not truncated to single char)
+        assert!(text.contains("10"), "Should show full '10' designator");
+        assert!(text.contains("100"), "Should show full '100' designator");
+        assert!(text.contains("VCC"), "Should show full 'VCC' designator");
+        assert!(text.contains("GND"), "Should show full 'GND' designator");
+    }
+
     // =========================================================================
     // Error Path Tests
     // =========================================================================

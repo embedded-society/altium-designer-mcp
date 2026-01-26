@@ -1315,7 +1315,7 @@ Use `render_symbol` to generate an ASCII art visualisation of schematic symbols:
 │  }                                                                          │
 │                                                                             │
 │  Returns ASCII art showing:                                                 │
-│  • Pins (1-9/*) with designator                                             │
+│  • Pins with full designator (e.g., 1, 10, VCC, AA01)                       │
 │  • Rectangles (|-+) as box outlines                                         │
 │  • Pin lines (~) extending from body                                        │
 │  • Arcs (o) and ellipses (O)                                                │
@@ -1338,7 +1338,7 @@ Pins: 4, Rectangles: 1, Lines: 0
 |        +--------+                                          |
 |                                                            |
 --------------------------------------------------------------
-Legend: 1-9/* = pin, |-+ = rectangle, ~ = pin line, + = origin
+Legend: |-+ = rectangle, ~ = pin line, + = origin
 ```
 
 **Use cases:**

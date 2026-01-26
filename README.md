@@ -933,7 +933,7 @@ and other primitives in a simple text format for quick preview.
 | `max_width` | Maximum width in characters (default: 80) |
 | `max_height` | Maximum height in characters (default: 40) |
 
-Returns ASCII art with legend: `#` = pad, `-` = track, `o` = arc, `+` = origin.
+Returns ASCII art with pad designators shown in full (e.g., "1", "10", "A01"). Legend: `#` = pad area, `-` = track, `o` = arc, `+` = origin.
 
 ### `render_symbol`
 
@@ -963,7 +963,7 @@ rectangles, lines, and other primitives in a simple text format for quick previe
 | `max_height` | Maximum height in characters (default: 40) |
 | `part_id` | Part ID for multi-part symbols (default: 1, use 0 for all parts) |
 
-Returns ASCII art with legend: `1-9/*` = pin, `|-+` = rectangle, `~` = pin line, `o` = arc, `O` = ellipse, `+` = origin.
+Returns ASCII art with pin designators shown in full (e.g., "1", "10", "VCC"). Legend: `|-+` = rectangle, `~` = pin line, `o` = arc, `O` = ellipse, `+` = origin.
 
 ### `manage_schlib_parameters`
 
