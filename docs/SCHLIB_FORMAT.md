@@ -96,43 +96,57 @@ Text records contain pipe-delimited key=value pairs:
 
 ## Binary Pin Records (Type 1)
 
-Binary pin records have a variable-length structure. Offsets after the description string are relative.
+Binary pin records have a variable-length structure with three length-prefixed strings.
+
+### Fixed Header (12 bytes)
+
+| Offset | Size | Field | Notes |
+|--------|------|-------|-------|
+| 0-3 | 4 | Record type | Always 2 for pin (i32, LE) |
+| 4 | 1 | Reserved | Unknown purpose |
+| 5-6 | 2 | OwnerPartId | Signed i16, LE (-1 = all parts) |
+| 7 | 1 | OwnerPartDisplayMode | Display mode (typically 0) |
+| 8-11 | 4 | Symbol flags | 4 bytes: InnerEdge, OuterEdge, Inside, Outside |
+
+> **Note:** Symbol flags are currently **not implemented** — the tool reads/writes zeros. See [Pin Symbols](#pin-symbols) for the full format specification.
+
+### Description Block
 
 | Offset | Size | Field |
 |--------|------|-------|
-| 0-3 | 4 | Record type (always 2 for pin) |
-| 4 | 1 | Symbol line width |
-| 5-6 | 2 | OwnerPartId (signed i16, LE) |
-| 7 | 1 | OwnerPartDisplayMode |
-| 8 | 1 | Symbol_InnerEdge (see Pin Symbols below) |
-| 9 | 1 | Symbol_OuterEdge (see Pin Symbols below) |
-| 10 | 1 | Symbol_Inside (see Pin Symbols below) |
-| 11 | 1 | Symbol_Outside (see Pin Symbols below) |
-| 12 | 1 | Description length |
-| 13 | 1 | Formal type |
+| 12 | 1 | Description length (N) |
+| 13 | 1 | Reserved |
 | 14+ | N | Description string (ASCII) |
 
-After description (relative offsets):
+### Pin Properties (after description)
+
+| Offset | Size | Field | Notes |
+|--------|------|-------|-------|
+| +0 | 1 | Electrical_Type | See [Electrical Types](#electrical-types) |
+| +1 | 1 | Flags | See [Pin Flags](#pin-flags-byte-at-1) |
+| +2-3 | 2 | Length | Schematic units, signed i16, LE |
+| +4-5 | 2 | Location.X | Signed i16, LE |
+| +6-7 | 2 | Location.Y | Signed i16, LE |
+| +8-11 | 4 | Colour | BGR format (currently **not implemented** — defaults to black) |
+
+### Name Block (after properties)
 
 | Offset | Size | Field |
 |--------|------|-------|
-| +0 | 1 | Electrical_Type |
-| +1 | 1 | Flags (see below) |
-| +2-3 | 2 | Length (schematic units, i16) |
-| +4-5 | 2 | Location.X (signed i16) |
-| +6-7 | 2 | Location.Y (signed i16) |
-| +8-11 | 4 | Color (BGR format) |
-| +12 | 1 | Name length |
-| +13+ | N | Name string (ASCII) |
+| +0 | 1 | Name length (N) |
+| +1+ | N | Name string (ASCII) |
 
-After name:
+### Designator Block (after name)
 
 | Offset | Size | Field |
 |--------|------|-------|
-| +0 | 1 | Designator length |
+| +0 | 1 | Designator length (N) |
 | +1+ | N | Designator string (ASCII) |
 
 ### Pin Symbols
+
+> **Not implemented:** Pin symbol decorations are documented here for format completeness but are
+> **not currently parsed or written** by this tool. All four symbol bytes are read/written as zeros.
 
 The four symbol positions (InnerEdge, OuterEdge, Inside, Outside) can each have one of these decorations:
 
@@ -163,16 +177,16 @@ The four symbol positions (InnerEdge, OuterEdge, Inside, Outside) can each have 
 
 ### Pin Flags (byte at +1)
 
-| Bit | Flag | Description |
-|-----|------|-------------|
-| 0x01 | Rotated | Pin rotated 90° |
-| 0x02 | Flipped | Pin flipped |
-| 0x04 | Hidden | Pin hidden from view |
-| 0x08 | DisplayNameVisible | Show pin name |
-| 0x10 | DesignatorVisible | Show pin designator |
-| 0x20 | Reserved | Reserved |
-| 0x40 | GraphicallyLocked | Pin is graphically locked |
-| 0x80 | Reserved | Reserved |
+| Bit | Flag | Description | Implemented |
+|-----|------|-------------|-------------|
+| 0x01 | Rotated | Pin rotated 90° | ✓ |
+| 0x02 | Flipped | Pin flipped | ✓ |
+| 0x04 | Hidden | Pin hidden from view | ✓ |
+| 0x08 | DisplayNameVisible | Show pin name | ✓ |
+| 0x10 | DesignatorVisible | Show pin designator | ✓ |
+| 0x20 | Reserved | Reserved | — |
+| 0x40 | GraphicallyLocked | Pin is graphically locked | ✗ |
+| 0x80 | Reserved | Reserved | — |
 
 ### Pin Orientation
 
