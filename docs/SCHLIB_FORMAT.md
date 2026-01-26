@@ -379,7 +379,7 @@ The component header contains symbol-level metadata:
 | `IsSolid` | bool | Whether filled |
 | `Transparent` | bool | Whether transparent |
 
-> **Note:** Rectangle `IsSolid` is always written as `T` (filled). The `Transparent` property is not currently parsed.
+> **Note:** Rectangle `IsSolid` is always written as `T` (filled).
 
 ### Polyline (RECORD=6)
 
