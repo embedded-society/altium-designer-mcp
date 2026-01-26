@@ -9250,7 +9250,8 @@ impl McpServer {
 
         output.push_str(&"-".repeat(canvas_width + 2));
         output.push('\n');
-        output.push_str("Legend: |-+ = rectangle, ~ = pin line, o = arc, O = ellipse, + = origin\n");
+        output
+            .push_str("Legend: |-+ = rectangle, ~ = pin line, o = arc, O = ellipse, + = origin\n");
 
         output
     }
@@ -10766,7 +10767,11 @@ mod tests {
         });
 
         let result = server.call_render_footprint(&args);
-        assert!(!result.is_error, "Expected success, got: {}", get_result_text(&result));
+        assert!(
+            !result.is_error,
+            "Expected success, got: {}",
+            get_result_text(&result)
+        );
 
         let text = get_result_text(&result);
         // Verify full designators are shown (not truncated)
@@ -10788,7 +10793,14 @@ mod tests {
         // Add pins with various designator lengths
         sym.add_pin(Pin::new("1", "PIN1", -40, 30, 10, PinOrientation::Right));
         sym.add_pin(Pin::new("10", "PIN10", -40, 20, 10, PinOrientation::Right));
-        sym.add_pin(Pin::new("100", "PIN100", -40, 10, 10, PinOrientation::Right));
+        sym.add_pin(Pin::new(
+            "100",
+            "PIN100",
+            -40,
+            10,
+            10,
+            PinOrientation::Right,
+        ));
         sym.add_pin(Pin::new("VCC", "VCC", -40, 0, 10, PinOrientation::Right));
         sym.add_pin(Pin::new("GND", "GND", -40, -10, 10, PinOrientation::Right));
         sym.add_rectangle(Rectangle::new(-30, -20, 30, 40));
@@ -10803,7 +10815,11 @@ mod tests {
         });
 
         let result = server.call_render_symbol(&args);
-        assert!(!result.is_error, "Expected success, got: {}", get_result_text(&result));
+        assert!(
+            !result.is_error,
+            "Expected success, got: {}",
+            get_result_text(&result)
+        );
 
         let text = get_result_text(&result);
         // Verify full designators are shown (not truncated to single char)
