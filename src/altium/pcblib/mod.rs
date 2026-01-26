@@ -63,6 +63,26 @@ const INTERNAL_OLE_ENTRIES: &[&str] = &[
 ];
 
 /// A complete PCB footprint.
+///
+/// # Example
+///
+/// ```
+/// use altium_designer_mcp::altium::pcblib::{Footprint, Pad, Track, Layer};
+///
+/// let mut footprint = Footprint::new("RESC1608X55N");
+/// footprint.description = "Chip Resistor 1608 (0603)".to_string();
+///
+/// // Add SMD pads
+/// footprint.add_pad(Pad::smd("1", -0.75, 0.0, 0.85, 0.95));
+/// footprint.add_pad(Pad::smd("2", 0.75, 0.0, 0.85, 0.95));
+///
+/// // Add silkscreen outline
+/// footprint.add_track(Track::new(-0.35, 0.5, 0.35, 0.5, 0.15, Layer::TopOverlay));
+/// footprint.add_track(Track::new(-0.35, -0.5, 0.35, -0.5, 0.15, Layer::TopOverlay));
+///
+/// assert_eq!(footprint.pads.len(), 2);
+/// assert_eq!(footprint.tracks.len(), 2);
+/// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Footprint {
     /// Footprint name (e.g., "RESC1608X55N").
@@ -193,6 +213,29 @@ pub struct LibraryMetadata {
 }
 
 /// A `PcbLib` footprint library.
+///
+/// # Example
+///
+/// ```no_run
+/// use altium_designer_mcp::altium::pcblib::{PcbLib, Footprint, Pad};
+///
+/// // Create a new library and add footprints
+/// let mut lib = PcbLib::new();
+///
+/// let mut footprint = Footprint::new("RESC1608X55N");
+/// footprint.add_pad(Pad::smd("1", -0.75, 0.0, 0.85, 0.95));
+/// footprint.add_pad(Pad::smd("2", 0.75, 0.0, 0.85, 0.95));
+/// lib.add(footprint);
+///
+/// // Save to file
+/// lib.save("MyLibrary.PcbLib").unwrap();
+///
+/// // Open an existing library
+/// let lib = PcbLib::open("MyLibrary.PcbLib").unwrap();
+/// for name in lib.names() {
+///     println!("Footprint: {name}");
+/// }
+/// ```
 #[derive(Debug, Clone, Default)]
 pub struct PcbLib {
     /// Library file path (if loaded from file).

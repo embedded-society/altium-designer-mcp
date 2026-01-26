@@ -60,6 +60,31 @@ use super::{AltiumError, AltiumResult};
 pub use primitives::*;
 
 /// A schematic symbol library.
+///
+/// # Example
+///
+/// ```no_run
+/// use altium_designer_mcp::altium::schlib::{SchLib, Symbol, Pin, PinOrientation};
+///
+/// // Create a new library and add symbols
+/// let mut lib = SchLib::new();
+///
+/// let mut symbol = Symbol::new("RESISTOR");
+/// symbol.description = "Generic Resistor".to_string();
+/// // Pin::new(name, designator, x, y, length, orientation)
+/// symbol.add_pin(Pin::new("1", "1", -200, 0, 100, PinOrientation::Right));
+/// symbol.add_pin(Pin::new("2", "2", 200, 0, 100, PinOrientation::Left));
+/// lib.add(symbol);
+///
+/// // Save to file
+/// lib.save("MyLibrary.SchLib").unwrap();
+///
+/// // Open an existing library
+/// let lib = SchLib::open("MyLibrary.SchLib").unwrap();
+/// for name in lib.names() {
+///     println!("Symbol: {name}");
+/// }
+/// ```
 #[derive(Debug, Default)]
 pub struct SchLib {
     /// Library file path (if loaded from file).
@@ -353,6 +378,27 @@ impl SchLib {
 }
 
 /// A schematic symbol.
+///
+/// # Example
+///
+/// ```
+/// use altium_designer_mcp::altium::schlib::{Symbol, Pin, Rectangle, PinOrientation};
+///
+/// let mut symbol = Symbol::new("RESISTOR");
+/// symbol.description = "Chip Resistor".to_string();
+/// symbol.designator = "R?".to_string();
+///
+/// // Add body rectangle
+/// symbol.add_rectangle(Rectangle::new(-100, -40, 100, 40));
+///
+/// // Add pins (using SchLib units: 1 unit = 10 mils)
+/// // Pin::new(name, designator, x, y, length, orientation)
+/// symbol.add_pin(Pin::new("1", "1", -200, 0, 100, PinOrientation::Right));
+/// symbol.add_pin(Pin::new("2", "2", 200, 0, 100, PinOrientation::Left));
+///
+/// assert_eq!(symbol.pins.len(), 2);
+/// assert_eq!(symbol.rectangles.len(), 1);
+/// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Symbol {
     /// Symbol name (Design Item ID).

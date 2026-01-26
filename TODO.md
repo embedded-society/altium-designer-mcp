@@ -25,9 +25,8 @@ Test with real Altium libraries across different Altium Designer versions to ens
 
 ### API Documentation
 
-**Priority:** Medium
+**Priority:** Low
 
-- Add more rustdoc examples for public API functions
 - Document edge cases and limitations
 
 ---
