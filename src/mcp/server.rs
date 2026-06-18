@@ -294,8 +294,15 @@ impl McpServer {
     ///
     /// The default constructor uses an unlimited limiter (suitable for tests);
     /// production wires a limiter built from the user's configuration.
+    ///
+    /// Deliberately not a `const fn`: the assignment drops the previous
+    /// `RateLimiter`, and `std::sync::Mutex`'s destructor is non-trivial on
+    /// some targets (e.g. macOS), so const-evaluating the drop fails there
+    /// with E0493. The `missing_const_for_fn` lint only observes the
+    /// futex-based targets where it *would* be const, so suppress it.
     #[must_use]
-    pub const fn with_rate_limiter(mut self, rate_limiter: RateLimiter) -> Self {
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn with_rate_limiter(mut self, rate_limiter: RateLimiter) -> Self {
         self.rate_limiter = rate_limiter;
         self
     }
