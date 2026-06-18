@@ -6,5 +6,8 @@
 //! Helpers reached across modules are `pub(crate)`.
 
 mod compare;
+mod diff;
 mod parsing;
 mod render;
+mod step;
+mod validation;
