@@ -22,8 +22,10 @@
 //! - [`error`] — Error types
 //! - [`mcp`] — MCP protocol implementation
 //! - [`altium`] — Altium file format handling
+//! - [`security`] — Rate limiting and other safety controls
 
 pub mod altium;
 pub mod config;
 pub mod error;
 pub mod mcp;
+pub mod security;

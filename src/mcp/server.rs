@@ -22,6 +22,7 @@ use crate::mcp::protocol::{
     JsonRpcRequest, JsonRpcResponse, RequestId, MCP_PROTOCOL_VERSION, SERVER_NAME,
 };
 use crate::mcp::transport::StdioTransport;
+use crate::security::RateLimiter;
 
 /// Server state in the MCP lifecycle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -254,10 +255,15 @@ pub struct McpServer {
     protocol_version: Option<String>,
     /// Allowed paths for library operations.
     allowed_paths: Vec<PathBuf>,
+    /// Rate limiter for destructive (file-mutating) operations.
+    rate_limiter: RateLimiter,
 }
 
 impl McpServer {
     /// Creates a new MCP server with the given allowed paths.
+    ///
+    /// The rate limiter defaults to unlimited; production wires a configured
+    /// limiter via [`McpServer::with_rate_limiter`].
     #[must_use]
     pub fn new(allowed_paths: Vec<PathBuf>) -> Self {
         Self {
@@ -265,7 +271,46 @@ impl McpServer {
             transport: StdioTransport::new(),
             protocol_version: None,
             allowed_paths,
+            rate_limiter: RateLimiter::unlimited(),
         }
+    }
+
+    /// Installs a configured rate limiter for destructive operations.
+    ///
+    /// The default constructor uses an unlimited limiter (suitable for tests);
+    /// production wires a limiter built from the user's configuration.
+    #[must_use]
+    pub const fn with_rate_limiter(mut self, rate_limiter: RateLimiter) -> Self {
+        self.rate_limiter = rate_limiter;
+        self
+    }
+
+    /// Returns `true` if the named tool mutates a library file on disk.
+    ///
+    /// Only these destructive operations are rate limited; read-only tools
+    /// (reads, listings, diffs, renders, validation) are never throttled.
+    fn is_mutating_tool(name: &str) -> bool {
+        matches!(
+            name,
+            "write_pcblib"
+                | "write_schlib"
+                | "delete_component"
+                | "import_library"
+                | "batch_update"
+                | "copy_component"
+                | "rename_component"
+                | "copy_component_cross_library"
+                | "merge_libraries"
+                | "reorder_components"
+                | "update_component"
+                | "manage_schlib_parameters"
+                | "manage_schlib_footprints"
+                | "repair_library"
+                | "restore_backup"
+                | "bulk_rename"
+                | "update_pad"
+                | "update_primitive"
+        )
     }
 
     /// Returns the current server state.
@@ -304,27 +349,25 @@ impl McpServer {
 
         let path = Path::new(filepath);
 
+        // Only ever surface the file name to the client, never the full
+        // (possibly canonicalised) path or the raw OS error text.
+        let name = crate::altium::error::sanitise_path_for_client(path);
+
         // Try to canonicalize the path. If it doesn't exist yet (for write operations),
         // canonicalize the parent directory and append the filename.
         let canonical_path = if path.exists() {
             path.canonicalize()
-                .map_err(|e| format!("Failed to resolve path '{}': {e}", path.display()))?
+                .map_err(|_| format!("Failed to resolve path '{name}'"))?
         } else {
             // For new files, check the parent directory
             let parent = path.parent().ok_or_else(|| {
-                format!(
-                    "Invalid path '{}': no parent directory (cannot create file at root)",
-                    path.display()
-                )
+                format!("Invalid path '{name}': cannot create a file at the filesystem root")
             })?;
-            let filename = path.file_name().ok_or_else(|| {
-                format!("Invalid path '{}': no filename specified", path.display())
-            })?;
-            let canonical_parent = parent.canonicalize().map_err(|e| {
-                format!(
-                    "Parent directory '{}' does not exist or is inaccessible: {e}",
-                    parent.display()
-                )
+            let filename = path
+                .file_name()
+                .ok_or_else(|| format!("Invalid path '{name}': no filename specified"))?;
+            let canonical_parent = parent.canonicalize().map_err(|_| {
+                format!("Parent directory of '{name}' does not exist or is inaccessible")
             })?;
             canonical_parent.join(filename)
         };
@@ -660,46 +703,61 @@ impl McpServer {
                 JsonRpcError::invalid_params(req.id.clone(), "Missing tool call params")
             })?;
 
-        let result = match params.name.as_str() {
-            // Library I/O tools
-            "read_pcblib" => self.call_read_pcblib(&params.arguments),
-            "write_pcblib" => self.call_write_pcblib(&params.arguments),
-            "read_schlib" => self.call_read_schlib(&params.arguments),
-            "write_schlib" => self.call_write_schlib(&params.arguments),
-            "list_components" => self.call_list_components(&params.arguments),
-            "extract_style" => self.call_extract_style(&params.arguments),
-            // Library management tools
-            "delete_component" => self.call_delete_component(&params.arguments),
-            "validate_library" => self.call_validate_library(&params.arguments),
-            "export_library" => self.call_export_library(&params.arguments),
-            "import_library" => self.call_import_library(&params.arguments),
-            "extract_step_model" => self.call_extract_step_model(&params.arguments),
-            "diff_libraries" => self.call_diff_libraries(&params.arguments),
-            "batch_update" => self.call_batch_update(&params.arguments),
-            "copy_component" => self.call_copy_component(&params.arguments),
-            "rename_component" => self.call_rename_component(&params.arguments),
-            "copy_component_cross_library" => {
-                self.call_copy_component_cross_library(&params.arguments)
+        // Throttle mutating operations so a runaway AI loop cannot thrash the
+        // disk with repeated full-file rewrites + backups. Reads are unmetered.
+        let result = if Self::is_mutating_tool(params.name.as_str())
+            && !self.rate_limiter.try_acquire()
+        {
+            tracing::warn!(
+                tool = %params.name,
+                "Rate limit exceeded; rejecting mutating operation"
+            );
+            ToolCallResult::error(
+                "Rate limit exceeded: too many write operations in a short period. \
+                 Please slow down and retry.",
+            )
+        } else {
+            match params.name.as_str() {
+                // Library I/O tools
+                "read_pcblib" => self.call_read_pcblib(&params.arguments),
+                "write_pcblib" => self.call_write_pcblib(&params.arguments),
+                "read_schlib" => self.call_read_schlib(&params.arguments),
+                "write_schlib" => self.call_write_schlib(&params.arguments),
+                "list_components" => self.call_list_components(&params.arguments),
+                "extract_style" => self.call_extract_style(&params.arguments),
+                // Library management tools
+                "delete_component" => self.call_delete_component(&params.arguments),
+                "validate_library" => self.call_validate_library(&params.arguments),
+                "export_library" => self.call_export_library(&params.arguments),
+                "import_library" => self.call_import_library(&params.arguments),
+                "extract_step_model" => self.call_extract_step_model(&params.arguments),
+                "diff_libraries" => self.call_diff_libraries(&params.arguments),
+                "batch_update" => self.call_batch_update(&params.arguments),
+                "copy_component" => self.call_copy_component(&params.arguments),
+                "rename_component" => self.call_rename_component(&params.arguments),
+                "copy_component_cross_library" => {
+                    self.call_copy_component_cross_library(&params.arguments)
+                }
+                "merge_libraries" => self.call_merge_libraries(&params.arguments),
+                "reorder_components" => self.call_reorder_components(&params.arguments),
+                "update_component" => self.call_update_component(&params.arguments),
+                "search_components" => self.call_search_components(&params.arguments),
+                "get_component" => self.call_get_component(&params.arguments),
+                "component_exists" => self.call_component_exists(&params.arguments),
+                "render_footprint" => self.call_render_footprint(&params.arguments),
+                "render_symbol" => self.call_render_symbol(&params.arguments),
+                "manage_schlib_parameters" => self.call_manage_schlib_parameters(&params.arguments),
+                "manage_schlib_footprints" => self.call_manage_schlib_footprints(&params.arguments),
+                "compare_components" => self.call_compare_components(&params.arguments),
+                "repair_library" => self.call_repair_library(&params.arguments),
+                "list_backups" => self.call_list_backups(&params.arguments),
+                "restore_backup" => self.call_restore_backup(&params.arguments),
+                "bulk_rename" => self.call_bulk_rename(&params.arguments),
+                "update_pad" => self.call_update_pad(&params.arguments),
+                "update_primitive" => self.call_update_primitive(&params.arguments),
+                // Unknown tool
+                _ => ToolCallResult::error(format!("Unknown tool: {}", params.name)),
             }
-            "merge_libraries" => self.call_merge_libraries(&params.arguments),
-            "reorder_components" => self.call_reorder_components(&params.arguments),
-            "update_component" => self.call_update_component(&params.arguments),
-            "search_components" => self.call_search_components(&params.arguments),
-            "get_component" => self.call_get_component(&params.arguments),
-            "component_exists" => self.call_component_exists(&params.arguments),
-            "render_footprint" => self.call_render_footprint(&params.arguments),
-            "render_symbol" => self.call_render_symbol(&params.arguments),
-            "manage_schlib_parameters" => self.call_manage_schlib_parameters(&params.arguments),
-            "manage_schlib_footprints" => self.call_manage_schlib_footprints(&params.arguments),
-            "compare_components" => self.call_compare_components(&params.arguments),
-            "repair_library" => self.call_repair_library(&params.arguments),
-            "list_backups" => self.call_list_backups(&params.arguments),
-            "restore_backup" => self.call_restore_backup(&params.arguments),
-            "bulk_rename" => self.call_bulk_rename(&params.arguments),
-            "update_pad" => self.call_update_pad(&params.arguments),
-            "update_primitive" => self.call_update_primitive(&params.arguments),
-            // Unknown tool
-            _ => ToolCallResult::error(format!("Unknown tool: {}", params.name)),
         };
 
         let result_value = serde_json::to_value(&result).map_err(|e| {
@@ -5985,7 +6043,7 @@ impl McpServer {
             Err(e) => {
                 let result = json!({
                     "status": "error",
-                    "error": format!("Failed to read '{}': {}", filepath_a, e),
+                    "error": format!("Failed to read '{}': {e}", crate::altium::error::sanitise_path_for_client(std::path::Path::new(filepath_a))),
                 });
                 return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
             }
@@ -5996,7 +6054,7 @@ impl McpServer {
             Err(e) => {
                 let result = json!({
                     "status": "error",
-                    "error": format!("Failed to read '{}': {}", filepath_b, e),
+                    "error": format!("Failed to read '{}': {e}", crate::altium::error::sanitise_path_for_client(std::path::Path::new(filepath_b))),
                 });
                 return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
             }
@@ -6126,7 +6184,7 @@ impl McpServer {
             Err(e) => {
                 let result = json!({
                     "status": "error",
-                    "error": format!("Failed to read '{}': {}", filepath_a, e),
+                    "error": format!("Failed to read '{}': {e}", crate::altium::error::sanitise_path_for_client(std::path::Path::new(filepath_a))),
                 });
                 return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
             }
@@ -6137,7 +6195,7 @@ impl McpServer {
             Err(e) => {
                 let result = json!({
                     "status": "error",
-                    "error": format!("Failed to read '{}': {}", filepath_b, e),
+                    "error": format!("Failed to read '{}': {e}", crate::altium::error::sanitise_path_for_client(std::path::Path::new(filepath_b))),
                 });
                 return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
             }
@@ -12230,6 +12288,82 @@ mod tests {
     fn server_initial_state() {
         let server = McpServer::new(vec![PathBuf::from(".")]);
         assert_eq!(server.state(), ServerState::AwaitingInit);
+    }
+
+    #[test]
+    fn is_mutating_tool_classification() {
+        for t in [
+            "write_pcblib",
+            "write_schlib",
+            "delete_component",
+            "import_library",
+            "batch_update",
+            "merge_libraries",
+            "update_pad",
+            "update_primitive",
+            "bulk_rename",
+            "restore_backup",
+            "rename_component",
+        ] {
+            assert!(McpServer::is_mutating_tool(t), "{t} should be mutating");
+        }
+
+        for t in [
+            "read_pcblib",
+            "read_schlib",
+            "list_components",
+            "get_component",
+            "diff_libraries",
+            "search_components",
+            "render_footprint",
+            "validate_library",
+            "list_backups",
+            "compare_components",
+        ] {
+            assert!(
+                !McpServer::is_mutating_tool(t),
+                "{t} should not be mutating"
+            );
+        }
+    }
+
+    #[test]
+    fn rate_limit_blocks_excess_mutating_calls_but_not_reads() {
+        let dir = test_temp_dir();
+        let mut server = McpServer::new(vec![dir.path().to_path_buf()])
+            .with_rate_limiter(RateLimiter::new(2, 0.0)); // burst 2, no refill
+        server.state = ServerState::Running;
+
+        let mutating_req = |id: i64| JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: RequestId::Number(id),
+            method: "tools/call".to_string(),
+            params: Some(json!({ "name": "write_pcblib", "arguments": {} })),
+        };
+
+        // The first two mutating calls pass the gate (they then fail in-handler
+        // on missing args, which is a normal tool error, not a rate-limit block).
+        for id in 1..=2 {
+            let resp = server.handle_tools_call(&mutating_req(id)).unwrap();
+            assert!(
+                !resp.result.to_string().contains("Rate limit exceeded"),
+                "call {id} should not be rate limited"
+            );
+        }
+
+        // The third mutating call is blocked by the exhausted bucket.
+        let resp = server.handle_tools_call(&mutating_req(3)).unwrap();
+        assert!(resp.result.to_string().contains("Rate limit exceeded"));
+
+        // Reads are never throttled, even with the bucket exhausted.
+        let read_req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: RequestId::Number(4),
+            method: "tools/call".to_string(),
+            params: Some(json!({ "name": "list_components", "arguments": {} })),
+        };
+        let resp = server.handle_tools_call(&read_req).unwrap();
+        assert!(!resp.result.to_string().contains("Rate limit exceeded"));
     }
 
     #[test]

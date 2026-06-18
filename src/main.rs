@@ -11,6 +11,7 @@ use tracing::{error, info, Level};
 
 use altium_designer_mcp::config;
 use altium_designer_mcp::mcp::server::McpServer;
+use altium_designer_mcp::security::RateLimiter;
 
 /// MCP server for AI-assisted Altium Designer library management.
 ///
@@ -125,8 +126,15 @@ fn main() -> ExitCode {
         "Allowed paths configured"
     );
 
-    // Create MCP server
-    let mut server = McpServer::new(allowed_paths);
+    // Create MCP server with a rate limiter for destructive operations,
+    // configured from the user's settings.
+    let rate_limiter = RateLimiter::new(cfg.rate_limit.max_burst, cfg.rate_limit.refill_per_sec);
+    info!(
+        max_burst = cfg.rate_limit.max_burst,
+        refill_per_sec = cfg.rate_limit.refill_per_sec,
+        "Rate limiting destructive operations"
+    );
+    let mut server = McpServer::new(allowed_paths).with_rate_limiter(rate_limiter);
 
     info!("MCP server ready, waiting for client connection...");
 
