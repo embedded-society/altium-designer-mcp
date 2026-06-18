@@ -198,7 +198,11 @@ jobs:
               uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
               with:
                 files: lcov.info
-                fail_ci_if_error: true
+                # Don't fail CI on Codecov-side errors (e.g. the repository not
+                # yet being activated on codecov.io — a 404 on upload). Coverage
+                # is still computed and uploaded; flip to true once Codecov
+                # reporting is confirmed working.
+                fail_ci_if_error: false
                 verbose: true
               env:
                 CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
