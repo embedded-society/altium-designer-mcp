@@ -5,6 +5,7 @@ Thank you for your interest in contributing to altium-designer-mcp! This documen
 ## Table of Contents
 
 - [Code of Conduct](#code-of-conduct)
+- [Security Considerations](#security-considerations)
 - [How to Contribute](#how-to-contribute)
     - [Reporting Bugs](#reporting-bugs)
     - [Suggesting Features](#suggesting-features)
@@ -22,6 +23,26 @@ Thank you for your interest in contributing to altium-designer-mcp! This documen
 
 This project adheres to the Contributor Covenant Code of Conduct.
 By participating, you are expected to uphold this code. Please see [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for details.
+
+---
+
+## Security Considerations
+
+This is a local file-I/O tool: it reads and writes Altium library files on the user's machine, gated by the
+`allowed_paths` configuration. Most of its risk surface is path handling, so keep these rules in mind when
+contributing code that touches files:
+
+- **Validate every path before reading or writing.** Resolve and canonicalise the path, then confirm it
+    falls within a configured `allowed_paths` entry before any I/O. Never act on a caller-supplied path directly.
+- **Never widen the `allowed_paths` semantics.** Do not add escape hatches, implicit fallbacks, or "convenience"
+    defaults that let operations reach outside the configured directories.
+- **Keep internal paths out of user-facing errors.** Error messages must reference only the file name, never an
+    absolute or otherwise internal path. See [STYLE.md](STYLE.md) for wording conventions.
+- **Add path-traversal tests when adding a tool that touches files.** Cover `..` segments, absolute paths,
+    symlinks, and paths outside `allowed_paths`, asserting that each is rejected.
+
+To report a vulnerability, do **not** open a public issue. Follow the disclosure process in the root
+[SECURITY.md](SECURITY.md); the threat model and security design rationale live in [docs/SECURITY.md](docs/SECURITY.md).
 
 ---
 
@@ -75,8 +96,10 @@ When submitting:
 
 - [ ] Code compiles without warnings (`cargo build`)
 - [ ] All tests pass (`cargo test`)
-- [ ] Code is formatted (`cargo fmt`)
-- [ ] Clippy passes (`cargo clippy -- -D warnings`)
+- [ ] Code is formatted (`cargo fmt --all --check`)
+- [ ] Clippy passes (`cargo clippy --all-targets --all-features -- -D warnings`)
+- [ ] Markdown lints cleanly (`markdownlint-cli2 "**/*.md"`)
+- [ ] File paths are validated and path-traversal tests cover any new file-touching tool (see [Security Considerations](#security-considerations))
 - [ ] Documentation is updated if needed
 - [ ] CHANGELOG.md is updated for user-facing changes
 - [ ] Commit messages follow [conventional commits](#commit-messages)
@@ -113,8 +136,11 @@ cargo build
 # Run tests
 cargo test
 
+# Check formatting
+cargo fmt --all --check
+
 # Run clippy
-cargo clippy -- -D warnings
+cargo clippy --all-targets --all-features -- -D warnings
 ```
 
 ---
@@ -123,8 +149,8 @@ cargo clippy -- -D warnings
 
 ### Rust Style
 
-- Follow `rustfmt` formatting (run `cargo fmt` before committing)
-- Follow `clippy` recommendations (run `cargo clippy -- -D warnings`)
+- Follow `rustfmt` formatting (run `cargo fmt --all --check` before committing)
+- Follow `clippy` recommendations (run `cargo clippy --all-targets --all-features -- -D warnings`)
 - Write idiomatic Rust code
 - Prefer safe Rust — `unsafe` code is forbidden (see `Cargo.toml` lints)
 
@@ -236,8 +262,18 @@ cargo test module_name::
 |----------|--------|
 | `README.md` | User-facing overview and quick start |
 | `CONTRIBUTING.md` | This file — contributor guidelines |
+| `STYLE.md` | Code and documentation style conventions |
+| `CODE_OF_CONDUCT.md` | Community standards and expected behaviour |
 | `SECURITY.md` | Security policy and vulnerability reporting |
 | `CHANGELOG.md` | User-facing change history |
+| `docs/VISION.md` | Core principle and architectural rationale |
+| `docs/ARCHITECTURE.md` | System architecture and module layout |
+| `docs/AI_WORKFLOW.md` | AI usage workflow, primitive schemas, IPC reference |
+| `docs/CLAUDE_CODE_GUIDE.md` | Step-by-step Claude Code setup guide |
+| `docs/SECURITY.md` | Security threat model and design rationale |
+| `docs/errors.md` | Error reference catalogue |
+| `docs/PCBLIB_FORMAT.md` | `.PcbLib` binary format reference |
+| `docs/SCHLIB_FORMAT.md` | `.SchLib` binary format reference |
 | Rustdoc comments | API documentation |
 
 ### Updating Documentation
@@ -258,7 +294,10 @@ Avoid duplicating information across files. Each piece of information should hav
 | Coding standards | `CONTRIBUTING.md` § Coding Standards |
 | Commit conventions | `CONTRIBUTING.md` § Commit Messages |
 | PR requirements | `CONTRIBUTING.md` § Pull Requests |
-| Security policy | `SECURITY.md` |
+| Path-safety rules for contributors | `CONTRIBUTING.md` § Security Considerations |
+| Security policy and vulnerability reporting | `SECURITY.md` |
+| Security threat model and design | `docs/SECURITY.md` |
+| Error reference catalogue | `docs/errors.md` |
 | Formatting rules | `.editorconfig` and `STYLE.md` |
 | MCP tools reference | `README.md` § MCP Tools |
 | Primitive types | `README.md` § Primitive Types |
@@ -267,6 +306,8 @@ Avoid duplicating information across files. Each piece of information should hav
 | Core principle/vision | `docs/VISION.md` |
 | Primitive JSON schemas | `docs/AI_WORKFLOW.md` § Primitive Types |
 | IPC standards reference | `docs/AI_WORKFLOW.md` § IPC Standards Reference |
+| `.PcbLib` binary format | `docs/PCBLIB_FORMAT.md` |
+| `.SchLib` binary format | `docs/SCHLIB_FORMAT.md` |
 
 **Guidelines:**
 

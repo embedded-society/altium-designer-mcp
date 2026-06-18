@@ -1,5 +1,10 @@
 # Security Policy
 
+> **Scope:** This document is the **vulnerability-reporting policy** — how to report a
+> security issue, supported versions, and what to expect. For the **technical threat
+> model and security design** (what the tool defends against, the controls behind it,
+> and where each lives in the source), see [docs/SECURITY.md](docs/SECURITY.md).
+
 ## Our Commitment
 
 **altium-designer-mcp** is designed to work with local Altium Designer libraries.
