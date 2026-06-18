@@ -2117,6 +2117,14 @@ pub fn parse_model_header_stream(data: &[u8]) -> usize {
     count
 }
 
+/// Maximum size we will decompress a single embedded model to.
+///
+/// This caps decompression bombs: a small zlib stream cannot expand without
+/// bound and exhaust memory. The ceiling is deliberately generous — real
+/// STEP/IGES models are at most a few megabytes — so legitimate models always
+/// fit while a crafted high-ratio stream is rejected.
+pub const MAX_DECOMPRESSED_MODEL_BYTES: usize = 256 * 1024 * 1024; // 256 MiB
+
 /// Decompresses a zlib-compressed model stream.
 ///
 /// Models in `/Library/Models/{N}` streams are zlib-compressed STEP files.
@@ -2127,20 +2135,42 @@ pub fn parse_model_header_stream(data: &[u8]) -> usize {
 ///
 /// # Returns
 ///
-/// The decompressed STEP file data, or an empty vector on error.
+/// The decompressed STEP file data, or an empty vector on error or if the
+/// decompressed size exceeds [`MAX_DECOMPRESSED_MODEL_BYTES`].
 pub fn decompress_model_data(data: &[u8]) -> Vec<u8> {
+    decompress_capped(data, MAX_DECOMPRESSED_MODEL_BYTES)
+}
+
+/// Decompresses `data`, rejecting output larger than `max_bytes`.
+///
+/// The reader is bounded to `max_bytes + 1` so a decompression bomb can never
+/// allocate more than that, regardless of the compressed input's expansion
+/// ratio. If the limit is reached the stream is treated as hostile/corrupt and
+/// an empty vector is returned (the model is then skipped by the caller).
+fn decompress_capped(data: &[u8], max_bytes: usize) -> Vec<u8> {
     if data.is_empty() {
         return Vec::new();
     }
 
-    let mut decoder = ZlibDecoder::new(data);
+    // `take` bounds how much we will ever read (and therefore allocate); the
+    // `+ 1` lets us detect that the real output exceeded the cap.
+    let limit = max_bytes.saturating_add(1) as u64;
+    let mut decoder = ZlibDecoder::new(data).take(limit);
     let mut decompressed = Vec::new();
 
     match decoder.read_to_end(&mut decompressed) {
-        Ok(size) => {
+        Ok(_) => {
+            if decompressed.len() > max_bytes {
+                tracing::warn!(
+                    compressed = data.len(),
+                    limit = max_bytes,
+                    "Embedded model exceeds the maximum decompressed size; rejecting (possible decompression bomb)"
+                );
+                return Vec::new();
+            }
             tracing::trace!(
                 compressed = data.len(),
-                decompressed = size,
+                decompressed = decompressed.len(),
                 "Decompressed model data"
             );
             decompressed
@@ -2466,6 +2496,40 @@ mod tests {
         let data = b"";
         let result = decompress_model_data(data);
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_decompress_capped_rejects_bomb() {
+        use flate2::write::ZlibEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+
+        // Highly compressible data that decompresses well past a small cap: a
+        // tiny compressed stream expanding to far more output (a bomb).
+        let max = 1024;
+        let huge = vec![0u8; max * 64];
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::best());
+        encoder.write_all(&huge).unwrap();
+        let compressed = encoder.finish().unwrap();
+        assert!(compressed.len() < huge.len(), "test data should be a bomb");
+
+        // Over the cap -> rejected (empty).
+        assert!(super::decompress_capped(&compressed, max).is_empty());
+    }
+
+    #[test]
+    fn test_decompress_capped_allows_within_limit() {
+        use flate2::write::ZlibEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+
+        let original = vec![0xABu8; 500];
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&original).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        // Exactly at/under the cap -> returned intact.
+        assert_eq!(super::decompress_capped(&compressed, 1024), original);
     }
 
     #[test]
