@@ -39,7 +39,8 @@ clap = { version = "4", features = ["derive"] }
 
 # Logging
 tracing = "0.1"
-tracing-subscriber = "0.3"
+# env-filter: enables RUST_LOG per-module verbosity control at runtime
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Error handling
 thiserror = "2.0"

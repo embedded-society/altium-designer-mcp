@@ -56,9 +56,19 @@ fn get_log_level(verbose: u8, quiet: bool, config_level: &str) -> Level {
 }
 
 /// Initialises the tracing subscriber for logging.
+///
+/// The level derived from `-v`/`-q`/`config.logging.level` becomes the
+/// default directive, while the `RUST_LOG` environment variable can override
+/// verbosity per module (e.g.
+/// `RUST_LOG=altium_designer_mcp::altium::pcblib::reader=trace`). This is
+/// invaluable when debugging the binary OLE read/write paths without
+/// recompiling.
 fn init_tracing(level: Level) {
+    let filter = tracing_subscriber::EnvFilter::builder()
+        .with_default_directive(level.into())
+        .from_env_lossy();
     tracing_subscriber::fmt()
-        .with_max_level(level)
+        .with_env_filter(filter)
         .with_target(false)
         .with_writer(std::io::stderr)
         .init();
