@@ -850,12 +850,10 @@ impl PcbLib {
             for pair in text.split('|') {
                 if let Some((key, value)) = pair.split_once('=') {
                     match key.to_uppercase().as_str() {
-                        "PATTERN" => {
-                            // Use PATTERN as the canonical name since OLE storage names
-                            // are limited to 31 characters
-                            if !value.is_empty() {
-                                footprint.name = value.to_string();
-                            }
+                        // Use PATTERN as the canonical name since OLE storage names
+                        // are limited to 31 characters
+                        "PATTERN" if !value.is_empty() => {
+                            footprint.name = value.to_string();
                         }
                         "DESCRIPTION" => {
                             footprint.description = value.to_string();
