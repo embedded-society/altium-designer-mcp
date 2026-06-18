@@ -45,6 +45,7 @@ The following are within scope and have concrete controls behind them.
 | Internal-path disclosure in error messages | Denial message is generic; file errors render only the final path component | generic denial `src/mcp/server.rs`; `sanitise_path_for_client` `src/altium/error.rs` |
 | Runaway-write / backup-thrash DoS (e.g. an AI loop) | Token-bucket rate limiter gates **mutating** tools only | gate `src/mcp/server.rs`; `is_mutating_tool` `src/mcp/server.rs` |
 | Malformed / truncated / hostile `.PcbLib` / `.SchLib` input | Parsers return `Err`, never panic, on arbitrary bytes — proven by property tests | `tests/property_tests.rs` |
+| Decompression bombs / oversized embedded 3D models | Each embedded model is decompressed through a bounded reader; output beyond `MAX_DECOMPRESSED_MODEL_BYTES` (256 MiB) is rejected and the model skipped, so a high-ratio zlib stream cannot exhaust memory | `decompress_model_data` / `decompress_capped` `src/altium/pcblib/reader.rs` |
 
 A note on the parser guarantee: the no-panic property is not merely asserted, it is
 exercised. The property tests both feed purely random bytes (rejected early at the OLE
@@ -60,8 +61,6 @@ These are honest limitations. The tool does not pretend to defend against them.
 |--------|------------------------|
 | A compromised or malicious MCP client | The client runs with the user's privileges and drives the tool directly; confining it is the OS's job, not this tool's |
 | A malicious local user with filesystem access | Anyone who can run the binary can already read and write the same files by other means |
-| Decompression bombs in embedded zlib / STEP data | Embedded streams are decompressed without an enforced output-size cap; a crafted file could expand to exhaust memory |
-| Oversized STEP model embedding | There is no hard ceiling on embedded 3D-model size; a very large STEP body can inflate the written file and memory use |
 
 ---
 
