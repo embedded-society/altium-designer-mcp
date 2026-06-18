@@ -786,7 +786,7 @@ impl McpServer {
                 } else {
                     AuditOutcome::Success
                 };
-                logger.record(&AuditEvent::new(params.name.clone(), outcome, filepath));
+                logger.record(&AuditEvent::new(params.name, outcome, filepath));
             }
         }
 
