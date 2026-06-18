@@ -363,6 +363,20 @@ impl IncomingMessage {
     }
 }
 
+/// Extracts a usable JSON-RPC request id from a raw message object.
+///
+/// Per the MCP specification an id must be a string or an integer; `null`,
+/// floats, arrays and objects are not valid ids and yield `None`. Preserving
+/// the id across an *Invalid Request* failure lets a strict client correlate
+/// the error response with its outstanding request.
+fn extract_request_id(obj: &serde_json::Map<String, Value>) -> Option<RequestId> {
+    match obj.get("id") {
+        Some(Value::Number(n)) => n.as_i64().map(RequestId::Number),
+        Some(Value::String(s)) => Some(RequestId::String(s.clone())),
+        _ => None,
+    }
+}
+
 /// Parses a JSON string into an incoming message.
 ///
 /// # Errors
@@ -375,21 +389,25 @@ pub fn parse_message(json: &str) -> Result<IncomingMessage, JsonRpcError> {
     // Check if it's an object
     let obj = value.as_object().ok_or_else(JsonRpcError::parse_error)?;
 
+    // Recover the id (if any) up front so an Invalid Request failure can
+    // still be correlated by the client.
+    let extracted_id = extract_request_id(obj);
+
     // Check for jsonrpc field
     let jsonrpc = obj
         .get("jsonrpc")
         .and_then(Value::as_str)
-        .ok_or_else(|| JsonRpcError::invalid_request(None))?;
+        .ok_or_else(|| JsonRpcError::invalid_request(extracted_id.clone()))?;
 
     if jsonrpc != "2.0" {
-        return Err(JsonRpcError::invalid_request(None));
+        return Err(JsonRpcError::invalid_request(extracted_id));
     }
 
     // Check if this is a request (has id) or notification (no id)
     if obj.contains_key("id") {
         // This is a request
-        let request: JsonRpcRequest =
-            serde_json::from_value(value).map_err(|_| JsonRpcError::invalid_request(None))?;
+        let request: JsonRpcRequest = serde_json::from_value(value)
+            .map_err(|_| JsonRpcError::invalid_request(extracted_id))?;
 
         if request.validate().is_some() {
             return Err(JsonRpcError::invalid_request(Some(request.id)));
@@ -397,7 +415,7 @@ pub fn parse_message(json: &str) -> Result<IncomingMessage, JsonRpcError> {
 
         Ok(IncomingMessage::Request(request))
     } else {
-        // This is a notification
+        // This is a notification — notifications correctly carry no id.
         let notification: JsonRpcNotification =
             serde_json::from_value(value).map_err(|_| JsonRpcError::invalid_request(None))?;
 
@@ -462,6 +480,49 @@ mod tests {
         let json = r#"{"jsonrpc": "1.0", "id": 1, "method": "test"}"#;
         let err = parse_message(json).unwrap_err();
         assert_eq!(err.error.code, ErrorCode::InvalidRequest.code());
+    }
+
+    #[test]
+    fn invalid_request_preserves_numeric_id() {
+        // Missing jsonrpc field, but a valid numeric id present.
+        let json = r#"{"id": 7, "method": "test"}"#;
+        let err = parse_message(json).unwrap_err();
+        assert_eq!(err.error.code, ErrorCode::InvalidRequest.code());
+        assert_eq!(err.id, Some(RequestId::Number(7)));
+    }
+
+    #[test]
+    fn invalid_request_preserves_string_id() {
+        // Wrong jsonrpc version, but a valid string id present.
+        let json = r#"{"jsonrpc": "1.0", "id": "abc-123", "method": "test"}"#;
+        let err = parse_message(json).unwrap_err();
+        assert_eq!(err.error.code, ErrorCode::InvalidRequest.code());
+        assert_eq!(err.id, Some(RequestId::String("abc-123".to_string())));
+    }
+
+    #[test]
+    fn invalid_request_drops_non_conforming_id() {
+        // null, float, array and object ids are not valid JSON-RPC ids and
+        // must not be echoed back.
+        for json in [
+            r#"{"id": null, "method": "test"}"#,
+            r#"{"id": 1.5, "method": "test"}"#,
+            r#"{"id": [1], "method": "test"}"#,
+            r#"{"id": {"a": 1}, "method": "test"}"#,
+        ] {
+            let err = parse_message(json).unwrap_err();
+            assert_eq!(err.error.code, ErrorCode::InvalidRequest.code());
+            assert_eq!(err.id, None, "id should be dropped for: {json}");
+        }
+    }
+
+    #[test]
+    fn notification_parse_failure_has_no_id() {
+        // A notification (no id key) that fails validation must carry no id.
+        let json = r#"{"jsonrpc": "1.0", "method": "test"}"#;
+        let err = parse_message(json).unwrap_err();
+        assert_eq!(err.error.code, ErrorCode::InvalidRequest.code());
+        assert_eq!(err.id, None);
     }
 
     #[test]
