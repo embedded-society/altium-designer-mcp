@@ -144,6 +144,13 @@ jobs:
             - name: Run tests
               run: cargo test --verbose
 
+            # Drive the built binary over stdio with the Python MCP harness.
+            # Linux only: one run is enough to cover tool dispatch + the
+            # request/response envelope, and python3 is preinstalled there.
+            - name: Run Python integration tests
+              if: runner.os == 'Linux'
+              run: python3 tests/integration/test_mcp_tools.py
+
             # Save cache only on cache miss (tooling version changed)
             # continue-on-error suppresses "unable to reserve cache" warnings
             # when multiple jobs race to save (harmless, one will succeed)
