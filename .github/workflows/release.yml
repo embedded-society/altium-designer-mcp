@@ -1,15 +1,24 @@
 name: Release
 
+# Workflow-level permissions are read-only by default; jobs that need
+# elevated scope declare it on the job itself, following least-privilege.
+# Only the `release` job creates the GitHub release and attests artefacts.
 permissions:
-    contents: write
-    id-token: write
-    attestations: write
+    contents: read
 
 on:
     push:
         tags:
             - "v[0-9]+.[0-9]+.[0-9]+"
             - "v[0-9]+.[0-9]+.[0-9]+-*"
+
+# Serialise releases per-tag so re-running a tag (or pushing two tags
+# back-to-back) doesn't race on the same GitHub release page or
+# attestation upload. Don't cancel an in-progress release — half-
+# uploaded artefacts are worse than a queued duplicate.
+concurrency:
+    group: release-${{ github.ref }}
+    cancel-in-progress: false
 
 env:
     CARGO_TERM_COLOR: always
@@ -19,6 +28,11 @@ jobs:
     validate:
         name: Validate Release
         runs-on: ubuntu-latest
+        timeout-minutes: 5
+
+        # Read-only: validate just inspects the tag and Cargo.toml.
+        permissions:
+            contents: read
 
         outputs:
             version: ${{ steps.version.outputs.version }}
@@ -49,7 +63,16 @@ jobs:
             - name: Verify Cargo.toml version matches tag
               shell: bash
               run: |
-                CARGO_VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+                # Extract the version from the [package] section specifically.
+                # Plain `grep '^version'` would also match version pins under
+                # [dependencies] etc.; this awk reads only after [package]
+                # and stops on the first match, so it can't pick up the
+                # wrong key.
+                CARGO_VERSION=$(awk -F'"' '
+                    /^\[package\]/ { in_pkg = 1; next }
+                    /^\[/          { in_pkg = 0 }
+                    in_pkg && /^version[[:space:]]*=/ { print $2; exit }
+                ' Cargo.toml)
                 TAG_VERSION="${{ steps.version.outputs.version }}"
 
                 # For pre-release tags like v0.1.0-rc1, compare base version
@@ -70,6 +93,11 @@ jobs:
         name: Build (${{ matrix.target }})
         needs: validate
         timeout-minutes: 30
+
+        # Read-only: build compiles + uploads artefacts to the workflow's
+        # ephemeral artifact store (no write to repo or releases).
+        permissions:
+            contents: read
 
         strategy:
             fail-fast: false
@@ -154,6 +182,15 @@ jobs:
         name: Create Release
         needs: [validate, build]
         runs-on: ubuntu-latest
+        timeout-minutes: 10
+
+        # The only job that needs elevated scope:
+        # - `contents: write` to create the GitHub release
+        # - `id-token: write` + `attestations: write` for SLSA build provenance
+        permissions:
+            contents: write
+            id-token: write
+            attestations: write
 
         steps:
             - name: Checkout repository
@@ -218,18 +255,24 @@ jobs:
                 TAG="${{ needs.validate.outputs.tag }}"
                 VERSION="${{ needs.validate.outputs.version }}"
 
-                # Determine if this is a prerelease
-                PRERELEASE_FLAG=""
+                # Build the flag list as an array so empty entries don't
+                # rely on shell word-splitting (shellcheck-friendly,
+                # robust if values ever contain spaces). A pre-release tag
+                # (version containing '-', e.g. v0.2.0-rc1) must NOT be
+                # marked --latest, or it would surface to users as the
+                # current stable release.
+                RELEASE_FLAGS=()
                 if [[ "$VERSION" == *-* ]]; then
-                    PRERELEASE_FLAG="--prerelease"
+                    RELEASE_FLAGS+=(--prerelease --latest=false)
+                else
+                    RELEASE_FLAGS+=(--latest)
                 fi
 
                 # Create the release with gh CLI (more reliable than third-party actions)
                 gh release create "$TAG" \
                     --title "$TAG" \
                     --notes-file release_notes.md \
-                    --latest \
-                    $PRERELEASE_FLAG \
+                    "${RELEASE_FLAGS[@]}" \
                     artifacts/*.tar.gz \
                     artifacts/*.zip \
                     artifacts/SHA256SUMS.txt

@@ -1,14 +1,20 @@
 name: CI - Main Branch
 
+# Workflow-level permissions are read-only by default. Jobs that need
+# elevated scope (cache cleanup needs `actions: write`) declare it on
+# the job itself, following least-privilege.
 permissions:
     contents: read
-    actions: write
 
 on:
     push:
         branches: [main]
 
     workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
 
 env:
     CARGO_TERM_COLOR: always
@@ -18,6 +24,7 @@ jobs:
     quick-checks:
         name: Quick Checks (fmt, docs, markdown)
         runs-on: ubuntu-latest
+        timeout-minutes: 10
 
         steps:
             - name: Checkout repository
@@ -118,7 +125,7 @@ jobs:
                     target/release/build/
                     target/release/.fingerprint/
                     target/release/incremental/
-                key: rust-${{ runner.os }}-${{ steps.rust-version.outputs.version }}-${{ hashFiles('**/Cargo.lock') }}
+                key: rust-${{ runner.os }}-${{ steps.rust-version.outputs.version }}-${{ hashFiles('Cargo.toml') }}
                 restore-keys: |
                     rust-${{ runner.os }}-${{ steps.rust-version.outputs.version }}-
 
@@ -157,13 +164,19 @@ jobs:
                     target/release/build/
                     target/release/.fingerprint/
                     target/release/incremental/
-                key: rust-${{ runner.os }}-${{ steps.rust-version.outputs.version }}-${{ hashFiles('**/Cargo.lock') }}
+                key: rust-${{ runner.os }}-${{ steps.rust-version.outputs.version }}-${{ hashFiles('Cargo.toml') }}
 
     ci-success:
         name: CI Success
         needs: [quick-checks, build]
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
+
+        # Cache cleanup deletes stale Actions caches via the REST API.
+        permissions:
+            contents: read
+            actions: write
 
         steps:
             - name: Check if all jobs succeeded

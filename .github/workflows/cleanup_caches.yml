@@ -8,12 +8,22 @@ on:
                 description: 'Log actions without deleting (for testing)'
                 required: false
                 type: boolean
-                default: false
+                # Default to a safe dry run: an accidental manual trigger
+                # then only logs what it *would* delete. Set to false to
+                # actually delete caches.
+                default: true
+
+# Never run two cache cleanups concurrently — they race on the same
+# REST cache list. Don't cancel an in-progress cleanup.
+concurrency:
+    group: cleanup-caches
+    cancel-in-progress: false
 
 jobs:
     cleanup:
         name: Cleanup Caches
         runs-on: ubuntu-latest
+        timeout-minutes: 5
 
         permissions:
             actions: write

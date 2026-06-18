@@ -12,6 +12,13 @@ on:
 
     workflow_dispatch:
 
+# Cancel superseded runs for the same PR. `pull_request.number` is null
+# on merge_group and workflow_dispatch events, so fall back to the ref
+# to keep the group key well-formed.
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
+
 env:
     CARGO_TERM_COLOR: always
     RUSTFLAGS: "-Dwarnings"
@@ -20,6 +27,7 @@ jobs:
     quick-checks:
         name: Quick Checks (fmt, docs, markdown)
         runs-on: ubuntu-latest
+        timeout-minutes: 10
 
         steps:
             - name: Checkout repository
@@ -113,7 +121,7 @@ jobs:
                     target/release/build/
                     target/release/.fingerprint/
                     target/release/incremental/
-                key: rust-${{ runner.os }}-${{ steps.rust-version.outputs.version }}-${{ hashFiles('**/Cargo.lock') }}
+                key: rust-${{ runner.os }}-${{ steps.rust-version.outputs.version }}-${{ hashFiles('Cargo.toml') }}
                 restore-keys: |
                     rust-${{ runner.os }}-${{ steps.rust-version.outputs.version }}-
 
@@ -133,6 +141,7 @@ jobs:
         name: CI Success
         needs: [quick-checks, build]
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
 
         steps:

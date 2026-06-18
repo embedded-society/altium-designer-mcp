@@ -1,2 +1,8 @@
 # automatically normalize line endings to the user's GIT preferences
 * text=auto
+
+# Altium library files are binary OLE compound documents. Mark them
+# explicitly so they are never line-ending normalised (which would
+# corrupt them) and never shown as text diffs.
+*.PcbLib binary
+*.SchLib binary

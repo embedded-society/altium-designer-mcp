@@ -1,13 +1,32 @@
 version: 2
 updates:
+    # GitHub Actions: small dependency surface, easy to review
+    # individually — keep daily.
     - package-ecosystem: "github-actions"
       directory: "/"
       schedule:
         interval: "daily"
         time: "00:00"
 
+    # npm: markdownlint-cli2 tooling only.
     - package-ecosystem: "npm"
       directory: "/"
       schedule:
         interval: "daily"
         time: "00:00"
+
+    # Cargo: large transitive dependency surface. Weekly cadence +
+    # grouping keeps PR noise manageable while still catching security
+    # advisories within ~7 days. Grouping all updates into one PR per
+    # week avoids the rebase-cascade that a per-crate flow produces.
+    - package-ecosystem: "cargo"
+      directory: "/"
+      schedule:
+        interval: "weekly"
+        day: "monday"
+        time: "00:00"
+      open-pull-requests-limit: 5
+      groups:
+        cargo-dependencies:
+          patterns:
+            - "*"
