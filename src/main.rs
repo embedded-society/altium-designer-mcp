@@ -11,7 +11,7 @@ use tracing::{error, info, Level};
 
 use altium_designer_mcp::config;
 use altium_designer_mcp::mcp::server::McpServer;
-use altium_designer_mcp::security::RateLimiter;
+use altium_designer_mcp::security::{AuditLogger, RateLimiter};
 
 /// MCP server for AI-assisted Altium Designer library management.
 ///
@@ -134,7 +134,15 @@ fn main() -> ExitCode {
         refill_per_sec = cfg.rate_limit.refill_per_sec,
         "Rate limiting destructive operations"
     );
-    let mut server = McpServer::new(allowed_paths).with_rate_limiter(rate_limiter);
+
+    let audit_logger = cfg.logging.audit_log_path.clone().map(AuditLogger::new);
+    if let Some(path) = &cfg.logging.audit_log_path {
+        info!(audit_log = %path.display(), "Audit logging destructive operations");
+    }
+
+    let mut server = McpServer::new(allowed_paths)
+        .with_rate_limiter(rate_limiter)
+        .with_audit_logger(audit_logger);
 
     info!("MCP server ready, waiting for client connection...");
 

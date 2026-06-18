@@ -1,10 +1,16 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "_comment": "Example configuration for altium-designer-mcp. Copy to ~/.altium-designer-mcp/config.json and customise.",
+    "_comment": "Example configuration for altium-designer-mcp. Copy to ~/.altium-designer-mcp/config.json and customise. SECURITY: only files inside allowed_paths can be read or written, so keep this list as narrow as possible. On Windows use forward slashes or escaped backslashes, e.g. \"C:/Users/you/Altium/Libraries\".",
     "allowed_paths": [
-        "./scripts"
+        "./libraries",
+        "/home/user/altium/MyLibraries"
     ],
     "logging": {
-        "level": "warn"
+        "level": "warn",
+        "audit_log_path": null
+    },
+    "rate_limit": {
+        "max_burst": 120,
+        "refill_per_sec": 30.0
     }
 }

@@ -79,12 +79,18 @@ pub struct LoggingConfig {
     /// Log level (trace, debug, info, warn, error).
     #[serde(default = "default_log_level")]
     pub level: String,
+
+    /// Optional path to an append-only JSON-lines audit log. When set, every
+    /// destructive operation is recorded. When unset, no audit log is written.
+    #[serde(default)]
+    pub audit_log_path: Option<PathBuf>,
 }
 
 impl Default for LoggingConfig {
     fn default() -> Self {
         Self {
             level: default_log_level(),
+            audit_log_path: None,
         }
     }
 }
@@ -231,5 +237,15 @@ mod tests {
         let json = r#"{ "rate_limit": { "max_burst": 5, "refill_per_sec": 0.0 } }"#;
         let config: Config = serde_json::from_str(json).unwrap();
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn shipped_example_config_parses_and_validates() {
+        // Guards config/example-config.json against drift from the Config schema
+        // (deny_unknown_fields would otherwise let the docs and code diverge).
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/config/example-config.json");
+        let text = std::fs::read_to_string(path).expect("read example config");
+        let config: Config = serde_json::from_str(&text).expect("parse example config");
+        config.validate().expect("validate example config");
     }
 }
