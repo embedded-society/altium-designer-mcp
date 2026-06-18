@@ -12367,6 +12367,90 @@ mod tests {
     }
 
     #[test]
+    fn validate_coordinate_accepts_in_range_and_boundary() {
+        assert!(McpServer::validate_coordinate(0.0, "x").is_ok());
+        // Boundary is inclusive (the check is `abs() > MAX`, strict).
+        assert!(McpServer::validate_coordinate(5000.0, "x").is_ok());
+        assert!(McpServer::validate_coordinate(-5000.0, "x").is_ok());
+    }
+
+    #[test]
+    fn validate_coordinate_rejects_out_of_range_and_non_finite() {
+        assert!(McpServer::validate_coordinate(5000.001, "x").is_err());
+        assert!(McpServer::validate_coordinate(-5000.001, "x").is_err());
+        assert!(McpServer::validate_coordinate(f64::NAN, "x").is_err());
+        assert!(McpServer::validate_coordinate(f64::INFINITY, "x").is_err());
+        assert!(McpServer::validate_coordinate(f64::NEG_INFINITY, "x").is_err());
+    }
+
+    #[test]
+    fn validate_schlib_coordinate_boundary() {
+        assert!(McpServer::validate_schlib_coordinate(32000, "x").is_ok());
+        assert!(McpServer::validate_schlib_coordinate(-32000, "x").is_ok());
+        assert!(McpServer::validate_schlib_coordinate(32001, "x").is_err());
+        assert!(McpServer::validate_schlib_coordinate(-32001, "x").is_err());
+    }
+
+    #[test]
+    fn validate_path_accepts_path_inside_allowed() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let inside = dir.path().join("new.PcbLib");
+        assert!(server.validate_path(&inside.to_string_lossy()).is_ok());
+    }
+
+    #[test]
+    fn validate_path_rejects_traversal_outside_allowed() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+
+        // Escape the allowed directory via `..`; the parent canonicalises but
+        // the resulting path is outside the allowlist.
+        let escaping = dir.path().join("..").join("..").join("escaped.PcbLib");
+        let result = server.validate_path(&escaping.to_string_lossy());
+        assert!(result.is_err());
+
+        // The denial must not leak the allowed directory or the rejected
+        // absolute path — only the generic message.
+        let msg = result.unwrap_err();
+        assert!(msg.contains("Access denied"), "msg: {msg}");
+        let allowed = dir.path().to_string_lossy().into_owned();
+        assert!(!msg.contains(&allowed), "denial leaked allowed path: {msg}");
+    }
+
+    /// Property-based partition tests for the coordinate validators. The
+    /// proptest prelude is glob-imported here, isolated from the surrounding
+    /// (very large) test module.
+    mod coordinate_proptests {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            #[test]
+            fn pcb_coordinate_in_range_always_accepts(v in -5000.0f64..=5000.0) {
+                prop_assert!(McpServer::validate_coordinate(v, "x").is_ok());
+            }
+
+            #[test]
+            fn pcb_coordinate_out_of_range_always_rejects(v in 5000.001f64..1.0e9) {
+                prop_assert!(McpServer::validate_coordinate(v, "x").is_err());
+                prop_assert!(McpServer::validate_coordinate(-v, "x").is_err());
+            }
+
+            #[test]
+            fn schlib_coordinate_in_range_always_accepts(v in -32000i32..=32000) {
+                prop_assert!(McpServer::validate_schlib_coordinate(v, "x").is_ok());
+            }
+
+            #[test]
+            fn schlib_coordinate_out_of_range_always_rejects(v in 32001i32..i32::MAX) {
+                prop_assert!(McpServer::validate_schlib_coordinate(v, "x").is_err());
+                prop_assert!(McpServer::validate_schlib_coordinate(-v, "x").is_err());
+            }
+        }
+    }
+
+    #[test]
     fn tool_definitions_valid() {
         let tools = McpServer::get_tool_definitions();
         assert!(!tools.is_empty());

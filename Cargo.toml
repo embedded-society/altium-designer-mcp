@@ -86,6 +86,9 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 tokio-test = "0.4"
 # Temporary directories for tests
 tempfile = "3.15"
+# Property-based testing: no-panic fuzzing of the binary parsers and
+# partition testing of the coordinate validators.
+proptest = "1.6"
 
 [profile.release]
 opt-level = 3
