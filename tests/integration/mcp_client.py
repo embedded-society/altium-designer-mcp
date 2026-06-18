@@ -66,6 +66,8 @@ class McpTestClient:
             try:
                 self.process.stdin.close()
             except (OSError, ValueError):
+                # Best-effort shutdown: stdin may already be closed or invalid.
+                # Ignore and continue waiting for process termination.
                 pass
             try:
                 self.process.wait(timeout=10)
