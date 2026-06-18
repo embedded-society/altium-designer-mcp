@@ -113,11 +113,15 @@ client. The full path is retained in the structured error field for `tracing` at
 level only. Regression tests assert that neither read nor write errors leak their
 directory (`src/altium/error.rs`, `src/altium/error.rs`).
 
-**Known limitation — no central sanitiser choke-point.** Sanitisation is applied
-per-error-variant and per-call-site rather than at a single egress point. There is no
-one funnel through which every client-facing string passes, so a future tool that
-formats a raw path into a message could regress the property silently. Adding a central
-sanitising choke-point for all client-facing errors is a known hardening opportunity.
+**Central sanitiser choke-point.** Beyond the per-variant `Display` sanitisation above,
+every client-facing error funnels through one egress point: `ToolCallResult::error` and
+`ToolCallResult::error_with_context` route their text through
+`redact_absolute_paths` (`src/util.rs`), which replaces any absolute filesystem path
+(Windows drive/UNC, or a Unix absolute path at the start of a token) with its final
+component. This is defence in depth: even if a future tool interpolates a raw absolute
+path into a message, the directory structure is not disclosed. It is deliberately
+conservative — relative paths (`./Lib.PcbLib`), embedded segments, and URLs are left
+untouched (see the unit tests in `src/util.rs`).
 
 ---
 

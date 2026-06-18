@@ -165,11 +165,16 @@ impl ToolCallResult {
     }
 
     /// Creates an error text result.
+    ///
+    /// The message is routed through [`crate::util::redact_absolute_paths`] as a
+    /// defence-in-depth choke-point, so no error returned to the client can
+    /// disclose an absolute filesystem path even if a call site forgot to
+    /// sanitise one.
     #[must_use]
     pub fn error(message: impl Into<String>) -> Self {
         Self {
             content: vec![ToolContent::Text {
-                text: message.into(),
+                text: crate::util::redact_absolute_paths(&message.into()),
             }],
             is_error: true,
         }
@@ -191,18 +196,29 @@ impl ToolCallResult {
     ///
     /// Returns a JSON-formatted error with operation context for better debugging.
     #[must_use]
+    #[allow(clippy::needless_pass_by_value)] // owned ErrorContext is the builder-style API
     pub fn error_with_context(context: ErrorContext) -> Self {
+        // Redact absolute paths from every client-facing field (defence in depth).
+        let message = crate::util::redact_absolute_paths(&context.message);
+        let filepath = context
+            .filepath
+            .as_deref()
+            .map(crate::util::redact_absolute_paths);
+        let details = context
+            .details
+            .as_deref()
+            .map(crate::util::redact_absolute_paths);
         let result = json!({
             "status": "error",
             "operation": context.operation,
-            "error": context.message,
-            "filepath": context.filepath,
+            "error": message,
+            "filepath": filepath,
             "component": context.component,
-            "details": context.details,
+            "details": details,
         });
         Self {
             content: vec![ToolContent::Text {
-                text: serde_json::to_string_pretty(&result).unwrap_or(context.message),
+                text: serde_json::to_string_pretty(&result).unwrap_or(message),
             }],
             is_error: true,
         }
@@ -11178,6 +11194,27 @@ mod tests {
         );
         assert!(text.contains("write_pcblib"), "missing operation: {text}");
         assert!(text.contains("Lib.pcblib.tmp"), "missing file name: {text}");
+    }
+
+    #[test]
+    fn error_constructor_redacts_absolute_paths() {
+        // Defence in depth: even a hand-built error message that interpolates an
+        // absolute path must not disclose the directory to the client.
+        let result = ToolCallResult::error("Failed at /home/user/private/Lib.PcbLib while reading");
+        assert!(result.is_error);
+        let text = get_result_text(&result);
+        assert!(
+            !text.contains("/home/user/private"),
+            "leaked directory: {text}"
+        );
+        assert!(text.contains("Lib.PcbLib"), "lost file name: {text}");
+
+        // Plain messages are unchanged.
+        let plain = ToolCallResult::error("Missing required parameter: filepath");
+        assert_eq!(
+            get_result_text(&plain),
+            "Missing required parameter: filepath"
+        );
     }
 
     #[test]
