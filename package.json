@@ -8,5 +8,10 @@
     },
     "devDependencies": {
         "markdownlint-cli2": "^0.22.1"
+    },
+    "comment:overrides": "Force patched transitive deps of markdownlint-cli2 to clear Dependabot DoS advisories (dev-tooling only; not shipped in the Rust binary).",
+    "overrides": {
+        "js-yaml": ">=4.2.0",
+        "markdown-it": ">=14.2.0"
     }
 }
