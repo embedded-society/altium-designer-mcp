@@ -175,7 +175,7 @@ impl ToolCallResult {
         }
     }
 
-    /// Builds a sanitised structured error from an [`AltiumError`].
+    /// Builds a sanitised structured error from a [`crate::altium::AltiumError`].
     ///
     /// The error's `Display` is already path-sanitised (file names only, never
     /// full paths — see [`crate::altium::error::sanitise_path_for_client`]), so

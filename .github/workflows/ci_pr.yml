@@ -12,11 +12,10 @@ on:
 
     workflow_dispatch:
 
-# Cancel superseded runs for the same PR. `pull_request.number` is null
-# on merge_group and workflow_dispatch events, so fall back to the ref
-# to keep the group key well-formed.
+# Cancel superseded runs for the same ref. `github.ref` is unique per PR
+# (refs/pull/N/merge) and is defined for every trigger here.
 concurrency:
-    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    group: ${{ github.workflow }}-${{ github.ref }}
     cancel-in-progress: true
 
 env:
