@@ -33,8 +33,11 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+            - name: Verify Rust toolchain pin consistency
+              run: bash .github/scripts/check-toolchain-pin.sh
+
             - name: Install Rust toolchain
-              uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
+              uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582 # v1.95.0 (latest stable)
               with:
                 components: rustfmt
 
@@ -86,7 +89,7 @@ jobs:
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Install Rust toolchain
-              uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
+              uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582 # v1.95.0 (latest stable)
               with:
                 components: clippy
 
@@ -137,9 +140,66 @@ jobs:
             - name: Run tests
               run: cargo test --verbose
 
+    coverage:
+        name: Code Coverage
+        needs: build
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582 # v1.95.0 (latest stable)
+              with:
+                components: llvm-tools-preview
+
+            - name: Install cargo-llvm-cov
+              uses: taiki-e/install-action@15449e3094499af05d8d964a1c884208e4b8b595 # v2.81.11
+              with:
+                tool: cargo-llvm-cov
+
+            - name: Get Rust version
+              id: rust-version
+              shell: bash
+              run: echo "version=$(rustc --version | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+            # Restore cache from main branch (read-only)
+            - name: Restore Rust cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                path: |
+                    ~/.cargo/registry/index/
+                    ~/.cargo/registry/cache/
+                    ~/.cargo/git/db/
+                    target/
+                key: rust-coverage-${{ runner.os }}-${{ steps.rust-version.outputs.version }}-${{ hashFiles('Cargo.toml') }}
+                restore-keys: |
+                    rust-coverage-${{ runner.os }}-${{ steps.rust-version.outputs.version }}-
+
+            - name: Generate coverage report (lcov)
+              run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+
+            - name: Generate coverage summary
+              run: cargo llvm-cov report --summary-only
+
+            # Skip the Codecov upload on Dependabot PRs: Dependabot runs with a
+            # read-only token, so secrets.CODECOV_TOKEN resolves to empty and the
+            # upload would fail. The coverage computation above still runs.
+            - name: Upload coverage to Codecov
+              if: github.actor != 'dependabot[bot]'
+              uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+              with:
+                files: lcov.info
+                fail_ci_if_error: true
+                verbose: true
+              env:
+                CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
     ci-success:
         name: CI Success
-        needs: [quick-checks, build]
+        needs: [quick-checks, build, coverage]
         runs-on: ubuntu-latest
         timeout-minutes: 5
         if: always()
@@ -147,8 +207,12 @@ jobs:
         steps:
             - name: Check if all jobs succeeded
               run: |
-                if [[ "${{ needs.quick-checks.result }}" != "success" ]] || \
-                   [[ "${{ needs.build.result }}" != "success" ]]; then
+                # Coverage may be skipped on forks/Dependabot lacking the
+                # CODECOV_TOKEN secret, so treat "skipped" as acceptable.
+                if [[ "${{ needs.quick-checks.result }}" != "success" ]] ||
+                   [[ "${{ needs.build.result }}" != "success" ]] ||
+                   [[ "${{ needs.coverage.result }}" != "success" &&
+                      "${{ needs.coverage.result }}" != "skipped" ]]; then
                     echo "One or more jobs failed"
                     exit 1
                 fi

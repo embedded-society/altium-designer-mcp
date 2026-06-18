@@ -5,3 +5,12 @@ nul
 .venv/
 node_modules/
 .tmp/
+
+# Coverage artefacts (cargo-llvm-cov)
+lcov.info
+*.lcov
+*.profraw
+*.profdata
+
+# Python integration-test caches
+__pycache__/
