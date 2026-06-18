@@ -1,17 +1,35 @@
 //! Error types for Altium file operations.
 
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 /// Result type for Altium operations.
 pub type AltiumResult<T> = Result<T, AltiumError>;
 
+/// Renders only the final component of a path for client-facing error
+/// messages.
+///
+/// Internal directory structure and atomic-write temp paths (e.g.
+/// `…/MyLib.pcblib.tmp`) must never be disclosed to the MCP client. The full
+/// path remains available in the structured error field for `tracing` at
+/// debug level. Falls back to `<file>` when there is no final component.
+#[must_use]
+pub fn sanitise_path_for_client(path: &Path) -> String {
+    path.file_name().map_or_else(
+        || "<file>".to_string(),
+        |n| n.to_string_lossy().into_owned(),
+    )
+}
+
 /// Errors that can occur during Altium file operations.
 #[derive(Debug, Error)]
 pub enum AltiumError {
     /// Failed to open or read the file.
-    #[error("Failed to read file: {path}")]
+    ///
+    /// Display shows only the file name, never the full path, to avoid
+    /// leaking internal directory structure to the client.
+    #[error("Failed to read file: {}", sanitise_path_for_client(.path))]
     FileRead {
         /// Path to the file.
         path: PathBuf,
@@ -21,7 +39,11 @@ pub enum AltiumError {
     },
 
     /// Failed to write the file.
-    #[error("Failed to write file: {path}")]
+    ///
+    /// Display shows only the file name, never the full path (in particular
+    /// not the internal atomic-write temp path), to avoid leaking internal
+    /// details to the client.
+    #[error("Failed to write file: {}", sanitise_path_for_client(.path))]
     FileWrite {
         /// Path to the file.
         path: PathBuf,
@@ -169,5 +191,40 @@ mod tests {
             err.to_string(),
             "Wrong file type: expected PcbLib, got SchLib (Schematic Library)"
         );
+    }
+
+    #[test]
+    fn sanitise_path_strips_directory() {
+        assert_eq!(
+            sanitise_path_for_client(Path::new("/some/internal/dir/c.PcbLib")),
+            "c.PcbLib"
+        );
+        assert_eq!(sanitise_path_for_client(Path::new("c.PcbLib")), "c.PcbLib");
+    }
+
+    #[test]
+    fn file_write_error_does_not_leak_directory() {
+        // The path field carries the internal atomic-write temp path, but the
+        // client-facing Display must only show the file name.
+        let dir = "/secret/internal/dir";
+        let err = AltiumError::file_write(
+            PathBuf::from(format!("{dir}/MyLib.pcblib.tmp")),
+            io::Error::new(io::ErrorKind::PermissionDenied, "permission denied"),
+        );
+        let msg = err.to_string();
+        assert!(!msg.contains(dir), "error message leaked directory: {msg}");
+        assert!(msg.contains("MyLib.pcblib.tmp"), "message: {msg}");
+    }
+
+    #[test]
+    fn file_read_error_does_not_leak_directory() {
+        let dir = "/home/user/private/libs";
+        let err = AltiumError::file_read(
+            PathBuf::from(format!("{dir}/Parts.SchLib")),
+            io::Error::new(io::ErrorKind::NotFound, "not found"),
+        );
+        let msg = err.to_string();
+        assert!(!msg.contains(dir), "error message leaked directory: {msg}");
+        assert!(msg.contains("Parts.SchLib"), "message: {msg}");
     }
 }

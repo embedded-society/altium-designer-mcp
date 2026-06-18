@@ -554,8 +554,7 @@ fn generate_unique_id() -> String {
 
     let time_seed = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
+        .map_or(0, |d| d.as_nanos());
 
     // Combine time with incrementing counter for uniqueness
     let counter = COUNTER.fetch_add(1, Ordering::Relaxed);

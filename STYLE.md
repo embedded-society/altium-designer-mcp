@@ -2,6 +2,8 @@
 
 Code style conventions for altium-designer-mcp.
 
+**Single source of truth:** see the documentation registry in `CONTRIBUTING.md` § Single Source of Truth for the canonical location of each kind of information.
+
 ---
 
 ## General Rules
@@ -71,6 +73,19 @@ cargo clippy --all-targets --all-features -- -D warnings
 
 - All public items must have doc comments (`///`)
 - CI checks documentation builds without warnings
+
+---
+
+## Python
+
+The repository ships git-tracked Python helper scripts under `scripts/` and the MCP integration harness under
+`tests/integration/`. Follow these conventions:
+
+- Follow [PEP 8](https://peps.python.org/pep-0008/).
+- **4-space indentation** (no tabs) — aligned with the project-wide convention.
+- Use `snake_case` for functions and variables, `PascalCase` for classes, `SCREAMING_SNAKE_CASE` for constants.
+- Add a module-level docstring describing what each script does.
+- Prefer the standard library; keep helper scripts dependency-free so they run without a virtual environment.
 
 ---
 

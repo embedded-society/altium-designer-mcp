@@ -1,0 +1,54 @@
+# Codecov configuration.
+# https://docs.codecov.com/docs/codecov-yaml
+
+coverage:
+    precision: 2
+    round: down
+    range: "70...100"
+
+    status:
+        # Project-level coverage check (overall coverage of main).
+        project:
+            default:
+                target: auto
+                # Allow a 1% drop in coverage before failing the check.
+                threshold: 1%
+                if_ci_failed: error
+                informational: false
+
+        # Patch-level coverage check (coverage of changed lines in the PR).
+        patch:
+            default:
+                target: 80%
+                # Allow some leeway — not every changed line is testable.
+                threshold: 5%
+                if_ci_failed: error
+                informational: false
+
+# Pull request comment configuration.
+comment:
+    layout: "reach,diff,flags,tree"
+    behavior: default
+    require_changes: false
+    require_base: false
+    require_head: true
+
+# Files to ignore in coverage reporting.
+# These are paths relative to the repository root.
+ignore:
+    # Build artefacts
+    - "target/"
+    # Test files (their own coverage is not the goal — the code they exercise is)
+    - "tests/"
+    # Configuration examples
+    - "config/"
+    # Generated documentation
+    - "docs/"
+    # CLI entry point — uses clap, a Tokio runtime and std::process::ExitCode
+    # which cannot be unit-tested without forking the process. Functionality
+    # is covered end-to-end by the Python integration tests in tests/integration/.
+    - "src/main.rs"
+    # Stdio transport — async I/O wrapping tokio::io::stdin()/stdout(). Cannot
+    # be unit-tested without invasive refactoring to inject readers/writers.
+    # Behaviour is exercised end-to-end by the Python integration tests.
+    - "src/mcp/transport.rs"

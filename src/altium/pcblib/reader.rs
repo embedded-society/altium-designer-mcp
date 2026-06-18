@@ -1967,10 +1967,7 @@ fn parse_mil_value(s: Option<&str>) -> f64 {
 
     // Remove "mil" suffix if present
     let numeric = s.trim_end_matches("mil").trim();
-    numeric
-        .parse::<f64>()
-        .map(|v| v * 0.0254) // Convert mils to mm
-        .unwrap_or(0.0)
+    numeric.parse::<f64>().map_or(0.0, |v| v * 0.0254) // Convert mils to mm
 }
 
 /// Parses `V7_LAYER` string (e.g., "MECHANICAL6") to Layer enum.

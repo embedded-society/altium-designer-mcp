@@ -11,6 +11,7 @@ use tracing::{error, info, Level};
 
 use altium_designer_mcp::config;
 use altium_designer_mcp::mcp::server::McpServer;
+use altium_designer_mcp::security::{AuditLogger, RateLimiter};
 
 /// MCP server for AI-assisted Altium Designer library management.
 ///
@@ -56,9 +57,19 @@ fn get_log_level(verbose: u8, quiet: bool, config_level: &str) -> Level {
 }
 
 /// Initialises the tracing subscriber for logging.
+///
+/// The level derived from `-v`/`-q`/`config.logging.level` becomes the
+/// default directive, while the `RUST_LOG` environment variable can override
+/// verbosity per module (e.g.
+/// `RUST_LOG=altium_designer_mcp::altium::pcblib::reader=trace`). This is
+/// invaluable when debugging the binary OLE read/write paths without
+/// recompiling.
 fn init_tracing(level: Level) {
+    let filter = tracing_subscriber::EnvFilter::builder()
+        .with_default_directive(level.into())
+        .from_env_lossy();
     tracing_subscriber::fmt()
-        .with_max_level(level)
+        .with_env_filter(filter)
         .with_target(false)
         .with_writer(std::io::stderr)
         .init();
@@ -115,8 +126,23 @@ fn main() -> ExitCode {
         "Allowed paths configured"
     );
 
-    // Create MCP server
-    let mut server = McpServer::new(allowed_paths);
+    // Create MCP server with a rate limiter for destructive operations,
+    // configured from the user's settings.
+    let rate_limiter = RateLimiter::new(cfg.rate_limit.max_burst, cfg.rate_limit.refill_per_sec);
+    info!(
+        max_burst = cfg.rate_limit.max_burst,
+        refill_per_sec = cfg.rate_limit.refill_per_sec,
+        "Rate limiting destructive operations"
+    );
+
+    let audit_logger = cfg.logging.audit_log_path.clone().map(AuditLogger::new);
+    if let Some(path) = &cfg.logging.audit_log_path {
+        info!(audit_log = %path.display(), "Audit logging destructive operations");
+    }
+
+    let mut server = McpServer::new(allowed_paths)
+        .with_rate_limiter(rate_limiter)
+        .with_audit_logger(audit_logger);
 
     info!("MCP server ready, waiting for client connection...");
 

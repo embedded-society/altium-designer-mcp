@@ -16,9 +16,57 @@
 
 use std::io;
 
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 
 use crate::mcp::protocol::{JsonRpcError, JsonRpcResponse, OutgoingNotification};
+
+/// Strips a single trailing `\n` and an optional preceding `\r` from a line.
+fn strip_trailing_newline(line: &mut String) {
+    if line.ends_with('\n') {
+        line.pop();
+        if line.ends_with('\r') {
+            line.pop();
+        }
+    }
+}
+
+/// Reads one newline-delimited message from an async buffered reader.
+///
+/// Returns `None` on EOF. The trailing newline (and any preceding `\r`) is
+/// stripped. There is intentionally no line-length cap: some tools carry
+/// base64-encoded payloads (e.g. embedded STEP models via `write_pcblib`, or
+/// `extract_step_model` output) inline on a single JSON-RPC line, so a message
+/// may be multiple megabytes.
+async fn read_message_line<R>(reader: &mut R) -> io::Result<Option<String>>
+where
+    R: AsyncBufRead + Unpin,
+{
+    let mut line = String::new();
+    let bytes_read = reader.read_line(&mut line).await?;
+    if bytes_read == 0 {
+        // EOF.
+        return Ok(None);
+    }
+    strip_trailing_newline(&mut line);
+    Ok(Some(line))
+}
+
+/// Writes a single JSON message line to an async writer, terminated by a
+/// newline and flushed. Per the MCP spec a message must not contain embedded
+/// newlines.
+async fn write_message_line<W>(writer: &mut W, json: &str) -> io::Result<()>
+where
+    W: AsyncWrite + Unpin,
+{
+    debug_assert!(
+        !json.contains('\n'),
+        "JSON message must not contain embedded newlines"
+    );
+    writer.write_all(json.as_bytes()).await?;
+    writer.write_all(b"\n").await?;
+    writer.flush().await?;
+    Ok(())
+}
 
 /// A stdio-based MCP transport.
 ///
@@ -48,23 +96,7 @@ impl StdioTransport {
     ///
     /// Returns an error if reading from stdin fails.
     pub async fn read_line(&mut self) -> io::Result<Option<String>> {
-        let mut line = String::new();
-        let bytes_read = self.reader.read_line(&mut line).await?;
-
-        if bytes_read == 0 {
-            // EOF - stdin closed
-            return Ok(None);
-        }
-
-        // Remove the trailing newline
-        if line.ends_with('\n') {
-            line.pop();
-            if line.ends_with('\r') {
-                line.pop();
-            }
-        }
-
-        Ok(Some(line))
+        read_message_line(&mut self.reader).await
     }
 
     /// Writes a JSON-RPC response to stdout.
@@ -116,17 +148,7 @@ impl StdioTransport {
     ///
     /// Returns an error if writing fails.
     async fn write_raw(&mut self, json: &str) -> io::Result<()> {
-        // MCP spec: messages must not contain embedded newlines
-        debug_assert!(
-            !json.contains('\n'),
-            "JSON message must not contain embedded newlines"
-        );
-
-        self.writer.write_all(json.as_bytes()).await?;
-        self.writer.write_all(b"\n").await?;
-        self.writer.flush().await?;
-
-        Ok(())
+        write_message_line(&mut self.writer, json).await
     }
 
     /// Writes an arbitrary JSON value to stdout.
@@ -188,5 +210,48 @@ mod tests {
             !json.contains('\n'),
             "Serialised JSON should not contain newlines"
         );
+    }
+
+    #[test]
+    fn strip_trailing_newline_variants() {
+        let mut s = "x\n".to_string();
+        strip_trailing_newline(&mut s);
+        assert_eq!(s, "x");
+
+        let mut s = "x\r\n".to_string();
+        strip_trailing_newline(&mut s);
+        assert_eq!(s, "x");
+
+        let mut s = "x".to_string();
+        strip_trailing_newline(&mut s);
+        assert_eq!(s, "x");
+
+        let mut s = String::new();
+        strip_trailing_newline(&mut s);
+        assert_eq!(s, "");
+    }
+
+    #[tokio::test]
+    async fn read_message_line_splits_and_strips() {
+        use std::io::Cursor;
+
+        let mut reader = Cursor::new(b"hello\r\nworld\n".to_vec());
+        assert_eq!(
+            read_message_line(&mut reader).await.unwrap().as_deref(),
+            Some("hello")
+        );
+        assert_eq!(
+            read_message_line(&mut reader).await.unwrap().as_deref(),
+            Some("world")
+        );
+        // EOF.
+        assert_eq!(read_message_line(&mut reader).await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn write_message_line_appends_single_newline() {
+        let mut buf: Vec<u8> = Vec::new();
+        write_message_line(&mut buf, r#"{"a":1}"#).await.unwrap();
+        assert_eq!(buf, b"{\"a\":1}\n");
     }
 }

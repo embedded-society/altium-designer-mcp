@@ -1,3 +1,8 @@
 [toolchain]
-channel = "stable"
+# Pinned to an exact version for reproducible builds. A floating "stable"
+# can turn a green build red when a new rustc/clippy ships, which is
+# amplified by RUSTFLAGS=-Dwarnings + clippy pedantic/nursery. Bump this
+# together with the dtolnay/rust-toolchain pins in .github/workflows/
+# (enforced by .github/scripts/check-toolchain-pin.sh).
+channel = "1.95.0"
 components = ["rustfmt", "clippy", "rust-src"]
