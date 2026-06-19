@@ -934,6 +934,10 @@ impl PcbLib {
         // Write Library storage (Header + Data for Altium compatibility)
         self.write_library(&mut cfb, &ole_names)?;
 
+        // Write the auxiliary /Library substreams Altium requires (without them
+        // it throws "Catastrophic failure whilst loading section Library").
+        self.write_library_extras(&mut cfb)?;
+
         // Write embedded 3D models if present (under /Library/Models/)
         self.write_models(&mut cfb)?;
 
@@ -1162,6 +1166,12 @@ impl PcbLib {
         cfb: &mut cfb::CompoundFile<F>,
         _ole_names: &[String],
     ) -> AltiumResult<()> {
+        // Trailing data present in real Altium PcbLib FileHeaders (without it,
+        // the library has no UID and Altium throws "Catastrophic failure whilst
+        // loading section Library"): an 8-byte weight/double followed by a
+        // length-prefixed 8-char library UniqueID.
+        const FILEHEADER_WEIGHT: [u8; 8] = [0x0a, 0xd7, 0xa3, 0x70, 0x3d, 0x0a, 0x14, 0x40];
+
         let version_string = b"PCB 6.0 Binary Library File";
         #[allow(clippy::cast_possible_truncation)]
         let len = version_string.len() as u32;
@@ -1171,6 +1181,15 @@ impl PcbLib {
         #[allow(clippy::cast_possible_truncation)]
         data.push(len as u8); // 1-byte length (same value)
         data.extend_from_slice(version_string); // raw string
+
+        data.extend_from_slice(&FILEHEADER_WEIGHT);
+        let lib_uid = writer::generate_unique_id();
+        #[allow(clippy::cast_possible_truncation)]
+        let uid_len = lib_uid.len() as u32;
+        data.extend_from_slice(&uid_len.to_le_bytes());
+        #[allow(clippy::cast_possible_truncation)]
+        data.push(uid_len as u8);
+        data.extend_from_slice(lib_uid.as_bytes());
 
         let mut stream = cfb
             .create_stream("/FileHeader")
@@ -1253,6 +1272,108 @@ impl PcbLib {
         Ok(())
     }
 
+    /// Writes the auxiliary `/Library` substreams that Altium walks while
+    /// loading a `PcbLib`. A real Altium library always contains these; when they
+    /// are absent Altium aborts with "Catastrophic failure whilst loading
+    /// section Library". Constant streams are mirrored from a real library; the
+    /// component TOC is derived from the footprints.
+    fn write_library_extras<F: std::io::Read + std::io::Write + std::io::Seek>(
+        &self,
+        cfb: &mut cfb::CompoundFile<F>,
+    ) -> AltiumResult<()> {
+        fn put<F: std::io::Read + std::io::Write + std::io::Seek>(
+            cfb: &mut cfb::CompoundFile<F>,
+            path: &str,
+            bytes: &[u8],
+        ) -> AltiumResult<()> {
+            let mut s = cfb
+                .create_stream(path)
+                .map_err(|e| AltiumError::invalid_ole(format!("Failed to create {path}: {e}")))?;
+            std::io::Write::write_all(&mut s, bytes)
+                .map_err(|e| AltiumError::invalid_ole(format!("Failed to write {path}: {e}")))
+        }
+        fn put_storage<F: std::io::Read + std::io::Write + std::io::Seek>(
+            cfb: &mut cfb::CompoundFile<F>,
+            path: &str,
+        ) -> AltiumResult<()> {
+            cfb.create_storage(path)
+                .map_err(|e| AltiumError::invalid_ole(format!("Failed to create {path}: {e}")))
+        }
+
+        // LayerKindMapping — constant layer-kind→id table from a real library.
+        const LAYER_KIND_MAPPING: [u8; 68] = [
+            8, 0, 0, 0, 49, 0, 46, 0, 48, 0, 0, 0, 212, 227, 31, 207, 6, 0, 0, 0, 61, 0, 0, 0, 12,
+            0, 0, 0, 62, 0, 0, 0, 26, 0, 0, 0, 58, 0, 0, 0, 1, 0, 0, 0, 59, 0, 0, 0, 2, 0, 0, 0,
+            63, 0, 0, 0, 27, 0, 0, 0, 60, 0, 0, 0, 11, 0, 0, 0,
+        ];
+        put_storage(cfb, "/Library/LayerKindMapping")?;
+        put(cfb, "/Library/LayerKindMapping/Header", &1u32.to_le_bytes())?;
+        put(cfb, "/Library/LayerKindMapping/Data", &LAYER_KIND_MAPPING)?;
+
+        // PadViaLibrary — local pad/via template library descriptor.
+        let pvl_guid = format!("{{{}}}", uuid::Uuid::new_v4().to_string().to_uppercase());
+        let pvl_params = format!(
+            "|PADVIALIBRARY.LIBRARYID={pvl_guid}|PADVIALIBRARY.LIBRARYNAME=<Local>|PADVIALIBRARY.DISPLAYUNITS=1"
+        );
+        let mut pvl = Vec::new();
+        #[allow(clippy::cast_possible_truncation)]
+        pvl.extend_from_slice(&((pvl_params.len() + 1) as u32).to_le_bytes());
+        pvl.extend_from_slice(pvl_params.as_bytes());
+        pvl.push(0);
+        put_storage(cfb, "/Library/PadViaLibrary")?;
+        put(cfb, "/Library/PadViaLibrary/Header", &0u32.to_le_bytes())?;
+        put(cfb, "/Library/PadViaLibrary/Data", &pvl)?;
+
+        // Textures (none)
+        put_storage(cfb, "/Library/Textures")?;
+        put(cfb, "/Library/Textures/Header", &0u32.to_le_bytes())?;
+        put(cfb, "/Library/Textures/Data", &[])?;
+
+        // ModelsNoEmbed (none)
+        put_storage(cfb, "/Library/ModelsNoEmbed")?;
+        put(cfb, "/Library/ModelsNoEmbed/Header", &0u32.to_le_bytes())?;
+        put(cfb, "/Library/ModelsNoEmbed/Data", &[])?;
+
+        // EmbeddedFonts (none)
+        put(cfb, "/Library/EmbeddedFonts", &0u32.to_le_bytes())?;
+
+        // ComponentParamsTOC — one block listing each footprint's params.
+        let mut toc = String::new();
+        for fp in &self.footprints {
+            let _ = std::fmt::Write::write_fmt(
+                &mut toc,
+                format_args!(
+                    "Name={}|Pad Count={}|Height=0|Description={}\r\n",
+                    fp.name,
+                    fp.pads.len(),
+                    fp.description
+                ),
+            );
+        }
+        let mut toc_data = Vec::new();
+        #[allow(clippy::cast_possible_truncation)]
+        toc_data.extend_from_slice(&((toc.len() + 1) as u32).to_le_bytes());
+        toc_data.extend_from_slice(toc.as_bytes());
+        toc_data.push(0);
+        put_storage(cfb, "/Library/ComponentParamsTOC")?;
+        put(
+            cfb,
+            "/Library/ComponentParamsTOC/Header",
+            &1u32.to_le_bytes(),
+        )?;
+        put(cfb, "/Library/ComponentParamsTOC/Data", &toc_data)?;
+
+        // Models/Header (count 0) when there are no embedded 3D models;
+        // `write_models` handles the non-empty case.
+        if self.models.is_empty() {
+            put_storage(cfb, "/Library/Models")?;
+            put(cfb, "/Library/Models/Header", &0u32.to_le_bytes())?;
+            put(cfb, "/Library/Models/Data", &[])?;
+        }
+
+        Ok(())
+    }
+
     /// Builds the pipe-delimited parameter string for `/Library/Data`.
     ///
     /// Format: `|KEY=VAL|KEY=VAL|...` (leading pipe, NO trailing pipe).
@@ -1260,108 +1381,14 @@ impl PcbLib {
     /// Altium Designer requires `VERSION=3.00` plus a minimal V9 layer stack
     /// definition to consider the file valid.
     fn build_library_params(filename: &str) -> String {
-        use std::fmt::Write;
-        use uuid::Uuid;
-
-        let mut p = String::with_capacity(4096);
-
-        // Core metadata (must be first, matching AltiumSharp order)
-        let _ = write!(p, "|FILENAME={filename}");
-        p.push_str("|KIND=Protel_Advanced_PCB_Library");
-        p.push_str("|VERSION=3.00");
-        let now = chrono::Local::now();
-        let _ = write!(p, "|DATE={}", now.format("%d. %m. %Y"));
-        let _ = write!(p, "|TIME={}", now.format("%H:%M:%S"));
-
-        // V9 Master layer stack (required for VERSION=3.00)
-        let master_guid = format!("{{{}}}", Uuid::new_v4().to_string().to_uppercase());
-        let _ = write!(p, "|V9_MASTERSTACK_STYLE=0");
-        let _ = write!(p, "|V9_MASTERSTACK_ID={master_guid}");
-        p.push_str("|V9_MASTERSTACK_NAME=Master layer stack");
-        p.push_str("|V9_MASTERSTACK_SHOWTOPDIELECTRIC=FALSE");
-        p.push_str("|V9_MASTERSTACK_SHOWBOTTOMDIELECTRIC=FALSE");
-        p.push_str("|V9_MASTERSTACK_ISFLEX=FALSE");
-
-        // V9 Stack layers — minimal 2-layer board:
-        //   0: Top Paste
-        //   1: Top Overlay
-        //   2: Top Solder (dielectric)
-        //   3: Top Layer (copper)
-        //   4: Dielectric 1 (core)
-        //   5: Bottom Layer (copper)
-        //   6: Bottom Solder (dielectric)
-        //   7: Bottom Overlay
-        //   8: Bottom Paste
-        #[allow(clippy::type_complexity)]
-        let layer_defs: &[(&str, u32, bool, Option<(u8, &str, &str)>)] = &[
-            ("Top Paste", 16_973_832, true, None),
-            ("Top Overlay", 16_973_830, true, None),
-            (
-                "Top Solder",
-                16_973_834,
-                false,
-                Some((3, "Solder Resist", "0.4mil")),
-            ),
-            ("Top Layer", 1, true, None),
-            ("Dielectric 1", 0, false, Some((0, "FR-4", "10mil"))),
-            ("Bottom Layer", 32, true, None),
-            (
-                "Bottom Solder",
-                16_973_836,
-                false,
-                Some((3, "Solder Resist", "0.4mil")),
-            ),
-            ("Bottom Overlay", 16_973_831, true, None),
-            ("Bottom Paste", 16_973_833, true, None),
-        ];
-
-        for (i, (name, layer_id, used_by_prims, diel)) in layer_defs.iter().enumerate() {
-            let guid = format!("{{{}}}", Uuid::new_v4().to_string().to_uppercase());
-            let _ = write!(p, "|V9_STACK_LAYER{i}_ID={guid}");
-            let _ = write!(p, "|V9_STACK_LAYER{i}_NAME={name}");
-            let _ = write!(p, "|V9_STACK_LAYER{i}_LAYERID={layer_id}");
-            let _ = write!(
-                p,
-                "|V9_STACK_LAYER{i}_USEDBYPRIMS={}",
-                if *used_by_prims { "TRUE" } else { "FALSE" }
-            );
-            if let Some((diel_type, material, height)) = diel {
-                let _ = write!(p, "|V9_STACK_LAYER{i}_DIELTYPE={diel_type}");
-                let _ = write!(p, "|V9_STACK_LAYER{i}_DIELCONST=3.500");
-                let _ = write!(p, "|V9_STACK_LAYER{i}_DIELHEIGHT={height}");
-                let _ = write!(p, "|V9_STACK_LAYER{i}_DIELMATERIAL={material}");
-                let _ = write!(p, "|V9_STACK_LAYER{i}_COVERLAY_EXPANSION=0mil");
-            }
-            // Copper thickness for Top/Bottom Layer
-            if *layer_id == 1 || *layer_id == 32 {
-                let _ = write!(p, "|V9_STACK_LAYER{i}_COPTHICK=1.380mil");
-            }
-        }
-
-        // Top/Bottom dielectric (solder mask)
-        p.push_str("|TOPTYPE=3|TOPCONST=3.500|TOPHEIGHT=0.4mil|TOPMATERIAL=Solder Resist");
-        p.push_str(
-            "|BOTTOMTYPE=3|BOTTOMCONST=3.500|BOTTOMHEIGHT=0.4mil|BOTTOMMATERIAL=Solder Resist",
-        );
-
-        // Legacy layer stack style
-        p.push_str("|LAYERSTACKSTYLE=0|SHOWTOPDIELECTRIC=FALSE|SHOWBOTTOMDIELECTRIC=FALSE");
-
-        // Grid and display defaults
-        p.push_str("|BIGVISIBLEGRIDSIZE=0.000|VISIBLEGRIDSIZE=0.000");
-        p.push_str(
-            "|SNAPGRIDSIZE=50000.000000|SNAPGRIDSIZEX=50000.000000|SNAPGRIDSIZEY=50000.000000",
-        );
-        p.push_str("|ELECTRICALGRIDRANGE=8mil|ELECTRICALGRIDENABLED=TRUE");
-        p.push_str("|DOTGRID=FALSE|DOTGRIDLARGE=FALSE|DISPLAYUNIT=0");
-        p.push_str("|TOGGLELAYERS=1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111");
-        p.push_str("|SHOWDEFAULTSETS=TRUE|LAYERSETSCOUNT=0");
-
-        // Board version and metadata
-        p.push_str("|BOARDVERSION=0.00|VAULTGUID=|FOLDERGUID=");
-        p.push_str("|LIFECYCLEDEFINITIONGUID=|REVISIONNAMINGSCHEMEGUID=");
-
-        p
+        // Real Altium PcbLib files carry a large, mostly component-agnostic
+        // board/layer-stack configuration in /Library/Data. A minimal synthesized
+        // version is rejected by Altium ("Catastrophic failure whilst loading
+        // section Library"), so we splice the caller's FILENAME onto a verified
+        // configuration captured verbatim from a known-good library
+        // (scripts/sample.PcbLib).
+        const CONFIG_TEMPLATE: &str = include_str!("library_data_template.txt");
+        format!("|FILENAME={filename}{CONFIG_TEMPLATE}")
     }
 
     /// Writes a single footprint to the OLE document.
@@ -2521,15 +2548,18 @@ mod tests {
     }
 
     #[test]
-    fn unique_id_no_primitives_with_ids() {
-        // Create a footprint without unique IDs
+    fn unique_id_pads_always_emitted() {
+        // Real Altium libraries always store a UID record for every pad, so the
+        // writer generates one even when the footprint carries no explicit IDs.
         let mut footprint = Footprint::new("TEST_NO_IDS");
         footprint.add_pad(Pad::smd("1", -0.5, 0.0, 0.6, 0.5));
         footprint.add_pad(Pad::smd("2", 0.5, 0.0, 0.6, 0.5));
 
-        // Encode should return None since no primitives have unique IDs
         let uid_data = writer::encode_unique_id_stream(&footprint);
-        assert!(uid_data.is_none());
+        assert!(uid_data.is_some());
+        let entries = reader::parse_unique_id_stream(&uid_data.unwrap());
+        assert_eq!(entries.len(), 2);
+        assert!(entries.iter().all(|e| e.primitive_type == "Pad"));
     }
 
     #[test]
@@ -2541,7 +2571,7 @@ mod tests {
         pad1.unique_id = Some("ONLYTHIS".to_string());
         footprint.add_pad(pad1);
 
-        // Pad 2 has no unique ID
+        // Pad 2 has no unique ID -> the writer generates one for it.
         footprint.add_pad(Pad::smd("2", 0.5, 0.0, 0.6, 0.5));
 
         // Encode
@@ -2551,10 +2581,12 @@ mod tests {
         // Parse back
         let entries = reader::parse_unique_id_stream(&uid_data.unwrap());
 
-        // Should only have 1 entry (the pad with the unique ID)
-        assert_eq!(entries.len(), 1);
+        // Both pads get a record; the explicitly-set UID is preserved.
+        assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].primitive_index, 0); // 0-based index
         assert_eq!(entries[0].unique_id, "ONLYTHIS");
+        assert_eq!(entries[1].primitive_index, 1);
+        assert!(!entries[1].unique_id.is_empty());
     }
 
     #[test]

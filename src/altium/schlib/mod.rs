@@ -329,6 +329,22 @@ impl SchLib {
             .map_err(|e| AltiumError::invalid_ole(format!("Failed to write FileHeader: {e}")))?;
         drop(header_stream);
 
+        // Write the Storage stream. Altium expects this stream to exist; its
+        // absence causes a crash on load. Content is the standard minimal
+        // "Icon storage" header (length-prefixed, null-terminated).
+        let storage_payload: &[u8] = b"|HEADER=Icon storage\x00";
+        let mut storage_data = Vec::with_capacity(4 + storage_payload.len());
+        #[allow(clippy::cast_possible_truncation)]
+        storage_data.extend_from_slice(&(storage_payload.len() as u32).to_le_bytes());
+        storage_data.extend_from_slice(storage_payload);
+        let mut storage_stream = cfb
+            .create_stream("/Storage")
+            .map_err(|e| AltiumError::invalid_ole(format!("Failed to create Storage: {e}")))?;
+        storage_stream
+            .write_all(&storage_data)
+            .map_err(|e| AltiumError::invalid_ole(format!("Failed to write Storage: {e}")))?;
+        drop(storage_stream);
+
         // Write each symbol's Data stream using its OLE-safe name
         for (symbol, ole_name) in symbols.iter().zip(ole_names.iter()) {
             let stream_path = format!("/{ole_name}/Data");

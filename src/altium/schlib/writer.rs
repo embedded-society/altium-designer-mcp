@@ -139,11 +139,12 @@ fn write_binary_pin(data: &mut Vec<u8>, pin: &Pin) -> crate::altium::error::Alti
     record.push(pin.symbol_inside.to_id());
     record.push(pin.symbol_outside.to_id());
 
-    // Description: [length:1][unknown:1][string]
+    // Description: [length:1][reserved:1][string]
+    // The reserved byte is 0x01 in real Altium pins (not 0x00).
     let desc_bytes = pin.description.as_bytes();
     #[allow(clippy::cast_possible_truncation)]
     record.push(desc_bytes.len() as u8);
-    record.push(0x00); // Unknown byte
+    record.push(0x01); // Reserved (observed as 0x01 in all real pins)
     record.extend_from_slice(desc_bytes);
 
     // Electrical type (1 byte)
@@ -199,6 +200,13 @@ fn write_binary_pin(data: &mut Vec<u8>, pin: &Pin) -> crate::altium::error::Alti
     #[allow(clippy::cast_possible_truncation)]
     record.push(desig_bytes.len() as u8);
     record.extend_from_slice(desig_bytes);
+
+    // Trailing fields: three empty length-prefixed strings (part/pin swap groups,
+    // etc.). Real Altium pins always include these; omitting them truncates the
+    // record and causes a crash on load.
+    record.push(0x00);
+    record.push(0x00);
+    record.push(0x00);
 
     // Header: [length:2 LE][type:2 BE]
     #[allow(clippy::cast_possible_truncation)]
