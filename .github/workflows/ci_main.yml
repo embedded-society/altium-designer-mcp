@@ -28,7 +28,7 @@ jobs:
 
         steps:
             - name: Checkout repository
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
             - name: Verify Rust toolchain pin consistency
               run: bash .github/scripts/check-toolchain-pin.sh
@@ -90,7 +90,7 @@ jobs:
 
         steps:
             - name: Checkout repository
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
             - name: Install Rust toolchain
               uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582 # v1.95.0 (latest stable)
@@ -195,7 +195,7 @@ jobs:
 
         steps:
             - name: Checkout repository
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
             - name: Install Rust toolchain
               uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582 # v1.95.0 (latest stable)
@@ -286,7 +286,7 @@ jobs:
 
             - name: Checkout repository
               if: success()
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
             - name: Cleanup stale caches
               if: success()
