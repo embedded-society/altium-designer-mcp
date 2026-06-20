@@ -149,8 +149,8 @@ fn write_binary_pin(data: &mut Vec<u8>, pin: &Pin) -> crate::altium::error::Alti
     record.push(desc_bytes.len() as u8);
     record.extend_from_slice(desc_bytes);
 
-    // Formal type (1 byte) - 0 for from-scratch pins
-    record.push(0x00);
+    // Formal type (1 byte) - 0x01 for a normal pin (matches Altium's output).
+    record.push(0x01);
 
     // Electrical type (1 byte)
     record.push(pin.electrical_type.to_id());
@@ -206,11 +206,12 @@ fn write_binary_pin(data: &mut Vec<u8>, pin: &Pin) -> crate::altium::error::Alti
     record.push(desig_bytes.len() as u8);
     record.extend_from_slice(desig_bytes);
 
-    // SwapIdGroup, PartAndSequence, DefaultValue: three empty Pascal short
-    // strings that Altium always writes at the tail of a pin record.
-    record.push(0);
-    record.push(0);
-    record.push(0);
+    // Pin swap-id tail (Pascal short strings), matching Altium's output:
+    //   SwapIdGroup = "" , PartAndSequence = "|&|" , DefaultValue = "".
+    record.push(0); // SwapIdGroup (empty)
+    record.push(3); // PartAndSequence length
+    record.extend_from_slice(b"|&|");
+    record.push(0); // DefaultValue (empty)
 
     // Header: [length:2 LE][type:2 BE]
     #[allow(clippy::cast_possible_truncation)]

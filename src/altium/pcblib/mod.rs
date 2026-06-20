@@ -1370,6 +1370,22 @@ impl PcbLib {
         Self::write_meta_storage(cfb, "/Library/Textures", 0, &[])?;
         Self::write_meta_storage(cfb, "/Library/ModelsNoEmbed", 0, &[])?;
 
+        // EmbeddedFonts is a plain stream holding a u32 font count (0).
+        {
+            let mut stream = cfb.create_stream("/Library/EmbeddedFonts").map_err(|e| {
+                AltiumError::invalid_ole(format!("Failed to create EmbeddedFonts: {e}"))
+            })?;
+            std::io::Write::write_all(&mut stream, &0u32.to_le_bytes()).map_err(|e| {
+                AltiumError::invalid_ole(format!("Failed to write EmbeddedFonts: {e}"))
+            })?;
+        }
+
+        // Empty Models storage when the library has no embedded models
+        // (otherwise write_models creates it). Altium expects it to exist.
+        if self.models.is_empty() {
+            Self::write_meta_storage(cfb, "/Library/Models", 0, &[])?;
+        }
+
         Ok(())
     }
 
@@ -1390,7 +1406,6 @@ impl PcbLib {
     /// definition to consider the file valid.
     fn build_library_params(filename: &str) -> String {
         use std::fmt::Write;
-        use uuid::Uuid;
 
         let mut p = String::with_capacity(4096);
 
@@ -1402,93 +1417,12 @@ impl PcbLib {
         let _ = write!(p, "|DATE={}", now.format("%d. %m. %Y"));
         let _ = write!(p, "|TIME={}", now.format("%H:%M:%S"));
 
-        // V9 Master layer stack (required for VERSION=3.00)
-        let master_guid = format!("{{{}}}", Uuid::new_v4().to_string().to_uppercase());
-        let _ = write!(p, "|V9_MASTERSTACK_STYLE=0");
-        let _ = write!(p, "|V9_MASTERSTACK_ID={master_guid}");
-        p.push_str("|V9_MASTERSTACK_NAME=Master layer stack");
-        p.push_str("|V9_MASTERSTACK_SHOWTOPDIELECTRIC=FALSE");
-        p.push_str("|V9_MASTERSTACK_SHOWBOTTOMDIELECTRIC=FALSE");
-        p.push_str("|V9_MASTERSTACK_ISFLEX=FALSE");
-
-        // V9 Stack layers — minimal 2-layer board:
-        //   0: Top Paste
-        //   1: Top Overlay
-        //   2: Top Solder (dielectric)
-        //   3: Top Layer (copper)
-        //   4: Dielectric 1 (core)
-        //   5: Bottom Layer (copper)
-        //   6: Bottom Solder (dielectric)
-        //   7: Bottom Overlay
-        //   8: Bottom Paste
-        #[allow(clippy::type_complexity)]
-        let layer_defs: &[(&str, u32, bool, Option<(u8, &str, &str)>)] = &[
-            ("Top Paste", 16_973_832, true, None),
-            ("Top Overlay", 16_973_830, true, None),
-            (
-                "Top Solder",
-                16_973_834,
-                false,
-                Some((3, "Solder Resist", "0.4mil")),
-            ),
-            ("Top Layer", 1, true, None),
-            ("Dielectric 1", 0, false, Some((0, "FR-4", "10mil"))),
-            ("Bottom Layer", 32, true, None),
-            (
-                "Bottom Solder",
-                16_973_836,
-                false,
-                Some((3, "Solder Resist", "0.4mil")),
-            ),
-            ("Bottom Overlay", 16_973_831, true, None),
-            ("Bottom Paste", 16_973_833, true, None),
-        ];
-
-        for (i, (name, layer_id, used_by_prims, diel)) in layer_defs.iter().enumerate() {
-            let guid = format!("{{{}}}", Uuid::new_v4().to_string().to_uppercase());
-            let _ = write!(p, "|V9_STACK_LAYER{i}_ID={guid}");
-            let _ = write!(p, "|V9_STACK_LAYER{i}_NAME={name}");
-            let _ = write!(p, "|V9_STACK_LAYER{i}_LAYERID={layer_id}");
-            let _ = write!(
-                p,
-                "|V9_STACK_LAYER{i}_USEDBYPRIMS={}",
-                if *used_by_prims { "TRUE" } else { "FALSE" }
-            );
-            if let Some((diel_type, material, height)) = diel {
-                let _ = write!(p, "|V9_STACK_LAYER{i}_DIELTYPE={diel_type}");
-                let _ = write!(p, "|V9_STACK_LAYER{i}_DIELCONST=3.500");
-                let _ = write!(p, "|V9_STACK_LAYER{i}_DIELHEIGHT={height}");
-                let _ = write!(p, "|V9_STACK_LAYER{i}_DIELMATERIAL={material}");
-                let _ = write!(p, "|V9_STACK_LAYER{i}_COVERLAY_EXPANSION=0mil");
-            }
-            // Copper thickness for Top/Bottom Layer
-            if *layer_id == 1 || *layer_id == 32 {
-                let _ = write!(p, "|V9_STACK_LAYER{i}_COPTHICK=1.380mil");
-            }
-        }
-
-        // Top/Bottom dielectric (solder mask)
-        p.push_str("|TOPTYPE=3|TOPCONST=3.500|TOPHEIGHT=0.4mil|TOPMATERIAL=Solder Resist");
-        p.push_str(
-            "|BOTTOMTYPE=3|BOTTOMCONST=3.500|BOTTOMHEIGHT=0.4mil|BOTTOMMATERIAL=Solder Resist",
-        );
-
-        // Legacy layer stack style
-        p.push_str("|LAYERSTACKSTYLE=0|SHOWTOPDIELECTRIC=FALSE|SHOWBOTTOMDIELECTRIC=FALSE");
-
-        // Grid and display defaults
-        p.push_str("|BIGVISIBLEGRIDSIZE=0.000|VISIBLEGRIDSIZE=0.000");
-        p.push_str(
-            "|SNAPGRIDSIZE=50000.000000|SNAPGRIDSIZEX=50000.000000|SNAPGRIDSIZEY=50000.000000",
-        );
-        p.push_str("|ELECTRICALGRIDRANGE=8mil|ELECTRICALGRIDENABLED=TRUE");
-        p.push_str("|DOTGRID=FALSE|DOTGRIDLARGE=FALSE|DISPLAYUNIT=0");
-        p.push_str("|TOGGLELAYERS=1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111");
-        p.push_str("|SHOWDEFAULTSETS=TRUE|LAYERSETSCOUNT=0");
-
-        // Board version and metadata
-        p.push_str("|BOARDVERSION=0.00|VAULTGUID=|FOLDERGUID=");
-        p.push_str("|LIFECYCLEDEFINITIONGUID=|REVISIONNAMINGSCHEMEGUID=");
+        // V9 layer stack + full board configuration. A synthesised stack is
+        // rejected by Altium ("Catastrophic failure whilst loading section
+        // Library"), so we splice in a complete, known-good stack captured
+        // verbatim from a real Altium-authored library (scripts/sample.PcbLib).
+        p.push('|');
+        p.push_str(include_str!("assets/library_data_stack.txt"));
 
         p
     }
