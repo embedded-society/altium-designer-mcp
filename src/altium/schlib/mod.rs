@@ -349,6 +349,25 @@ impl SchLib {
             })?;
         }
 
+        // Write the root Storage stream (Altium's icon/image storage). It is
+        // always present; for a library with no embedded images it is just the
+        // header parameter block.
+        {
+            let header = b"|HEADER=Icon storage";
+            let mut storage = Vec::with_capacity(4 + header.len() + 1);
+            #[allow(clippy::cast_possible_truncation)]
+            storage.extend_from_slice(&((header.len() + 1) as u32).to_le_bytes());
+            storage.extend_from_slice(header);
+            storage.push(0x00);
+
+            let mut stream = cfb
+                .create_stream("/Storage")
+                .map_err(|e| AltiumError::invalid_ole(format!("Failed to create Storage: {e}")))?;
+            stream
+                .write_all(&storage)
+                .map_err(|e| AltiumError::invalid_ole(format!("Failed to write Storage: {e}")))?;
+        }
+
         cfb.flush()
             .map_err(|e| AltiumError::invalid_ole(format!("Failed to flush OLE file: {e}")))?;
 
@@ -602,7 +621,10 @@ fn read_file_header<R: Read + Seek>(cfb: &mut CompoundFile<R>) -> AltiumResult<F
         return Err(AltiumError::parse_error(4, "FileHeader truncated"));
     }
 
+    // The block is a C-string; drop the trailing null terminator (and any
+    // padding) before splitting so values don't carry a stray '\0'.
     let text = String::from_utf8_lossy(&data[4..4 + length]);
+    let text = text.trim_end_matches('\u{0}');
     let mut props: HashMap<String, String> = HashMap::new();
 
     for part in text.split('|') {

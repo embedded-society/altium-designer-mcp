@@ -8,8 +8,12 @@
 //! ```text
 //! [RecordLength:2 LE][RecordType:2 BE][data:RecordLength]
 //! ...
-//! [0x00 0x00]  // End marker (length = 0)
 //! ```
+//!
+//! The 4-byte record header is equivalent to Altium's single 32-bit
+//! little-endian size word whose high byte is a flag (0x00 text, 0x01 pin).
+//! Records run until the stream is exhausted — there is NO end-of-stream
+//! marker (a trailing 0x0000 would be mis-read as a zero-length record).
 //!
 //! Record types:
 //! - `0x0000`: Text record (pipe-delimited key=value pairs)
@@ -139,12 +143,14 @@ fn write_binary_pin(data: &mut Vec<u8>, pin: &Pin) -> crate::altium::error::Alti
     record.push(pin.symbol_inside.to_id());
     record.push(pin.symbol_outside.to_id());
 
-    // Description: [length:1][unknown:1][string]
+    // Description: Pascal short string [length:1][string]
     let desc_bytes = pin.description.as_bytes();
     #[allow(clippy::cast_possible_truncation)]
     record.push(desc_bytes.len() as u8);
-    record.push(0x00); // Unknown byte
     record.extend_from_slice(desc_bytes);
+
+    // Formal type (1 byte) - 0 for from-scratch pins
+    record.push(0x00);
 
     // Electrical type (1 byte)
     record.push(pin.electrical_type.to_id());
@@ -200,6 +206,12 @@ fn write_binary_pin(data: &mut Vec<u8>, pin: &Pin) -> crate::altium::error::Alti
     record.push(desig_bytes.len() as u8);
     record.extend_from_slice(desig_bytes);
 
+    // SwapIdGroup, PartAndSequence, DefaultValue: three empty Pascal short
+    // strings that Altium always writes at the tail of a pin record.
+    record.push(0);
+    record.push(0);
+    record.push(0);
+
     // Header: [length:2 LE][type:2 BE]
     #[allow(clippy::cast_possible_truncation)]
     let record_length = record.len() as u16;
@@ -222,7 +234,9 @@ fn encode_component_header(symbol: &Symbol) -> String {
         "IndexInSheet=-1".to_string(),
         "OwnerPartId=-1".to_string(),
         format!("CurrentPartId={}", symbol.current_part_id),
+        "LibraryPath=*".to_string(),
         format!("SourceLibraryName={}", symbol.source_library_name),
+        "SheetPartFileName=*".to_string(),
         format!("TargetFileName={}", symbol.target_file_name),
         format!("AllPinCount={}", symbol.pins.len()),
         "AreaColor=11599871".to_string(), // Light yellow fill
@@ -230,7 +244,8 @@ fn encode_component_header(symbol: &Symbol) -> String {
         format!("PartIDLocked={part_id_locked}"),
     ];
 
-    format!("|{}|", parts.join("|"))
+    // Leading pipe, NO trailing pipe (matches Altium's ParametersToString).
+    format!("|{}", parts.join("|"))
 }
 
 /// Encodes a rectangle record.
@@ -239,7 +254,7 @@ fn encode_rectangle(rect: &Rectangle, index: usize) -> String {
     format!(
         "|RECORD=14|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T\
          |Location.X={}|Location.Y={}|Corner.X={}|Corner.Y={}\
-         |LineWidth={}|Color={}|AreaColor={}|IsSolid=T|Transparent={}|UniqueID={}|",
+         |LineWidth={}|Color={}|AreaColor={}|IsSolid=T|Transparent={}|UniqueID={}",
         index,
         rect.owner_part_id,
         rect.x1,
@@ -257,7 +272,7 @@ fn encode_rectangle(rect: &Rectangle, index: usize) -> String {
 /// Encodes a line record.
 fn encode_line(line: &Line, index: usize) -> String {
     format!(
-        "|RECORD=13|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Corner.X={}|Corner.Y={}|LineWidth={}|Color={}|UniqueID={}|",
+        "|RECORD=13|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Corner.X={}|Corner.Y={}|LineWidth={}|Color={}|UniqueID={}",
         index,
         line.owner_part_id,
         line.x1,
@@ -274,7 +289,7 @@ fn encode_line(line: &Line, index: usize) -> String {
 fn encode_parameter(param: &Parameter, index: usize) -> String {
     let hidden = if param.hidden { "T" } else { "F" };
     format!(
-        "|RECORD=41|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Color={}|FontID={}|IsHidden={}|ReadOnlyState={}|ParamType={}|Text={}|Name={}|UniqueID={}|",
+        "|RECORD=41|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Color={}|FontID={}|IsHidden={}|ReadOnlyState={}|ParamType={}|Text={}|Name={}|UniqueID={}",
         index,
         param.owner_part_id,
         param.x,
@@ -293,7 +308,7 @@ fn encode_parameter(param: &Parameter, index: usize) -> String {
 /// Encodes a designator record.
 fn encode_designator(designator: &str) -> String {
     format!(
-        "|RECORD=34|IndexInSheet=-1|OwnerPartId=-1|Location.Y=-6|Color=8388608|FontID=1|Text={}|Name=Designator|ReadOnlyState=1|UniqueID={}|",
+        "|RECORD=34|IndexInSheet=-1|OwnerPartId=-1|Location.Y=-6|Color=8388608|FontID=1|Text={}|Name=Designator|ReadOnlyState=1|UniqueID={}",
         designator,
         generate_unique_id()
     )
@@ -321,7 +336,7 @@ fn encode_polyline(polyline: &Polyline, index: usize) -> String {
 
     parts.push(format!("UniqueID={}", generate_unique_id()));
 
-    format!("|{}|", parts.join("|"))
+    format!("|{}", parts.join("|"))
 }
 
 /// Encodes a polygon record.
@@ -346,13 +361,13 @@ fn encode_polygon(polygon: &Polygon, index: usize) -> String {
 
     parts.push(format!("UniqueID={}", generate_unique_id()));
 
-    format!("|{}|", parts.join("|"))
+    format!("|{}", parts.join("|"))
 }
 
 /// Encodes an arc record.
 fn encode_arc(arc: &Arc, index: usize) -> String {
     format!(
-        "|RECORD=12|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Radius={}|StartAngle={}|EndAngle={}|LineWidth={}|Color={}|UniqueID={}|",
+        "|RECORD=12|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Radius={}|StartAngle={}|EndAngle={}|LineWidth={}|Color={}|UniqueID={}",
         index,
         arc.owner_part_id,
         arc.x,
@@ -369,7 +384,7 @@ fn encode_arc(arc: &Arc, index: usize) -> String {
 /// Encodes a Bezier curve record.
 fn encode_bezier(bezier: &Bezier, index: usize) -> String {
     format!(
-        "|RECORD=5|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T|LineWidth={}|Color={}|LocationCount=4|X1={}|Y1={}|X2={}|Y2={}|X3={}|Y3={}|X4={}|Y4={}|UniqueID={}|",
+        "|RECORD=5|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T|LineWidth={}|Color={}|LocationCount=4|X1={}|Y1={}|X2={}|Y2={}|X3={}|Y3={}|X4={}|Y4={}|UniqueID={}",
         index,
         bezier.owner_part_id,
         bezier.line_width,
@@ -390,7 +405,7 @@ fn encode_bezier(bezier: &Bezier, index: usize) -> String {
 fn encode_ellipse(ellipse: &Ellipse, index: usize) -> String {
     let is_solid = if ellipse.filled { "T" } else { "F" };
     format!(
-        "|RECORD=8|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Radius={}|SecondaryRadius={}|LineWidth={}|Color={}|AreaColor={}|IsSolid={}|UniqueID={}|",
+        "|RECORD=8|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Radius={}|SecondaryRadius={}|LineWidth={}|Color={}|AreaColor={}|IsSolid={}|UniqueID={}",
         index,
         ellipse.owner_part_id,
         ellipse.x,
@@ -412,7 +427,7 @@ fn encode_round_rect(round_rect: &RoundRect, index: usize) -> String {
         "|RECORD=10|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T\
          |Location.X={}|Location.Y={}|Corner.X={}|Corner.Y={}\
          |CornerXRadius={}|CornerYRadius={}\
-         |LineWidth={}|Color={}|AreaColor={}|IsSolid={}|UniqueID={}|",
+         |LineWidth={}|Color={}|AreaColor={}|IsSolid={}|UniqueID={}",
         index,
         round_rect.owner_part_id,
         round_rect.x1,
@@ -446,7 +461,7 @@ fn encode_elliptical_arc(arc: &EllipticalArc, index: usize) -> String {
          |Radius={}|Radius_Frac={}\
          |SecondaryRadius={}|SecondaryRadius_Frac={}\
          |StartAngle={}|EndAngle={}\
-         |LineWidth={}|Color={}|UniqueID={}|",
+         |LineWidth={}|Color={}|UniqueID={}",
         index,
         arc.owner_part_id,
         arc.x,
@@ -471,7 +486,7 @@ fn encode_label(label: &Label, index: usize) -> String {
     let is_mirrored = if label.is_mirrored { "T" } else { "F" };
     let is_hidden = if label.is_hidden { "T" } else { "F" };
     format!(
-        "|RECORD=4|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Color={}|FontID={}|Orientation={}|Justification={}|IsMirrored={}|IsHidden={}|Text={}|UniqueID={}|",
+        "|RECORD=4|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Color={}|FontID={}|Orientation={}|Justification={}|IsMirrored={}|IsHidden={}|Text={}|UniqueID={}",
         index,
         label.owner_part_id,
         label.x,
@@ -495,7 +510,7 @@ fn encode_text(text: &Text, index: usize) -> String {
     let is_mirrored = if text.is_mirrored { "T" } else { "F" };
     let is_hidden = if text.is_hidden { "T" } else { "F" };
     format!(
-        "|RECORD=3|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Color={}|FontID={}|Orientation={}|Justification={}|IsMirrored={}|IsHidden={}|Text={}|UniqueID={}|",
+        "|RECORD=3|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Color={}|FontID={}|Orientation={}|Justification={}|IsMirrored={}|IsHidden={}|Text={}|UniqueID={}",
         index,
         text.owner_part_id,
         text.x,
@@ -526,15 +541,16 @@ const fn justification_to_id(justification: TextJustification) -> u8 {
     }
 }
 
-/// Encodes an implementation list record (start of model list).
+/// Encodes an implementation list record (start of model list). Altium always
+/// writes this record, even when a symbol has no footprint models.
 fn encode_implementation_list() -> String {
-    "|RECORD=44|OwnerIndex=0|".to_string()
+    "|RECORD=44".to_string()
 }
 
 /// Encodes a footprint model record.
 fn encode_footprint_model(model: &FootprintModel, owner_index: usize) -> String {
     format!(
-        "|RECORD=45|OwnerIndex={}|Description={}|ModelName={}|ModelType=PCBLIB|DatafileCount=0|UniqueID={}|",
+        "|RECORD=45|OwnerIndex={}|Description={}|ModelName={}|ModelType=PCBLIB|DatafileCount=0|UniqueID={}",
         owner_index,
         model.description,
         model.name,
@@ -656,20 +672,17 @@ pub fn encode_data_stream(symbol: &Symbol) -> crate::altium::error::AltiumResult
         write_text_record(&mut data, &record);
     }
 
-    // 16. Implementation list (if we have footprints)
-    if !symbol.footprints.is_empty() {
-        let impl_list = encode_implementation_list();
-        write_text_record(&mut data, &impl_list);
-
-        // Footprint models
-        for (i, model) in symbol.footprints.iter().enumerate() {
-            let record = encode_footprint_model(model, i);
-            write_text_record(&mut data, &record);
-        }
+    // 16. Implementation list — Altium always writes RECORD=44, then a model
+    // record per footprint.
+    write_text_record(&mut data, &encode_implementation_list());
+    for (i, model) in symbol.footprints.iter().enumerate() {
+        let record = encode_footprint_model(model, i);
+        write_text_record(&mut data, &record);
     }
 
-    // End marker: length = 0
-    data.extend_from_slice(&0u16.to_le_bytes());
+    // No end-of-stream sentinel: Altium reads records until the stream is
+    // exhausted, and a trailing 0x0000 is mis-framed as a zero-length record
+    // (issue #68, "Data does not end with 0x00").
 
     Ok(data)
 }
@@ -716,15 +729,19 @@ pub fn encode_file_header(symbols: &[&Symbol], ole_names: &[String]) -> Vec<u8> 
         parts.push(format!("PartCount{}={}", i, symbol.part_count + 1));
     }
 
-    let text = format!("|{}|", parts.join("|"));
+    let text = format!("|{}", parts.join("|"));
     let text_bytes = text.as_bytes();
 
-    // Format: [length:4 LE][text]
-    let mut data = Vec::with_capacity(4 + text_bytes.len());
+    // Format: [length:4 LE][text + 0x00]. The block is a C-string: it MUST be
+    // null-terminated and the length MUST include the terminator (matches Altium
+    // WriteCStringParameterBlockRaw). Omitting it is issue #68's "Data does not
+    // end with 0x00".
+    let mut data = Vec::with_capacity(4 + text_bytes.len() + 1);
     #[allow(clippy::cast_possible_truncation)]
-    let length = text_bytes.len() as u32;
+    let length = (text_bytes.len() + 1) as u32;
     data.extend_from_slice(&length.to_le_bytes());
     data.extend_from_slice(text_bytes);
+    data.push(0x00);
 
     data
 }
@@ -760,10 +777,12 @@ mod tests {
         // Should have content
         assert!(!data.is_empty());
 
-        // Should end with 0x00 0x00
-        let len = data.len();
-        assert_eq!(data[len - 2], 0x00);
-        assert_eq!(data[len - 1], 0x00);
+        // No end-of-stream sentinel; the stream ends with the last text record's
+        // null terminator (the always-present RECORD=44 implementation list).
+        assert_eq!(*data.last().unwrap(), 0x00);
+        let text = String::from_utf8_lossy(&data);
+        assert!(text.contains("RECORD=1"), "component record present");
+        assert!(text.contains("RECORD=44"), "implementation list present");
     }
 
     #[test]
