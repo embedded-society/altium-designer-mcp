@@ -425,13 +425,36 @@ fn read_string_from_block(block: &[u8]) -> String {
     String::from_utf8_lossy(&block[1..=str_len]).to_string()
 }
 
+const ALT_FLAG_UNLOCKED: u16 = 0x0004;
+const ALT_FLAG_TENTING_TOP: u16 = 0x0020;
+const ALT_FLAG_TENTING_BOTTOM: u16 = 0x0040;
+const ALT_FLAG_KEEPOUT: u16 = 0x0200;
+
 /// Reads PCB flags from the common header bytes 1-2.
+///
+/// Decodes Altium's on-disk flag word (`FlagSaved`/`FlagUnlocked`/tenting/keepout)
+/// into our internal `PcbFlags` — the inverse of `writer::encode_altium_flags`.
+/// `FlagUnlocked` is inverted (a clear unlocked bit means the primitive is
+/// locked).
 fn read_flags(data: &[u8]) -> PcbFlags {
     if data.len() < 3 {
         return PcbFlags::empty();
     }
     let bits = u16::from_le_bytes([data[1], data[2]]);
-    PcbFlags::from_bits_truncate(bits)
+    let mut flags = PcbFlags::empty();
+    if bits & ALT_FLAG_UNLOCKED == 0 {
+        flags |= PcbFlags::LOCKED;
+    }
+    if bits & ALT_FLAG_TENTING_TOP != 0 {
+        flags |= PcbFlags::TENTING_TOP;
+    }
+    if bits & ALT_FLAG_TENTING_BOTTOM != 0 {
+        flags |= PcbFlags::TENTING_BOTTOM;
+    }
+    if bits & ALT_FLAG_KEEPOUT != 0 {
+        flags |= PcbFlags::KEEPOUT;
+    }
+    flags
 }
 
 /// Converts Altium layer ID to our Layer enum.

@@ -14,8 +14,8 @@
 //! ```
 
 use super::primitives::{
-    Arc, ComponentBody, Fill, HoleShape, Layer, Pad, PadShape, PadStackMode, PcbFlags, Region,
-    StrokeFont, Text, TextJustification, TextKind, Track, Via, ViaStackMode,
+    Arc, ComponentBody, Fill, Layer, Pad, PadShape, PadStackMode, PcbFlags, Region, StrokeFont,
+    Text, TextJustification, TextKind, Track, Via, ViaStackMode,
 };
 use super::Footprint;
 
@@ -206,34 +206,63 @@ const fn layer_to_id(layer: Layer) -> u8 {
     }
 }
 
-/// Converts our `PadShape` enum to Altium pad shape ID.
+/// Converts our `PadShape` enum to the Altium pad shape ID.
+///
+/// Altium shape ids (`PcbPad`): Round=1, Rectangular=2, Octagonal=3,
+/// RoundedRectangle=9. We keep `Oval`→3 so it round-trips through our own
+/// reader (Altium itself has no oval shape — it draws a Round pad with unequal
+/// X/Y sizes as an oblong).
 const fn pad_shape_to_id(shape: PadShape) -> u8 {
     match shape {
-        // Round and RoundedRectangle both use ID 1 (Altium handles corner radius separately)
-        PadShape::Round | PadShape::RoundedRectangle => 1,
+        PadShape::Round => 1,
         PadShape::Rectangle => 2,
-        PadShape::Oval => 3, // Octagon in Altium
+        PadShape::Oval => 3,
+        PadShape::RoundedRectangle => 9,
     }
 }
 
-/// Converts our `HoleShape` enum to Altium hole shape ID.
-const fn hole_shape_to_id(shape: HoleShape) -> u8 {
-    match shape {
-        HoleShape::Round => 0,
-        HoleShape::Square => 1,
-        HoleShape::Slot => 2,
+// Note: non-round hole shapes (Square/Slot) live in the 596-byte size/shape
+// block (offset 262), which simple from-scratch pads do not emit; supporting
+// them is a follow-up. Offset 61 of the main block is reserved (0x00).
+
+// Altium primitive flag bits (PcbBinaryConstants), distinct from our internal
+// `PcbFlags` bit layout.
+const ALT_FLAG_UNLOCKED: u16 = 0x0004;
+const ALT_FLAG_SAVED: u16 = 0x0008;
+const ALT_FLAG_TENTING_TOP: u16 = 0x0020;
+const ALT_FLAG_TENTING_BOTTOM: u16 = 0x0040;
+const ALT_FLAG_KEEPOUT: u16 = 0x0200;
+
+/// Encodes our internal `PcbFlags` into Altium's on-disk flag word.
+///
+/// `FlagSaved` (bit 3) is always set on a saved primitive and `FlagUnlocked`
+/// (bit 2) is set unless the primitive is locked — a normal pad is therefore
+/// `0x000C`, not `0x0000`. `read_flags` in the reader performs the inverse.
+const fn encode_altium_flags(flags: PcbFlags) -> u16 {
+    let mut f = ALT_FLAG_SAVED;
+    if !flags.contains(PcbFlags::LOCKED) {
+        f |= ALT_FLAG_UNLOCKED;
     }
+    if flags.contains(PcbFlags::TENTING_TOP) {
+        f |= ALT_FLAG_TENTING_TOP;
+    }
+    if flags.contains(PcbFlags::TENTING_BOTTOM) {
+        f |= ALT_FLAG_TENTING_BOTTOM;
+    }
+    if flags.contains(PcbFlags::KEEPOUT) {
+        f |= ALT_FLAG_KEEPOUT;
+    }
+    f
 }
 
 /// Writes the common 13-byte header for primitives.
 fn write_common_header(data: &mut Vec<u8>, layer: Layer, flags: PcbFlags) {
     // Byte 0: Layer ID
     data.push(layer_to_id(layer));
-    // Bytes 1-2: Flags (locked, keepout, tenting, etc.)
-    let flag_bits = flags.bits();
-    data.push((flag_bits & 0xFF) as u8);
-    data.push(((flag_bits >> 8) & 0xFF) as u8);
-    // Bytes 3-12: Padding (0xFF as per pyAltiumLib)
+    // Bytes 1-2: Altium flag word (saved/unlocked/tenting/keepout)
+    data.extend_from_slice(&encode_altium_flags(flags).to_le_bytes());
+    // Bytes 3-12: net index / polygon index / component index / reserved, all
+    // 0xFF (none) for a free primitive.
     data.extend_from_slice(&[0xFF; 10]);
 }
 
@@ -291,8 +320,9 @@ pub fn encode_data_stream(footprint: &Footprint) -> crate::altium::error::Altium
         encode_component_body(&mut data, body);
     }
 
-    // End marker
-    data.push(0x00);
+    // No end marker: Altium reads exactly the primitive count from the component
+    // Header. AltiumSharp writes none, and a trailing 0x00 is mis-read as a
+    // record with object-id 0 (issue #68).
 
     Ok(data)
 }
@@ -381,28 +411,23 @@ fn encode_pad(data: &mut Vec<u8>, pad: &Pad) -> crate::altium::error::AltiumResu
     // Block 0: Designator string
     write_string_block(data, &pad.designator, "pad.designator")?;
 
-    // Block 1: Unknown (empty block)
-    write_block(data, &[]);
+    // Block 1: SubRecord 2 (empty string block = 1-byte 0x00, matching Altium).
+    write_block(data, &[0u8]);
 
     // Block 2: "|&|0" string (standard marker)
     write_string_block(data, "|&|0", "pad.marker")?;
 
-    // Block 3: Unknown (empty block)
-    write_block(data, &[]);
+    // Block 3: SubRecord 4 (1-byte 0x00 block, matching Altium).
+    write_block(data, &[0u8]);
 
-    // Block 4: Geometry data
+    // Block 4: Geometry data (202 bytes)
     let geometry = encode_pad_geometry(pad);
     write_block(data, &geometry);
 
-    // Block 5: Per-layer data
-    // Write per-layer data when:
-    // - stack mode is not Simple, OR
-    // - corner radius is specified, OR
-    // - shape is RoundedRectangle (needs corner radius to distinguish from Round), OR
-    // - any per-layer data fields are present
+    // Block 5: size/shape (full-stack) data. A simple pad keeps stack mode
+    // Simple and writes an EMPTY block; RoundedRectangle is conveyed by shape
+    // id 9 in the main block. Only genuine per-layer data populates Block 5.
     let needs_per_layer_data = pad.stack_mode != PadStackMode::Simple
-        || pad.corner_radius_percent.is_some()
-        || pad.shape == PadShape::RoundedRectangle
         || pad.per_layer_sizes.is_some()
         || pad.per_layer_shapes.is_some()
         || pad.per_layer_corner_radii.is_some()
@@ -418,35 +443,97 @@ fn encode_pad(data: &mut Vec<u8>, pad: &Pad) -> crate::altium::error::AltiumResu
     Ok(())
 }
 
-/// Encodes the geometry block for a pad.
+/// Total length of the pad main geometry block (`SubRecord-5`) in a `PcbLib`:
+/// 61 bytes of typed geometry plus a 141-byte extended tail = 202 bytes.
+/// Altium Designer rejects pads whose main block is shorter (issue #68).
+const PAD_MAIN_BLOCK_LEN: usize = 202;
+
+/// First main-block offset of the pad extended tail.
+const PAD_EXTENDED_TAIL_START: usize = 61;
+
+/// Canonical 141-byte pad extended tail (main-block offsets 61-201), captured
+/// from a standard Altium pad (`AltiumSharp` `PadExtendedTailTemplate`). The
+/// typed/semantic fields are overlaid in [`build_pad_extended_tail`]; the
+/// remaining bytes are reserved / cache / identity values reproduced verbatim
+/// so the record matches Altium's 202-byte layout exactly.
+#[rustfmt::skip]
+const PAD_EXTENDED_TAIL_TEMPLATE: [u8; 141] = [
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xA0,0x86,0x01,0x00,0x04,0x00,0xA0,0x86,0x01, // 61-76
+    0x00,0x40,0x0D,0x03,0x00,0x40,0x0D,0x03,0x00,0x00,0x00,0x00,0x00,0x40,0x9C,0x00, // 77-92
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01,0x01,0x00,0x00,0x00,0x00,0x00,0x00, // 93-108
+    0x00,0x00,0x00,0x00,0x00,0x0F,0x00,0x03,0x01,0x00,0x00,0x00,0x40,0x9C,0x00,0x00, // 109-124
+    0x00,0x64,0x9A,0x92,0x26,0x10,0xC7,0xE4,0x41,0xA3,0x2B,0x29,0x17,0xA5,0x35,0x2E, // 125-140
+    0x67,0x7F,0xAB,0x21,0x20,0xC3,0x0B,0x32,0x47,0xAD,0xCE,0x6C,0xB7,0xB8,0xC9,0x7E, // 141-156
+    0x68,0x00,0x00,0x00,0x00,0xFF,0xFF,0xFF,0x7F,0xFF,0xFF,0xFF,0x7F,0x00,0x01,0x1A, // 157-172
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x01,0x01,0x00,0x00,0x00, // 173-188
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,                // 189-201
+];
+
+/// Derives the "v7 saved layer id" from an Altium layer number (must match the
+/// primitive's layer). Ported from `AltiumSharp` `V7LayerId`.
+fn v7_layer_id(layer: u8) -> u32 {
+    let l = u32::from(layer);
+    if layer == 32 {
+        return 0x0100_FFFF; // bottom signal sentinel
+    }
+    if (1..=31).contains(&layer) {
+        return 0x0100_0000 + l; // signal (top/mid)
+    }
+    if (39..=54).contains(&layer) {
+        return 0x0101_0000 + (l - 38); // internal plane 1-16
+    }
+    if (57..=72).contains(&layer) {
+        return 0x0102_0000 + (l - 56); // mechanical 1-16
+    }
+    match layer {
+        33 => 0x0103_0006, // top overlay
+        34 => 0x0103_0007, // bottom overlay
+        35 => 0x0103_0008, // top paste
+        36 => 0x0103_0009, // bottom paste
+        37 => 0x0103_000A, // top solder
+        38 => 0x0103_000B, // bottom solder
+        55 => 0x0103_000C, // drill guide
+        56 => 0x0103_000D, // keepout
+        73 => 0x0103_000E, // drill drawing
+        _ => 0x0103_000F,  // 74 multi-layer + fallback
+    }
+}
+
+/// Builds the 141-byte pad extended tail by overlaying typed fields onto the
+/// canonical template (matching `AltiumSharp` `BuildPadExtendedTail`).
+fn build_pad_extended_tail(pad: &Pad) -> [u8; 141] {
+    const START: usize = PAD_EXTENDED_TAIL_START;
+    let mut tail = PAD_EXTENDED_TAIL_TEMPLATE;
+
+    // 62: pad stack mode
+    tail[62 - START] = pad_stack_mode_to_id(pad.stack_mode);
+    // 86-89 / 90-93: paste & solder mask expansion
+    tail[86 - START..90 - START]
+        .copy_from_slice(&from_mm(pad.paste_mask_expansion.unwrap_or(0.0)).to_le_bytes());
+    tail[90 - START..94 - START]
+        .copy_from_slice(&from_mm(pad.solder_mask_expansion.unwrap_or(0.0)).to_le_bytes());
+    // 101 / 102: paste & solder mask manual flags
+    tail[101 - START] = u8::from(pad.paste_mask_expansion_manual);
+    tail[102 - START] = u8::from(pad.solder_mask_expansion_manual);
+    // 114-117: v7 layer id (derived from the pad's layer)
+    tail[114 - START..118 - START]
+        .copy_from_slice(&v7_layer_id(layer_to_id(pad.layer)).to_le_bytes());
+    // 126-141 / 142-157: two per-pad identity GUIDs
+    tail[126 - START..142 - START].copy_from_slice(&generate_guid());
+    tail[142 - START..158 - START].copy_from_slice(&generate_guid());
+    // 185: reserved marker (0x03 for a standard PcbLib pad)
+    tail[185 - START] = 0x03;
+
+    tail
+}
+
+/// Encodes the 202-byte geometry block (`SubRecord-5`) for a pad.
 ///
-/// # Geometry Block Offsets
-///
-/// | Offset | Size | Field |
-/// |--------|------|-------|
-/// | 0-12 | 13 | Common header (layer, flags, padding) |
-/// | 13-16 | 4 | X position |
-/// | 17-20 | 4 | Y position |
-/// | 21-24 | 4 | Width (top) |
-/// | 25-28 | 4 | Height (top) |
-/// | 29-32 | 4 | Width (mid) |
-/// | 33-36 | 4 | Height (mid) |
-/// | 37-40 | 4 | Width (bottom) |
-/// | 41-44 | 4 | Height (bottom) |
-/// | 45-48 | 4 | Hole size |
-/// | 49 | 1 | Shape (top) |
-/// | 50 | 1 | Shape (mid) |
-/// | 51 | 1 | Shape (bottom) |
-/// | 52-59 | 8 | Rotation (double) |
-/// | 60 | 1 | Is plated |
-/// | 61 | 1 | Hole shape |
-/// | 62 | 1 | Stack mode |
-/// | 86-89 | 4 | Paste mask expansion |
-/// | 90-93 | 4 | Solder mask expansion |
-/// | 101 | 1 | Paste mask expansion manual |
-/// | 102 | 1 | Solder mask expansion manual |
+/// Offsets 0-60 are typed geometry (common header, location, sizes, hole,
+/// shapes, rotation, plating); offsets 61-201 are the extended tail. See
+/// [`build_pad_extended_tail`].
 fn encode_pad_geometry(pad: &Pad) -> Vec<u8> {
-    let mut block = Vec::with_capacity(128);
+    let mut block = Vec::with_capacity(PAD_MAIN_BLOCK_LEN);
 
     // Common header (13 bytes) - offsets 0-12
     write_common_header(&mut block, pad.layer, pad.flags);
@@ -455,89 +542,31 @@ fn encode_pad_geometry(pad: &Pad) -> Vec<u8> {
     write_i32(&mut block, from_mm(pad.x));
     write_i32(&mut block, from_mm(pad.y));
 
-    // Size top (X, Y) - offsets 21-28
-    write_i32(&mut block, from_mm(pad.width));
-    write_i32(&mut block, from_mm(pad.height));
+    // Size top/middle/bottom (X, Y) - offsets 21-44 (identical for simple pads)
+    for _ in 0..3 {
+        write_i32(&mut block, from_mm(pad.width));
+        write_i32(&mut block, from_mm(pad.height));
+    }
 
-    // Size middle (X, Y) - offsets 29-36 (same as top for simple pads)
-    write_i32(&mut block, from_mm(pad.width));
-    write_i32(&mut block, from_mm(pad.height));
-
-    // Size bottom (X, Y) - offsets 37-44 (same as top for simple pads)
-    write_i32(&mut block, from_mm(pad.width));
-    write_i32(&mut block, from_mm(pad.height));
-
-    // Hole size - offset 45-48
-    let hole = pad.hole_size.unwrap_or(0.0);
-    write_i32(&mut block, from_mm(hole));
+    // Hole size - offsets 45-48
+    write_i32(&mut block, from_mm(pad.hole_size.unwrap_or(0.0)));
 
     // Shapes (top, middle, bottom) - offsets 49-51
     let shape_id = pad_shape_to_id(pad.shape);
-    block.push(shape_id); // shape_top
-    block.push(shape_id); // shape_middle
-    block.push(shape_id); // shape_bottom
+    block.push(shape_id);
+    block.push(shape_id);
+    block.push(shape_id);
 
-    // Rotation - offset 52-59 (8-byte double)
+    // Rotation - offsets 52-59 (8-byte double)
     write_f64(&mut block, pad.rotation);
 
     // Is plated - offset 60
     block.push(u8::from(pad.hole_size.is_some()));
 
-    // Hole shape - offset 61
-    block.push(hole_shape_to_id(pad.hole_shape));
+    // Extended tail - offsets 61-201 (141 bytes)
+    block.extend_from_slice(&build_pad_extended_tail(pad));
 
-    // Stack mode - offset 62
-    // Use pad's stack_mode, but upgrade to FullStack if:
-    // - corner radius is specified, OR
-    // - shape is RoundedRectangle (needs per-layer corner radius data to round-trip)
-    let effective_stack_mode = if pad.stack_mode == PadStackMode::Simple
-        && (pad.corner_radius_percent.is_some() || pad.shape == PadShape::RoundedRectangle)
-    {
-        PadStackMode::FullStack
-    } else {
-        pad.stack_mode
-    };
-    block.push(pad_stack_mode_to_id(effective_stack_mode));
-
-    // Offsets 63-85: Unknown/reserved data (23 bytes)
-    // Byte 63: Unknown
-    block.push(0x00);
-
-    // Bytes 64-71: 2 unknown i32s (8 bytes)
-    write_i32(&mut block, 0);
-    write_i32(&mut block, 0);
-
-    // Bytes 72-73: Unknown i16 (2 bytes)
-    block.extend_from_slice(&[0u8; 2]);
-
-    // Bytes 74-85: 3 more i32s (12 bytes)
-    write_i32(&mut block, 0);
-    write_i32(&mut block, 0);
-    write_i32(&mut block, 0);
-
-    // Paste mask expansion - offset 86-89
-    let paste_expansion = pad.paste_mask_expansion.unwrap_or(0.0);
-    write_i32(&mut block, from_mm(paste_expansion));
-
-    // Solder mask expansion - offset 90-93
-    let solder_expansion = pad.solder_mask_expansion.unwrap_or(0.0);
-    write_i32(&mut block, from_mm(solder_expansion));
-
-    // Bytes 94-100: Unknown (7 bytes)
-    block.extend_from_slice(&[0u8; 7]);
-
-    // Paste mask expansion manual flag - offset 101
-    block.push(u8::from(pad.paste_mask_expansion_manual));
-
-    // Solder mask expansion manual flag - offset 102
-    block.push(u8::from(pad.solder_mask_expansion_manual));
-
-    // Bytes 103-109: More unknown (7 bytes)
-    block.extend_from_slice(&[0u8; 7]);
-
-    // Jumper ID - offset 110-111
-    block.extend_from_slice(&[0u8; 2]);
-
+    debug_assert_eq!(block.len(), PAD_MAIN_BLOCK_LEN);
     block
 }
 
@@ -1337,104 +1366,6 @@ pub fn encode_component_header(footprint: &Footprint) -> Vec<u8> {
     (count as u32).to_le_bytes().to_vec()
 }
 
-// =============================================================================
-// PrimitiveGuids Writing
-// =============================================================================
-
-/// Encodes the `PrimitiveGuids/Header` stream.
-///
-/// # Format
-///
-/// 4-byte little-endian unsigned integer containing the GUID record count.
-#[allow(clippy::cast_possible_truncation)]
-pub fn encode_primitive_guids_header(footprint: &Footprint) -> Vec<u8> {
-    let count = count_primitives_for_guids(footprint);
-    (count as u32).to_le_bytes().to_vec()
-}
-
-/// Encodes the `PrimitiveGuids/Data` stream.
-///
-/// # Format
-///
-/// Each record is 24 bytes:
-/// ```text
-/// [index:4 LE u32][type:4 LE u32][guid:16 bytes]
-/// ```
-///
-/// The index and type values are internal Altium identifiers.
-/// We generate sequential indices and use type values based on primitive order.
-#[allow(clippy::cast_possible_truncation)]
-pub fn encode_primitive_guids_data(footprint: &Footprint) -> Vec<u8> {
-    let count = count_primitives_for_guids(footprint);
-    let mut data = Vec::with_capacity(count * 24);
-
-    let mut record_idx: u32 = 0;
-
-    // Generate GUIDs for each primitive type
-    // Order and type values based on sample file analysis
-
-    for (i, _pad) in footprint.pads.iter().enumerate() {
-        write_guid_record(&mut data, i as u32 + 1, record_idx, generate_guid());
-        record_idx += 1;
-    }
-
-    for (i, _via) in footprint.vias.iter().enumerate() {
-        write_guid_record(&mut data, i as u32 + 1, record_idx, generate_guid());
-        record_idx += 1;
-    }
-
-    for (i, _track) in footprint.tracks.iter().enumerate() {
-        write_guid_record(&mut data, i as u32 + 1, record_idx, generate_guid());
-        record_idx += 1;
-    }
-
-    for (i, _arc) in footprint.arcs.iter().enumerate() {
-        write_guid_record(&mut data, i as u32 + 1, record_idx, generate_guid());
-        record_idx += 1;
-    }
-
-    for (i, _text) in footprint.text.iter().enumerate() {
-        write_guid_record(&mut data, i as u32 + 1, record_idx, generate_guid());
-        record_idx += 1;
-    }
-
-    for (i, _region) in footprint.regions.iter().enumerate() {
-        write_guid_record(&mut data, i as u32 + 1, record_idx, generate_guid());
-        record_idx += 1;
-    }
-
-    for (i, _fill) in footprint.fills.iter().enumerate() {
-        write_guid_record(&mut data, i as u32 + 1, record_idx, generate_guid());
-        record_idx += 1;
-    }
-
-    for (i, _body) in footprint.component_bodies.iter().enumerate() {
-        write_guid_record(&mut data, i as u32 + 1, record_idx, generate_guid());
-        record_idx += 1;
-    }
-
-    data
-}
-
-/// Counts total primitives for GUID generation.
-fn count_primitives_for_guids(footprint: &Footprint) -> usize {
-    footprint.pads.len()
-        + footprint.vias.len()
-        + footprint.tracks.len()
-        + footprint.arcs.len()
-        + footprint.text.len()
-        + footprint.regions.len()
-        + footprint.fills.len()
-        + footprint.component_bodies.len()
-}
-
-/// Writes a single GUID record (24 bytes).
-fn write_guid_record(data: &mut Vec<u8>, index: u32, ptype: u32, guid: [u8; 16]) {
-    write_u32(data, index);
-    write_u32(data, ptype);
-    data.extend_from_slice(&guid);
-}
-
 /// Generates a random GUID as 16 bytes (little-endian UUID format).
 fn generate_guid() -> [u8; 16] {
     use uuid::Uuid;
@@ -1659,13 +1590,6 @@ mod tests {
         assert_eq!(layer_to_id(Layer::TopPadMaster), 83);
         assert_eq!(layer_to_id(Layer::BottomPadMaster), 84);
         assert_eq!(layer_to_id(Layer::DRCDetailLayer), 85);
-    }
-
-    #[test]
-    fn test_hole_shape_to_id() {
-        assert_eq!(hole_shape_to_id(HoleShape::Round), 0);
-        assert_eq!(hole_shape_to_id(HoleShape::Square), 1);
-        assert_eq!(hole_shape_to_id(HoleShape::Slot), 2);
     }
 
     #[test]

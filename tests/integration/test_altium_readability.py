@@ -36,11 +36,7 @@ from mcp_client import McpTestClient, find_binary  # noqa: E402
 # as the corresponding fix makes the check pass (the harness will nag if you
 # forget). Keep this list as the living scoreboard for #68.
 KNOWN_FAILURES = {
-    "pcblib:no_parser_warnings",
-    "pcblib:has_FileVersionInfo",
-    "pcblib:has_Library/ComponentParamsTOC",
-    "pcblib:has_Library/LayerKindMapping",
-    "pcblib:has_Library/PadViaLibrary",
+    # PcbLib writer fixes have landed; only the SchLib path remains (next PR).
     "schlib:no_parser_warnings",
     "schlib:has_Storage",
 }

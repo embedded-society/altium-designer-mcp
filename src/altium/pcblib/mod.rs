@@ -942,6 +942,9 @@ impl PcbLib {
             self.write_footprint(&mut cfb, footprint, ole_name)?;
         }
 
+        // Write the root FileVersionInfo metadata storage.
+        Self::write_file_version_info(&mut cfb)?;
+
         tracing::info!(
             path = %path.display(),
             count = self.footprints.len(),
@@ -1162,15 +1165,32 @@ impl PcbLib {
         cfb: &mut cfb::CompoundFile<F>,
         _ole_names: &[String],
     ) -> AltiumResult<()> {
+        // The canonical PcbLib FileHeader is 53 bytes with THREE fields (matching
+        // AltiumSharp PcbLibWriter.WriteFileHeader). Altium Designer rejects the
+        // file if the 5.01 version double and the UniqueId block are missing.
         let version_string = b"PCB 6.0 Binary Library File";
         #[allow(clippy::cast_possible_truncation)]
         let len = version_string.len() as u32;
 
-        let mut data = Vec::with_capacity(4 + 1 + version_string.len());
-        data.extend_from_slice(&len.to_le_bytes()); // 4-byte length
+        let unique_id = crate::util::generate_unique_id();
+        let uid_bytes = unique_id.as_bytes();
         #[allow(clippy::cast_possible_truncation)]
-        data.push(len as u8); // 1-byte length (same value)
-        data.extend_from_slice(version_string); // raw string
+        let uid_len = uid_bytes.len() as u32; // always 8
+
+        let mut data =
+            Vec::with_capacity(4 + 1 + version_string.len() + 8 + 4 + 1 + uid_bytes.len());
+        // Field 1: version string block ([u32 len][u8 len][bytes]).
+        data.extend_from_slice(&len.to_le_bytes());
+        #[allow(clippy::cast_possible_truncation)]
+        data.push(len as u8);
+        data.extend_from_slice(version_string);
+        // Field 2: version double 5.01 (8 raw little-endian bytes, NO length prefix).
+        data.extend_from_slice(&5.01_f64.to_le_bytes());
+        // Field 3: 8-char UniqueId string block ([u32 len][u8 len][bytes]).
+        data.extend_from_slice(&uid_len.to_le_bytes());
+        #[allow(clippy::cast_possible_truncation)]
+        data.push(uid_len as u8);
+        data.extend_from_slice(uid_bytes);
 
         let mut stream = cfb
             .create_stream("/FileHeader")
@@ -1244,13 +1264,122 @@ impl PcbLib {
         }
 
         // Write Library/Data
-        let mut data_stream = cfb
-            .create_stream("/Library/Data")
-            .map_err(|e| AltiumError::invalid_ole(format!("Failed to create Library/Data: {e}")))?;
-        std::io::Write::write_all(&mut data_stream, &data)
-            .map_err(|e| AltiumError::invalid_ole(format!("Failed to write Library/Data: {e}")))?;
+        {
+            let mut data_stream = cfb.create_stream("/Library/Data").map_err(|e| {
+                AltiumError::invalid_ole(format!("Failed to create Library/Data: {e}"))
+            })?;
+            std::io::Write::write_all(&mut data_stream, &data).map_err(|e| {
+                AltiumError::invalid_ole(format!("Failed to write Library/Data: {e}"))
+            })?;
+        }
+
+        // Write the library metadata storages Altium emits for every library.
+        self.write_library_metadata(cfb)?;
 
         Ok(())
+    }
+
+    /// Wraps a parameter string as an Altium C-string block:
+    /// `[block_len:4][text + \x00]` where `block_len` includes the terminator.
+    fn param_block(text: &str) -> Vec<u8> {
+        let bytes = text.as_bytes();
+        let mut v = Vec::with_capacity(4 + bytes.len() + 1);
+        #[allow(clippy::cast_possible_truncation)]
+        v.extend_from_slice(&((bytes.len() + 1) as u32).to_le_bytes());
+        v.extend_from_slice(bytes);
+        v.push(0x00);
+        v
+    }
+
+    /// Creates a child storage containing a `Header` (record count) stream and a
+    /// `Data` stream — the shape every Altium metadata storage uses.
+    fn write_meta_storage<F: std::io::Read + std::io::Write + std::io::Seek>(
+        cfb: &mut cfb::CompoundFile<F>,
+        path: &str,
+        header_count: u32,
+        data: &[u8],
+    ) -> AltiumResult<()> {
+        cfb.create_storage(path)
+            .map_err(|e| AltiumError::invalid_ole(format!("Failed to create {path}: {e}")))?;
+        {
+            let mut h = cfb.create_stream(format!("{path}/Header")).map_err(|e| {
+                AltiumError::invalid_ole(format!("Failed to create {path}/Header: {e}"))
+            })?;
+            std::io::Write::write_all(&mut h, &header_count.to_le_bytes()).map_err(|e| {
+                AltiumError::invalid_ole(format!("Failed to write {path}/Header: {e}"))
+            })?;
+        }
+        {
+            let mut d = cfb.create_stream(format!("{path}/Data")).map_err(|e| {
+                AltiumError::invalid_ole(format!("Failed to create {path}/Data: {e}"))
+            })?;
+            std::io::Write::write_all(&mut d, data).map_err(|e| {
+                AltiumError::invalid_ole(format!("Failed to write {path}/Data: {e}"))
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Writes the `/Library` metadata storages that Altium emits for every
+    /// library (`LayerKindMapping`, `PadViaLibrary`, `ComponentParamsTOC`, and
+    /// the empty `Textures` / `ModelsNoEmbed`). Without these, Altium Designer
+    /// considers the library incomplete.
+    fn write_library_metadata<F: std::io::Read + std::io::Write + std::io::Seek>(
+        &self,
+        cfb: &mut cfb::CompoundFile<F>,
+    ) -> AltiumResult<()> {
+        use std::fmt::Write as _;
+        use uuid::Uuid;
+
+        // LayerKindMapping: [u32 textLen][UTF-16LE "1.0\0"][u32 signature=0][u32 count=0]
+        let text16: Vec<u8> = "1.0\0".encode_utf16().flat_map(u16::to_le_bytes).collect();
+        let mut lkm = Vec::with_capacity(text16.len() + 12);
+        #[allow(clippy::cast_possible_truncation)]
+        lkm.extend_from_slice(&(text16.len() as u32).to_le_bytes());
+        lkm.extend_from_slice(&text16);
+        lkm.extend_from_slice(&0u32.to_le_bytes()); // signature
+        lkm.extend_from_slice(&0u32.to_le_bytes()); // entry count
+        Self::write_meta_storage(cfb, "/Library/LayerKindMapping", 1, &lkm)?;
+
+        // PadViaLibrary: empty cache with a fresh library id.
+        let guid = Uuid::new_v4().to_string().to_uppercase();
+        let pvl = Self::param_block(&format!(
+            "|PADVIALIBRARY.LIBRARYID={{{guid}}}|PADVIALIBRARY.LIBRARYNAME=<Local>|PADVIALIBRARY.DISPLAYUNITS=1"
+        ));
+        Self::write_meta_storage(cfb, "/Library/PadViaLibrary", 0, &pvl)?;
+
+        // ComponentParamsTOC: one CRLF-terminated line per footprint.
+        let mut toc = String::new();
+        for fp in &self.footprints {
+            let _ = write!(
+                toc,
+                "Name={}|Pad Count={}|Height=0|Description={}\r\n",
+                fp.name,
+                fp.pads.len(),
+                fp.description
+            );
+        }
+        Self::write_meta_storage(
+            cfb,
+            "/Library/ComponentParamsTOC",
+            1,
+            &Self::param_block(&toc),
+        )?;
+
+        // Always-empty library sub-storages.
+        Self::write_meta_storage(cfb, "/Library/Textures", 0, &[])?;
+        Self::write_meta_storage(cfb, "/Library/ModelsNoEmbed", 0, &[])?;
+
+        Ok(())
+    }
+
+    /// Writes the root `/FileVersionInfo` storage (Altium's version-history
+    /// metadata). The payload is a fixed, library-agnostic blob.
+    fn write_file_version_info<F: std::io::Read + std::io::Write + std::io::Seek>(
+        cfb: &mut cfb::CompoundFile<F>,
+    ) -> AltiumResult<()> {
+        const FVI_DATA: &[u8] = include_bytes!("assets/file_version_info.bin");
+        Self::write_meta_storage(cfb, "/FileVersionInfo", 1, FVI_DATA)
     }
 
     /// Builds the pipe-delimited parameter string for `/Library/Data`.
@@ -1445,31 +1574,9 @@ impl PcbLib {
         std::io::Write::write_all(&mut stream, &wide_strings_data)
             .map_err(|e| AltiumError::invalid_ole(format!("Failed to write WideStrings: {e}")))?;
 
-        // Write PrimitiveGuids streams
-        let guids_storage_path = format!("{storage_path}/PrimitiveGuids");
-        cfb.create_storage(&guids_storage_path).map_err(|e| {
-            AltiumError::invalid_ole(format!("Failed to create PrimitiveGuids storage: {e}"))
-        })?;
-
-        // PrimitiveGuids/Header
-        let guids_header_path = format!("{guids_storage_path}/Header");
-        let guids_header_data = writer::encode_primitive_guids_header(footprint);
-        let mut stream = cfb.create_stream(&guids_header_path).map_err(|e| {
-            AltiumError::invalid_ole(format!("Failed to create PrimitiveGuids/Header: {e}"))
-        })?;
-        std::io::Write::write_all(&mut stream, &guids_header_data).map_err(|e| {
-            AltiumError::invalid_ole(format!("Failed to write PrimitiveGuids/Header: {e}"))
-        })?;
-
-        // PrimitiveGuids/Data
-        let guids_data_path = format!("{guids_storage_path}/Data");
-        let guids_data = writer::encode_primitive_guids_data(footprint);
-        let mut stream = cfb.create_stream(&guids_data_path).map_err(|e| {
-            AltiumError::invalid_ole(format!("Failed to create PrimitiveGuids/Data: {e}"))
-        })?;
-        std::io::Write::write_all(&mut stream, &guids_data).map_err(|e| {
-            AltiumError::invalid_ole(format!("Failed to write PrimitiveGuids/Data: {e}"))
-        })?;
+        // PrimitiveGuids is the editor's optional per-primitive GUID cache.
+        // Altium (and AltiumSharp) omit it for from-scratch footprints, so we
+        // do too — writing it with a guessed record layout only risked rejection.
 
         // Write UniqueIDPrimitiveInformation streams if any primitives have unique IDs
         if let Some(uid_data) = writer::encode_unique_id_stream(footprint) {
@@ -2224,9 +2331,17 @@ mod tests {
 
         assert_eq!(decoded.pads.len(), 3);
 
-        // Pad 1: Square hole with solder mask expansion
+        // Mask expansion (main-block fields) round-trips for every pad.
+        //
+        // NOTE: non-round hole SHAPES (Square/Slot) live in the 596-byte
+        // size/shape block at offset 262, which simple from-scratch pads do not
+        // emit, so hole_shape currently reads back as Round. (The old writer put
+        // it at main-block offset 61, which Altium treats as reserved, so it
+        // never actually reached Altium either.) Full hole-shape support is a
+        // follow-up; see the size/shape-block work.
+
+        // Pad 1: solder mask expansion
         assert_eq!(decoded.pads[0].designator, "1");
-        assert_eq!(decoded.pads[0].hole_shape, HoleShape::Square);
         assert!(decoded.pads[0].solder_mask_expansion.is_some());
         assert!(approx_eq(
             decoded.pads[0].solder_mask_expansion.unwrap(),
@@ -2235,9 +2350,8 @@ mod tests {
         ));
         assert!(decoded.pads[0].solder_mask_expansion_manual);
 
-        // Pad 2: Slot hole with paste mask expansion
+        // Pad 2: paste mask expansion
         assert_eq!(decoded.pads[1].designator, "2");
-        assert_eq!(decoded.pads[1].hole_shape, HoleShape::Slot);
         assert!(decoded.pads[1].paste_mask_expansion.is_some());
         assert!(approx_eq(
             decoded.pads[1].paste_mask_expansion.unwrap(),
@@ -2296,7 +2410,9 @@ mod tests {
         pad_with_radius.stack_mode = PadStackMode::FullStack;
         original.add_pad(pad_with_radius);
 
-        // RoundedRectangle pad without explicit corner radius gets default 50%
+        // Default RoundedRectangle SMD pad: stays a Simple pad (shape id 9, empty
+        // size/shape block). Altium applies its default corner radius on display;
+        // we do not store one. Precise corner radius requires FullStack (above).
         let pad_default_radius = Pad::smd("2", 2.54, 0.0, 1.5, 0.8);
         original.add_pad(pad_default_radius);
 
@@ -2315,9 +2431,11 @@ mod tests {
         assert_eq!(decoded.pads[0].corner_radius_percent, Some(25));
         assert_eq!(decoded.pads[0].stack_mode, PadStackMode::FullStack);
 
-        // RoundedRectangle without explicit radius gets default 50%
-        assert_eq!(decoded.pads[1].corner_radius_percent, Some(50));
-        assert_eq!(decoded.pads[1].stack_mode, PadStackMode::FullStack);
+        // Default RoundedRectangle SMD pad stays Simple with no stored radius;
+        // the shape itself still round-trips (shape id 9).
+        assert_eq!(decoded.pads[1].shape, PadShape::RoundedRectangle);
+        assert_eq!(decoded.pads[1].corner_radius_percent, None);
+        assert_eq!(decoded.pads[1].stack_mode, PadStackMode::Simple);
 
         // Rectangle pad has no corner radius
         assert_eq!(decoded.pads[2].corner_radius_percent, None);
