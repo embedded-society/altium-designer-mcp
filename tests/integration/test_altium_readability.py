@@ -91,15 +91,25 @@ def _generate(binary, out_dir):
         client.notify("notifications/initialized")
         pcb = os.path.join(out_dir, "Oracle.PcbLib")
         sch = os.path.join(out_dir, "Oracle.SchLib")
+        # Rich footprint: exercises every user-creatable PcbLib primitive
+        # (pads, tracks, arcs, text, regions) so the oracle guards them all.
         footprint = {
             "name": "RESC1005X40N", "description": "0402 chip resistor",
             "pads": [
                 {"designator": "1", "x": -0.5, "y": 0.0, "width": 0.6, "height": 0.5},
                 {"designator": "2", "x": 0.5, "y": 0.0, "width": 0.6, "height": 0.5},
             ],
+            "tracks": [{"x1": -1, "y1": 0.5, "x2": 1, "y2": 0.5,
+                        "width": 0.1, "layer": "Top Overlay"}],
+            "arcs": [{"x": 0, "y": 0, "radius": 0.3, "start_angle": 0,
+                      "end_angle": 180, "width": 0.1, "layer": "Top Overlay"}],
+            "text": [{"x": -1, "y": 1, "text": "R1", "height": 0.5, "layer": "Top Overlay"}],
+            "regions": [{"layer": "Mechanical 1", "vertices": [
+                {"x": -1, "y": -1}, {"x": 1, "y": -1}, {"x": 1, "y": 1}, {"x": -1, "y": 1}]}],
         }
         wp = client.call_tool(
             "write_pcblib", {"filepath": pcb, "footprints": [footprint], "append": False})
+        # Rich symbol: pins, rectangle, line, text.
         symbol = {
             "name": "Resistor", "description": "Generic resistor",
             "designator_prefix": "R",
@@ -110,6 +120,8 @@ def _generate(binary, out_dir):
                  "orientation": "up", "electrical_type": "passive"},
             ],
             "rectangles": [{"x1": -20, "y1": -50, "x2": 20, "y2": 50}],
+            "lines": [{"x1": -20, "y1": 0, "x2": 20, "y2": 0}],
+            "text": [{"x": -20, "y": 60, "text": "R"}],
         }
         ws = client.call_tool(
             "write_schlib", {"filepath": sch, "symbols": [symbol], "append": False})

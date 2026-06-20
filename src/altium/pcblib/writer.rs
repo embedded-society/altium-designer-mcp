@@ -907,9 +907,9 @@ fn encode_region(data: &mut Vec<u8>, region: &Region) {
 fn encode_region_properties(region: &Region) -> Vec<u8> {
     let vertex_count = region.vertices.len();
 
-    // Build parameter string
+    // Build parameter string (leading pipe, matching Altium).
     let layer_name = region.layer.as_str().replace(' ', "").to_uppercase();
-    let params = format!("V7_LAYER={layer_name}|NAME= |KIND=0");
+    let params = format!("|V7_LAYER={layer_name}|NAME=|KIND=0");
     let params_bytes = params.as_bytes();
 
     let mut block = Vec::with_capacity(22 + params_bytes.len() + 4 + vertex_count * 16);
@@ -920,11 +920,12 @@ fn encode_region_properties(region: &Region) -> Vec<u8> {
     // Unknown bytes (5 bytes)
     block.extend_from_slice(&[0x00; 5]);
 
-    // Parameter string length
-    write_u32(&mut block, params_bytes.len() as u32);
-
-    // Parameter string
+    // Parameter block is a C-string: length INCLUDES the null terminator
+    // (matching Altium WriteCStringParameterBlock), else Altium/pyaltiumlib
+    // report "Data does not end with 0x00".
+    write_u32(&mut block, (params_bytes.len() + 1) as u32);
     block.extend_from_slice(params_bytes);
+    block.push(0x00);
 
     // Vertex count
     write_u32(&mut block, vertex_count as u32);
