@@ -31,6 +31,10 @@ use super::primitives::{
     StrokeFont, Text, TextJustification, TextKind, Track, Vertex, Via, ViaStackMode,
 };
 use super::Footprint;
+use crate::altium::bytes::{
+    read_f64_le as read_f64, read_i32_le as read_i32, read_u16_le as read_u16,
+    read_u32_le as read_u32,
+};
 use crate::altium::error::AltiumError;
 
 /// Result type for internal parse functions.
@@ -354,49 +358,6 @@ fn to_mm(internal: i32) -> f64 {
     let raw = f64::from(internal) * INTERNAL_UNITS_TO_MM;
     // Round to 6 decimal places (1nm = 0.000001mm) to avoid precision artifacts
     (raw * 1_000_000.0).round() / 1_000_000.0
-}
-
-/// Reads a 4-byte little-endian unsigned integer.
-fn read_u32(data: &[u8], offset: usize) -> Option<u32> {
-    if offset + 4 > data.len() {
-        return None;
-    }
-    Some(u32::from_le_bytes([
-        data[offset],
-        data[offset + 1],
-        data[offset + 2],
-        data[offset + 3],
-    ]))
-}
-
-/// Reads a 4-byte little-endian signed integer.
-fn read_i32(data: &[u8], offset: usize) -> Option<i32> {
-    if offset + 4 > data.len() {
-        return None;
-    }
-    Some(i32::from_le_bytes([
-        data[offset],
-        data[offset + 1],
-        data[offset + 2],
-        data[offset + 3],
-    ]))
-}
-
-/// Reads an 8-byte little-endian double (IEEE 754).
-fn read_f64(data: &[u8], offset: usize) -> Option<f64> {
-    if offset + 8 > data.len() {
-        return None;
-    }
-    Some(f64::from_le_bytes([
-        data[offset],
-        data[offset + 1],
-        data[offset + 2],
-        data[offset + 3],
-        data[offset + 4],
-        data[offset + 5],
-        data[offset + 6],
-        data[offset + 7],
-    ]))
 }
 
 /// Reads a length-prefixed block from data.
@@ -1632,14 +1593,6 @@ fn extract_text_from_block(block: &[u8], wide_strings: Option<&WideStrings>) -> 
 
     // No text content found
     String::new()
-}
-
-/// Reads a 2-byte little-endian unsigned integer.
-fn read_u16(data: &[u8], offset: usize) -> Option<u16> {
-    if offset + 2 > data.len() {
-        return None;
-    }
-    Some(u16::from_le_bytes([data[offset], data[offset + 1]]))
 }
 
 /// Finds an ASCII pattern within a block (for special text like ".Designator").

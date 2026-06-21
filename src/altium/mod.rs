@@ -23,9 +23,12 @@
 //! - Package layout decisions
 //! - Style choices
 
+pub(crate) mod bytes;
 pub mod error;
+pub(crate) mod framing;
 pub mod pcblib;
 pub mod schlib;
+pub(crate) mod serde_round;
 
 pub use error::{AltiumError, AltiumResult};
 pub use pcblib::{Footprint, PcbLib};

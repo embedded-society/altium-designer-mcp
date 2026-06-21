@@ -24,6 +24,7 @@ use super::primitives::{
     Polyline, Rectangle, RoundRect, Text, TextJustification,
 };
 use super::Symbol;
+use crate::altium::framing::{write_cstring_param_block, write_pascal_string};
 
 /// Writes a record frame to the output: Altium's `[u24 length LE][u8 flags]`
 /// header followed by the payload. `flags` is 0 for a text record and 1 for a
@@ -177,10 +178,10 @@ fn write_binary_pin(data: &mut Vec<u8>, pin: &Pin) -> crate::altium::error::Alti
     record.push(pin.symbol_outside.to_id());
 
     // Description: Pascal short string [length:1][string]
-    let desc_bytes = crate::altium::encode_windows1252(&pin.description);
-    #[allow(clippy::cast_possible_truncation)] // length validated above
-    record.push(desc_bytes.len() as u8);
-    record.extend_from_slice(&desc_bytes);
+    write_pascal_string(
+        &mut record,
+        &crate::altium::encode_windows1252(&pin.description),
+    );
 
     // Formal type (1 byte) - 0x01 for a normal pin (matches Altium's output).
     record.push(0x01);
@@ -228,16 +229,13 @@ fn write_binary_pin(data: &mut Vec<u8>, pin: &Pin) -> crate::altium::error::Alti
     record.extend_from_slice(&pin.colour.to_le_bytes());
 
     // Name: [length:1][string]
-    let name_bytes = crate::altium::encode_windows1252(&pin.name);
-    #[allow(clippy::cast_possible_truncation)] // length validated above
-    record.push(name_bytes.len() as u8);
-    record.extend_from_slice(&name_bytes);
+    write_pascal_string(&mut record, &crate::altium::encode_windows1252(&pin.name));
 
     // Designator: [length:1][string]
-    let desig_bytes = crate::altium::encode_windows1252(&pin.designator);
-    #[allow(clippy::cast_possible_truncation)] // length validated above
-    record.push(desig_bytes.len() as u8);
-    record.extend_from_slice(&desig_bytes);
+    write_pascal_string(
+        &mut record,
+        &crate::altium::encode_windows1252(&pin.designator),
+    );
 
     // Pin swap-id tail (Pascal short strings), matching Altium's output:
     //   SwapIdGroup = "" , PartAndSequence = "|&|" , DefaultValue = "".
@@ -768,11 +766,7 @@ pub fn encode_file_header(symbols: &[&Symbol], ole_names: &[String]) -> Vec<u8> 
     // WriteCStringParameterBlockRaw). Omitting it is issue #68's "Data does not
     // end with 0x00".
     let mut data = Vec::with_capacity(4 + text_bytes.len() + 1);
-    #[allow(clippy::cast_possible_truncation)]
-    let length = (text_bytes.len() + 1) as u32;
-    data.extend_from_slice(&length.to_le_bytes());
-    data.extend_from_slice(text_bytes);
-    data.push(0x00);
+    write_cstring_param_block(&mut data, text_bytes);
 
     data
 }

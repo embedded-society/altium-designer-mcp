@@ -22,6 +22,9 @@ use super::primitives::{
     TextJustification,
 };
 use super::Symbol;
+use crate::altium::bytes::{
+    read_i16_le as read_i16, read_i32_le as read_i32, read_u32_le as read_u32,
+};
 use std::collections::HashMap;
 
 /// Parses primitives from a `SchLib` Data stream.
@@ -927,39 +930,7 @@ const fn justification_from_id(id: u8) -> TextJustification {
     }
 }
 
-/// Reads a 4-byte little-endian signed integer.
-fn read_i32(data: &[u8], offset: usize) -> Option<i32> {
-    if offset + 4 > data.len() {
-        return None;
-    }
-    Some(i32::from_le_bytes([
-        data[offset],
-        data[offset + 1],
-        data[offset + 2],
-        data[offset + 3],
-    ]))
-}
-
-/// Reads a 2-byte little-endian signed integer.
-fn read_i16(data: &[u8], offset: usize) -> Option<i16> {
-    if offset + 2 > data.len() {
-        return None;
-    }
-    Some(i16::from_le_bytes([data[offset], data[offset + 1]]))
-}
-
-/// Reads a 4-byte little-endian unsigned integer.
-fn read_u32(data: &[u8], offset: usize) -> Option<u32> {
-    if offset + 4 > data.len() {
-        return None;
-    }
-    Some(u32::from_le_bytes([
-        data[offset],
-        data[offset + 1],
-        data[offset + 2],
-        data[offset + 3],
-    ]))
-}
+// Bounds-checked little-endian scalar readers are shared (crate::altium::bytes).
 
 #[cfg(test)]
 mod tests {
