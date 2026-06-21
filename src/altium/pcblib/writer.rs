@@ -44,14 +44,12 @@ fn write_f64(data: &mut Vec<u8>, value: f64) {
     data.extend_from_slice(&value.to_le_bytes());
 }
 
-/// Writes a length-prefixed block.
-#[allow(clippy::cast_possible_truncation)] // Blocks are always small
-fn write_block(data: &mut Vec<u8>, block: &[u8]) {
-    write_u32(data, block.len() as u32);
-    data.extend_from_slice(block);
-}
+// Shared byte frames live in crate::altium::framing so PcbLib and SchLib use
+// one implementation each (see that module).
+use crate::altium::framing::{write_block, write_cstring_param_block, write_pascal_string};
 
-/// Writes a length-prefixed string block.
+/// Writes a length-prefixed string block: outer `[u32 len]` wrapping a Pascal
+/// short string `[u8 len][bytes]`.
 ///
 /// # Errors
 ///
@@ -78,9 +76,7 @@ fn write_string_block(
     }
 
     let mut block = Vec::with_capacity(1 + bytes.len());
-    #[allow(clippy::cast_possible_truncation)] // Validated above
-    block.push(bytes.len() as u8);
-    block.extend_from_slice(&bytes);
+    write_pascal_string(&mut block, &bytes);
     write_block(data, &block);
     Ok(())
 }
@@ -968,12 +964,8 @@ fn encode_region_properties(region: &Region) -> Vec<u8> {
     // Unknown bytes (5 bytes)
     block.extend_from_slice(&[0x00; 5]);
 
-    // Parameter block is a C-string: length INCLUDES the null terminator
-    // (matching Altium WriteCStringParameterBlock), else Altium/pyaltiumlib
-    // report "Data does not end with 0x00".
-    write_u32(&mut block, (params_bytes.len() + 1) as u32);
-    block.extend_from_slice(params_bytes);
-    block.push(0x00);
+    // C-string parameter block (length includes the null terminator).
+    write_cstring_param_block(&mut block, params_bytes);
 
     // Vertex count
     write_u32(&mut block, vertex_count as u32);
@@ -1073,16 +1065,9 @@ fn encode_component_body_block(body: &ComponentBody) -> Vec<u8> {
     // Zeros (5 bytes)
     block.extend_from_slice(&[0x00; 5]);
 
-    // Build parameter string
+    // Parameter string as a C-string block (length includes the null).
     let param_str = build_component_body_params(body);
-
-    // Parameter string length including null terminator (4 bytes)
-    let param_len = param_str.len() + 1; // +1 for null
-    write_u32(&mut block, param_len as u32);
-
-    // Parameter string (null-terminated)
-    block.extend_from_slice(param_str.as_bytes());
-    block.push(0x00); // Null terminator
+    write_cstring_param_block(&mut block, param_str.as_bytes());
 
     // No outline vertices (4 bytes = count of 0)
     write_u32(&mut block, 0);
@@ -1226,14 +1211,8 @@ pub fn encode_model_data_stream(models: &[EmbeddedModel]) -> Vec<u8> {
             "|EMBED=TRUE|MODELSOURCE=Undefined|ID={}|ROTX=0.000|ROTY=0.000|ROTZ=0.000|DZ=0|CHECKSUM=0|NAME={}",
             model.id, model.name
         );
-        let record_bytes = record.as_bytes();
-
-        // Block length includes null terminator
-        output.extend_from_slice(&((record_bytes.len() + 1) as u32).to_le_bytes());
-
-        // Write record content + null terminator
-        output.extend_from_slice(record_bytes);
-        output.push(0x00);
+        // C-string parameter block (length includes the null terminator).
+        write_cstring_param_block(&mut output, record.as_bytes());
     }
 
     output
@@ -1382,14 +1361,8 @@ fn encode_unique_id_record(
 ) {
     let record =
         format!("|PRIMITIVEINDEX={index}|PRIMITIVEOBJECTID={primitive_type}|UNIQUEID={unique_id}");
-    let record_bytes = record.as_bytes();
-
-    // Write block length (includes null terminator)
-    write_u32(data, (record_bytes.len() + 1) as u32);
-
-    // Write record content + null terminator
-    data.extend_from_slice(record_bytes);
-    data.push(0x00);
+    // C-string parameter block (length includes the null terminator).
+    write_cstring_param_block(data, record.as_bytes());
 }
 
 // =============================================================================
@@ -1459,15 +1432,10 @@ pub fn encode_component_wide_strings(footprint: &Footprint) -> Vec<u8> {
         let _ = write!(content, "ENCODEDTEXT{index}={encoded}|");
     }
 
-    // Block format: [block_len:4][content + \x00]
+    // Block format: [block_len:4][content + \x00] (length includes the null).
     let content_bytes = content.as_bytes();
-    let block_len = content_bytes.len() + 1; // +1 for null terminator
-
-    let mut data = Vec::with_capacity(4 + block_len);
-    #[allow(clippy::cast_possible_truncation)]
-    write_u32(&mut data, block_len as u32);
-    data.extend_from_slice(content_bytes);
-    data.push(0x00); // Null terminator
+    let mut data = Vec::with_capacity(4 + content_bytes.len() + 1);
+    write_cstring_param_block(&mut data, content_bytes);
 
     data
 }

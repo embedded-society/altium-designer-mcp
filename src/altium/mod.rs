@@ -24,6 +24,7 @@
 //! - Style choices
 
 pub mod error;
+pub(crate) mod framing;
 pub mod pcblib;
 pub mod schlib;
 
