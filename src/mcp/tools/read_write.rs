@@ -363,6 +363,7 @@ impl McpServer {
                             overall_height: 0.0,
                             standoff_height: 0.0,
                             layer: Layer::Top3DBody,
+                            outline: Vec::new(),
                             unique_id: None,
                         });
                     }

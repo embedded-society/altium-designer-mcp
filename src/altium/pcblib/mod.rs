@@ -1050,6 +1050,7 @@ impl PcbLib {
                     overall_height: 0.0, // Could be calculated from STEP, but not implemented
                     standoff_height: 0.0,
                     layer: Layer::Top3DBody,
+                    outline: Vec::new(), // Synthesised from the footprint extent on write
                     unique_id: None,
                 };
 
@@ -2010,7 +2011,7 @@ mod tests {
 
         let mut original = Footprint::new("ROUNDTRIP_COMPONENT_BODY");
 
-        // Add a ComponentBody with typical values
+        // Add a ComponentBody with typical values and an explicit outline.
         let body = ComponentBody {
             model_id: "{TEST-GUID-1234-5678-ABCDEFGH}".to_string(),
             model_name: "TEST_MODEL.step".to_string(),
@@ -2022,6 +2023,7 @@ mod tests {
             overall_height: 1.0,  // mm
             standoff_height: 0.1, // mm
             layer: Layer::Top3DBody,
+            outline: vec![(-2.0, 1.0), (-2.0, -1.0), (2.0, -1.0), (2.0, 1.0)],
             unique_id: None,
         };
         original.add_component_body(body);
@@ -2044,6 +2046,92 @@ mod tests {
         assert!(approx_eq(body.overall_height, 1.0, 0.01));
         assert!(approx_eq(body.standoff_height, 0.1, 0.01));
         assert_eq!(body.layer, Layer::Top3DBody);
+
+        // The explicit outline round-trips (4 vertices, in mm).
+        assert_eq!(body.outline.len(), 4);
+        assert!(approx_eq(body.outline[0].0, -2.0, 0.001));
+        assert!(approx_eq(body.outline[0].1, 1.0, 0.001));
+        assert!(approx_eq(body.outline[2].0, 2.0, 0.001));
+        assert!(approx_eq(body.outline[2].1, -1.0, 0.001));
+    }
+
+    #[test]
+    fn component_body_emits_single_block_with_outline() {
+        // A footprint with two bodies must not emit stray empty blocks between
+        // them (Altium reads exactly one block per body; trailing zero bytes are
+        // mis-read as a bogus object-id-0 primitive — the #68 class of bug).
+        let mut fp = Footprint::new("TWO_BODIES");
+        fp.add_pad(Pad::smd("1", -1.0, 0.0, 0.6, 0.5));
+        fp.add_pad(Pad::smd("2", 1.0, 0.0, 0.6, 0.5));
+        for i in 0..2 {
+            fp.add_component_body(ComponentBody {
+                model_id: format!("{{GUID-{i}}}"),
+                model_name: format!("M{i}.step"),
+                embedded: true,
+                rotation_x: 0.0,
+                rotation_y: 0.0,
+                rotation_z: 0.0,
+                z_offset: 0.0,
+                overall_height: 1.0,
+                standoff_height: 0.0,
+                layer: Layer::Top3DBody,
+                outline: Vec::new(), // exercise the synthesised-bbox fallback
+                unique_id: None,
+            });
+        }
+
+        let data = writer::encode_data_stream(&fp).expect("encoding should succeed");
+        let mut decoded = Footprint::new("TWO_BODIES");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        // Both bodies survive (no desync from stray blocks), and each gets a
+        // non-degenerate synthesised outline (the pad bounding box).
+        assert_eq!(decoded.component_bodies.len(), 2);
+        for body in &decoded.component_bodies {
+            assert_eq!(body.outline.len(), 4, "body must have a non-empty outline");
+        }
+
+        // Byte-level: a body must be EXACTLY one size-prefixed block (as Altium
+        // writes). This catches the stray empty blocks regardless of whether our
+        // own reader tolerates them. Build a one-body footprint and walk it.
+        let mut single = Footprint::new("ONE_BODY");
+        single.add_component_body(ComponentBody::new("{G}", "M.step"));
+        let d = writer::encode_data_stream(&single).expect("encoding should succeed");
+        let name_len = u32::from_le_bytes(d[0..4].try_into().unwrap()) as usize;
+        let mut off = 4 + name_len;
+        assert_eq!(d[off], 0x0C, "expected ComponentBody object id");
+        off += 1;
+        let block_len = u32::from_le_bytes(d[off..off + 4].try_into().unwrap()) as usize;
+        off += 4 + block_len;
+        assert_eq!(
+            off,
+            d.len(),
+            "ComponentBody must be a single block with no trailing empty blocks"
+        );
+
+        // The body param block carries the full key set Altium emits.
+        let s = String::from_utf8_lossy(&d);
+        assert!(s.contains("IDENTIFIER="), "missing IDENTIFIER key");
+        assert!(s.contains("TEXTURE="), "missing TEXTURE key");
+        assert_eq!(
+            s.matches("ARCRESOLUTION=").count(),
+            2,
+            "Altium emits ARCRESOLUTION twice"
+        );
+    }
+
+    #[test]
+    fn models_data_record_has_no_leading_pipe() {
+        // AltiumSharp and every BODY_3D golden start the record at EMBED= with no
+        // leading pipe; the u32 length prefix is followed directly by 'E'.
+        let models = vec![EmbeddedModel::new("{GUID}", "part.step", Vec::new())];
+        let stream = writer::encode_model_data_stream(&models);
+        // [u32 len][record + NUL]; first record byte (offset 4) must be 'E', not '|'.
+        assert_eq!(stream[4], b'E', "Models/Data record must start at EMBED=");
+        assert_ne!(
+            stream[4], b'|',
+            "Models/Data record must not have a leading pipe"
+        );
     }
 
     #[test]

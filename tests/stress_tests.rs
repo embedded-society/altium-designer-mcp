@@ -780,6 +780,7 @@ fn test_component_body_roundtrip() {
         overall_height: 0.35,
         standoff_height: 0.0,
         layer: Layer::TopLayer,
+        outline: Vec::new(),
         unique_id: None,
     };
     fp.component_bodies.push(body);
@@ -824,6 +825,7 @@ fn test_component_body_with_rotation() {
         overall_height: 1.75,
         standoff_height: 0.0,
         layer: Layer::TopLayer,
+        outline: Vec::new(),
         unique_id: None,
     };
     fp.component_bodies.push(body);
@@ -2516,6 +2518,7 @@ fn test_component_body_external_model_reference() {
         overall_height: 1.0,
         standoff_height: 0.0,
         layer: Layer::Top3DBody,
+        outline: Vec::new(),
         unique_id: None,
     };
     fp.component_bodies.push(body);

@@ -315,7 +315,8 @@ pub fn encode_data_stream(footprint: &Footprint) -> crate::altium::error::Altium
 
     for body in &footprint.component_bodies {
         data.push(0x0C); // ComponentBody record type
-        encode_component_body(&mut data, body);
+        let outline = resolve_body_outline(body, footprint);
+        encode_component_body(&mut data, body, &outline);
     }
 
     // No end marker: Altium reads exactly the primitive count from the component
@@ -1026,13 +1027,15 @@ fn encode_fill_block(fill: &Fill) -> Vec<u8> {
 }
 
 /// Encodes a `ComponentBody` primitive (3D model reference).
-fn encode_component_body(data: &mut Vec<u8>, body: &ComponentBody) {
-    let block = encode_component_body_block(body);
+///
+/// Altium writes exactly ONE size-prefixed block per body (verified against
+/// `AltiumSharp` and the `BODY_3D`/`BODY_3D_STEP` golden libraries) — the outline
+/// lives inside that block. Emitting extra empty blocks would be read back as a
+/// bogus object-id-0 primitive and desynchronise the record stream (the same
+/// class of bug as the trailing-`0x00` end marker removed for #68).
+fn encode_component_body(data: &mut Vec<u8>, body: &ComponentBody, outline: &[(f64, f64)]) {
+    let block = encode_component_body_block(body, outline);
     write_block(data, &block);
-
-    // Blocks 1 and 2 are optional/empty
-    write_block(data, &[]);
-    write_block(data, &[]);
 }
 
 /// Encodes the `ComponentBody` block 0.
@@ -1045,11 +1048,11 @@ fn encode_component_body(data: &mut Vec<u8>, body: &ComponentBody) {
 /// [zeros:5]                    // Zeros
 /// [param_len:4]                // Parameter string length (including null)
 /// [param_string:param_len]     // Key=value pairs separated by |
-/// [vertex_count:4]             // Outline vertex count (usually 0 or 4)
-/// [vertices...]                // Optional outline vertices
+/// [vertex_count:4]             // Outline vertex count
+/// [vertices...]                // Outline vertices: f64 x, f64 y (internal units)
 /// ```
-#[allow(clippy::cast_possible_truncation)] // Parameter strings are always small
-fn encode_component_body_block(body: &ComponentBody) -> Vec<u8> {
+#[allow(clippy::cast_possible_truncation)] // Parameter strings + outlines are always small
+fn encode_component_body_block(body: &ComponentBody, outline: &[(f64, f64)]) -> Vec<u8> {
     let mut block = Vec::with_capacity(128);
 
     // Layer ID (1 byte)
@@ -1069,10 +1072,54 @@ fn encode_component_body_block(body: &ComponentBody) -> Vec<u8> {
     let param_str = build_component_body_params(body);
     write_cstring_param_block(&mut block, param_str.as_bytes());
 
-    // No outline vertices (4 bytes = count of 0)
-    write_u32(&mut block, 0);
+    // Outline polygon: vertex count then (f64 x, f64 y) per vertex, in Altium
+    // internal units (1 mil = 10000). Altium needs a non-empty outline to place
+    // and render the body.
+    write_u32(&mut block, outline.len() as u32);
+    for &(x, y) in outline {
+        write_f64(&mut block, x * MM_TO_INTERNAL_UNITS);
+        write_f64(&mut block, y * MM_TO_INTERNAL_UNITS);
+    }
 
     block
+}
+
+/// Resolves the outline to write for a `ComponentBody`.
+///
+/// Uses the body's explicit outline when present (e.g. preserved from a file we
+/// read); otherwise synthesises a rectangle from the footprint's pad extent so
+/// the body is never written with a degenerate (empty) outline. Falls back to a
+/// ±1 mm square when the footprint has no pads. Vertices are wound to match
+/// Altium's convention: top-left, bottom-left, bottom-right, top-right.
+fn resolve_body_outline(body: &ComponentBody, footprint: &Footprint) -> Vec<(f64, f64)> {
+    if !body.outline.is_empty() {
+        return body.outline.clone();
+    }
+
+    let mut min_x = f64::INFINITY;
+    let mut min_y = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+    for pad in &footprint.pads {
+        min_x = min_x.min(pad.x - pad.width / 2.0);
+        max_x = max_x.max(pad.x + pad.width / 2.0);
+        min_y = min_y.min(pad.y - pad.height / 2.0);
+        max_y = max_y.max(pad.y + pad.height / 2.0);
+    }
+    if !min_x.is_finite() {
+        // No pads to bound — use a small default square.
+        min_x = -1.0;
+        min_y = -1.0;
+        max_x = 1.0;
+        max_y = 1.0;
+    }
+
+    vec![
+        (min_x, max_y),
+        (min_x, min_y),
+        (max_x, min_y),
+        (max_x, max_y),
+    ]
 }
 
 /// Builds the parameter string for a `ComponentBody`.
@@ -1103,8 +1150,13 @@ fn build_component_body_params(body: &ComponentBody) -> String {
         mm_to_mil(body.overall_height)
     ));
     params.push("BODYPROJECTION=0".to_string());
+    // Altium repeats ARCRESOLUTION after BODYPROJECTION (verbatim shape from the
+    // BODY_3D golden files).
+    params.push("ARCRESOLUTION=0.5mil".to_string());
     params.push("BODYCOLOR3D=8421504".to_string());
     params.push("BODYOPACITY3D=1.000".to_string());
+    params.push("IDENTIFIER=".to_string());
+    params.push("TEXTURE=".to_string());
     params.push("TEXTURECENTERX=0mil".to_string());
     params.push("TEXTURECENTERY=0mil".to_string());
     params.push("TEXTURESIZEX=0mil".to_string());
@@ -1206,9 +1258,10 @@ pub fn encode_model_data_stream(models: &[EmbeddedModel]) -> Vec<u8> {
     let mut output = Vec::new();
 
     for model in models {
-        // Build the record content (leading pipe, pipe-delimited parameters)
+        // Pipe-delimited parameters, NO leading pipe (matches AltiumSharp's
+        // string.Join and every BODY_3D golden, whose record starts at EMBED=).
         let record = format!(
-            "|EMBED=TRUE|MODELSOURCE=Undefined|ID={}|ROTX=0.000|ROTY=0.000|ROTZ=0.000|DZ=0|CHECKSUM=0|NAME={}",
+            "EMBED=TRUE|MODELSOURCE=Undefined|ID={}|ROTX=0.000|ROTY=0.000|ROTZ=0.000|DZ=0|CHECKSUM=0|NAME={}",
             model.id, model.name
         );
         // C-string parameter block (length includes the null terminator).
