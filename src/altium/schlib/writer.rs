@@ -67,10 +67,7 @@ fn write_record_frame(
 /// # Errors
 ///
 /// Returns an error if the encoded record exceeds the 16 MiB record limit.
-fn write_text_record(
-    data: &mut Vec<u8>,
-    content: &str,
-) -> crate::altium::error::AltiumResult<()> {
+fn write_text_record(data: &mut Vec<u8>, content: &str) -> crate::altium::error::AltiumResult<()> {
     let mut record = crate::altium::encode_windows1252(content);
     record.push(0x00); // Null terminator
     write_record_frame(data, &record, 0) // flags 0 = text

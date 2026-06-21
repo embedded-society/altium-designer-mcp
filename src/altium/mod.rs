@@ -158,9 +158,15 @@ mod tests {
     #[test]
     fn windows1252_encodes_latin1_as_single_bytes() {
         // "10µF": µ is U+00B5 -> a single 0xB5 byte in cp1252 (two bytes in UTF-8).
-        assert_eq!(encode_windows1252("10\u{00B5}F"), vec![b'1', b'0', 0xB5, b'F']);
+        assert_eq!(
+            encode_windows1252("10\u{00B5}F"),
+            vec![b'1', b'0', 0xB5, b'F']
+        );
         // °, ±, é are all representable in cp1252.
-        assert_eq!(encode_windows1252("\u{00B0}\u{00B1}\u{00E9}"), vec![0xB0, 0xB1, 0xE9]);
+        assert_eq!(
+            encode_windows1252("\u{00B0}\u{00B1}\u{00E9}"),
+            vec![0xB0, 0xB1, 0xE9]
+        );
     }
 
     #[test]
