@@ -5,24 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Custom serialisation for floating-point values to avoid precision artifacts.
-///
-/// Rounds values to 6 decimal places to prevent output like `359.999999` instead of `360.0`.
-mod float_serde {
-    use serde::Serializer;
-
-    /// Rounds a floating-point value to 6 decimal places.
-    #[inline]
-    fn round_float(value: f64) -> f64 {
-        (value * 1_000_000.0).round() / 1_000_000.0
-    }
-
-    /// Serialises an f64 with rounding.
-    #[allow(clippy::trivially_copy_pass_by_ref)] // serde requires &T signature
-    pub fn serialize<S: Serializer>(value: &f64, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_f64(round_float(*value))
-    }
-}
+// Float rounding on serialization is shared (crate::altium::serde_round).
 
 /// A schematic symbol pin.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -500,12 +483,12 @@ pub struct Arc {
     /// Radius.
     pub radius: i32,
     /// Start angle in degrees (0 = right, counter-clockwise).
-    #[serde(default, serialize_with = "float_serde::serialize")]
+    #[serde(default, serialize_with = "crate::altium::serde_round::serialize")]
     pub start_angle: f64,
     /// End angle in degrees.
     #[serde(
         default = "default_end_angle",
-        serialize_with = "float_serde::serialize"
+        serialize_with = "crate::altium::serde_round::serialize"
     )]
     pub end_angle: f64,
     /// Line width.
@@ -714,18 +697,18 @@ pub struct EllipticalArc {
     /// Centre Y coordinate.
     pub y: i32,
     /// Primary radius (horizontal).
-    #[serde(serialize_with = "float_serde::serialize")]
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
     pub radius: f64,
     /// Secondary radius (vertical).
-    #[serde(serialize_with = "float_serde::serialize")]
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
     pub secondary_radius: f64,
     /// Start angle in degrees (0 = right, counter-clockwise).
-    #[serde(default, serialize_with = "float_serde::serialize")]
+    #[serde(default, serialize_with = "crate::altium::serde_round::serialize")]
     pub start_angle: f64,
     /// End angle in degrees.
     #[serde(
         default = "default_end_angle",
-        serialize_with = "float_serde::serialize"
+        serialize_with = "crate::altium::serde_round::serialize"
     )]
     pub end_angle: f64,
     /// Line width.
@@ -789,7 +772,7 @@ pub struct Label {
     #[serde(default)]
     pub justification: TextJustification,
     /// Rotation in degrees.
-    #[serde(default, serialize_with = "float_serde::serialize")]
+    #[serde(default, serialize_with = "crate::altium::serde_round::serialize")]
     pub rotation: f64,
     /// Whether the label is mirrored horizontally.
     #[serde(default)]
@@ -824,7 +807,7 @@ pub struct Text {
     #[serde(default)]
     pub justification: TextJustification,
     /// Rotation in degrees.
-    #[serde(default, serialize_with = "float_serde::serialize")]
+    #[serde(default, serialize_with = "crate::altium::serde_round::serialize")]
     pub rotation: f64,
     /// Whether the text is mirrored horizontally.
     #[serde(default)]
