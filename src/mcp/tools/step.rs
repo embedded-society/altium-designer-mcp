@@ -43,11 +43,11 @@ impl McpServer {
         let limit = arguments
             .get("limit")
             .and_then(Value::as_u64)
-            .map(|v| v as usize);
+            .map(|v| usize::try_from(v).unwrap_or(usize::MAX));
         let offset = arguments
             .get("offset")
             .and_then(Value::as_u64)
-            .map_or(0, |v| v as usize);
+            .map_or(0, |v| usize::try_from(v).unwrap_or(usize::MAX));
 
         // Read the library
         let library = match PcbLib::open(filepath) {
