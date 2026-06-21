@@ -122,7 +122,7 @@ impl McpServer {
             }
             "extract_all" => {
                 // Extract all models to output directory
-                Self::extract_all_step_models(filepath, output_path, &models)
+                self.extract_all_step_models(filepath, output_path, &models)
             }
             "extract_by_footprint" => {
                 // Extract models used by a specific footprint
@@ -131,7 +131,7 @@ impl McpServer {
                         "Missing required parameter 'footprint_name' for extract_by_footprint mode",
                     );
                 };
-                Self::extract_step_by_footprint(filepath, output_path, &library, &models, fp_name)
+                self.extract_step_by_footprint(filepath, output_path, &library, &models, fp_name)
             }
             _ => {
                 // Default "auto" mode - original behaviour
@@ -219,6 +219,7 @@ impl McpServer {
 
     /// Extracts all STEP models to an output directory.
     pub(crate) fn extract_all_step_models(
+        &self,
         filepath: &str,
         output_path: Option<&str>,
         models: &[&crate::altium::pcblib::EmbeddedModel],
@@ -239,7 +240,27 @@ impl McpServer {
         let mut errors: Vec<Value> = Vec::new();
 
         for model in models {
-            let output_file = out_dir.join(&model.name);
+            // model.name comes from inside the (caller-supplied) library. Reduce
+            // it to a bare filename so a crafted name cannot use an absolute path
+            // or ".." segments to escape out_dir via Path::join, then re-validate
+            // the resolved path against the allow-list (defence in depth).
+            let Some(safe_name) = std::path::Path::new(&model.name).file_name() else {
+                errors.push(json!({
+                    "id": model.id,
+                    "name": model.name,
+                    "error": "model name has no usable file component; skipped",
+                }));
+                continue;
+            };
+            let output_file = out_dir.join(safe_name);
+            if let Err(e) = self.validate_path(&output_file.to_string_lossy()) {
+                errors.push(json!({
+                    "id": model.id,
+                    "name": model.name,
+                    "error": e,
+                }));
+                continue;
+            }
             match std::fs::write(&output_file, &model.data) {
                 Ok(()) => {
                     extracted.push(json!({
@@ -274,6 +295,7 @@ impl McpServer {
 
     /// Extracts STEP models used by a specific footprint.
     pub(crate) fn extract_step_by_footprint(
+        &self,
         filepath: &str,
         output_path: Option<&str>,
         library: &crate::altium::PcbLib,
@@ -355,7 +377,7 @@ impl McpServer {
             Self::extract_model_output(filepath, output_path, matching_models[0])
         } else if let Some(out_dir) = output_path {
             // Multiple models - extract to directory
-            Self::extract_all_step_models(filepath, Some(out_dir), &matching_models)
+            self.extract_all_step_models(filepath, Some(out_dir), &matching_models)
         } else {
             // Multiple models, no output - return info
             let model_info: Vec<Value> = matching_models

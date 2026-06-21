@@ -970,6 +970,13 @@ impl PcbLib {
             if let Some(ref model_3d) = footprint.model_3d {
                 let path = std::path::Path::new(&model_3d.filepath);
 
+                // Only ever surface the bare file name in logs/errors, never the
+                // caller's full path (sanitisation rule).
+                let display_name = path.file_name().map_or_else(
+                    || "<model>".to_string(),
+                    |n| n.to_string_lossy().into_owned(),
+                );
+
                 // Check if the filepath looks like an explicit path (has directory components)
                 // vs just a model name (which gets set during read from ComponentBody)
                 let is_explicit_path = path.parent().is_some_and(|p| !p.as_os_str().is_empty());
@@ -981,7 +988,7 @@ impl PcbLib {
                     tracing::trace!(
                         footprint = %footprint.name,
                         component_bodies = footprint.component_bodies.len(),
-                        filepath = %model_3d.filepath,
+                        model = %display_name,
                         "Skipping model_3d - footprint already has ComponentBody and filepath is not explicit"
                     );
                     continue;
@@ -994,7 +1001,7 @@ impl PcbLib {
                     if !footprint.component_bodies.is_empty() {
                         tracing::trace!(
                             footprint = %footprint.name,
-                            filepath = %model_3d.filepath,
+                            model = %display_name,
                             "Skipping model_3d - file not found but ComponentBody exists"
                         );
                         continue;
@@ -1006,7 +1013,7 @@ impl PcbLib {
                         message: format!(
                             "STEP file not found for footprint '{}': '{}'. \
                              Provide a valid path or use embed: false for external reference.",
-                            footprint.name, model_3d.filepath
+                            footprint.name, display_name
                         ),
                     });
                 }
