@@ -35,9 +35,12 @@ pub fn parse_data_stream(symbol: &mut Symbol, data: &[u8]) {
 
     // Parse records until end marker or end of data
     while offset + 4 <= data.len() {
-        // Read header: [length:2 LE][type:2 BE]
-        let record_length = u16::from_le_bytes([data[offset], data[offset + 1]]) as usize;
-        let record_type = u16::from_be_bytes([data[offset + 2], data[offset + 3]]);
+        // Read header: Altium's [u24 length LE][u8 flags]. For records under
+        // 16 MiB (always, in practice) the third length byte is 0, so this also
+        // reads our older [u16 length LE][u16 BE type] frames identically.
+        let record_length =
+            u32::from_le_bytes([data[offset], data[offset + 1], data[offset + 2], 0]) as usize;
+        let record_type = u16::from(data[offset + 3]);
 
         if record_length == 0 {
             // End marker
