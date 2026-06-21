@@ -270,20 +270,18 @@ impl PcbLib {
         let path = path.as_ref();
         let file = std::fs::File::open(path).map_err(|e| AltiumError::file_read(path, e))?;
 
-        let mut lib = Self::read_from(file, path)?;
+        let mut lib = Self::read(file)?;
         lib.filepath = Some(path.display().to_string());
         Ok(lib)
     }
 
-    /// Reads a `PcbLib` from a reader.
-    fn read_from(
-        reader: impl std::io::Read + std::io::Seek,
-        path: &std::path::Path,
-    ) -> AltiumResult<Self> {
-        use cfb::CompoundFile;
-
-        let mut cfb = CompoundFile::open(reader)
-            .map_err(|e| AltiumError::invalid_ole(format!("Failed to open OLE file: {e}")))?;
+    /// Reads a `PcbLib` from any reader implementing `Read + Seek`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be parsed.
+    pub fn read(reader: impl std::io::Read + std::io::Seek) -> AltiumResult<Self> {
+        let mut cfb = crate::altium::open_ole(reader)?;
 
         let mut library = Self::new();
 
@@ -376,11 +374,7 @@ impl PcbLib {
         // Populate model_3d from component_bodies for backward compatibility
         library.populate_model_3d_from_component_bodies();
 
-        tracing::info!(
-            path = %path.display(),
-            count = library.footprints.len(),
-            "Read PcbLib"
-        );
+        tracing::info!(count = library.footprints.len(), "Read PcbLib");
 
         Ok(library)
     }
@@ -896,7 +890,7 @@ impl PcbLib {
             .map_err(|e| AltiumError::file_write(&temp_path, e))?;
 
         // Attempt to write; clean up temp file on failure
-        if let Err(e) = self.write_to(file, path) {
+        if let Err(e) = self.write(file) {
             let _ = std::fs::remove_file(&temp_path);
             return Err(e);
         }
@@ -910,23 +904,26 @@ impl PcbLib {
         Ok(())
     }
 
-    /// Writes the library to a writer.
-    fn write_to(
+    /// Writes the library to any writer implementing `Read + Write + Seek`.
+    ///
+    /// Takes `&mut self` because it materialises referenced 3D models
+    /// (`prepare_3d_models_for_writing`) before serialising.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the library cannot be serialised.
+    pub fn write(
         &mut self,
         writer: impl std::io::Read + std::io::Write + std::io::Seek,
-        path: &std::path::Path,
     ) -> AltiumResult<()> {
-        use cfb::{CompoundFile, Version};
-
         // Convert model_3d references to ComponentBody + EmbeddedModel before writing
         self.prepare_3d_models_for_writing()?;
 
-        // Use OLE v3 (512-byte sectors) - Altium Designer requires this format
-        let mut cfb = CompoundFile::create_with_version(Version::V3, writer)
-            .map_err(|e| AltiumError::invalid_ole(format!("Failed to create OLE file: {e}")))?;
+        let mut cfb = crate::altium::create_ole(writer)?;
 
         // Generate OLE-safe names for all footprints (handles long names and collisions)
-        let ole_names = self.generate_ole_names();
+        let ole_names =
+            crate::altium::generate_ole_names(self.footprints.iter().map(|f| f.name.as_str()));
 
         // Write FileHeader (pipe-delimited format for reader compatibility)
         self.write_file_header(&mut cfb, &ole_names)?;
@@ -946,7 +943,6 @@ impl PcbLib {
         Self::write_file_version_info(&mut cfb)?;
 
         tracing::info!(
-            path = %path.display(),
             count = self.footprints.len(),
             models = self.models.len(),
             "Wrote PcbLib"
@@ -1077,21 +1073,6 @@ impl PcbLib {
     /// - Truncates longer names and adds unique suffixes to avoid collisions
     ///
     /// The full footprint name is still stored in the PATTERN field.
-    fn generate_ole_names(&self) -> Vec<String> {
-        use std::collections::HashSet;
-
-        let mut used_names = HashSet::new();
-        let mut ole_names = Vec::with_capacity(self.footprints.len());
-
-        for footprint in &self.footprints {
-            let ole_name = super::generate_ole_name(&footprint.name, &used_names);
-            used_names.insert(ole_name.clone());
-            ole_names.push(ole_name);
-        }
-
-        ole_names
-    }
-
     /// Writes embedded 3D models to `/Library/Models/` storage.
     ///
     /// Creates:
@@ -1301,22 +1282,8 @@ impl PcbLib {
     ) -> AltiumResult<()> {
         cfb.create_storage(path)
             .map_err(|e| AltiumError::invalid_ole(format!("Failed to create {path}: {e}")))?;
-        {
-            let mut h = cfb.create_stream(format!("{path}/Header")).map_err(|e| {
-                AltiumError::invalid_ole(format!("Failed to create {path}/Header: {e}"))
-            })?;
-            std::io::Write::write_all(&mut h, &header_count.to_le_bytes()).map_err(|e| {
-                AltiumError::invalid_ole(format!("Failed to write {path}/Header: {e}"))
-            })?;
-        }
-        {
-            let mut d = cfb.create_stream(format!("{path}/Data")).map_err(|e| {
-                AltiumError::invalid_ole(format!("Failed to create {path}/Data: {e}"))
-            })?;
-            std::io::Write::write_all(&mut d, data).map_err(|e| {
-                AltiumError::invalid_ole(format!("Failed to write {path}/Data: {e}"))
-            })?;
-        }
+        crate::altium::write_stream(cfb, &format!("{path}/Header"), &header_count.to_le_bytes())?;
+        crate::altium::write_stream(cfb, &format!("{path}/Data"), data)?;
         Ok(())
     }
 
@@ -2621,7 +2588,7 @@ mod tests {
 
         // Try to read it as PcbLib - should fail with WrongFileType
         buffer.set_position(0);
-        let result = PcbLib::read_from(buffer, std::path::Path::new("test.PcbLib"));
+        let result = PcbLib::read(buffer);
 
         assert!(result.is_err());
         let err = result.unwrap_err();
