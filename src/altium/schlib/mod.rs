@@ -48,7 +48,7 @@ pub mod primitives;
 pub mod reader;
 pub mod writer;
 
-use cfb::{CompoundFile, Version};
+use cfb::CompoundFile;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -120,8 +120,7 @@ impl SchLib {
     ///
     /// Returns an error if the file cannot be parsed.
     pub fn read<R: Read + Seek>(reader: R) -> AltiumResult<Self> {
-        let mut cfb = CompoundFile::open(reader)
-            .map_err(|e| AltiumError::invalid_ole(format!("Invalid OLE file: {e}")))?;
+        let mut cfb = crate::altium::open_ole(reader)?;
 
         let mut lib = Self::new();
 
@@ -309,91 +308,38 @@ impl SchLib {
     ///
     /// Returns an error if the library cannot be written.
     pub fn write<W: Read + Write + Seek>(&self, writer: W) -> AltiumResult<()> {
-        // Use OLE v3 (512-byte sectors) - Altium Designer requires this format
-        let mut cfb = CompoundFile::create_with_version(Version::V3, writer)
-            .map_err(|e| AltiumError::invalid_ole(format!("Failed to create OLE file: {e}")))?;
+        let mut cfb = crate::altium::create_ole(writer)?;
 
-        // Collect symbols for header
         let symbols: Vec<&Symbol> = self.symbols.values().collect();
+        // OLE-safe storage names (handles long names + collisions).
+        let ole_names = crate::altium::generate_ole_names(symbols.iter().map(|s| s.name.as_str()));
 
-        // Generate OLE-safe names for all symbols (handles long names and collisions)
-        let ole_names = Self::generate_ole_names(&symbols);
+        // FileHeader stream.
+        crate::altium::write_stream(
+            &mut cfb,
+            "/FileHeader",
+            &writer::encode_file_header(&symbols, &ole_names),
+        )?;
 
-        // Write FileHeader stream with OLE names
-        let header_data = writer::encode_file_header(&symbols, &ole_names);
-        let mut header_stream = cfb
-            .create_stream("/FileHeader")
-            .map_err(|e| AltiumError::invalid_ole(format!("Failed to create FileHeader: {e}")))?;
-        header_stream
-            .write_all(&header_data)
-            .map_err(|e| AltiumError::invalid_ole(format!("Failed to write FileHeader: {e}")))?;
-        drop(header_stream);
-
-        // Write each symbol's Data stream using its OLE-safe name
+        // One Data stream per symbol, under its own storage.
         for (symbol, ole_name) in symbols.iter().zip(ole_names.iter()) {
-            let stream_path = format!("/{ole_name}/Data");
-
-            // Create the component directory first
-            let dir_path = format!("/{ole_name}");
-            cfb.create_storage(&dir_path).map_err(|e| {
-                AltiumError::invalid_ole(format!("Failed to create storage {dir_path}: {e}"))
+            cfb.create_storage(format!("/{ole_name}")).map_err(|e| {
+                AltiumError::invalid_ole(format!("Failed to create storage /{ole_name}: {e}"))
             })?;
-
-            // Create and write the Data stream
             let data = writer::encode_data_stream(symbol)?;
-            let mut stream = cfb.create_stream(&stream_path).map_err(|e| {
-                AltiumError::invalid_ole(format!("Failed to create stream {stream_path}: {e}"))
-            })?;
-            stream.write_all(&data).map_err(|e| {
-                AltiumError::invalid_ole(format!("Failed to write stream {stream_path}: {e}"))
-            })?;
+            crate::altium::write_stream(&mut cfb, &format!("/{ole_name}/Data"), &data)?;
         }
 
-        // Write the root Storage stream (Altium's icon/image storage). It is
-        // always present; for a library with no embedded images it is just the
-        // header parameter block.
-        {
-            let header = b"|HEADER=Icon storage";
-            let mut storage = Vec::with_capacity(4 + header.len() + 1);
-            #[allow(clippy::cast_possible_truncation)]
-            storage.extend_from_slice(&((header.len() + 1) as u32).to_le_bytes());
-            storage.extend_from_slice(header);
-            storage.push(0x00);
-
-            let mut stream = cfb
-                .create_stream("/Storage")
-                .map_err(|e| AltiumError::invalid_ole(format!("Failed to create Storage: {e}")))?;
-            stream
-                .write_all(&storage)
-                .map_err(|e| AltiumError::invalid_ole(format!("Failed to write Storage: {e}")))?;
-        }
+        // Root Storage stream (Altium's icon storage). Always present; for a
+        // library with no embedded images it is just the header param block.
+        let mut storage = Vec::new();
+        crate::altium::framing::write_cstring_param_block(&mut storage, b"|HEADER=Icon storage");
+        crate::altium::write_stream(&mut cfb, "/Storage", &storage)?;
 
         cfb.flush()
             .map_err(|e| AltiumError::invalid_ole(format!("Failed to flush OLE file: {e}")))?;
 
         Ok(())
-    }
-
-    /// Generates OLE-safe names for all symbols.
-    ///
-    /// OLE Compound File names are limited to 31 characters. This method:
-    /// - Returns names as-is if they fit within the limit
-    /// - Truncates longer names and adds unique suffixes to avoid collisions
-    ///
-    /// The full symbol name is stored in the `LibReference` field in the Data stream.
-    fn generate_ole_names(symbols: &[&Symbol]) -> Vec<String> {
-        use std::collections::HashSet;
-
-        let mut used_names = HashSet::new();
-        let mut ole_names = Vec::with_capacity(symbols.len());
-
-        for symbol in symbols {
-            let ole_name = super::generate_ole_name(&symbol.name, &used_names);
-            used_names.insert(ole_name.clone());
-            ole_names.push(ole_name);
-        }
-
-        ole_names
     }
 }
 

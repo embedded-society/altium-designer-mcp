@@ -137,6 +137,58 @@ pub fn generate_ole_name<S: BuildHasher>(name: &str, used_names: &HashSet<String
     )
 }
 
+/// Generates collision-free OLE storage names for an ordered list of component
+/// names. Shared by both library writers so the truncation/uniquing rules are
+/// identical; the returned names line up positionally with the input.
+pub(crate) fn generate_ole_names<'a, I>(names: I) -> Vec<String>
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    let mut used = HashSet::new();
+    let mut out = Vec::new();
+    for name in names {
+        let ole = generate_ole_name(name, &used);
+        used.insert(ole.clone());
+        out.push(ole);
+    }
+    out
+}
+
+/// Creates an Altium-mandated OLE v3 (512-byte sector) compound file.
+///
+/// Altium Designer requires v3; both writers must go through here so they stay
+/// on the same version.
+pub(crate) fn create_ole<W: std::io::Read + std::io::Write + std::io::Seek>(
+    writer: W,
+) -> AltiumResult<cfb::CompoundFile<W>> {
+    cfb::CompoundFile::create_with_version(cfb::Version::V3, writer)
+        .map_err(|e| AltiumError::invalid_ole(format!("Failed to create OLE file: {e}")))
+}
+
+/// Opens an existing OLE compound file.
+pub(crate) fn open_ole<R: std::io::Read + std::io::Seek>(
+    reader: R,
+) -> AltiumResult<cfb::CompoundFile<R>> {
+    cfb::CompoundFile::open(reader)
+        .map_err(|e| AltiumError::invalid_ole(format!("Failed to open OLE file: {e}")))
+}
+
+/// Creates a stream at `path` and writes `data` to it. The emitted stream
+/// content is exactly `data`, so output is byte-identical to a hand-written
+/// `create_stream` + `write_all`.
+pub(crate) fn write_stream<F: std::io::Read + std::io::Write + std::io::Seek>(
+    cfb: &mut cfb::CompoundFile<F>,
+    path: &str,
+    data: &[u8],
+) -> AltiumResult<()> {
+    let mut stream = cfb
+        .create_stream(path)
+        .map_err(|e| AltiumError::invalid_ole(format!("Failed to create stream {path}: {e}")))?;
+    std::io::Write::write_all(&mut stream, data)
+        .map_err(|e| AltiumError::invalid_ole(format!("Failed to write stream {path}: {e}")))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
