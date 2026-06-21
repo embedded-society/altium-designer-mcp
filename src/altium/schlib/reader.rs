@@ -280,7 +280,7 @@ fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
     let desc_len = data.get(offset).copied().unwrap_or(0) as usize;
     offset += 1;
     let description = if desc_len > 0 && offset + desc_len <= data.len() {
-        String::from_utf8_lossy(&data[offset..offset + desc_len]).to_string()
+        crate::altium::decode_windows1252(&data[offset..offset + desc_len])
     } else {
         String::new()
     };
@@ -322,7 +322,7 @@ fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
     let name_len = data.get(offset).copied().unwrap_or(0) as usize;
     offset += 1;
     let name = if name_len > 0 && offset + name_len <= data.len() {
-        String::from_utf8_lossy(&data[offset..offset + name_len]).to_string()
+        crate::altium::decode_windows1252(&data[offset..offset + name_len])
     } else {
         String::new()
     };
@@ -332,7 +332,7 @@ fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
     let desig_len = data.get(offset).copied().unwrap_or(0) as usize;
     offset += 1;
     let designator = if desig_len > 0 && offset + desig_len <= data.len() {
-        String::from_utf8_lossy(&data[offset..offset + desig_len]).to_string()
+        crate::altium::decode_windows1252(&data[offset..offset + desig_len])
     } else {
         String::new()
     };

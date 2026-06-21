@@ -421,8 +421,8 @@ fn read_string_from_block(block: &[u8]) -> String {
     if str_len + 1 > block.len() {
         return String::new();
     }
-    // Decode as UTF-8 with lossy replacement for invalid sequences
-    String::from_utf8_lossy(&block[1..=str_len]).to_string()
+    // Altium stores strings as Windows-1252 (pairs with `write_string_block`).
+    crate::altium::decode_windows1252(&block[1..=str_len])
 }
 
 const ALT_FLAG_UNLOCKED: u16 = 0x0004;

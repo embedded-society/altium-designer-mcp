@@ -71,7 +71,7 @@ fn write_text_record(
     data: &mut Vec<u8>,
     content: &str,
 ) -> crate::altium::error::AltiumResult<()> {
-    let mut record = content.as_bytes().to_vec();
+    let mut record = crate::altium::encode_windows1252(content);
     record.push(0x00); // Null terminator
     write_record_frame(data, &record, 0) // flags 0 = text
 }
@@ -180,10 +180,10 @@ fn write_binary_pin(data: &mut Vec<u8>, pin: &Pin) -> crate::altium::error::Alti
     record.push(pin.symbol_outside.to_id());
 
     // Description: Pascal short string [length:1][string]
-    let desc_bytes = pin.description.as_bytes();
-    #[allow(clippy::cast_possible_truncation)]
+    let desc_bytes = crate::altium::encode_windows1252(&pin.description);
+    #[allow(clippy::cast_possible_truncation)] // length validated above
     record.push(desc_bytes.len() as u8);
-    record.extend_from_slice(desc_bytes);
+    record.extend_from_slice(&desc_bytes);
 
     // Formal type (1 byte) - 0x01 for a normal pin (matches Altium's output).
     record.push(0x01);
@@ -231,16 +231,16 @@ fn write_binary_pin(data: &mut Vec<u8>, pin: &Pin) -> crate::altium::error::Alti
     record.extend_from_slice(&pin.colour.to_le_bytes());
 
     // Name: [length:1][string]
-    let name_bytes = pin.name.as_bytes();
-    #[allow(clippy::cast_possible_truncation)]
+    let name_bytes = crate::altium::encode_windows1252(&pin.name);
+    #[allow(clippy::cast_possible_truncation)] // length validated above
     record.push(name_bytes.len() as u8);
-    record.extend_from_slice(name_bytes);
+    record.extend_from_slice(&name_bytes);
 
     // Designator: [length:1][string]
-    let desig_bytes = pin.designator.as_bytes();
-    #[allow(clippy::cast_possible_truncation)]
+    let desig_bytes = crate::altium::encode_windows1252(&pin.designator);
+    #[allow(clippy::cast_possible_truncation)] // length validated above
     record.push(desig_bytes.len() as u8);
-    record.extend_from_slice(desig_bytes);
+    record.extend_from_slice(&desig_bytes);
 
     // Pin swap-id tail (Pascal short strings), matching Altium's output:
     //   SwapIdGroup = "" , PartAndSequence = "|&|" , DefaultValue = "".

@@ -63,7 +63,9 @@ fn write_string_block(
 ) -> crate::altium::error::AltiumResult<()> {
     use crate::altium::error::AltiumError;
 
-    let bytes = s.as_bytes();
+    // Altium stores strings as Windows-1252, not UTF-8; the Pascal length
+    // prefix is the encoded byte count.
+    let bytes = crate::altium::encode_windows1252(s);
     if bytes.len() > 255 {
         return Err(AltiumError::InvalidParameter {
             name: field_name.to_string(),
@@ -78,7 +80,7 @@ fn write_string_block(
     let mut block = Vec::with_capacity(1 + bytes.len());
     #[allow(clippy::cast_possible_truncation)] // Validated above
     block.push(bytes.len() as u8);
-    block.extend_from_slice(bytes);
+    block.extend_from_slice(&bytes);
     write_block(data, &block);
     Ok(())
 }
