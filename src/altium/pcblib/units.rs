@@ -15,6 +15,10 @@ pub(super) const MM_TO_INTERNAL_UNITS: f64 = 10000.0 / MM_PER_MIL;
 /// Conversion factor from Altium internal units to millimetres.
 pub(super) const INTERNAL_UNITS_TO_MM: f64 = MM_PER_MIL / 10000.0;
 
+/// Multiplier for rounding millimetres to 6 decimal places (1 nm resolution),
+/// used to strip floating-point noise from converted coordinates.
+pub(super) const MM_ROUNDING_MULTIPLIER: f64 = 1_000_000.0;
+
 /// Converts millimetres to Altium internal units (rounded to the nearest unit).
 #[allow(clippy::cast_possible_truncation)] // Intentional: PCB coordinates fit in i32
 pub(super) fn from_mm(mm: f64) -> i32 {
@@ -26,7 +30,7 @@ pub(super) fn from_mm(mm: f64) -> i32 {
 /// Rounds to 6 decimal places (1 nm resolution) to avoid floating-point noise.
 pub(super) fn to_mm(internal: i32) -> f64 {
     let raw = f64::from(internal) * INTERNAL_UNITS_TO_MM;
-    (raw * 1_000_000.0).round() / 1_000_000.0
+    (raw * MM_ROUNDING_MULTIPLIER).round() / MM_ROUNDING_MULTIPLIER
 }
 
 /// Converts millimetres to mils (for parameter strings).
