@@ -61,9 +61,50 @@ pub fn escape_csv_field(field: &str) -> String {
     }
 }
 
+/// Generates an 8-character uppercase A–Z identifier for Altium `UniqueID`
+/// fields (library `FileHeader`, schematic records, etc.).
+///
+/// Altium only requires the id to be 8 letters; uniqueness across a session is
+/// achieved by mixing the wall clock with a process-wide counter.
+#[must_use]
+pub fn generate_unique_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let time_seed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+
+    // Combine time with an incrementing counter for uniqueness.
+    let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let seed = time_seed.wrapping_add(u128::from(counter).wrapping_mul(0x9E37_79B9_7F4A_7C15));
+
+    let chars: Vec<char> = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".chars().collect();
+    let mut id = String::with_capacity(8);
+    let mut n = seed;
+    for _ in 0..8 {
+        #[allow(clippy::cast_possible_truncation)]
+        let idx = (n % 26) as usize;
+        id.push(chars[idx]);
+        n = n.wrapping_mul(1_103_515_245).wrapping_add(12345);
+    }
+    id
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn generate_unique_id_is_eight_uppercase_letters() {
+        let id = generate_unique_id();
+        assert_eq!(id.len(), 8);
+        assert!(id.chars().all(|c| c.is_ascii_uppercase()));
+        // Successive calls differ (counter advances).
+        assert_ne!(generate_unique_id(), generate_unique_id());
+    }
 
     #[test]
     fn plain_field_is_unchanged() {
