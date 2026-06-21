@@ -331,9 +331,62 @@ impl McpServer {
                                             "required": ["designator", "name", "x", "y", "length", "orientation"]
                                         }
                                     },
-                                    "rectangles": { "type": "array" },
-                                    "lines": { "type": "array" },
-                                    "text": { "type": "array" },
+                                    "rectangles": {
+                                        "type": "array",
+                                        "description": "Rectangle definitions",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "x1": { "type": "integer", "description": "Left X coordinate" },
+                                                "y1": { "type": "integer", "description": "Bottom Y coordinate" },
+                                                "x2": { "type": "integer", "description": "Right X coordinate" },
+                                                "y2": { "type": "integer", "description": "Top Y coordinate" },
+                                                "line_width": { "type": "integer", "description": "Border width. Default: 1" },
+                                                "line_color": { "type": "integer", "description": "Border BGR colour. Default: 0x000080" },
+                                                "fill_color": { "type": "integer", "description": "Fill BGR colour. Default: 0xFFFFB0" },
+                                                "filled": { "type": "boolean", "description": "Whether filled. Default: true" },
+                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" }
+                                            },
+                                            "required": ["x1", "y1", "x2", "y2"]
+                                        }
+                                    },
+                                    "lines": {
+                                        "type": "array",
+                                        "description": "Line definitions",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "x1": { "type": "integer", "description": "Start X coordinate" },
+                                                "y1": { "type": "integer", "description": "Start Y coordinate" },
+                                                "x2": { "type": "integer", "description": "End X coordinate" },
+                                                "y2": { "type": "integer", "description": "End Y coordinate" },
+                                                "line_width": { "type": "integer", "description": "Line width. Default: 1" },
+                                                "color": { "type": "integer", "description": "Line BGR colour. Default: 0x000080" },
+                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" }
+                                            },
+                                            "required": ["x1", "y1", "x2", "y2"]
+                                        }
+                                    },
+                                    "text": {
+                                        "type": "array",
+                                        "description": "Text/label annotations",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "x": { "type": "integer", "description": "X position" },
+                                                "y": { "type": "integer", "description": "Y position" },
+                                                "text": { "type": "string", "description": "Text content" },
+                                                "font_id": { "type": "integer", "description": "Font ID. Default: 1" },
+                                                "color": { "type": "integer", "description": "BGR colour. Default: 0x000080" },
+                                                "justification": { "type": "string", "enum": ["bottom_left", "bottom_center", "bottom_right", "middle_left", "middle_center", "middle_right", "top_left", "top_center", "top_right"], "description": "Alignment. Default: bottom_left" },
+                                                "rotation": { "type": "number", "description": "Rotation in degrees. Default: 0" },
+                                                "is_mirrored": { "type": "boolean", "description": "Mirrored. Default: false" },
+                                                "is_hidden": { "type": "boolean", "description": "Hidden. Default: false" },
+                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" }
+                                            },
+                                            "required": ["x", "y", "text"]
+                                        }
+                                    },
                                     "parameters": {
                                         "type": "array",
                                         "description": "Symbol parameters (e.g., Value, Part Number)",
@@ -1276,5 +1329,50 @@ impl McpServer {
                 }),
             },
         ]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value;
+
+    /// Recursively collect the paths of JSON Schema nodes that declare
+    /// `"type": "array"` without the required `items` keyword.
+    fn arrays_missing_items(node: &Value, path: &str, out: &mut Vec<String>) {
+        match node {
+            Value::Object(map) => {
+                if map.get("type").and_then(Value::as_str) == Some("array")
+                    && !map.contains_key("items")
+                {
+                    out.push(path.to_string());
+                }
+                for (key, value) in map {
+                    arrays_missing_items(value, &format!("{path}.{key}"), out);
+                }
+            }
+            Value::Array(items) => {
+                for (i, value) in items.iter().enumerate() {
+                    arrays_missing_items(value, &format!("{path}[{i}]"), out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Every array property in every tool schema must declare `items`. Strict
+    /// JSON Schema validators — notably Google's Gemini, which backs several MCP
+    /// clients — reject an array without `items` and refuse to load the whole
+    /// server (issue #70). This guards against re-introducing such a schema.
+    #[test]
+    fn every_tool_array_property_declares_items() {
+        let mut violations = Vec::new();
+        for tool in McpServer::get_tool_definitions() {
+            arrays_missing_items(&tool.input_schema, &tool.name, &mut violations);
+        }
+        assert!(
+            violations.is_empty(),
+            "array schema(s) missing `items` (rejected by Gemini/strict validators): {violations:?}"
+        );
     }
 }
