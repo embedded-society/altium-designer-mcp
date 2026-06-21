@@ -543,7 +543,14 @@ def main():
             print(f"  Or place a sample file at: {default_path}")
             sys.exit(1)
     else:
-        filepath = Path(sys.argv[1])
+        script_dir = Path(__file__).parent.resolve()
+        filepath = Path(sys.argv[1]).resolve()
+        try:
+            filepath.relative_to(script_dir)
+        except ValueError:
+            print(f"Error: Path must be within {script_dir}: {filepath}")
+            sys.exit(1)
+
         if not filepath.exists():
             print(f"Error: File not found: {filepath}")
             sys.exit(1)
