@@ -628,43 +628,18 @@ const fn text_kind_from_id(id: u8) -> TextKind {
     }
 }
 
-/// Converts Altium stroke font ID to our `StrokeFont` enum.
+/// Converts an Altium stroke font-table ID to our `StrokeFont` enum. The ids
+/// are 1-based (1 = the default stroke font), pairing with `stroke_font_to_id`.
 ///
 /// Stroke font IDs (from geometry block bytes 25-26 as u16):
-/// - 0: Default
-/// - 1: Sans-Serif
-/// - 2: Serif
+/// - 1: Default
+/// - 2: Sans-Serif
+/// - 3: Serif
 const fn stroke_font_from_id(id: u16) -> StrokeFont {
     match id {
-        1 => StrokeFont::SansSerif,
-        2 => StrokeFont::Serif,
-        _ => StrokeFont::Default, // Default and ID 0
-    }
-}
-
-/// Converts Altium text justification ID to our `TextJustification` enum.
-///
-/// Justification IDs form a 3x3 grid:
-/// - 0: `BottomLeft`
-/// - 1: `BottomCenter`
-/// - 2: `BottomRight`
-/// - 3: `MiddleLeft`
-/// - 4: `MiddleCenter`
-/// - 5: `MiddleRight`
-/// - 6: `TopLeft`
-/// - 7: `TopCenter`
-/// - 8: `TopRight`
-const fn justification_from_id(id: u8) -> TextJustification {
-    match id {
-        0 => TextJustification::BottomLeft,
-        1 => TextJustification::BottomCenter,
-        2 => TextJustification::BottomRight,
-        3 => TextJustification::MiddleLeft,
-        5 => TextJustification::MiddleRight,
-        6 => TextJustification::TopLeft,
-        7 => TextJustification::TopCenter,
-        8 => TextJustification::TopRight,
-        _ => TextJustification::MiddleCenter, // Default and ID 4
+        2 => StrokeFont::SansSerif,
+        3 => StrokeFont::Serif,
+        _ => StrokeFont::Default,
     }
 }
 
@@ -1507,16 +1482,15 @@ fn parse_text(data: &[u8], offset: usize, wide_strings: Option<&WideStrings>) ->
         ));
     }
 
-    // Common header (13 bytes)
+    // Common header (13 bytes): layer at 0, Altium flag word at offsets 1-2.
     let layer_id = geometry_block[0];
     let layer = layer_from_id(layer_id);
-    // Note: Text doesn't use standard flags format - byte 1 is text kind, not flags
     let flags = PcbFlags::empty();
 
-    // Text kind at offset 1 (where flags low byte normally is)
-    // 0 = Stroke, 1 = TrueType, 2 = BarCode
-    let kind = if geometry_block.len() > 1 {
-        text_kind_from_id(geometry_block[1])
+    // The authoritative text kind lives at offset 160 in the 252-byte record
+    // (0 = Stroke, 1 = TrueType, 2 = BarCode).
+    let kind = if geometry_block.len() > 160 {
+        text_kind_from_id(geometry_block[160])
     } else {
         TextKind::Stroke
     };
@@ -1538,8 +1512,10 @@ fn parse_text(data: &[u8], offset: usize, wide_strings: Option<&WideStrings>) ->
     // Stroke font ID - offset 25-26 (u16)
     // Only meaningful when kind is Stroke
     let stroke_font = if geometry_block.len() > 26 && kind == TextKind::Stroke {
-        let font_id = read_u16(geometry_block, 25).unwrap_or(0);
-        if font_id > 0 {
+        let font_id = read_u16(geometry_block, 25).unwrap_or(1);
+        // The default stroke font is index 1; only a non-default selection is
+        // surfaced as an explicit `StrokeFont`.
+        if font_id > 1 {
             Some(stroke_font_from_id(font_id))
         } else {
             None
@@ -1556,14 +1532,10 @@ fn parse_text(data: &[u8], offset: usize, wide_strings: Option<&WideStrings>) ->
         0.0
     };
 
-    // Justification - offset 67 (assuming "Arial" font name)
-    // The offset varies based on font name length, but 67 works for typical cases.
-    // Format: line_spacing (4 bytes at 63-66) then justification (1 byte at 67)
-    let justification = if geometry_block.len() > 67 {
-        justification_from_id(geometry_block[67])
-    } else {
-        TextJustification::MiddleCenter
-    };
+    // Normal (non-inverted) text does not carry a justification field in this
+    // record — it only exists inside the inverted-rectangle sub-block — so
+    // default it rather than mis-read a byte inside the font-name field.
+    let justification = TextJustification::default();
 
     // Block 1: Text content
     let text_content = if let Some((text_block, next)) = read_block(data, current) {
