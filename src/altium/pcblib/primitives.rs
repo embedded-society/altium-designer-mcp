@@ -950,6 +950,14 @@ pub struct ComponentBody {
     #[serde(default)]
     pub layer: Layer,
 
+    /// 2D outline of the body in the footprint plane, as `(x, y)` vertices in mm.
+    ///
+    /// Altium stores a closed polygon giving the body's 2D extent. When this is
+    /// empty the writer synthesises a bounding box from the footprint, since
+    /// Altium needs a non-degenerate outline to place and render the body.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub outline: Vec<(f64, f64)>,
+
     /// Unique ID assigned by Altium (8-character alphanumeric string).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unique_id: Option<String>,
@@ -970,6 +978,7 @@ impl ComponentBody {
             overall_height: 0.0,
             standoff_height: 0.0,
             layer: Layer::Top3DBody,
+            outline: Vec::new(),
             unique_id: None,
         }
     }

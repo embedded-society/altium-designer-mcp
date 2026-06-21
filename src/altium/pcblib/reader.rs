@@ -1809,28 +1809,17 @@ fn parse_fill(data: &[u8], offset: usize) -> ParseResult<Fill> {
 /// Parses a `ComponentBody` primitive (3D model reference).
 /// Returns the parsed `ComponentBody` and the new offset on success.
 ///
-/// `ComponentBody` has 3 blocks:
-/// - Block 0: Properties (layer, parameters as key=value string)
-/// - Block 1: Usually empty
-/// - Block 2: Usually empty
+/// A `ComponentBody` is a single size-prefixed block (matching `AltiumSharp` and
+/// the `BODY_3D` golden libraries): the layer/flags header, a C-string
+/// parameter block, then the 2D outline polygon — all within the one block.
 fn parse_component_body(data: &[u8], offset: usize) -> ParseResult<ComponentBody> {
-    let mut current = offset;
-
-    // Block 0: Properties with parameter string (required)
-    let (block0, next) = read_block(data, current).ok_or_else(|| {
-        AltiumError::parse_error(offset, "failed to read ComponentBody block 0 (properties)")
+    // The single block holds the header, parameters and outline.
+    let (block0, current) = read_block(data, offset).ok_or_else(|| {
+        AltiumError::parse_error(offset, "failed to read ComponentBody block (properties)")
     })?;
-    current = next;
 
-    // Block 1: Usually empty (optional - may not exist at end of file)
-    if let Some((_, next)) = read_block(data, current) {
-        current = next;
-
-        // Block 2: Usually empty (optional)
-        if let Some((_, next)) = read_block(data, current) {
-            current = next;
-        }
-    }
+    // Parse the outline polygon that follows the parameter block.
+    let outline = parse_component_body_outline(block0);
 
     // Parse block 0 to extract parameters
     // Format: [header bytes][parameter_string]
@@ -1881,10 +1870,43 @@ fn parse_component_body(data: &[u8], offset: usize) -> ParseResult<ComponentBody
         overall_height,
         standoff_height,
         layer,
+        outline,
         unique_id: None,
     };
 
     Ok((body, current))
+}
+
+/// Parses the 2D outline polygon from a `ComponentBody` block.
+///
+/// Layout within the block: an 18-byte layer/flags header, the C-string
+/// parameter block (`[u32 len incl. NUL][bytes][NUL]`), then `[u32 count]`
+/// followed by `count` `(f64 x, f64 y)` vertices in Altium internal units.
+/// Returns the vertices in mm, or empty if the block is malformed/truncated.
+fn parse_component_body_outline(block0: &[u8]) -> Vec<(f64, f64)> {
+    const HEADER_LEN: usize = 18;
+
+    // Skip the header + the C-string parameter block (its u32 prefix already
+    // counts the bytes-plus-NUL that follow it).
+    let Some(param_len) = read_u32(block0, HEADER_LEN) else {
+        return Vec::new();
+    };
+    let mut off = HEADER_LEN + 4 + param_len as usize;
+
+    let Some(count) = read_u32(block0, off) else {
+        return Vec::new();
+    };
+    off += 4;
+
+    let mut outline = Vec::new();
+    for _ in 0..count {
+        let (Some(x), Some(y)) = (read_f64(block0, off), read_f64(block0, off + 8)) else {
+            break;
+        };
+        off += 16;
+        outline.push((x * INTERNAL_UNITS_TO_MM, y * INTERNAL_UNITS_TO_MM));
+    }
+    outline
 }
 
 /// Parses key=value parameters from a `ComponentBody` block string.
