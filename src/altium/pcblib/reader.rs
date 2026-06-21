@@ -362,28 +362,22 @@ fn to_mm(internal: i32) -> f64 {
 
 /// Reads a length-prefixed block from data.
 /// Returns the block data and the new offset.
+///
+/// Wraps the shared [`crate::altium::framing::read_block`] frame with a
+/// `PcbLib`-side 100 kB sanity cap to reject corrupt/oversized length prefixes.
 fn read_block(data: &[u8], offset: usize) -> Option<(&[u8], usize)> {
-    let block_len = read_u32(data, offset)? as usize;
-    if block_len > 100_000 || offset + 4 + block_len > data.len() {
+    let (block, next) = crate::altium::framing::read_block(data, offset)?;
+    if block.len() > 100_000 {
         return None;
     }
-    Some((
-        &data[offset + 4..offset + 4 + block_len],
-        offset + 4 + block_len,
-    ))
+    Some((block, next))
 }
 
 /// Reads a length-prefixed string from block data.
 fn read_string_from_block(block: &[u8]) -> String {
-    if block.is_empty() {
-        return String::new();
-    }
-    let str_len = block[0] as usize;
-    if str_len + 1 > block.len() {
-        return String::new();
-    }
-    // Altium stores strings as Windows-1252 (pairs with `write_string_block`).
-    crate::altium::decode_windows1252(&block[1..=str_len])
+    // Pascal short string at the start of the block; Altium stores strings as
+    // Windows-1252 (pairs with `write_string_block`).
+    crate::altium::framing::read_pascal_string(block, 0).0
 }
 
 const ALT_FLAG_UNLOCKED: u16 = 0x0004;

@@ -46,6 +46,42 @@ pub fn write_pascal_string(record: &mut Vec<u8>, bytes: &[u8]) {
     record.extend_from_slice(bytes);
 }
 
+/// Reads a length-prefixed binary block written by [`write_block`]:
+/// `[u32 LE length][bytes]`.
+///
+/// Returns the inner slice and the offset just past it, or `None` if the
+/// length prefix or payload runs past the end of `data`. Imposes **no** size
+/// cap — callers that need a sanity limit apply it themselves.
+#[must_use]
+pub fn read_block(data: &[u8], offset: usize) -> Option<(&[u8], usize)> {
+    let len = crate::altium::bytes::read_u32_le(data, offset)? as usize;
+    let end = offset + 4 + len;
+    if end > data.len() {
+        return None;
+    }
+    Some((&data[offset + 4..end], end))
+}
+
+/// Reads a Pascal short string written by [`write_pascal_string`]:
+/// `[u8 length][win1252 bytes]` at `offset`.
+///
+/// Returns the decoded string and the offset just past the field
+/// (`offset + 1 + length`). A length byte that is missing or whose bytes run
+/// out of bounds yields an empty string; the offset still advances past the
+/// declared length so callers stepping through fixed records stay aligned.
+#[must_use]
+pub fn read_pascal_string(data: &[u8], offset: usize) -> (String, usize) {
+    let len = data.get(offset).copied().unwrap_or(0) as usize;
+    let start = offset + 1;
+    let end = start + len;
+    let s = if len > 0 && end <= data.len() {
+        crate::altium::decode_windows1252(&data[start..end])
+    } else {
+        String::new()
+    };
+    (s, end)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
