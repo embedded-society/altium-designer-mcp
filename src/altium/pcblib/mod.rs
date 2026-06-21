@@ -32,8 +32,10 @@
 //!
 //! Record types: Arc(1), Pad(2), Via(3), Track(4), Text(5), Fill(6), Region(11), ComponentBody(12)
 
+mod flags;
 pub mod primitives;
 mod reader;
+mod units;
 mod writer;
 
 use serde::{Deserialize, Serialize};
@@ -437,19 +439,9 @@ impl PcbLib {
     ) -> AltiumResult<LibraryMetadata> {
         let mut metadata = LibraryMetadata::default();
 
-        let header_path = std::path::Path::new("/FileHeader");
-        if !cfb.is_stream(header_path) {
-            return Ok(metadata);
-        }
-
-        let Ok(mut stream) = cfb.open_stream(header_path) else {
+        let Some(data) = crate::altium::read_stream_opt(cfb, "/FileHeader") else {
             return Ok(metadata);
         };
-
-        let mut data = Vec::new();
-        if std::io::Read::read_to_end(&mut stream, &mut data).is_err() {
-            return Ok(metadata);
-        }
 
         // Try binary version string format first:
         // [string_len:4 LE u32][string_len:1 u8][string_data]
@@ -543,19 +535,9 @@ impl PcbLib {
         cfb: &mut cfb::CompoundFile<F>,
         metadata: &mut LibraryMetadata,
     ) {
-        let data_path = std::path::Path::new("/Library/Data");
-        if !cfb.is_stream(data_path) {
-            return;
-        }
-
-        let Ok(mut stream) = cfb.open_stream(data_path) else {
+        let Some(data) = crate::altium::read_stream_opt(cfb, "/Library/Data") else {
             return;
         };
-
-        let mut data = Vec::new();
-        if std::io::Read::read_to_end(&mut stream, &mut data).is_err() {
-            return;
-        }
 
         if data.len() < 8 {
             return;
@@ -628,19 +610,9 @@ impl PcbLib {
     /// similar to other Altium streams. Known fields:
     /// - `UNIQUEIDPRIMITIVEINFORMATION{N}`: Primitive unique ID mappings
     fn read_storage_stream<F: std::io::Read + std::io::Seek>(cfb: &mut cfb::CompoundFile<F>) {
-        let storage_path = std::path::Path::new("/Storage");
-        if !cfb.is_stream(storage_path) {
-            return;
-        }
-
-        let Ok(mut stream) = cfb.open_stream(storage_path) else {
+        let Some(data) = crate::altium::read_stream_opt(cfb, "/Storage") else {
             return;
         };
-
-        let mut data = Vec::new();
-        if std::io::Read::read_to_end(&mut stream, &mut data).is_err() {
-            return;
-        }
 
         // Storage stream is typically ASCII text with pipe-delimited key=value pairs
         if let Ok(text) = String::from_utf8(data) {
@@ -659,14 +631,8 @@ impl PcbLib {
     fn read_wide_strings<F: std::io::Read + std::io::Seek>(
         cfb: &mut cfb::CompoundFile<F>,
     ) -> reader::WideStrings {
-        let wide_strings_path = std::path::Path::new("/WideStrings");
-        if cfb.is_stream(wide_strings_path) {
-            if let Ok(mut stream) = cfb.open_stream(wide_strings_path) {
-                let mut data = Vec::new();
-                if std::io::Read::read_to_end(&mut stream, &mut data).is_ok() {
-                    return reader::parse_wide_strings(&data);
-                }
-            }
+        if let Some(data) = crate::altium::read_stream_opt(cfb, "/WideStrings") {
+            return reader::parse_wide_strings(&data);
         }
         reader::WideStrings::new()
     }
@@ -688,32 +654,13 @@ impl PcbLib {
 
         // Read Header to get model count
         let header_path = models_storage.join("Header");
-        let model_count = cfb
-            .is_stream(&header_path)
-            .then(|| {
-                cfb.open_stream(&header_path).ok().and_then(|mut stream| {
-                    let mut data = Vec::new();
-                    std::io::Read::read_to_end(&mut stream, &mut data)
-                        .ok()
-                        .map(|_| reader::parse_model_header_stream(&data))
-                })
-            })
-            .flatten()
-            .unwrap_or(0);
+        let model_count = crate::altium::read_stream_opt(cfb, &header_path)
+            .map_or(0, |data| reader::parse_model_header_stream(&data));
 
         // Read Data stream to get GUID-to-index mapping
         let data_path = models_storage.join("Data");
-        let model_index = cfb
-            .is_stream(&data_path)
-            .then(|| {
-                cfb.open_stream(&data_path).ok().and_then(|mut stream| {
-                    let mut data = Vec::new();
-                    std::io::Read::read_to_end(&mut stream, &mut data)
-                        .ok()
-                        .map(|_| reader::parse_model_data_stream(&data))
-                })
-            })
-            .flatten()
+        let model_index = crate::altium::read_stream_opt(cfb, &data_path)
+            .map(|data| reader::parse_model_data_stream(&data))
             .unwrap_or_default();
 
         if model_index.is_empty() {
@@ -739,18 +686,13 @@ impl PcbLib {
         // Model streams are numbered 0, 1, 2, ...
         for idx in 0..max_index {
             let stream_path = models_storage.join(idx.to_string());
-            if cfb.is_stream(&stream_path) {
-                if let Ok(mut stream) = cfb.open_stream(&stream_path) {
-                    let mut data = Vec::new();
-                    if std::io::Read::read_to_end(&mut stream, &mut data).is_ok() {
-                        tracing::trace!(
-                            index = idx,
-                            size = data.len(),
-                            "Read compressed model stream"
-                        );
-                        model_data.push((idx, data));
-                    }
-                }
+            if let Some(data) = crate::altium::read_stream_opt(cfb, &stream_path) {
+                tracing::trace!(
+                    index = idx,
+                    size = data.len(),
+                    "Read compressed model stream"
+                );
+                model_data.push((idx, data));
             }
             // Don't break early - indices might not be sequential
         }
@@ -771,13 +713,8 @@ impl PcbLib {
 
         // Read parameters if present
         let params_path = storage_path.join("Parameters");
-        if cfb.is_stream(&params_path) {
-            if let Ok(mut stream) = cfb.open_stream(&params_path) {
-                let mut params_data = Vec::new();
-                if std::io::Read::read_to_end(&mut stream, &mut params_data).is_ok() {
-                    Self::parse_parameters(&mut footprint, &params_data);
-                }
-            }
+        if let Some(params_data) = crate::altium::read_stream_opt(cfb, &params_path) {
+            Self::parse_parameters(&mut footprint, &params_data);
         }
 
         // Read Data stream (contains primitives)
@@ -796,14 +733,9 @@ impl PcbLib {
 
         // Read UniqueIDPrimitiveInformation stream if present (contains unique IDs for primitives)
         let unique_id_path = storage_path.join("UniqueIDPrimitiveInformation/Data");
-        if cfb.is_stream(&unique_id_path) {
-            if let Ok(mut stream) = cfb.open_stream(&unique_id_path) {
-                let mut uid_data = Vec::new();
-                if std::io::Read::read_to_end(&mut stream, &mut uid_data).is_ok() {
-                    let unique_ids = reader::parse_unique_id_stream(&uid_data);
-                    reader::apply_unique_ids(&mut footprint, &unique_ids);
-                }
-            }
+        if let Some(uid_data) = crate::altium::read_stream_opt(cfb, &unique_id_path) {
+            let unique_ids = reader::parse_unique_id_stream(&uid_data);
+            reader::apply_unique_ids(&mut footprint, &unique_ids);
         }
 
         Ok(footprint)
@@ -880,28 +812,7 @@ impl PcbLib {
     ///
     /// Returns an error if the file cannot be written.
     pub fn save(&mut self, path: impl AsRef<std::path::Path>) -> AltiumResult<()> {
-        let path = path.as_ref();
-
-        // Create temp file path in the same directory (ensures same filesystem for rename)
-        let temp_path = path.with_extension("pcblib.tmp");
-
-        // Write to temp file
-        let file = std::fs::File::create(&temp_path)
-            .map_err(|e| AltiumError::file_write(&temp_path, e))?;
-
-        // Attempt to write; clean up temp file on failure
-        if let Err(e) = self.write(file) {
-            let _ = std::fs::remove_file(&temp_path);
-            return Err(e);
-        }
-
-        // Atomically rename temp file to target (overwrites existing)
-        std::fs::rename(&temp_path, path).map_err(|e| {
-            let _ = std::fs::remove_file(&temp_path);
-            AltiumError::file_write(path, e)
-        })?;
-
-        Ok(())
+        crate::altium::save_atomic(path.as_ref(), "pcblib.tmp", |file| self.write(file))
     }
 
     /// Writes the library to any writer implementing `Read + Write + Seek`.
@@ -1097,15 +1008,11 @@ impl PcbLib {
 
         // Create /Library storage if it doesn't exist
         if !cfb.exists("/Library") {
-            cfb.create_storage("/Library").map_err(|e| {
-                AltiumError::invalid_ole(format!("Failed to create Library storage: {e}"))
-            })?;
+            crate::altium::create_storage(cfb, "/Library")?;
         }
 
         // Create /Library/Models storage
-        cfb.create_storage("/Library/Models").map_err(|e| {
-            AltiumError::invalid_ole(format!("Failed to create Models storage: {e}"))
-        })?;
+        crate::altium::create_storage(cfb, "/Library/Models")?;
 
         // Write Header stream
         let header_data = writer::encode_model_header_stream(self.models.len());
@@ -1193,9 +1100,7 @@ impl PcbLib {
         ole_names: &[String],
     ) -> AltiumResult<()> {
         // Create /Library storage
-        cfb.create_storage("/Library").map_err(|e| {
-            AltiumError::invalid_ole(format!("Failed to create Library storage: {e}"))
-        })?;
+        crate::altium::create_storage(cfb, "/Library")?;
 
         // Write Library/Header (record count = 1)
         crate::altium::write_stream(cfb, "/Library/Header", &1u32.to_le_bytes())?;
@@ -1250,8 +1155,7 @@ impl PcbLib {
         header_count: u32,
         data: &[u8],
     ) -> AltiumResult<()> {
-        cfb.create_storage(path)
-            .map_err(|e| AltiumError::invalid_ole(format!("Failed to create {path}: {e}")))?;
+        crate::altium::create_storage(cfb, path)?;
         crate::altium::write_stream(cfb, &format!("{path}/Header"), &header_count.to_le_bytes())?;
         crate::altium::write_stream(cfb, &format!("{path}/Data"), data)?;
         Ok(())
@@ -1385,8 +1289,7 @@ impl PcbLib {
         let storage_path = format!("/{ole_name}");
 
         // Create storage for the footprint
-        cfb.create_storage(&storage_path)
-            .map_err(|e| AltiumError::invalid_ole(format!("Failed to create storage: {e}")))?;
+        crate::altium::create_storage(cfb, &storage_path)?;
 
         // Write Header stream (4-byte primitive count)
         let header_data = writer::encode_component_header(footprint);
@@ -1422,11 +1325,7 @@ impl PcbLib {
         if let Some(uid_data) = writer::encode_unique_id_stream(footprint) {
             // Create UniqueIDPrimitiveInformation storage
             let uid_storage_path = format!("{storage_path}/UniqueIDPrimitiveInformation");
-            cfb.create_storage(&uid_storage_path).map_err(|e| {
-                AltiumError::invalid_ole(format!(
-                    "Failed to create UniqueIDPrimitiveInformation storage: {e}"
-                ))
-            })?;
+            crate::altium::create_storage(cfb, &uid_storage_path)?;
 
             // Write Header + Data streams.
             let uid_header_data = writer::encode_unique_id_header(footprint);

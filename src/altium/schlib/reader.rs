@@ -237,17 +237,10 @@ fn parse_text_record_from_string(symbol: &mut Symbol, text: &str) {
     }
 }
 
-/// Parses pipe-delimited key=value properties.
+/// Parses pipe-delimited key=value properties (shared with the rest of the
+/// crate via [`crate::altium::parse_pipe_params`]).
 fn parse_properties(text: &str) -> HashMap<String, String> {
-    let mut props = HashMap::new();
-
-    for part in text.split('|') {
-        if let Some((key, value)) = part.split_once('=') {
-            props.insert(key.to_lowercase(), value.to_string());
-        }
-    }
-
-    props
+    crate::altium::parse_pipe_params(text)
 }
 
 /// Parses a binary pin record.
@@ -280,14 +273,8 @@ fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
     offset += 4;
 
     // description: Pascal short string [length:1][string]
-    let desc_len = data.get(offset).copied().unwrap_or(0) as usize;
-    offset += 1;
-    let description = if desc_len > 0 && offset + desc_len <= data.len() {
-        crate::altium::decode_windows1252(&data[offset..offset + desc_len])
-    } else {
-        String::new()
-    };
-    offset += desc_len;
+    let (description, next) = crate::altium::framing::read_pascal_string(data, offset);
+    offset = next;
 
     // formal_type (1 byte) - unused
     offset += 1;
@@ -322,23 +309,11 @@ fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
     offset += 4;
 
     // name: [length:1][string]
-    let name_len = data.get(offset).copied().unwrap_or(0) as usize;
-    offset += 1;
-    let name = if name_len > 0 && offset + name_len <= data.len() {
-        crate::altium::decode_windows1252(&data[offset..offset + name_len])
-    } else {
-        String::new()
-    };
-    offset += name_len;
+    let (name, next) = crate::altium::framing::read_pascal_string(data, offset);
+    offset = next;
 
     // designator: [length:1][string]
-    let desig_len = data.get(offset).copied().unwrap_or(0) as usize;
-    offset += 1;
-    let designator = if desig_len > 0 && offset + desig_len <= data.len() {
-        crate::altium::decode_windows1252(&data[offset..offset + desig_len])
-    } else {
-        String::new()
-    };
+    let (designator, _) = crate::altium::framing::read_pascal_string(data, offset);
 
     Some(Pin {
         name,
