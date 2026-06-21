@@ -1101,30 +1101,16 @@ impl PcbLib {
 
         // Write Header stream
         let header_data = writer::encode_model_header_stream(self.models.len());
-        let mut header_stream = cfb.create_stream("/Library/Models/Header").map_err(|e| {
-            AltiumError::invalid_ole(format!("Failed to create Models/Header: {e}"))
-        })?;
-        std::io::Write::write_all(&mut header_stream, &header_data)
-            .map_err(|e| AltiumError::invalid_ole(format!("Failed to write Models/Header: {e}")))?;
+        crate::altium::write_stream(cfb, "/Library/Models/Header", &header_data)?;
 
         // Write Data stream (GUID-to-index mapping)
         let data_content = writer::encode_model_data_stream(&self.models);
-        let mut data_stream = cfb
-            .create_stream("/Library/Models/Data")
-            .map_err(|e| AltiumError::invalid_ole(format!("Failed to create Models/Data: {e}")))?;
-        std::io::Write::write_all(&mut data_stream, &data_content)
-            .map_err(|e| AltiumError::invalid_ole(format!("Failed to write Models/Data: {e}")))?;
+        crate::altium::write_stream(cfb, "/Library/Models/Data", &data_content)?;
 
         // Write individual model streams (compressed)
         let compressed_models = writer::prepare_models_for_writing(&self.models)?;
         for (idx, compressed) in compressed_models {
-            let stream_path = format!("/Library/Models/{idx}");
-            let mut model_stream = cfb.create_stream(&stream_path).map_err(|e| {
-                AltiumError::invalid_ole(format!("Failed to create model stream {idx}: {e}"))
-            })?;
-            std::io::Write::write_all(&mut model_stream, &compressed).map_err(|e| {
-                AltiumError::invalid_ole(format!("Failed to write model stream {idx}: {e}"))
-            })?;
+            crate::altium::write_stream(cfb, &format!("/Library/Models/{idx}"), &compressed)?;
         }
 
         tracing::debug!(count = self.models.len(), "Wrote embedded 3D models");
@@ -1173,11 +1159,7 @@ impl PcbLib {
         data.push(uid_len as u8);
         data.extend_from_slice(uid_bytes);
 
-        let mut stream = cfb
-            .create_stream("/FileHeader")
-            .map_err(|e| AltiumError::invalid_ole(format!("Failed to create FileHeader: {e}")))?;
-        std::io::Write::write_all(&mut stream, &data)
-            .map_err(|e| AltiumError::invalid_ole(format!("Failed to write FileHeader: {e}")))?;
+        crate::altium::write_stream(cfb, "/FileHeader", &data)?;
 
         Ok(())
     }
@@ -1208,26 +1190,13 @@ impl PcbLib {
         })?;
 
         // Write Library/Header (record count = 1)
-        let mut header_stream = cfb.create_stream("/Library/Header").map_err(|e| {
-            AltiumError::invalid_ole(format!("Failed to create Library/Header: {e}"))
-        })?;
-        std::io::Write::write_all(&mut header_stream, &1u32.to_le_bytes()).map_err(|e| {
-            AltiumError::invalid_ole(format!("Failed to write Library/Header: {e}"))
-        })?;
+        crate::altium::write_stream(cfb, "/Library/Header", &1u32.to_le_bytes())?;
 
-        // Build Library/Data content
+        // Build Library/Data content: a C-string parameter block, then the
+        // component count + names.
         let params = Self::build_library_params(self.filepath.as_deref().unwrap_or(""));
-
-        // Encode parameters block: [block_len:4][params + \x00]
-        // Block length includes the null terminator
-        let params_bytes = params.as_bytes();
         let mut data = Vec::new();
-
-        #[allow(clippy::cast_possible_truncation)]
-        let block_len = (params_bytes.len() + 1) as u32; // +1 for null terminator
-        data.extend_from_slice(&block_len.to_le_bytes());
-        data.extend_from_slice(params_bytes);
-        data.push(0x00); // Null terminator
+        crate::altium::framing::write_cstring_param_block(&mut data, params.as_bytes());
 
         // Component count
         #[allow(clippy::cast_possible_truncation)]
@@ -1245,14 +1214,7 @@ impl PcbLib {
         }
 
         // Write Library/Data
-        {
-            let mut data_stream = cfb.create_stream("/Library/Data").map_err(|e| {
-                AltiumError::invalid_ole(format!("Failed to create Library/Data: {e}"))
-            })?;
-            std::io::Write::write_all(&mut data_stream, &data).map_err(|e| {
-                AltiumError::invalid_ole(format!("Failed to write Library/Data: {e}"))
-            })?;
-        }
+        crate::altium::write_stream(cfb, "/Library/Data", &data)?;
 
         // Write the library metadata storages Altium emits for every library.
         self.write_library_metadata(cfb)?;
@@ -1338,14 +1300,7 @@ impl PcbLib {
         Self::write_meta_storage(cfb, "/Library/ModelsNoEmbed", 0, &[])?;
 
         // EmbeddedFonts is a plain stream holding a u32 font count (0).
-        {
-            let mut stream = cfb.create_stream("/Library/EmbeddedFonts").map_err(|e| {
-                AltiumError::invalid_ole(format!("Failed to create EmbeddedFonts: {e}"))
-            })?;
-            std::io::Write::write_all(&mut stream, &0u32.to_le_bytes()).map_err(|e| {
-                AltiumError::invalid_ole(format!("Failed to write EmbeddedFonts: {e}"))
-            })?;
-        }
+        crate::altium::write_stream(cfb, "/Library/EmbeddedFonts", &0u32.to_le_bytes())?;
 
         // Empty Models storage when the library has no embedded models
         // (otherwise write_models creates it). Altium expects it to exist.
@@ -1426,54 +1381,30 @@ impl PcbLib {
             .map_err(|e| AltiumError::invalid_ole(format!("Failed to create storage: {e}")))?;
 
         // Write Header stream (4-byte primitive count)
-        let header_path = format!("{storage_path}/Header");
         let header_data = writer::encode_component_header(footprint);
-        let mut stream = cfb
-            .create_stream(&header_path)
-            .map_err(|e| AltiumError::invalid_ole(format!("Failed to create Header: {e}")))?;
-        std::io::Write::write_all(&mut stream, &header_data)
-            .map_err(|e| AltiumError::invalid_ole(format!("Failed to write Header: {e}")))?;
+        crate::altium::write_stream(cfb, &format!("{storage_path}/Header"), &header_data)?;
 
-        // Write Parameters stream: [block_len:4]["|PATTERN=...|..." + \x00]
-        // Matching AltiumSharp: PATTERN, HEIGHT, DESCRIPTION, ITEMGUID, REVISIONGUID
-        // No trailing pipe.
+        // Write Parameters stream as a C-string parameter block.
+        // Keys (no trailing pipe): PATTERN, HEIGHT, DESCRIPTION, ITEMGUID, REVISIONGUID.
         let params = format!(
             "|PATTERN={}|HEIGHT=0mil|DESCRIPTION={}|ITEMGUID=|REVISIONGUID=",
             footprint.name, footprint.description
         );
-        let params_bytes = params.as_bytes();
-        #[allow(clippy::cast_possible_truncation)]
-        let params_block_len = (params_bytes.len() + 1) as u32; // +1 for null terminator
-        let mut params_data = Vec::with_capacity(4 + params_bytes.len() + 1);
-        params_data.extend_from_slice(&params_block_len.to_le_bytes());
-        params_data.extend_from_slice(params_bytes);
-        params_data.push(0x00); // Null terminator
-
-        let params_path = format!("{storage_path}/Parameters");
-        let mut stream = cfb
-            .create_stream(&params_path)
-            .map_err(|e| AltiumError::invalid_ole(format!("Failed to create Parameters: {e}")))?;
-        std::io::Write::write_all(&mut stream, &params_data)
-            .map_err(|e| AltiumError::invalid_ole(format!("Failed to write Parameters: {e}")))?;
+        let mut params_data = Vec::new();
+        crate::altium::framing::write_cstring_param_block(&mut params_data, params.as_bytes());
+        crate::altium::write_stream(cfb, &format!("{storage_path}/Parameters"), &params_data)?;
 
         // Write Data stream with primitives
-        let data_path = format!("{storage_path}/Data");
-        let mut stream = cfb
-            .create_stream(&data_path)
-            .map_err(|e| AltiumError::invalid_ole(format!("Failed to create Data: {e}")))?;
-
         let data = Self::encode_primitives(footprint)?;
-        std::io::Write::write_all(&mut stream, &data)
-            .map_err(|e| AltiumError::invalid_ole(format!("Failed to write Data: {e}")))?;
+        crate::altium::write_stream(cfb, &format!("{storage_path}/Data"), &data)?;
 
         // Write WideStrings stream (per-component)
-        let wide_strings_path = format!("{storage_path}/WideStrings");
         let wide_strings_data = writer::encode_component_wide_strings(footprint);
-        let mut stream = cfb
-            .create_stream(&wide_strings_path)
-            .map_err(|e| AltiumError::invalid_ole(format!("Failed to create WideStrings: {e}")))?;
-        std::io::Write::write_all(&mut stream, &wide_strings_data)
-            .map_err(|e| AltiumError::invalid_ole(format!("Failed to write WideStrings: {e}")))?;
+        crate::altium::write_stream(
+            cfb,
+            &format!("{storage_path}/WideStrings"),
+            &wide_strings_data,
+        )?;
 
         // PrimitiveGuids is the editor's optional per-primitive GUID cache.
         // Altium (and AltiumSharp) omit it for from-scratch footprints, so we
@@ -1489,32 +1420,14 @@ impl PcbLib {
                 ))
             })?;
 
-            // Write Header stream
-            let uid_header_path = format!("{uid_storage_path}/Header");
+            // Write Header + Data streams.
             let uid_header_data = writer::encode_unique_id_header(footprint);
-            let mut uid_header_stream = cfb.create_stream(&uid_header_path).map_err(|e| {
-                AltiumError::invalid_ole(format!(
-                    "Failed to create UniqueIDPrimitiveInformation/Header: {e}"
-                ))
-            })?;
-            std::io::Write::write_all(&mut uid_header_stream, &uid_header_data).map_err(|e| {
-                AltiumError::invalid_ole(format!(
-                    "Failed to write UniqueIDPrimitiveInformation/Header: {e}"
-                ))
-            })?;
-
-            // Write Data stream
-            let uid_data_path = format!("{uid_storage_path}/Data");
-            let mut uid_stream = cfb.create_stream(&uid_data_path).map_err(|e| {
-                AltiumError::invalid_ole(format!(
-                    "Failed to create UniqueIDPrimitiveInformation/Data: {e}"
-                ))
-            })?;
-            std::io::Write::write_all(&mut uid_stream, &uid_data).map_err(|e| {
-                AltiumError::invalid_ole(format!(
-                    "Failed to write UniqueIDPrimitiveInformation/Data: {e}"
-                ))
-            })?;
+            crate::altium::write_stream(
+                cfb,
+                &format!("{uid_storage_path}/Header"),
+                &uid_header_data,
+            )?;
+            crate::altium::write_stream(cfb, &format!("{uid_storage_path}/Data"), &uid_data)?;
 
             tracing::trace!(
                 footprint = %footprint.name,
