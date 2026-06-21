@@ -708,34 +708,10 @@ pub enum StrokeFont {
     Serif,
 }
 
-/// Text justification (alignment).
-///
-/// Specifies how text is aligned relative to its anchor point.
-/// The 9 positions form a 3x3 grid combining vertical (Bottom/Middle/Top)
-/// and horizontal (Left/Centre/Right) alignment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TextJustification {
-    /// Bottom-left aligned.
-    BottomLeft,
-    /// Bottom-centre aligned.
-    BottomCenter,
-    /// Bottom-right aligned.
-    BottomRight,
-    /// Middle-left aligned.
-    MiddleLeft,
-    /// Middle-centre aligned.
-    #[default]
-    MiddleCenter,
-    /// Middle-right aligned.
-    MiddleRight,
-    /// Top-left aligned.
-    TopLeft,
-    /// Top-centre aligned.
-    TopCenter,
-    /// Top-right aligned.
-    TopRight,
-}
+/// Text justification (alignment). Shared with `SchLib`; the canonical
+/// definition is [`crate::altium::TextJustification`]. `PcbLib` text defaults to
+/// `MiddleCenter` (this enum's `Default`).
+pub use crate::altium::TextJustification;
 
 /// A text string on a layer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

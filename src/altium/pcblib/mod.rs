@@ -535,60 +535,40 @@ impl PcbLib {
         cfb: &mut cfb::CompoundFile<F>,
         metadata: &mut LibraryMetadata,
     ) {
+        use crate::altium::{
+            bytes::read_u32_le,
+            framing::{read_block, read_pascal_string},
+        };
+
         let Some(data) = crate::altium::read_stream_opt(cfb, "/Library/Data") else {
             return;
         };
 
-        if data.len() < 8 {
+        // Skip the leading parameter block, then read the component count.
+        let Some((_, mut offset)) = read_block(&data, 0) else {
             return;
-        }
-
-        // Skip parameter block: [block_len:4][content]
-        let block_len = u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as usize;
-        let mut offset = 4 + block_len;
-
-        if offset + 4 > data.len() {
+        };
+        let Some(comp_count) = read_u32_le(&data, offset) else {
             return;
-        }
-
-        // Read component count
-        let comp_count = u32::from_le_bytes([
-            data[offset],
-            data[offset + 1],
-            data[offset + 2],
-            data[offset + 3],
-        ]) as usize;
+        };
         offset += 4;
+        let comp_count = comp_count as usize;
 
         metadata.component_count = comp_count;
         metadata.component_names.clear();
 
-        // Read component names: [block_len:4][str_len:1][name]
+        // Read component names, each a WriteStringBlock wrapping a Pascal string:
+        // [block_len:4][str_len:1][name]. Stop gracefully at the first
+        // malformed/truncated entry, keeping whatever was parsed.
         for _ in 0..comp_count {
-            if offset + 4 > data.len() {
+            let Some((name_block, next)) = read_block(&data, offset) else {
                 break;
+            };
+            let (name, _) = read_pascal_string(name_block, 0);
+            if !name.is_empty() {
+                metadata.component_names.push(name);
             }
-
-            let name_block_len = u32::from_le_bytes([
-                data[offset],
-                data[offset + 1],
-                data[offset + 2],
-                data[offset + 3],
-            ]) as usize;
-            offset += 4;
-
-            if name_block_len == 0 || offset + name_block_len > data.len() {
-                break;
-            }
-
-            let str_len = data[offset] as usize;
-            if str_len < name_block_len && offset + 1 + str_len <= data.len() {
-                if let Ok(name) = std::str::from_utf8(&data[offset + 1..offset + 1 + str_len]) {
-                    metadata.component_names.push(name.to_string());
-                }
-            }
-
-            offset += name_block_len;
+            offset = next;
         }
 
         tracing::debug!(
@@ -773,20 +753,16 @@ impl PcbLib {
         };
 
         if let Ok(text) = String::from_utf8(text_data.to_vec()) {
-            for pair in text.split('|') {
-                if let Some((key, value)) = pair.split_once('=') {
-                    match key.to_uppercase().as_str() {
-                        // Use PATTERN as the canonical name since OLE storage names
-                        // are limited to 31 characters
-                        "PATTERN" if !value.is_empty() => {
-                            footprint.name = value.to_string();
-                        }
-                        "DESCRIPTION" => {
-                            footprint.description = value.to_string();
-                        }
-                        _ => {}
-                    }
+            let params = crate::altium::parse_pipe_params(&text);
+            // Use PATTERN as the canonical name since OLE storage names are
+            // limited to 31 characters; DESCRIPTION is free text.
+            if let Some(pattern) = params.get("pattern") {
+                if !pattern.is_empty() {
+                    footprint.name.clone_from(pattern);
                 }
+            }
+            if let Some(description) = params.get("description") {
+                footprint.description.clone_from(description);
             }
         }
     }
@@ -1115,15 +1091,12 @@ impl PcbLib {
         #[allow(clippy::cast_possible_truncation)]
         data.extend_from_slice(&(self.footprints.len() as u32).to_le_bytes());
 
-        // Component names as WriteStringBlock: [block_len:4][str_len:1][string]
+        // Component names as WriteStringBlock: [block_len:4][str_len:1][string].
+        // The read-side mirror is `read_library_data`.
         for ole_name in ole_names {
-            let name_bytes = ole_name.as_bytes();
-            #[allow(clippy::cast_possible_truncation)]
-            {
-                data.extend_from_slice(&((name_bytes.len() + 1) as u32).to_le_bytes());
-                data.push(name_bytes.len() as u8);
-            }
-            data.extend_from_slice(name_bytes);
+            let mut name_block = Vec::new();
+            crate::altium::framing::write_pascal_string(&mut name_block, ole_name.as_bytes());
+            crate::altium::framing::write_block(&mut data, &name_block);
         }
 
         // Write Library/Data
@@ -1137,13 +1110,12 @@ impl PcbLib {
 
     /// Wraps a parameter string as an Altium C-string block:
     /// `[block_len:4][text + \x00]` where `block_len` includes the terminator.
+    ///
+    /// Thin owned-`Vec` wrapper around the shared
+    /// [`crate::altium::framing::write_cstring_param_block`] frame.
     fn param_block(text: &str) -> Vec<u8> {
-        let bytes = text.as_bytes();
-        let mut v = Vec::with_capacity(4 + bytes.len() + 1);
-        #[allow(clippy::cast_possible_truncation)]
-        v.extend_from_slice(&((bytes.len() + 1) as u32).to_le_bytes());
-        v.extend_from_slice(bytes);
-        v.push(0x00);
+        let mut v = Vec::new();
+        crate::altium::framing::write_cstring_param_block(&mut v, text.as_bytes());
         v
     }
 
@@ -1441,21 +1413,10 @@ impl PcbLib {
     ///
     /// Returns the new order of footprint names.
     pub fn reorder(&mut self, new_order: &[&str]) -> Vec<String> {
-        // Build a position map for the desired order
-        let order_map: std::collections::HashMap<&str, usize> = new_order
-            .iter()
-            .enumerate()
-            .map(|(i, name)| (*name, i))
-            .collect();
-
-        // Sort footprints: those in order_map come first (by their position),
-        // then those not in the map (preserving relative order via stable sort)
-        let max_pos = new_order.len();
-        self.footprints.sort_by(|a, b| {
-            let pos_a = order_map.get(a.name.as_str()).copied().unwrap_or(max_pos);
-            let pos_b = order_map.get(b.name.as_str()).copied().unwrap_or(max_pos);
-            pos_a.cmp(&pos_b)
-        });
+        // Stable-sort footprints into the desired order; footprints not listed
+        // in `new_order` keep their relative order at the end.
+        let rank = crate::altium::order_ranker(new_order);
+        self.footprints.sort_by_key(|a| rank(a.name.as_str()));
 
         self.names()
     }

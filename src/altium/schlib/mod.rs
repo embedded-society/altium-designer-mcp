@@ -250,21 +250,11 @@ impl SchLib {
     ///
     /// Returns the new order of symbol names.
     pub fn reorder(&mut self, new_order: &[&str]) -> Vec<String> {
-        // Build a position map for the desired order
-        let order_map: std::collections::HashMap<&str, usize> = new_order
-            .iter()
-            .enumerate()
-            .map(|(i, name)| (*name, i))
-            .collect();
-
-        // Sort symbols: those in order_map come first (by their position),
-        // then those not in the map (preserving relative order via stable sort)
-        let max_pos = new_order.len();
-        self.symbols.sort_by(|a_key, _, b_key, _| {
-            let pos_a = order_map.get(a_key.as_str()).copied().unwrap_or(max_pos);
-            let pos_b = order_map.get(b_key.as_str()).copied().unwrap_or(max_pos);
-            pos_a.cmp(&pos_b)
-        });
+        // Stable-sort symbols into the desired order; symbols not listed in
+        // `new_order` keep their relative order at the end.
+        let rank = crate::altium::order_ranker(new_order);
+        self.symbols
+            .sort_by(|a_key, _, b_key, _| rank(a_key.as_str()).cmp(&rank(b_key.as_str())));
 
         self.names()
     }
@@ -525,14 +515,10 @@ struct FileHeader {
 ///
 /// Returns an error if the file is not a valid `SchLib` (wrong file type).
 fn read_file_header<R: Read + Seek>(cfb: &mut CompoundFile<R>) -> AltiumResult<FileHeader> {
-    let mut stream = cfb
-        .open_stream("/FileHeader")
-        .map_err(|_| AltiumError::missing_stream("FileHeader"))?;
-
-    let mut data = Vec::new();
-    stream
-        .read_to_end(&mut data)
-        .map_err(|_| AltiumError::parse_error(0, "Failed to read FileHeader"))?;
+    // A `SchLib` without a readable FileHeader is invalid, so map the shared
+    // optional read onto a hard error.
+    let data = crate::altium::read_stream_opt(&mut *cfb, "/FileHeader")
+        .ok_or_else(|| AltiumError::missing_stream("FileHeader"))?;
 
     // Parse header: [length:4 LE][pipe-delimited key=value pairs]
     if data.len() < 4 {
