@@ -25,19 +25,52 @@ use super::primitives::{
 };
 use super::Symbol;
 
-/// Writes a text record (type 0) to the output.
-fn write_text_record(data: &mut Vec<u8>, content: &str) {
-    let content_bytes = content.as_bytes();
-    let mut record = Vec::with_capacity(content_bytes.len() + 1);
-    record.extend_from_slice(content_bytes);
-    record.push(0x00); // Null terminator
+/// Writes a record frame to the output: Altium's `[u24 length LE][u8 flags]`
+/// header followed by the payload. `flags` is 0 for a text record and 1 for a
+/// binary pin record. For payloads under 16 MiB (always, in practice) the third
+/// length byte is 0, so this is byte-identical to the older
+/// `[u16 length LE][u16 BE type]` framing.
+///
+/// # Errors
+///
+/// Returns an error if `payload` exceeds the 24-bit length field (16 MiB),
+/// which the on-disk header cannot represent (a `u16` cast would otherwise
+/// truncate the length and desync the whole record stream).
+fn write_record_frame(
+    data: &mut Vec<u8>,
+    payload: &[u8],
+    flags: u8,
+) -> crate::altium::error::AltiumResult<()> {
+    use crate::altium::error::AltiumError;
 
-    // Header: [length:2 LE][type:2 BE]
-    #[allow(clippy::cast_possible_truncation)]
-    let length = record.len() as u16;
-    data.extend_from_slice(&length.to_le_bytes());
-    data.extend_from_slice(&0u16.to_be_bytes()); // Type 0 = text
-    data.extend_from_slice(&record);
+    if payload.len() > 0x00FF_FFFF {
+        return Err(AltiumError::InvalidParameter {
+            name: "record".to_string(),
+            message: format!(
+                "Record length {} exceeds the 16 MiB on-disk maximum",
+                payload.len()
+            ),
+        });
+    }
+    #[allow(clippy::cast_possible_truncation)] // bounded above
+    let len = payload.len() as u32;
+    data.push((len & 0xFF) as u8);
+    data.push(((len >> 8) & 0xFF) as u8);
+    data.push(((len >> 16) & 0xFF) as u8);
+    data.push(flags);
+    data.extend_from_slice(payload);
+    Ok(())
+}
+
+/// Writes a text record (type 0) to the output.
+///
+/// # Errors
+///
+/// Returns an error if the encoded record exceeds the 16 MiB record limit.
+fn write_text_record(data: &mut Vec<u8>, content: &str) -> crate::altium::error::AltiumResult<()> {
+    let mut record = crate::altium::encode_windows1252(content);
+    record.push(0x00); // Null terminator
+    write_record_frame(data, &record, 0) // flags 0 = text
 }
 
 /// Writes a binary pin record (type 1) to the output.
@@ -144,13 +177,13 @@ fn write_binary_pin(data: &mut Vec<u8>, pin: &Pin) -> crate::altium::error::Alti
     record.push(pin.symbol_outside.to_id());
 
     // Description: Pascal short string [length:1][string]
-    let desc_bytes = pin.description.as_bytes();
-    #[allow(clippy::cast_possible_truncation)]
+    let desc_bytes = crate::altium::encode_windows1252(&pin.description);
+    #[allow(clippy::cast_possible_truncation)] // length validated above
     record.push(desc_bytes.len() as u8);
-    record.extend_from_slice(desc_bytes);
+    record.extend_from_slice(&desc_bytes);
 
-    // Formal type (1 byte) - 0 for from-scratch pins
-    record.push(0x00);
+    // Formal type (1 byte) - 0x01 for a normal pin (matches Altium's output).
+    record.push(0x01);
 
     // Electrical type (1 byte)
     record.push(pin.electrical_type.to_id());
@@ -195,31 +228,26 @@ fn write_binary_pin(data: &mut Vec<u8>, pin: &Pin) -> crate::altium::error::Alti
     record.extend_from_slice(&pin.colour.to_le_bytes());
 
     // Name: [length:1][string]
-    let name_bytes = pin.name.as_bytes();
-    #[allow(clippy::cast_possible_truncation)]
+    let name_bytes = crate::altium::encode_windows1252(&pin.name);
+    #[allow(clippy::cast_possible_truncation)] // length validated above
     record.push(name_bytes.len() as u8);
-    record.extend_from_slice(name_bytes);
+    record.extend_from_slice(&name_bytes);
 
     // Designator: [length:1][string]
-    let desig_bytes = pin.designator.as_bytes();
-    #[allow(clippy::cast_possible_truncation)]
+    let desig_bytes = crate::altium::encode_windows1252(&pin.designator);
+    #[allow(clippy::cast_possible_truncation)] // length validated above
     record.push(desig_bytes.len() as u8);
-    record.extend_from_slice(desig_bytes);
+    record.extend_from_slice(&desig_bytes);
 
-    // SwapIdGroup, PartAndSequence, DefaultValue: three empty Pascal short
-    // strings that Altium always writes at the tail of a pin record.
-    record.push(0);
-    record.push(0);
-    record.push(0);
+    // Pin swap-id tail (Pascal short strings), matching Altium's output:
+    //   SwapIdGroup = "" , PartAndSequence = "|&|" , DefaultValue = "".
+    record.push(0); // SwapIdGroup (empty)
+    record.push(3); // PartAndSequence length
+    record.extend_from_slice(b"|&|");
+    record.push(0); // DefaultValue (empty)
 
-    // Header: [length:2 LE][type:2 BE]
-    #[allow(clippy::cast_possible_truncation)]
-    let record_length = record.len() as u16;
-    data.extend_from_slice(&record_length.to_le_bytes());
-    data.extend_from_slice(&1u16.to_be_bytes()); // Type 1 = binary pin
-    data.extend_from_slice(&record);
-
-    Ok(())
+    // Header: Altium's [u24 length LE][u8 flags=1 for pin], then the record.
+    write_record_frame(data, &record, 1)
 }
 
 /// Encodes a component header record.
@@ -272,7 +300,7 @@ fn encode_rectangle(rect: &Rectangle, index: usize) -> String {
 /// Encodes a line record.
 fn encode_line(line: &Line, index: usize) -> String {
     format!(
-        "|RECORD=13|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Corner.X={}|Corner.Y={}|LineWidth={}|Color={}|UniqueID={}",
+        "|RECORD=13|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T|Location.X={}|Location.Y={}|Corner.X={}|Corner.Y={}|LineWidth={}|Color={}|UniqueID={}",
         index,
         line.owner_part_id,
         line.x1,
@@ -486,7 +514,7 @@ fn encode_label(label: &Label, index: usize) -> String {
     let is_mirrored = if label.is_mirrored { "T" } else { "F" };
     let is_hidden = if label.is_hidden { "T" } else { "F" };
     format!(
-        "|RECORD=4|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Color={}|FontID={}|Orientation={}|Justification={}|IsMirrored={}|IsHidden={}|Text={}|UniqueID={}",
+        "|RECORD=4|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T|Location.X={}|Location.Y={}|Color={}|FontID={}|Orientation={}|Justification={}|IsMirrored={}|IsHidden={}|Text={}|UniqueID={}",
         index,
         label.owner_part_id,
         label.x,
@@ -510,7 +538,7 @@ fn encode_text(text: &Text, index: usize) -> String {
     let is_mirrored = if text.is_mirrored { "T" } else { "F" };
     let is_hidden = if text.is_hidden { "T" } else { "F" };
     format!(
-        "|RECORD=3|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Color={}|FontID={}|Orientation={}|Justification={}|IsMirrored={}|IsHidden={}|Text={}|UniqueID={}",
+        "|RECORD=4|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T|Location.X={}|Location.Y={}|Color={}|FontID={}|Orientation={}|Justification={}|IsMirrored={}|IsHidden={}|Text={}|UniqueID={}",
         index,
         text.owner_part_id,
         text.x,
@@ -575,109 +603,112 @@ pub fn encode_data_stream(symbol: &Symbol) -> crate::altium::error::AltiumResult
 
     // 1. Component header
     let header = encode_component_header(symbol);
-    write_text_record(&mut data, &header);
+    write_text_record(&mut data, &header)?;
 
     // 2. Parameters (Value, Part Number, etc.)
     for param in &symbol.parameters {
         let record = encode_parameter(param, index_counter);
-        write_text_record(&mut data, &record);
+        write_text_record(&mut data, &record)?;
         index_counter += 1;
     }
 
     // 3. Pins (binary format)
     for pin in &symbol.pins {
         write_binary_pin(&mut data, pin)?;
+        // Pins occupy an ordinal slot too; advance so later records' IndexInSheet
+        // values match Altium's primitive numbering.
+        index_counter += 1;
     }
 
     // 4. Rectangles
     for rect in &symbol.rectangles {
         let record = encode_rectangle(rect, index_counter);
-        write_text_record(&mut data, &record);
+        write_text_record(&mut data, &record)?;
         index_counter += 1;
     }
 
     // 5. Lines
     for line in &symbol.lines {
         let record = encode_line(line, index_counter);
-        write_text_record(&mut data, &record);
+        write_text_record(&mut data, &record)?;
         index_counter += 1;
     }
 
     // 6. Polylines
     for polyline in &symbol.polylines {
         let record = encode_polyline(polyline, index_counter);
-        write_text_record(&mut data, &record);
+        write_text_record(&mut data, &record)?;
         index_counter += 1;
     }
 
     // 7. Polygons
     for polygon in &symbol.polygons {
         let record = encode_polygon(polygon, index_counter);
-        write_text_record(&mut data, &record);
+        write_text_record(&mut data, &record)?;
         index_counter += 1;
     }
 
     // 8. Arcs
     for arc in &symbol.arcs {
         let record = encode_arc(arc, index_counter);
-        write_text_record(&mut data, &record);
+        write_text_record(&mut data, &record)?;
         index_counter += 1;
     }
 
     // 9. Bezier curves
     for bezier in &symbol.beziers {
         let record = encode_bezier(bezier, index_counter);
-        write_text_record(&mut data, &record);
+        write_text_record(&mut data, &record)?;
         index_counter += 1;
     }
 
     // 10. Ellipses
     for ellipse in &symbol.ellipses {
         let record = encode_ellipse(ellipse, index_counter);
-        write_text_record(&mut data, &record);
+        write_text_record(&mut data, &record)?;
         index_counter += 1;
     }
 
     // 11. Rounded rectangles
     for round_rect in &symbol.round_rects {
         let record = encode_round_rect(round_rect, index_counter);
-        write_text_record(&mut data, &record);
+        write_text_record(&mut data, &record)?;
         index_counter += 1;
     }
 
     // 12. Elliptical arcs
     for elliptical_arc in &symbol.elliptical_arcs {
         let record = encode_elliptical_arc(elliptical_arc, index_counter);
-        write_text_record(&mut data, &record);
+        write_text_record(&mut data, &record)?;
         index_counter += 1;
     }
 
     // 13. Labels
     for label in &symbol.labels {
         let record = encode_label(label, index_counter);
-        write_text_record(&mut data, &record);
+        write_text_record(&mut data, &record)?;
         index_counter += 1;
     }
 
     // 14. Text annotations
     for text in &symbol.text {
         let record = encode_text(text, index_counter);
-        write_text_record(&mut data, &record);
+        write_text_record(&mut data, &record)?;
         index_counter += 1;
     }
 
     // 15. Designator
     if !symbol.designator.is_empty() {
         let record = encode_designator(&symbol.designator);
-        write_text_record(&mut data, &record);
+        write_text_record(&mut data, &record)?;
     }
 
     // 16. Implementation list — Altium always writes RECORD=44, then a model
     // record per footprint.
-    write_text_record(&mut data, &encode_implementation_list());
+    write_text_record(&mut data, &encode_implementation_list())?;
     for (i, model) in symbol.footprints.iter().enumerate() {
         let record = encode_footprint_model(model, i);
-        write_text_record(&mut data, &record);
+        write_text_record(&mut data, &record)?;
     }
 
     // No end-of-stream sentinel: Altium reads records until the stream is
@@ -754,7 +785,7 @@ mod tests {
     #[test]
     fn test_write_text_record() {
         let mut data = Vec::new();
-        write_text_record(&mut data, "|RECORD=1|Name=Test|");
+        write_text_record(&mut data, "|RECORD=1|Name=Test|").unwrap();
 
         // Check header
         let length = u16::from_le_bytes([data[0], data[1]]);

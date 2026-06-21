@@ -15,7 +15,7 @@
 
 use super::primitives::{
     Arc, ComponentBody, Fill, Layer, Pad, PadShape, PadStackMode, PcbFlags, Region, StrokeFont,
-    Text, TextJustification, TextKind, Track, Via, ViaStackMode,
+    Text, TextKind, Track, Via, ViaStackMode,
 };
 use super::Footprint;
 
@@ -63,13 +63,15 @@ fn write_string_block(
 ) -> crate::altium::error::AltiumResult<()> {
     use crate::altium::error::AltiumError;
 
-    let bytes = s.as_bytes();
+    // Altium stores strings as Windows-1252, not UTF-8; the Pascal length
+    // prefix is the encoded byte count.
+    let bytes = crate::altium::encode_windows1252(s);
     if bytes.len() > 255 {
         return Err(AltiumError::InvalidParameter {
             name: field_name.to_string(),
             message: format!(
                 "String '{}...' length {} exceeds maximum of 255 bytes",
-                &s[..s.len().min(20)],
+                s.chars().take(20).collect::<String>(),
                 bytes.len()
             ),
         });
@@ -78,7 +80,7 @@ fn write_string_block(
     let mut block = Vec::with_capacity(1 + bytes.len());
     #[allow(clippy::cast_possible_truncation)] // Validated above
     block.push(bytes.len() as u8);
-    block.extend_from_slice(bytes);
+    block.extend_from_slice(&bytes);
     write_block(data, &block);
     Ok(())
 }
@@ -712,27 +714,13 @@ const fn text_kind_to_id(kind: TextKind) -> u8 {
     }
 }
 
-/// Converts a `StrokeFont` to its binary ID.
+/// Converts a `StrokeFont` to its binary font-table ID. Altium's default
+/// stroke font is index 1, so the ids are 1-based.
 const fn stroke_font_to_id(font: StrokeFont) -> u16 {
     match font {
-        StrokeFont::Default => 0,
-        StrokeFont::SansSerif => 1,
-        StrokeFont::Serif => 2,
-    }
-}
-
-/// Converts a `TextJustification` to its binary ID.
-const fn justification_to_id(justification: TextJustification) -> u8 {
-    match justification {
-        TextJustification::BottomLeft => 0,
-        TextJustification::BottomCenter => 1,
-        TextJustification::BottomRight => 2,
-        TextJustification::MiddleLeft => 3,
-        TextJustification::MiddleCenter => 4,
-        TextJustification::MiddleRight => 5,
-        TextJustification::TopLeft => 6,
-        TextJustification::TopCenter => 7,
-        TextJustification::TopRight => 8,
+        StrokeFont::Default => 1,
+        StrokeFont::SansSerif => 2,
+        StrokeFont::Serif => 3,
     }
 }
 
@@ -753,6 +741,15 @@ fn encode_track(data: &mut Vec<u8>, track: &Track) {
 
     // Width - offset 29-32
     write_i32(&mut block, from_mm(track.width));
+
+    // Extended tail (offsets 33-48) — every Altium-authored track carries it.
+    // Ported from `AltiumSharp` `WriteTrack`.
+    block.extend_from_slice(&0i16.to_le_bytes()); // 33-34 subpoly index
+    write_i32(&mut block, 0); // 35-38 solder mask expansion
+    block.extend_from_slice(&0i16.to_le_bytes()); // 39-40 paste mask expansion
+    write_u32(&mut block, v7_layer_id(layer_to_id(track.layer))); // 41-44 v7 layer id
+    block.push(0); // 45 keepout restrictions
+    block.extend_from_slice(&[0u8; 3]); // 46-48 reserved
 
     write_block(data, &block);
 }
@@ -778,6 +775,16 @@ fn encode_arc(data: &mut Vec<u8>, arc: &Arc) {
     // Width - offset 41-44
     write_i32(&mut block, from_mm(arc.width));
 
+    // Extended tail (offsets 45-59) — every Altium-authored arc carries it.
+    // Ported from `AltiumSharp` `WriteArc` (note: 1-byte paste-mask field,
+    // versus the track's 2-byte field).
+    block.extend_from_slice(&0i16.to_le_bytes()); // 45-46 subpoly index
+    write_i32(&mut block, 0); // 47-50 solder mask expansion
+    block.push(0); // 51 paste mask expansion
+    write_u32(&mut block, v7_layer_id(layer_to_id(arc.layer))); // 52-55 v7 layer id
+    block.push(0); // 56 keepout restrictions
+    block.extend_from_slice(&[0u8; 3]); // 57-59 reserved
+
     write_block(data, &block);
 }
 
@@ -797,85 +804,64 @@ fn encode_text(data: &mut Vec<u8>, text: &Text) -> crate::altium::error::AltiumR
     Ok(())
 }
 
-/// Encodes the geometry block for text.
-///
-/// # Format
-///
-/// ```text
-/// [layer:1][flags:12]           // 13-byte common header
-/// [x:4 i32]                     // X position
-/// [y:4 i32]                     // Y position
-/// [height:4 i32]                // Text height
-/// [unknown:2]                   // Unknown bytes
-/// [rotation:8 f64]              // Rotation angle
-/// [font_size:4 i32]             // Font size (same as height)
-/// [unknown:4]                   // Unknown
-/// [font_name:varies]            // Font name in UTF-16 (null-terminated)
-/// [padding...]                  // Padding to standard size
-/// ```
+/// Canonical 252-byte text SubRecord-1 (offsets 0-251), ported from
+/// `AltiumSharp` `TextSr1Template`. Offsets 0-12 are the common header
+/// (overwritten per-text), 13-251 carry the geometry/font/text-box/frame
+/// fields; the reserved bytes are replayed verbatim and the typed fields
+/// overlaid at their offsets. The default font field is "Arial" (UTF-16).
+#[rustfmt::skip]
+const TEXT_SR1_TEMPLATE: [u8; 252] = [
+    0x21, 0x0C, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00,
+    0x00, 0x50, 0x8E, 0xF4, 0xFF, 0x80, 0x1A, 0x06, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x80, 0x46, 0x40, 0x00, 0x40, 0x9C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x41, 0x00,
+    0x72, 0x00, 0x69, 0x00, 0x61, 0x00, 0x6C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xCE, 0xE5, 0x29, 0x00,
+    0x7F, 0x52, 0x07, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0xA0, 0x37, 0xA0, 0x00, 0x20, 0x0B, 0x20,
+    0x00, 0x40, 0x0D, 0x03, 0x00, 0x40, 0x0D, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01,
+    0x00, 0x41, 0x00, 0x72, 0x00, 0x69, 0x00, 0x61, 0x00, 0x6C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x01, 0x06, 0x00, 0x03, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0x80,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x50, 0x8E, 0xF4, 0xFF,
+];
+
+/// Encodes the 252-byte geometry block for a text primitive, overlaying the
+/// typed fields onto the canonical template. Mirrors `AltiumSharp`
+/// `BuildTextExtended`: the common header occupies offsets 0-12 and every
+/// varying field is written at its fixed offset. Real Altium text records are
+/// always this fixed 252-byte block — the previous ~80-byte guessed layout put
+/// the kind, stroke width, font id and v7 layer id at the wrong places.
 fn encode_text_geometry(text: &Text) -> Vec<u8> {
-    let mut block = Vec::with_capacity(128);
+    let mut block = TEXT_SR1_TEMPLATE;
 
-    // Text header (13 bytes) - similar to common header but with text kind at byte 1
-    // Byte 0: Layer ID
-    block.push(layer_to_id(text.layer));
-    // Byte 1: Text kind (0 = Stroke, 1 = TrueType, 2 = BarCode)
-    block.push(text_kind_to_id(text.kind));
-    // Byte 2: More flags
-    block.push(0x00);
-    // Bytes 3-12: Padding (0xFF as per pyAltiumLib)
-    block.extend_from_slice(&[0xFF; 10]);
+    // Common header (offsets 0-12): layer + Altium flag word + 0xFF net/poly/comp.
+    let mut header = Vec::with_capacity(13);
+    write_common_header(&mut header, text.layer, text.flags);
+    block[..13].copy_from_slice(&header);
 
-    // Position (X, Y) - offsets 13-20
-    write_i32(&mut block, from_mm(text.x));
-    write_i32(&mut block, from_mm(text.y));
+    // Position and height (offsets 13-24).
+    block[13..17].copy_from_slice(&from_mm(text.x).to_le_bytes());
+    block[17..21].copy_from_slice(&from_mm(text.y).to_le_bytes());
+    block[21..25].copy_from_slice(&from_mm(text.height).to_le_bytes());
 
-    // Height - offset 21-24
-    write_i32(&mut block, from_mm(text.height));
+    // Font-table index (offsets 25-26); the default stroke font is index 1.
+    let font_id = text.stroke_font.map_or(1, stroke_font_to_id);
+    block[25..27].copy_from_slice(&font_id.to_le_bytes());
 
-    // Stroke font ID - offset 25-26 (u16)
-    // Only meaningful when kind is Stroke
-    let font_id = text.stroke_font.map_or(0, stroke_font_to_id);
-    block.extend_from_slice(&font_id.to_le_bytes());
+    // Rotation (offsets 27-34, f64 degrees).
+    block[27..35].copy_from_slice(&text.rotation.to_le_bytes());
 
-    // Rotation - offset 27-34 (8-byte double)
-    write_f64(&mut block, text.rotation);
+    // Authoritative text kind (offset 160).
+    block[160] = text_kind_to_id(text.kind);
 
-    // Font size (same as height) - offset 35-38
-    write_i32(&mut block, from_mm(text.height));
+    // v7 layer id (offsets 226-229), derived from the layer.
+    block[226..230].copy_from_slice(&v7_layer_id(layer_to_id(text.layer)).to_le_bytes());
 
-    // Unknown bytes
-    block.extend_from_slice(&[0x00; 4]);
-
-    // Font name in UTF-16LE (null-terminated)
-    // Default font: "Arial"
-    let font_name = "Arial";
-    for c in font_name.encode_utf16() {
-        block.extend_from_slice(&c.to_le_bytes());
-    }
-    // Null terminator (2 bytes for UTF-16)
-    block.extend_from_slice(&[0x00, 0x00]);
-
-    // Additional font/style settings
-    // These are typical defaults based on sample analysis
-    block.push(0x56); // Font style byte 1
-    block.push(0x40); // Font style byte 2
-    block.push(0x01); // Bold flag
-    block.extend_from_slice(&[0x00; 5]); // Padding
-
-    // More font/text settings (defaults)
-    write_i32(&mut block, from_mm(text.height)); // line_spacing
-    block.push(justification_to_id(text.justification)); // justification
-    block.push(0x00);
-    write_i32(&mut block, from_mm(text.height)); // glyph_width
-
-    // Additional padding to approximate typical size
-    // Total block should be around 80-100 bytes minimum
-    while block.len() < 80 {
-        block.push(0x00);
-    }
-
-    block
+    block.to_vec()
 }
 
 /// Encodes a Region primitive (filled polygon).
@@ -907,9 +893,9 @@ fn encode_region(data: &mut Vec<u8>, region: &Region) {
 fn encode_region_properties(region: &Region) -> Vec<u8> {
     let vertex_count = region.vertices.len();
 
-    // Build parameter string
+    // Build parameter string (leading pipe, matching Altium).
     let layer_name = region.layer.as_str().replace(' ', "").to_uppercase();
-    let params = format!("V7_LAYER={layer_name}|NAME= |KIND=0");
+    let params = format!("|V7_LAYER={layer_name}|NAME=|KIND=0");
     let params_bytes = params.as_bytes();
 
     let mut block = Vec::with_capacity(22 + params_bytes.len() + 4 + vertex_count * 16);
@@ -920,11 +906,12 @@ fn encode_region_properties(region: &Region) -> Vec<u8> {
     // Unknown bytes (5 bytes)
     block.extend_from_slice(&[0x00; 5]);
 
-    // Parameter string length
-    write_u32(&mut block, params_bytes.len() as u32);
-
-    // Parameter string
+    // Parameter block is a C-string: length INCLUDES the null terminator
+    // (matching Altium WriteCStringParameterBlock), else Altium/pyaltiumlib
+    // report "Data does not end with 0x00".
+    write_u32(&mut block, (params_bytes.len() + 1) as u32);
     block.extend_from_slice(params_bytes);
+    block.push(0x00);
 
     // Vertex count
     write_u32(&mut block, vertex_count as u32);

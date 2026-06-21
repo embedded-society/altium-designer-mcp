@@ -35,9 +35,12 @@ pub fn parse_data_stream(symbol: &mut Symbol, data: &[u8]) {
 
     // Parse records until end marker or end of data
     while offset + 4 <= data.len() {
-        // Read header: [length:2 LE][type:2 BE]
-        let record_length = u16::from_le_bytes([data[offset], data[offset + 1]]) as usize;
-        let record_type = u16::from_be_bytes([data[offset + 2], data[offset + 3]]);
+        // Read header: Altium's [u24 length LE][u8 flags]. For records under
+        // 16 MiB (always, in practice) the third length byte is 0, so this also
+        // reads our older [u16 length LE][u16 BE type] frames identically.
+        let record_length =
+            u32::from_le_bytes([data[offset], data[offset + 1], data[offset + 2], 0]) as usize;
+        let record_type = u16::from(data[offset + 3]);
 
         if record_length == 0 {
             // End marker
@@ -277,7 +280,7 @@ fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
     let desc_len = data.get(offset).copied().unwrap_or(0) as usize;
     offset += 1;
     let description = if desc_len > 0 && offset + desc_len <= data.len() {
-        String::from_utf8_lossy(&data[offset..offset + desc_len]).to_string()
+        crate::altium::decode_windows1252(&data[offset..offset + desc_len])
     } else {
         String::new()
     };
@@ -319,7 +322,7 @@ fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
     let name_len = data.get(offset).copied().unwrap_or(0) as usize;
     offset += 1;
     let name = if name_len > 0 && offset + name_len <= data.len() {
-        String::from_utf8_lossy(&data[offset..offset + name_len]).to_string()
+        crate::altium::decode_windows1252(&data[offset..offset + name_len])
     } else {
         String::new()
     };
@@ -329,7 +332,7 @@ fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
     let desig_len = data.get(offset).copied().unwrap_or(0) as usize;
     offset += 1;
     let designator = if desig_len > 0 && offset + desig_len <= data.len() {
-        String::from_utf8_lossy(&data[offset..offset + desig_len]).to_string()
+        crate::altium::decode_windows1252(&data[offset..offset + desig_len])
     } else {
         String::new()
     };
