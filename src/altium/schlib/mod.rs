@@ -278,28 +278,7 @@ impl SchLib {
     ///
     /// Returns an error if the file cannot be written.
     pub fn save(&self, path: impl AsRef<Path>) -> AltiumResult<()> {
-        let path = path.as_ref();
-
-        // Create temp file path in the same directory (ensures same filesystem for rename)
-        let temp_path = path.with_extension("schlib.tmp");
-
-        // Write to temp file
-        let file = std::fs::File::create(&temp_path)
-            .map_err(|e| AltiumError::file_write(&temp_path, e))?;
-
-        // Attempt to write; clean up temp file on failure
-        if let Err(e) = self.write(file) {
-            let _ = std::fs::remove_file(&temp_path);
-            return Err(e);
-        }
-
-        // Atomically rename temp file to target (overwrites existing)
-        std::fs::rename(&temp_path, path).map_err(|e| {
-            let _ = std::fs::remove_file(&temp_path);
-            AltiumError::file_write(path, e)
-        })?;
-
-        Ok(())
+        crate::altium::save_atomic(path.as_ref(), "schlib.tmp", |file| self.write(file))
     }
 
     /// Writes the library to any writer implementing `Read + Write + Seek`.
@@ -323,9 +302,7 @@ impl SchLib {
 
         // One Data stream per symbol, under its own storage.
         for (symbol, ole_name) in symbols.iter().zip(ole_names.iter()) {
-            cfb.create_storage(format!("/{ole_name}")).map_err(|e| {
-                AltiumError::invalid_ole(format!("Failed to create storage /{ole_name}: {e}"))
-            })?;
+            crate::altium::create_storage(&mut cfb, &format!("/{ole_name}"))?;
             let data = writer::encode_data_stream(symbol)?;
             crate::altium::write_stream(&mut cfb, &format!("/{ole_name}/Data"), &data)?;
         }
@@ -571,13 +548,7 @@ fn read_file_header<R: Read + Seek>(cfb: &mut CompoundFile<R>) -> AltiumResult<F
     // padding) before splitting so values don't carry a stray '\0'.
     let text = String::from_utf8_lossy(&data[4..4 + length]);
     let text = text.trim_end_matches('\u{0}');
-    let mut props: HashMap<String, String> = HashMap::new();
-
-    for part in text.split('|') {
-        if let Some((key, value)) = part.split_once('=') {
-            props.insert(key.to_lowercase(), value.to_string());
-        }
-    }
+    let props = crate::altium::parse_pipe_params(text);
 
     // Validate file type - must be a Schematic Library
     if let Some(header) = props.get("header") {

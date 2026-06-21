@@ -237,17 +237,10 @@ fn parse_text_record_from_string(symbol: &mut Symbol, text: &str) {
     }
 }
 
-/// Parses pipe-delimited key=value properties.
+/// Parses pipe-delimited key=value properties (shared with the rest of the
+/// crate via [`crate::altium::parse_pipe_params`]).
 fn parse_properties(text: &str) -> HashMap<String, String> {
-    let mut props = HashMap::new();
-
-    for part in text.split('|') {
-        if let Some((key, value)) = part.split_once('=') {
-            props.insert(key.to_lowercase(), value.to_string());
-        }
-    }
-
-    props
+    crate::altium::parse_pipe_params(text)
 }
 
 /// Parses a binary pin record.

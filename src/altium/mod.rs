@@ -189,6 +189,86 @@ pub(crate) fn write_stream<F: std::io::Read + std::io::Write + std::io::Seek>(
     Ok(())
 }
 
+/// Opens the OLE stream at `path` and reads it fully into a `Vec`.
+///
+/// Returns `None` if the stream is absent or cannot be opened/read — the
+/// read-side counterpart of [`write_stream`]. `path` is an internal OLE path,
+/// not a filesystem path.
+pub(crate) fn read_stream_opt<F, P>(cfb: &mut cfb::CompoundFile<F>, path: P) -> Option<Vec<u8>>
+where
+    F: std::io::Read + std::io::Seek,
+    P: AsRef<std::path::Path>,
+{
+    let path = path.as_ref();
+    if !cfb.is_stream(path) {
+        return None;
+    }
+    let mut stream = cfb.open_stream(path).ok()?;
+    let mut data = Vec::new();
+    std::io::Read::read_to_end(&mut stream, &mut data).ok()?;
+    Some(data)
+}
+
+/// Creates an OLE storage at `path`, wrapping failures as `invalid_ole`.
+///
+/// The storage-creation mirror of [`write_stream`]. `path` is an internal OLE
+/// path. Callers that must guard against an already-existing storage check
+/// `cfb.exists(path)` themselves.
+pub(crate) fn create_storage<F: std::io::Read + std::io::Write + std::io::Seek>(
+    cfb: &mut cfb::CompoundFile<F>,
+    path: &str,
+) -> AltiumResult<()> {
+    cfb.create_storage(path)
+        .map_err(|e| AltiumError::invalid_ole(format!("Failed to create storage {path}: {e}")))?;
+    Ok(())
+}
+
+/// Writes a library to `path` atomically.
+///
+/// Serialises into a sibling temp file (named with `tmp_ext`) via `write`, then
+/// renames it over the destination, so a failed or partial write never clobbers
+/// an existing file. The temp file is removed on any failure. Shared by both
+/// library writers — they differ only in the temp extension and whether
+/// serialisation needs `&mut self`, both captured by `write`.
+pub(crate) fn save_atomic(
+    path: &std::path::Path,
+    tmp_ext: &str,
+    write: impl FnOnce(std::fs::File) -> AltiumResult<()>,
+) -> AltiumResult<()> {
+    // Temp file in the same directory ensures the rename stays on one filesystem.
+    let temp_path = path.with_extension(tmp_ext);
+
+    let file =
+        std::fs::File::create(&temp_path).map_err(|e| AltiumError::file_write(&temp_path, e))?;
+
+    // Attempt to write; clean up the temp file on failure.
+    if let Err(e) = write(file) {
+        let _ = std::fs::remove_file(&temp_path);
+        return Err(e);
+    }
+
+    // Atomically rename the temp file over the target (overwrites existing).
+    std::fs::rename(&temp_path, path).map_err(|e| {
+        let _ = std::fs::remove_file(&temp_path);
+        AltiumError::file_write(path, e)
+    })?;
+
+    Ok(())
+}
+
+/// Parses a pipe-delimited `KEY=VALUE` parameter string into a map, lowercasing
+/// keys (values kept verbatim). Segments that are empty or lack `=` are skipped;
+/// duplicate keys keep the last value. Used by `SchLib`'s text/property records.
+pub(crate) fn parse_pipe_params(text: &str) -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+    for part in text.split('|') {
+        if let Some((key, value)) = part.split_once('=') {
+            map.insert(key.to_lowercase(), value.to_string());
+        }
+    }
+    map
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

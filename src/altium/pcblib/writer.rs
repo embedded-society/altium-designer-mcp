@@ -19,15 +19,7 @@ use super::primitives::{
 };
 use super::Footprint;
 
-/// Conversion factor from millimetres to Altium internal units.
-/// Internal units: 10000 = 1 mil = 0.0254 mm
-const MM_TO_INTERNAL_UNITS: f64 = 10000.0 / 0.0254;
-
-/// Converts millimetres to Altium internal units.
-#[allow(clippy::cast_possible_truncation)] // Intentional: PCB coordinates fit in i32
-fn from_mm(mm: f64) -> i32 {
-    (mm * MM_TO_INTERNAL_UNITS).round() as i32
-}
+use super::units::{from_mm, mm_to_mil, MM_TO_INTERNAL_UNITS};
 
 /// Writes a 4-byte little-endian unsigned integer.
 fn write_u32(data: &mut Vec<u8>, value: u32) {
@@ -224,12 +216,11 @@ const fn pad_shape_to_id(shape: PadShape) -> u8 {
 // them is a follow-up. Offset 61 of the main block is reserved (0x00).
 
 // Altium primitive flag bits (PcbBinaryConstants), distinct from our internal
-// `PcbFlags` bit layout.
-const ALT_FLAG_UNLOCKED: u16 = 0x0004;
-const ALT_FLAG_SAVED: u16 = 0x0008;
-const ALT_FLAG_TENTING_TOP: u16 = 0x0020;
-const ALT_FLAG_TENTING_BOTTOM: u16 = 0x0040;
-const ALT_FLAG_KEEPOUT: u16 = 0x0200;
+// `PcbFlags` bit layout — shared with the reader via `super::flags`.
+use super::flags::{
+    ALT_FLAG_KEEPOUT, ALT_FLAG_SAVED, ALT_FLAG_TENTING_BOTTOM, ALT_FLAG_TENTING_TOP,
+    ALT_FLAG_UNLOCKED,
+};
 
 /// Encodes our internal `PcbFlags` into Altium's on-disk flag word.
 ///
@@ -1182,11 +1173,6 @@ fn build_component_body_params(body: &ComponentBody) -> String {
     params.push("MODEL.MODELSOURCE=Undefined".to_string());
 
     params.join("|")
-}
-
-/// Converts mm to mils for parameter strings.
-fn mm_to_mil(mm: f64) -> f64 {
-    mm / 0.0254
 }
 
 // =============================================================================

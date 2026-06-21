@@ -348,17 +348,9 @@ pub fn apply_unique_ids(footprint: &mut Footprint, unique_ids: &UniqueIdMap) {
     );
 }
 
-/// Conversion factor from Altium internal units to millimetres.
-/// Internal units: 10000 = 1 mil = 0.0254 mm
-const INTERNAL_UNITS_TO_MM: f64 = 0.0254 / 10000.0;
-
-/// Converts Altium internal units to millimetres.
-/// Rounds to 6 decimal places (1nm resolution) to avoid floating-point noise.
-fn to_mm(internal: i32) -> f64 {
-    let raw = f64::from(internal) * INTERNAL_UNITS_TO_MM;
-    // Round to 6 decimal places (1nm = 0.000001mm) to avoid precision artifacts
-    (raw * 1_000_000.0).round() / 1_000_000.0
-}
+// Unit conversions live in `super::units` so the writer and reader share one
+// definition of the PcbLib scale (10000 = 1 mil = 0.0254 mm).
+use super::units::{to_mm, INTERNAL_UNITS_TO_MM, MM_PER_MIL};
 
 /// Reads a length-prefixed block from data.
 /// Returns the block data and the new offset.
@@ -380,10 +372,10 @@ fn read_string_from_block(block: &[u8]) -> String {
     crate::altium::framing::read_pascal_string(block, 0).0
 }
 
-const ALT_FLAG_UNLOCKED: u16 = 0x0004;
-const ALT_FLAG_TENTING_TOP: u16 = 0x0020;
-const ALT_FLAG_TENTING_BOTTOM: u16 = 0x0040;
-const ALT_FLAG_KEEPOUT: u16 = 0x0200;
+// Flag bits shared with the writer via `super::flags`.
+use super::flags::{
+    ALT_FLAG_KEEPOUT, ALT_FLAG_TENTING_BOTTOM, ALT_FLAG_TENTING_TOP, ALT_FLAG_UNLOCKED,
+};
 
 /// Reads PCB flags from the common header bytes 1-2.
 ///
@@ -1930,7 +1922,7 @@ fn parse_mil_value(s: Option<&str>) -> f64 {
 
     // Remove "mil" suffix if present
     let numeric = s.trim_end_matches("mil").trim();
-    numeric.parse::<f64>().map_or(0.0, |v| v * 0.0254) // Convert mils to mm
+    numeric.parse::<f64>().map_or(0.0, |v| v * MM_PER_MIL) // Convert mils to mm
 }
 
 /// Parses `V7_LAYER` string (e.g., "MECHANICAL6") to Layer enum.
