@@ -543,14 +543,11 @@ def main():
             print(f"  Or place a sample file at: {default_path}")
             sys.exit(1)
     else:
-        script_dir = Path(__file__).parent.resolve()
+        # Local developer CLI: the user names the .PcbLib to analyse (see
+        # scripts/README.md), so there is no allow-list to enforce here — pinning
+        # the input under scripts/ would break the documented usage. Resolve the
+        # path to normalise any ".." or symlink components before use.
         filepath = Path(sys.argv[1]).resolve()
-        try:
-            filepath.relative_to(script_dir)
-        except ValueError:
-            print(f"Error: Path must be within {script_dir}: {filepath}")
-            sys.exit(1)
-
         if not filepath.exists():
             print(f"Error: File not found: {filepath}")
             sys.exit(1)
