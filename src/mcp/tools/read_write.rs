@@ -322,6 +322,16 @@ impl McpServer {
                         .unwrap_or(true);
 
                     if embed {
+                        // The embed source is read from disk at save time
+                        // (prepare_3d_models_for_writing -> std::fs::read), far from
+                        // this handler. Validate it against the allow-list now so a
+                        // caller cannot embed an arbitrary file (e.g. "../../etc/passwd")
+                        // into the library. External references (embed=false) are only
+                        // stored as a string and never read, so they are not gated here.
+                        if let Err(e) = self.validate_path(model_path) {
+                            return ToolCallResult::error(e);
+                        }
+
                         // Embedded model - use Model3D which will read the file on save
                         footprint.model_3d = Some(Model3D {
                             filepath: model_path.to_string(),

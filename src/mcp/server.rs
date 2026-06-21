@@ -1461,6 +1461,82 @@ mod tests {
     }
 
     #[test]
+    fn write_pcblib_rejects_embed_source_outside_allowlist() {
+        // GAP A regression: an embedded step_model.filepath is read from disk at
+        // save time (prepare_3d_models_for_writing -> std::fs::read). A caller
+        // must not be able to embed a file from outside the configured
+        // allow-list (arbitrary file read / exfiltration into the library).
+        let allowed = test_temp_dir();
+        let outside = test_temp_dir(); // a different dir, NOT on the allow-list
+        let secret = outside.path().join("secret.step");
+        std::fs::write(&secret, b"TOP SECRET").expect("write secret");
+
+        let server = create_test_server(allowed.path());
+        let lib_path = allowed.path().join("out.PcbLib");
+        let args = json!({
+            "filepath": lib_path.to_string_lossy(),
+            "footprints": [{
+                "name": "FP1",
+                "pads": [{"designator": "1", "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0}],
+                "step_model": {"filepath": secret.to_string_lossy(), "embed": true}
+            }]
+        });
+
+        let result = server.call_write_pcblib(&args);
+        assert!(
+            result.is_error,
+            "embedding a file outside the allow-list must be rejected"
+        );
+        let msg = get_result_text(&result).to_lowercase();
+        assert!(
+            msg.contains("denied") || msg.contains("outside"),
+            "expected an access-denied error, got: {msg}"
+        );
+        // No library should have been written, and the secret never surfaces.
+        assert!(
+            !lib_path.exists(),
+            "library must not be written on rejection"
+        );
+        assert!(!msg.contains("top secret"));
+    }
+
+    #[test]
+    fn extract_all_step_models_sanitises_malicious_model_name() {
+        // GAP B regression: model.name comes from inside a (caller-supplied)
+        // library. A crafted name must not escape the output directory via
+        // Path::join with ".." or an absolute path.
+        use crate::altium::pcblib::EmbeddedModel;
+
+        let temp = test_temp_dir();
+        let server = create_test_server(temp.path());
+        let out_dir = temp.path().join("out");
+
+        let models_owned = [
+            EmbeddedModel::new("{A}", "../ESCAPED.step", b"DATA".to_vec()),
+            EmbeddedModel::new("{B}", "..", b"DATA".to_vec()),
+        ];
+        let models: Vec<&EmbeddedModel> = models_owned.iter().collect();
+
+        let result =
+            server.extract_all_step_models("lib.PcbLib", Some(&out_dir.to_string_lossy()), &models);
+        assert!(
+            !result.is_error,
+            "extract_all reports per-model errors as partial success, not a hard error"
+        );
+
+        // "../ESCAPED.step" must be reduced to a bare filename inside out_dir,
+        // never written to out_dir's parent; ".." has no file component (skipped).
+        assert!(
+            !temp.path().join("ESCAPED.step").exists(),
+            "model name escaped the output directory"
+        );
+        assert!(
+            out_dir.join("ESCAPED.step").exists(),
+            "sanitised model should be written inside out_dir"
+        );
+    }
+
+    #[test]
     fn write_pcblib_append_mode() {
         let temp = test_temp_dir();
         let lib_path = temp.path().join("append_test.PcbLib");
