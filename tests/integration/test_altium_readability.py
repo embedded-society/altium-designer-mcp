@@ -36,9 +36,8 @@ from mcp_client import McpTestClient, find_binary  # noqa: E402
 # as the corresponding fix makes the check pass (the harness will nag if you
 # forget). Keep this list as the living scoreboard for #68.
 KNOWN_FAILURES = {
-    # PcbLib writer fixes have landed; only the SchLib path remains (next PR).
-    "schlib:no_parser_warnings",
-    "schlib:has_Storage",
+    # Both PcbLib and SchLib writer fixes have landed (#68). The harness is now
+    # fully strict: any failure here is a regression.
 }
 
 WARN_TOKENS = ("Failed", "does not end", "Error", "map value", "Unknown record")

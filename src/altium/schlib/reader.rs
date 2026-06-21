@@ -273,15 +273,18 @@ fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
     let symbol_outside = PinSymbol::from_id(data.get(offset + 3).copied().unwrap_or(0));
     offset += 4;
 
-    // description: [length:1][unknown:1][string]
+    // description: Pascal short string [length:1][string]
     let desc_len = data.get(offset).copied().unwrap_or(0) as usize;
-    offset += 2; // length + unknown byte
+    offset += 1;
     let description = if desc_len > 0 && offset + desc_len <= data.len() {
         String::from_utf8_lossy(&data[offset..offset + desc_len]).to_string()
     } else {
         String::new()
     };
     offset += desc_len;
+
+    // formal_type (1 byte) - unused
+    offset += 1;
 
     // electrical_type (1 byte)
     let electrical_type = data.get(offset).copied().unwrap_or(4);
