@@ -14,8 +14,8 @@
 //! ```
 
 use super::primitives::{
-    Arc, ComponentBody, Fill, Layer, Pad, PadShape, PadStackMode, PcbFlags, Region, StrokeFont,
-    Text, TextKind, Track, Via, ViaStackMode,
+    Arc, ComponentBody, Fill, HoleShape, Layer, Pad, PadShape, PadStackMode, PcbFlags, Region,
+    StrokeFont, Text, TextKind, Track, Via, ViaStackMode,
 };
 use super::Footprint;
 
@@ -426,23 +426,85 @@ fn encode_pad(data: &mut Vec<u8>, pad: &Pad) -> crate::altium::error::AltiumResu
     let geometry = encode_pad_geometry(pad);
     write_block(data, &geometry);
 
-    // Block 5: size/shape (full-stack) data. A simple pad keeps stack mode
-    // Simple and writes an EMPTY block; RoundedRectangle is conveyed by shape
-    // id 9 in the main block. Only genuine per-layer data populates Block 5.
+    // Block 5: the size/shape block. Three cases:
+    //  - genuine per-layer (full-stack) data  -> legacy per-layer block;
+    //  - a non-round hole or an explicit corner radius on a simple pad
+    //    -> the canonical 596-byte size/shape block (carries hole type @262 and
+    //       the rounded-rect corner radius @564, which the main block cannot);
+    //  - otherwise (plain simple pad) -> EMPTY block (matches Altium).
     let needs_per_layer_data = pad.stack_mode != PadStackMode::Simple
         || pad.per_layer_sizes.is_some()
         || pad.per_layer_shapes.is_some()
         || pad.per_layer_corner_radii.is_some()
         || pad.per_layer_offsets.is_some();
+    let needs_size_shape =
+        pad.hole_shape != HoleShape::Round || pad.corner_radius_percent.is_some();
 
     if needs_per_layer_data {
-        let per_layer_data = encode_pad_per_layer_data(pad);
-        write_block(data, &per_layer_data);
+        write_block(data, &encode_pad_per_layer_data(pad));
+    } else if needs_size_shape {
+        write_block(data, &encode_pad_size_shape_block(pad));
     } else {
         write_block(data, &[]);
     }
 
     Ok(())
+}
+
+/// Converts our `HoleShape` enum to the Altium hole-type id.
+const fn hole_shape_to_id(shape: HoleShape) -> u8 {
+    match shape {
+        HoleShape::Round => 0,
+        HoleShape::Square => 1,
+        HoleShape::Slot => 2,
+    }
+}
+
+/// Encodes the canonical 596-byte pad size/shape block (Block 5) for a simple
+/// pad that needs a non-round hole or an explicit corner radius. Layout matches
+/// `AltiumSharp` `WritePad` (values uniform across layers); the reader pairs
+/// with this via [`super::reader`] when the block is >= 596 bytes.
+fn encode_pad_size_shape_block(pad: &Pad) -> Vec<u8> {
+    let mut b = Vec::with_capacity(596);
+    let w = from_mm(pad.width);
+    let h = from_mm(pad.height);
+    let shape_id = pad_shape_to_id(pad.shape);
+    let radius = pad
+        .corner_radius_percent
+        .unwrap_or(if pad.shape == PadShape::RoundedRectangle {
+            50
+        } else {
+            0
+        });
+
+    for _ in 0..29 {
+        write_i32(&mut b, w); // 0-115: internal-layer X sizes
+    }
+    for _ in 0..29 {
+        write_i32(&mut b, h); // 116-231: internal-layer Y sizes
+    }
+    for _ in 0..29 {
+        b.push(shape_id); // 232-260: internal-layer shapes
+    }
+    b.push(0); // 261: reserved
+    b.push(hole_shape_to_id(pad.hole_shape)); // 262: hole type
+    write_i32(&mut b, 0); // 263-266: hole slot length (not modelled)
+    write_f64(&mut b, 0.0); // 267-274: hole rotation
+    for _ in 0..32 {
+        write_i32(&mut b, 0); // 275-402: per-layer X offsets
+    }
+    for _ in 0..32 {
+        write_i32(&mut b, 0); // 403-530: per-layer Y offsets
+    }
+    b.push(u8::from(pad.shape == PadShape::RoundedRectangle)); // 531: has-rounded-rect
+    for _ in 0..32 {
+        b.push(shape_id); // 532-563: per-layer shapes
+    }
+    for _ in 0..32 {
+        b.push(radius); // 564-595: per-layer corner radii (%)
+    }
+    debug_assert_eq!(b.len(), 596);
+    b
 }
 
 /// Total length of the pad main geometry block (`SubRecord-5`) in a `PcbLib`:

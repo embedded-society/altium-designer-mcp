@@ -2265,17 +2265,12 @@ mod tests {
 
         assert_eq!(decoded.pads.len(), 3);
 
-        // Mask expansion (main-block fields) round-trips for every pad.
-        //
-        // NOTE: non-round hole SHAPES (Square/Slot) live in the 596-byte
-        // size/shape block at offset 262, which simple from-scratch pads do not
-        // emit, so hole_shape currently reads back as Round. (The old writer put
-        // it at main-block offset 61, which Altium treats as reserved, so it
-        // never actually reached Altium either.) Full hole-shape support is a
-        // follow-up; see the size/shape-block work.
+        // Non-round hole shapes now round-trip via the 596-byte size/shape block
+        // (hole type at offset 262), alongside the main-block mask-expansion.
 
-        // Pad 1: solder mask expansion
+        // Pad 1: Square hole + solder mask expansion
         assert_eq!(decoded.pads[0].designator, "1");
+        assert_eq!(decoded.pads[0].hole_shape, HoleShape::Square);
         assert!(decoded.pads[0].solder_mask_expansion.is_some());
         assert!(approx_eq(
             decoded.pads[0].solder_mask_expansion.unwrap(),
@@ -2284,8 +2279,9 @@ mod tests {
         ));
         assert!(decoded.pads[0].solder_mask_expansion_manual);
 
-        // Pad 2: paste mask expansion
+        // Pad 2: Slot hole + paste mask expansion
         assert_eq!(decoded.pads[1].designator, "2");
+        assert_eq!(decoded.pads[1].hole_shape, HoleShape::Slot);
         assert!(decoded.pads[1].paste_mask_expansion.is_some());
         assert!(approx_eq(
             decoded.pads[1].paste_mask_expansion.unwrap(),
@@ -2294,7 +2290,7 @@ mod tests {
         ));
         assert!(decoded.pads[1].paste_mask_expansion_manual);
 
-        // Pad 3: Default round hole
+        // Pad 3: Default round hole (empty Block 5)
         assert_eq!(decoded.pads[2].designator, "3");
         assert_eq!(decoded.pads[2].hole_shape, HoleShape::Round);
     }
@@ -2344,11 +2340,11 @@ mod tests {
         pad_with_radius.stack_mode = PadStackMode::FullStack;
         original.add_pad(pad_with_radius);
 
-        // Default RoundedRectangle SMD pad: stays a Simple pad (shape id 9, empty
-        // size/shape block). Altium applies its default corner radius on display;
-        // we do not store one. Precise corner radius requires FullStack (above).
-        let pad_default_radius = Pad::smd("2", 2.54, 0.0, 1.5, 0.8);
-        original.add_pad(pad_default_radius);
+        // Simple SMD pad with an EXPLICIT corner radius: now round-trips via the
+        // 596-byte size/shape block (no FullStack needed).
+        let mut pad_simple_radius = Pad::smd("2", 2.54, 0.0, 1.5, 0.8);
+        pad_simple_radius.corner_radius_percent = Some(30);
+        original.add_pad(pad_simple_radius);
 
         // Rectangle pad (no corner radius needed)
         let mut pad_no_radius = Pad::smd("3", 5.08, 0.0, 1.5, 0.8);
@@ -2365,11 +2361,10 @@ mod tests {
         assert_eq!(decoded.pads[0].corner_radius_percent, Some(25));
         assert_eq!(decoded.pads[0].stack_mode, PadStackMode::FullStack);
 
-        // Default RoundedRectangle SMD pad stays Simple with no stored radius;
-        // the shape itself still round-trips (shape id 9).
-        assert_eq!(decoded.pads[1].shape, PadShape::RoundedRectangle);
-        assert_eq!(decoded.pads[1].corner_radius_percent, None);
+        // Simple pad's explicit corner radius round-trips without FullStack.
+        assert_eq!(decoded.pads[1].corner_radius_percent, Some(30));
         assert_eq!(decoded.pads[1].stack_mode, PadStackMode::Simple);
+        assert_eq!(decoded.pads[1].shape, PadShape::RoundedRectangle);
 
         // Rectangle pad has no corner radius
         assert_eq!(decoded.pads[2].corner_radius_percent, None);

@@ -924,12 +924,12 @@ fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
         0.0
     };
 
-    // Hole shape - offset 61
-    let hole_shape = if geometry.len() > 61 {
-        hole_shape_from_id(geometry[61])
-    } else {
-        HoleShape::Round
-    };
+    // Hole shape comes from the 596-byte size/shape block (offset 262) when
+    // present; a plain simple pad (empty Block 5) has a round hole. Main-block
+    // offset 61 is reserved in Altium's layout, so it is not used here.
+    let hole_shape = per_layer_data
+        .filter(|d| d.len() >= 596)
+        .map_or(HoleShape::Round, |d| hole_shape_from_id(d[262]));
 
     // Stack mode - offset 62
     let stack_mode = if geometry.len() > 62 {
@@ -976,18 +976,17 @@ fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
         per_layer_corner_radii,
         per_layer_offsets,
     ) = if stack_mode == PadStackMode::Simple {
-        // For Simple mode, extract corner radius if available (backwards compatibility)
+        // Corner radius from the size/shape block: offset 564 in the canonical
+        // 596-byte layout, or offset 288 in the legacy block (back-compat).
         let corner_radius = per_layer_data.and_then(|data| {
-            if data.len() > 288 {
-                let radius = data[288];
-                if radius > 0 && radius <= 100 {
-                    Some(radius)
-                } else {
-                    None
-                }
+            let radius = if data.len() >= 596 {
+                data[564]
+            } else if data.len() > 288 {
+                data[288]
             } else {
-                None
-            }
+                return None;
+            };
+            (radius > 0 && radius <= 100).then_some(radius)
         });
         (corner_radius, None, None, None, None)
     } else {
