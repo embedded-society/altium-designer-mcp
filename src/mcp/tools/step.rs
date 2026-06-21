@@ -325,9 +325,14 @@ impl McpServer {
         // From model_3d reference (if it points to an embedded model)
         if let Some(ref m3d) = footprint.model_3d {
             if !m3d.filepath.is_empty() {
-                // Try to match by name
+                // Match by filename: m3d.filepath may carry path components,
+                // whereas the embedded model name is a bare filename.
+                let m3d_name = std::path::Path::new(&m3d.filepath)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or(m3d.filepath.as_str());
                 for model in models {
-                    if model.name.eq_ignore_ascii_case(&m3d.filepath) {
+                    if model.name.eq_ignore_ascii_case(m3d_name) {
                         model_ids.insert(model.id.to_lowercase());
                     }
                 }
