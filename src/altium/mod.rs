@@ -60,6 +60,14 @@ const SUFFIX_LEN: usize = 4;
 /// A safe OLE name (≤31 chars) that doesn't collide with existing names.
 #[must_use]
 pub fn generate_ole_name<S: BuildHasher>(name: &str, used_names: &HashSet<String, S>) -> String {
+    // OLE/CFB storage names cannot contain the path separator '/'; a component
+    // named e.g. "A/B" would otherwise make the storage-creation call fail.
+    // Altium sanitises it to '_' before creating the component storage, so a
+    // component whose name carries a slash still saves. Apply it up front so
+    // both the short-name and truncated paths use the sanitised form.
+    let sanitized = name.replace('/', "_");
+    let name = sanitized.as_str();
+
     if name.len() <= MAX_OLE_NAME_LEN && !used_names.contains(name) {
         return name.to_string();
     }

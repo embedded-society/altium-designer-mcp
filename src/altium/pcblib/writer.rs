@@ -69,7 +69,7 @@ fn write_string_block(
             name: field_name.to_string(),
             message: format!(
                 "String '{}...' length {} exceeds maximum of 255 bytes",
-                &s[..s.len().min(20)],
+                s.chars().take(20).collect::<String>(),
                 bytes.len()
             ),
         });
@@ -754,6 +754,15 @@ fn encode_track(data: &mut Vec<u8>, track: &Track) {
     // Width - offset 29-32
     write_i32(&mut block, from_mm(track.width));
 
+    // Extended tail (offsets 33-48) — every Altium-authored track carries it.
+    // Ported from `AltiumSharp` `WriteTrack`.
+    block.extend_from_slice(&0i16.to_le_bytes()); // 33-34 subpoly index
+    write_i32(&mut block, 0); // 35-38 solder mask expansion
+    block.extend_from_slice(&0i16.to_le_bytes()); // 39-40 paste mask expansion
+    write_u32(&mut block, v7_layer_id(layer_to_id(track.layer))); // 41-44 v7 layer id
+    block.push(0); // 45 keepout restrictions
+    block.extend_from_slice(&[0u8; 3]); // 46-48 reserved
+
     write_block(data, &block);
 }
 
@@ -777,6 +786,16 @@ fn encode_arc(data: &mut Vec<u8>, arc: &Arc) {
 
     // Width - offset 41-44
     write_i32(&mut block, from_mm(arc.width));
+
+    // Extended tail (offsets 45-59) — every Altium-authored arc carries it.
+    // Ported from `AltiumSharp` `WriteArc` (note: 1-byte paste-mask field,
+    // versus the track's 2-byte field).
+    block.extend_from_slice(&0i16.to_le_bytes()); // 45-46 subpoly index
+    write_i32(&mut block, 0); // 47-50 solder mask expansion
+    block.push(0); // 51 paste mask expansion
+    write_u32(&mut block, v7_layer_id(layer_to_id(arc.layer))); // 52-55 v7 layer id
+    block.push(0); // 56 keepout restrictions
+    block.extend_from_slice(&[0u8; 3]); // 57-59 reserved
 
     write_block(data, &block);
 }

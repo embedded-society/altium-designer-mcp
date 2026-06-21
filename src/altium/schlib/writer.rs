@@ -273,7 +273,7 @@ fn encode_rectangle(rect: &Rectangle, index: usize) -> String {
 /// Encodes a line record.
 fn encode_line(line: &Line, index: usize) -> String {
     format!(
-        "|RECORD=13|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Corner.X={}|Corner.Y={}|LineWidth={}|Color={}|UniqueID={}",
+        "|RECORD=13|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T|Location.X={}|Location.Y={}|Corner.X={}|Corner.Y={}|LineWidth={}|Color={}|UniqueID={}",
         index,
         line.owner_part_id,
         line.x1,
@@ -487,7 +487,7 @@ fn encode_label(label: &Label, index: usize) -> String {
     let is_mirrored = if label.is_mirrored { "T" } else { "F" };
     let is_hidden = if label.is_hidden { "T" } else { "F" };
     format!(
-        "|RECORD=4|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Color={}|FontID={}|Orientation={}|Justification={}|IsMirrored={}|IsHidden={}|Text={}|UniqueID={}",
+        "|RECORD=4|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T|Location.X={}|Location.Y={}|Color={}|FontID={}|Orientation={}|Justification={}|IsMirrored={}|IsHidden={}|Text={}|UniqueID={}",
         index,
         label.owner_part_id,
         label.x,
@@ -511,7 +511,7 @@ fn encode_text(text: &Text, index: usize) -> String {
     let is_mirrored = if text.is_mirrored { "T" } else { "F" };
     let is_hidden = if text.is_hidden { "T" } else { "F" };
     format!(
-        "|RECORD=3|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Color={}|FontID={}|Orientation={}|Justification={}|IsMirrored={}|IsHidden={}|Text={}|UniqueID={}",
+        "|RECORD=4|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T|Location.X={}|Location.Y={}|Color={}|FontID={}|Orientation={}|Justification={}|IsMirrored={}|IsHidden={}|Text={}|UniqueID={}",
         index,
         text.owner_part_id,
         text.x,
@@ -588,6 +588,9 @@ pub fn encode_data_stream(symbol: &Symbol) -> crate::altium::error::AltiumResult
     // 3. Pins (binary format)
     for pin in &symbol.pins {
         write_binary_pin(&mut data, pin)?;
+        // Pins occupy an ordinal slot too; advance so later records' IndexInSheet
+        // values match Altium's primitive numbering.
+        index_counter += 1;
     }
 
     // 4. Rectangles
