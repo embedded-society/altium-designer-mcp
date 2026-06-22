@@ -129,13 +129,27 @@ impl McpServer {
             }
         }
 
-        // Parse text
-        if let Some(texts) = fp_json.get("texts").and_then(Value::as_array) {
+        // Parse text. Accept both "text" (the create-path key) and the legacy
+        // "texts" so reusing the create schema for an update no longer silently
+        // drops text primitives.
+        if let Some(texts) = fp_json
+            .get("text")
+            .or_else(|| fp_json.get("texts"))
+            .and_then(Value::as_array)
+        {
             for text_json in texts {
                 if let Some(text) = Self::parse_text(text_json) {
                     footprint.add_text(text);
                 }
             }
+        }
+
+        // Reject out-of-range / non-finite geometry before it can saturate in
+        // from_mm() on save. The create path validates here; this path skipped
+        // it (parallels the #102 update_pad/update_primitive bug). Runs in
+        // dry-run too so previews report the error.
+        if let Err(e) = Self::validate_footprint_coordinates(&footprint) {
+            return ToolCallResult::error(e);
         }
 
         // Get the old component for comparison
@@ -368,6 +382,12 @@ impl McpServer {
                     symbol.parameters.push(param);
                 }
             }
+        }
+
+        // Reject out-of-range geometry before save (the create path validates
+        // here; this path skipped it entirely). Runs in dry-run too.
+        if let Err(e) = Self::validate_symbol_coordinates(&symbol) {
+            return ToolCallResult::error(e);
         }
 
         // Get the old component for comparison
