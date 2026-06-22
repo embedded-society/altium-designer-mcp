@@ -99,6 +99,8 @@ def _generate(binary, out_dir):
                 {"designator": "1", "x": -0.5, "y": 0.0, "width": 0.6, "height": 0.5},
                 {"designator": "2", "x": 0.5, "y": 0.0, "width": 0.6, "height": 0.5},
             ],
+            # Via exercises the single-block via record (issue #113).
+            "vias": [{"x": 0.0, "y": -0.8, "diameter": 0.6, "hole_size": 0.3}],
             "tracks": [{"x1": -1, "y1": 0.5, "x2": 1, "y2": 0.5,
                         "width": 0.1, "layer": "Top Overlay"}],
             "arcs": [{"x": 0, "y": 0, "radius": 0.3, "start_angle": 0,

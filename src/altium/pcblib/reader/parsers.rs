@@ -364,142 +364,61 @@ const fn pad_stack_mode_from_id(id: u8) -> PadStackMode {
 /// - Block 3: Net/connectivity data
 /// - Block 4: Geometry data
 /// - Block 5: Per-layer data
-#[allow(clippy::too_many_lines)]
 pub(super) fn parse_via(data: &[u8], offset: usize) -> ParseResult<Via> {
-    let mut current = offset;
+    // Altium writes a via as a single block: the 13-byte common header followed
+    // by the 321-byte via SubRecord-1 (offsets 13-320). Mirror of `encode_via`
+    // (#113); the old reader expected six pad-style blocks.
+    let (block, next) = read_block(data, offset)
+        .ok_or_else(|| AltiumError::parse_error(offset, "failed to read Via block"))?;
 
-    // Block 0: Name/designator (typically empty for vias)
-    let (_, next) = read_block(data, current)
-        .ok_or_else(|| AltiumError::parse_error(offset, "failed to read Via block 0 (name)"))?;
-    current = next;
-
-    // Block 1: Layer stack data (skip)
-    let (_, next) = read_block(data, current).ok_or_else(|| {
-        AltiumError::parse_error(current, "failed to read Via block 1 (layer stack)")
-    })?;
-    current = next;
-
-    // Block 2: Marker string ("|&|0")
-    let (_, next) = read_block(data, current)
-        .ok_or_else(|| AltiumError::parse_error(current, "failed to read Via block 2 (marker)"))?;
-    current = next;
-
-    // Block 3: Net/connectivity data (skip)
-    let (_, next) = read_block(data, current).ok_or_else(|| {
-        AltiumError::parse_error(current, "failed to read Via block 3 (net data)")
-    })?;
-    current = next;
-
-    // Block 4: Geometry data
-    let (geometry, next) = read_block(data, current).ok_or_else(|| {
-        AltiumError::parse_error(current, "failed to read Via block 4 (geometry)")
-    })?;
-    current = next;
-
-    // Block 5: Per-layer data (optional)
-    if let Some((_, next)) = read_block(data, current) {
-        current = next;
-    }
-
-    // Parse geometry block
-    // Minimum size: 13 (header) + 4 (x) + 4 (y) + 4 (diameter) + 4 (hole) + 2 (layers) = 31 bytes
-    if geometry.len() < 31 {
+    if block.len() < 31 {
         return Err(AltiumError::parse_error(
             offset,
             format!(
-                "Via geometry block too short: {} bytes, expected at least 31",
-                geometry.len()
+                "Via block too short: {} bytes, expected at least 31",
+                block.len()
             ),
         ));
     }
 
-    // Common header (13 bytes) - layer ID at offset 0
-    // Note: Via layer is typically MultiLayer (74), but we read from/to layers separately
-
-    // Location (X, Y) - offsets 13-20
-    let x =
-        to_mm(read_i32(geometry, 13).ok_or_else(|| {
-            AltiumError::parse_error(offset + 13, "failed to read Via x coordinate")
-        })?);
-    let y =
-        to_mm(read_i32(geometry, 17).ok_or_else(|| {
-            AltiumError::parse_error(offset + 17, "failed to read Via y coordinate")
-        })?);
-
-    // Diameter - offset 21
+    let x = to_mm(
+        read_i32(block, 13)
+            .ok_or_else(|| AltiumError::parse_error(offset + 13, "failed to read Via x"))?,
+    );
+    let y = to_mm(
+        read_i32(block, 17)
+            .ok_or_else(|| AltiumError::parse_error(offset + 17, "failed to read Via y"))?,
+    );
     let diameter = to_mm(
-        read_i32(geometry, 21)
+        read_i32(block, 21)
             .ok_or_else(|| AltiumError::parse_error(offset + 21, "failed to read Via diameter"))?,
     );
-
-    // Hole size - offset 25
     let hole_size =
-        to_mm(read_i32(geometry, 25).ok_or_else(|| {
+        to_mm(read_i32(block, 25).ok_or_else(|| {
             AltiumError::parse_error(offset + 25, "failed to read Via hole size")
         })?);
+    let from_layer = layer_from_id(block[29]);
+    let to_layer = layer_from_id(block[30]);
 
-    // From/To layers - offsets 29-30
-    let from_layer = if geometry.len() > 29 {
-        layer_from_id(geometry[29])
-    } else {
-        Layer::TopLayer
-    };
+    // Extended SubRecord-1 fields (offsets 32-74). A short block falls back to
+    // the same defaults the Via struct uses.
+    let thermal_relief_gap = read_i32(block, 32).map_or(0.254, to_mm);
+    let thermal_relief_conductors = block.get(36).copied().unwrap_or(4);
+    let thermal_relief_width = read_i32(block, 38).map_or(0.254, to_mm);
+    let solder_mask_expansion = read_i32(block, 54).map_or(0.0, to_mm);
+    let solder_mask_expansion_manual = block.get(66).is_some_and(|&b| b != 0);
+    let diameter_stack_mode = block
+        .get(74)
+        .map_or(ViaStackMode::Simple, |&b| via_stack_mode_from_id(b));
 
-    let to_layer = if geometry.len() > 30 {
-        layer_from_id(geometry[30])
-    } else {
-        Layer::BottomLayer
-    };
-
-    // Thermal relief settings - offsets 31-39
-    let thermal_relief_gap = if geometry.len() > 34 {
-        to_mm(read_i32(geometry, 31).unwrap_or(2540)) // Default: 10 mils = 2540 internal units
-    } else {
-        0.254 // Default: 10 mils
-    };
-
-    let thermal_relief_conductors = if geometry.len() > 35 {
-        geometry[35]
-    } else {
-        4 // Default: 4 conductors
-    };
-
-    let thermal_relief_width = if geometry.len() > 39 {
-        to_mm(read_i32(geometry, 36).unwrap_or(2540)) // Default: 10 mils = 2540 internal units
-    } else {
-        0.254 // Default: 10 mils
-    };
-
-    // Solder mask expansion - offset 40
-    let solder_mask_expansion = if geometry.len() > 43 {
-        to_mm(read_i32(geometry, 40).unwrap_or(0))
-    } else {
-        0.0
-    };
-
-    // Solder mask expansion manual flag - offset 44
-    let solder_mask_expansion_manual = geometry.len() > 44 && geometry[44] != 0;
-
-    // Diameter stack mode - offset 45
-    let diameter_stack_mode = if geometry.len() > 45 {
-        via_stack_mode_from_id(geometry[45])
-    } else {
-        ViaStackMode::Simple
-    };
-
-    // Per-layer diameters - offset 46+ (32 × 4 bytes = 128 bytes)
+    // Per-layer diameters: 32 x i32 from offset 75, only for a non-simple stack.
     let per_layer_diameters =
-        if diameter_stack_mode != ViaStackMode::Simple && geometry.len() > 45 + 128 {
-            let mut diameters = Vec::with_capacity(32);
-            for i in 0..32 {
-                let layer_offset = 46 + (i * 4);
-                if let Some(val) = read_i32(geometry, layer_offset) {
-                    diameters.push(to_mm(val));
-                } else {
-                    diameters.push(diameter); // Fallback to main diameter
-                }
-            }
-            Some(diameters)
+        if diameter_stack_mode != ViaStackMode::Simple && block.len() >= 75 + 32 * 4 {
+            Some(
+                (0..32)
+                    .map(|i| read_i32(block, 75 + i * 4).map_or(diameter, to_mm))
+                    .collect(),
+            )
         } else {
             None
         };
@@ -521,7 +440,7 @@ pub(super) fn parse_via(data: &[u8], offset: usize) -> ParseResult<Via> {
         unique_id: None,
     };
 
-    Ok((via, current))
+    Ok((via, next))
 }
 
 /// Converts a via stack mode ID to `ViaStackMode`.
