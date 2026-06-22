@@ -172,8 +172,12 @@ impl McpServer {
         // Helper to convert coordinates
         let to_canvas = |x: f64, y: f64| -> (usize, usize) {
             let cx = ((x - min_x) * actual_scale_x).round() as usize;
-            let cy =
-                canvas_height.saturating_sub(1) - ((y - min_y) * actual_scale_y).round() as usize;
+            // Clamp the scaled offset before subtracting: a point outside the
+            // bounding box (e.g. the origin crosshair) would otherwise underflow
+            // — a panic in debug builds — instead of clamping to the edge.
+            let dy = (((y - min_y) * actual_scale_y).round() as usize)
+                .min(canvas_height.saturating_sub(1));
+            let cy = canvas_height.saturating_sub(1) - dy;
             (cx.min(canvas_width - 1), cy.min(canvas_height - 1))
         };
 
@@ -527,8 +531,11 @@ impl McpServer {
         // Helper to convert schematic coordinates to canvas coordinates
         let to_canvas = |x: i32, y: i32| -> (usize, usize) {
             let cx = (f64::from(x - min_x) * actual_scale_x).round() as usize;
-            let cy = canvas_height.saturating_sub(1)
-                - (f64::from(y - min_y) * actual_scale_y).round() as usize;
+            // Clamp before subtracting so an out-of-bbox point (e.g. the origin
+            // crosshair) clamps to the edge instead of underflowing (debug panic).
+            let dy = ((f64::from(y - min_y) * actual_scale_y).round() as usize)
+                .min(canvas_height.saturating_sub(1));
+            let cy = canvas_height.saturating_sub(1) - dy;
             (cx.min(canvas_width - 1), cy.min(canvas_height - 1))
         };
 
