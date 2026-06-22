@@ -120,7 +120,10 @@ impl McpServer {
 
     /// Validates that a `SchLib` coordinate is within the safe range for i16.
     pub(crate) fn validate_schlib_coordinate(value: i32, field_name: &str) -> Result<(), String> {
-        if value.abs() > Self::MAX_SCHLIB_COORDINATE {
+        // Direct bound check, not `value.abs()`: `i32::MIN.abs()` overflows
+        // (panics in debug, wraps negative in release — silently passing the
+        // check), so a crafted coordinate could panic or bypass validation.
+        if !(-Self::MAX_SCHLIB_COORDINATE..=Self::MAX_SCHLIB_COORDINATE).contains(&value) {
             return Err(format!(
                 "{field_name} value {value} exceeds the maximum safe range of ±{} units",
                 Self::MAX_SCHLIB_COORDINATE
