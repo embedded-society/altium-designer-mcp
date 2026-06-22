@@ -279,7 +279,7 @@ pub fn encode_data_stream(footprint: &Footprint) -> crate::altium::error::Altium
 
     for via in &footprint.vias {
         data.push(0x03); // Via record type
-        encode_via(&mut data, via)?;
+        encode_via(&mut data, via);
     }
 
     for track in &footprint.tracks {
@@ -620,119 +620,83 @@ fn encode_pad_geometry(pad: &Pad) -> Vec<u8> {
     block
 }
 
-/// Encodes a Via primitive.
+/// Canonical 321-byte via `SubRecord-1` (offsets 0-320) captured from a standard
+/// Altium via. [`encode_via`] clones it and overlays the typed fields we model;
+/// the reserved/cache/identity regions keep their template defaults so the via
+/// stays Altium-readable (matches `PcbLibWriter.BuildViaExtended`).
+const VIA_SR1_TEMPLATE: [u8; 321] = [
+    0x4A, 0x0C, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0x93, 0x04, 0x00, 0xF0, 0x49, 0x02, 0x00, 0x02, 0x20, 0x00,
+    0xA0, 0x86, 0x01, 0x00, 0x04, 0x00, 0xA0, 0x86, 0x01, 0x00, 0x40, 0x0D, 0x03, 0x00, 0x40, 0x0D,
+    0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x9C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0x93, 0x04, 0x00, 0xE0,
+    0x93, 0x04, 0x00, 0xE0, 0x93, 0x04, 0x00, 0xE0, 0x93, 0x04, 0x00, 0xE0, 0x93, 0x04, 0x00, 0xE0,
+    0x93, 0x04, 0x00, 0xE0, 0x93, 0x04, 0x00, 0xE0, 0x93, 0x04, 0x00, 0xE0, 0x93, 0x04, 0x00, 0xE0,
+    0x93, 0x04, 0x00, 0xE0, 0x93, 0x04, 0x00, 0xE0, 0x93, 0x04, 0x00, 0xE0, 0x93, 0x04, 0x00, 0xE0,
+    0x93, 0x04, 0x00, 0xE0, 0x93, 0x04, 0x00, 0xE0, 0x93, 0x04, 0x00, 0xE0, 0x93, 0x04, 0x00, 0xE0,
+    0x93, 0x04, 0x00, 0xE0, 0x93, 0x04, 0x00, 0xE0, 0x93, 0x04, 0x00, 0xE0, 0x93, 0x04, 0x00, 0xE0,
+    0x93, 0x04, 0x00, 0xE0, 0x93, 0x04, 0x00, 0xE0, 0x93, 0x04, 0x00, 0xE0, 0x93, 0x04, 0x00, 0xE0,
+    0x93, 0x04, 0x00, 0xE0, 0x93, 0x04, 0x00, 0xE0, 0x93, 0x04, 0x00, 0xE0, 0x93, 0x04, 0x00, 0xE0,
+    0x93, 0x04, 0x00, 0xE0, 0x93, 0x04, 0x00, 0xE0, 0x93, 0x04, 0x00, 0x0F, 0x00, 0x03, 0x01, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x40, 0x9C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2A, 0x00,
+    0x00, 0x00, 0x00, 0x80, 0x63, 0xD4, 0xE4, 0x65, 0xC4, 0xF4, 0x4E, 0x8B, 0xAD, 0xA7, 0xCE, 0x97,
+    0xDC, 0x40, 0xDA, 0xA5, 0xB1, 0xE3, 0xB2, 0x84, 0x25, 0x11, 0x43, 0x83, 0xDB, 0x2B, 0x6A, 0x87,
+    0x7C, 0xB1, 0x74, 0xFF, 0xFF, 0xFF, 0x7F, 0xFF, 0xFF, 0xFF, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x1E, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x01,
+];
+
+/// Encodes a Via primitive as Altium's single-block via record.
 ///
-/// Via has 6 blocks (similar to Pad):
-/// - Block 0: Name/designator (empty for vias)
-/// - Block 1: Layer stack data (empty)
-/// - Block 2: Marker string ("|&|0")
-/// - Block 3: Net/connectivity data (empty)
-/// - Block 4: Geometry data
-/// - Block 5: Per-layer data (empty for simple vias)
-fn encode_via(data: &mut Vec<u8>, via: &Via) -> crate::altium::error::AltiumResult<()> {
-    // Block 0: Name/designator (empty for vias)
-    write_block(data, &[0u8; 1]); // Single null byte for empty string
+/// Altium writes a via as **one** block: the 13-byte common header (offsets
+/// 0-12) followed by the 321-byte via `SubRecord-1` (offsets 13-320) — see
+/// [`VIA_SR1_TEMPLATE`]. Our previous 6-block layout (copied from the pad
+/// encoder) was misread by Altium; this matches `PcbLibWriter.WriteVia` (#113).
+fn encode_via(data: &mut Vec<u8>, via: &Via) {
+    let mut block = VIA_SR1_TEMPLATE;
 
-    // Block 1: Layer stack data (empty)
-    write_block(data, &[]);
+    // Common header (offsets 0-12): MultiLayer + default (saved + unlocked) flags.
+    let mut header = Vec::with_capacity(13);
+    write_common_header(&mut header, Layer::MultiLayer, PcbFlags::empty());
+    block[0..13].copy_from_slice(&header);
 
-    // Block 2: "|&|0" marker string
-    write_string_block(data, "|&|0", "via.marker")?;
+    // Geometry (offsets 13-30).
+    block[13..17].copy_from_slice(&from_mm(via.x).to_le_bytes());
+    block[17..21].copy_from_slice(&from_mm(via.y).to_le_bytes());
+    block[21..25].copy_from_slice(&from_mm(via.diameter).to_le_bytes());
+    block[25..29].copy_from_slice(&from_mm(via.hole_size).to_le_bytes());
+    block[29] = layer_to_id(via.from_layer);
+    block[30] = layer_to_id(via.to_layer);
 
-    // Block 3: Net/connectivity data (empty for library vias)
-    write_block(data, &[]);
+    // Thermal relief (air gap @32, conductor count @36, conductor width @38).
+    block[32..36].copy_from_slice(&from_mm(via.thermal_relief_gap).to_le_bytes());
+    block[36] = via.thermal_relief_conductors;
+    block[38..42].copy_from_slice(&from_mm(via.thermal_relief_width).to_le_bytes());
 
-    // Block 4: Geometry data
-    let geometry = encode_via_geometry(via);
-    write_block(data, &geometry);
+    // Solder mask expansion @54, its mode @66, diameter stack mode @74.
+    block[54..58].copy_from_slice(&from_mm(via.solder_mask_expansion).to_le_bytes());
+    block[66] = u8::from(via.solder_mask_expansion_manual);
+    block[74] = via_stack_mode_to_id(via.diameter_stack_mode);
 
-    // Block 5: Per-layer data (empty for simple vias)
-    write_block(data, &[]);
-
-    Ok(())
-}
-
-/// Encodes the geometry block for a via.
-///
-/// # Format
-///
-/// ```text
-/// [layer:1]                 // Layer ID (typically MultiLayer = 74)
-/// [flags:12]                // Flags and padding
-/// [x:4 i32]                 // X position
-/// [y:4 i32]                 // Y position
-/// [diameter:4 i32]          // Via diameter
-/// [hole_size:4 i32]         // Hole diameter
-/// [from_layer:1]            // Starting layer ID
-/// [to_layer:1]              // Ending layer ID
-/// [thermal_gap:4 i32]       // Thermal relief air gap width
-/// [thermal_count:1]         // Thermal relief conductors count
-/// [thermal_width:4 i32]     // Thermal relief conductors width
-/// [solder_expansion:4 i32]  // Solder mask expansion
-/// [solder_manual:1]         // Solder mask expansion manual flag
-/// [stack_mode:1]            // Diameter stack mode (0 = Simple)
-/// ```
-fn encode_via_geometry(via: &Via) -> Vec<u8> {
-    let mut block = Vec::with_capacity(256); // Larger for potential per-layer data
-
-    // Common header (13 bytes) - use MultiLayer for vias
-    // Note: Via primitive doesn't have flags field (different binary structure)
-    write_common_header(&mut block, Layer::MultiLayer, PcbFlags::empty());
-
-    // Location (X, Y) - offsets 13-20
-    write_i32(&mut block, from_mm(via.x));
-    write_i32(&mut block, from_mm(via.y));
-
-    // Diameter - offset 21
-    write_i32(&mut block, from_mm(via.diameter));
-
-    // Hole size - offset 25
-    write_i32(&mut block, from_mm(via.hole_size));
-
-    // From/To layers - offsets 29-30
-    block.push(layer_to_id(via.from_layer));
-    block.push(layer_to_id(via.to_layer));
-
-    // Thermal relief air gap width - offset 31
-    write_i32(&mut block, from_mm(via.thermal_relief_gap));
-
-    // Thermal relief conductors count - offset 35
-    block.push(via.thermal_relief_conductors);
-
-    // Thermal relief conductors width - offset 36
-    write_i32(&mut block, from_mm(via.thermal_relief_width));
-
-    // Solder mask expansion - offset 40
-    write_i32(&mut block, from_mm(via.solder_mask_expansion));
-
-    // Solder mask expansion manual flag - offset 44
-    block.push(u8::from(via.solder_mask_expansion_manual));
-
-    // Diameter stack mode - offset 45
-    block.push(via_stack_mode_to_id(via.diameter_stack_mode));
-
-    // Per-layer diameters - offset 46+ (32 × 4 bytes = 128 bytes)
-    // Only write if stack mode is not Simple
-    if via.diameter_stack_mode != ViaStackMode::Simple {
-        if let Some(ref diameters) = via.per_layer_diameters {
-            for i in 0..32 {
-                let diameter = diameters.get(i).copied().unwrap_or(via.diameter);
-                write_i32(&mut block, from_mm(diameter));
-            }
+    // Per-layer diameters: 32 x i32 from offset 75. A real stack uses the
+    // per-layer array; a simple via repeats its diameter on every layer so it
+    // never reads back as zero-diameter per layer.
+    for i in 0..32 {
+        let d = if via.diameter_stack_mode == ViaStackMode::Simple {
+            via.diameter
         } else {
-            // No per-layer data provided, use main diameter for all layers
-            for _ in 0..32 {
-                write_i32(&mut block, from_mm(via.diameter));
-            }
-        }
+            via.per_layer_diameters
+                .as_ref()
+                .and_then(|v| v.get(i).copied())
+                .unwrap_or(via.diameter)
+        };
+        let off = 75 + i * 4;
+        block[off..off + 4].copy_from_slice(&from_mm(d).to_le_bytes());
     }
 
-    // Pad to minimum expected size
-    while block.len() < 46 {
-        block.push(0x00);
-    }
-
-    block
+    write_block(data, &block);
 }
 
 /// Converts a `ViaStackMode` to its binary ID.
