@@ -104,21 +104,15 @@ pub fn generate_ole_name<S: BuildHasher>(name: &str, used_names: &HashSet<String
     let sanitized = name.replace('/', "_");
     let name = sanitized.as_str();
 
-    if name.len() <= MAX_OLE_NAME_LEN && !used_names.contains(name) {
+    // The OLE/CFB limit is 31 UTF-16 code units — not bytes or chars. Measure
+    // it correctly so supplementary-plane characters (2 units each) cannot slip
+    // a name past the limit and make the whole save fail.
+    if utf16_len(name) <= MAX_OLE_NAME_LEN && !used_names.contains(name) {
         return name.to_string();
     }
 
-    // Need to truncate - use format: "{prefix}~{suffix}"
-    let max_prefix_len = MAX_OLE_NAME_LEN - SUFFIX_LEN;
-
-    // Truncate to max prefix length, respecting char boundaries
-    let prefix: String = name.chars().take(max_prefix_len).collect();
-    let prefix = if prefix.len() > max_prefix_len {
-        // If multi-byte chars, truncate further
-        prefix.chars().take(max_prefix_len - 1).collect()
-    } else {
-        prefix
-    };
+    // Truncate, leaving room for a "~NNN" suffix, measuring in UTF-16 units.
+    let prefix = truncate_utf16(name, MAX_OLE_NAME_LEN - SUFFIX_LEN);
 
     // Find a unique suffix
     for i in 1..1000 {
@@ -128,15 +122,36 @@ pub fn generate_ole_name<S: BuildHasher>(name: &str, used_names: &HashSet<String
         }
     }
 
-    // Fallback: use hash-based suffix (extremely unlikely to reach here)
+    // Fallback: use hash-based suffix (extremely unlikely to reach here). Drop
+    // one more *char* (never a byte) so we stay within the limit without
+    // slicing on a non-char boundary.
     let mut hasher = DefaultHasher::new();
     name.hash(&mut hasher);
     let hash = hasher.finish();
-    format!(
-        "{}~{:03X}",
-        &prefix[..prefix.len().saturating_sub(1)],
-        hash & 0xFFF
-    )
+    let mut short = prefix;
+    short.pop();
+    format!("{short}~{:03X}", hash & 0xFFF)
+}
+
+/// Length of `s` in UTF-16 code units — the unit OLE/CFB storage names are
+/// limited to. Supplementary-plane characters count as two.
+fn utf16_len(s: &str) -> usize {
+    s.chars().map(char::len_utf16).sum()
+}
+
+/// Truncates `s` to at most `max_units` UTF-16 code units, on a char boundary.
+fn truncate_utf16(s: &str, max_units: usize) -> String {
+    let mut out = String::new();
+    let mut units = 0;
+    for ch in s.chars() {
+        let w = ch.len_utf16();
+        if units + w > max_units {
+            break;
+        }
+        out.push(ch);
+        units += w;
+    }
+    out
 }
 
 /// Generates collision-free OLE storage names for an ordered list of component
@@ -349,6 +364,33 @@ mod tests {
         let result = generate_ole_name(name, &used);
         assert!(result.len() <= MAX_OLE_NAME_LEN);
         assert!(result.starts_with("VERY_LONG_COMPONENT_NAME_TH"));
+        assert!(result.contains('~'));
+    }
+
+    #[test]
+    fn ole_name_respects_utf16_limit_for_non_bmp() {
+        // Supplementary-plane chars are 2 UTF-16 units each. cfb rejects names
+        // over 31 UTF-16 code units, so a 20-emoji name must still fit.
+        let used = HashSet::new();
+        let name = "\u{1F600}".repeat(20); // 20 chars = 40 UTF-16 units
+        let result = generate_ole_name(&name, &used);
+        assert!(
+            result.encode_utf16().count() <= MAX_OLE_NAME_LEN,
+            "got {} UTF-16 units",
+            result.encode_utf16().count()
+        );
+    }
+
+    #[test]
+    fn ole_name_hash_fallback_handles_multibyte_prefix_without_panicking() {
+        // A long all-multibyte name forces truncation; exhausting the 999
+        // numeric suffixes drives the hash fallback, which previously panicked
+        // by byte-slicing inside a multi-byte char.
+        let name = "\u{00B5}".repeat(32); // 'µ': 1 UTF-16 unit each, 32 > 31
+        let prefix = "\u{00B5}".repeat(MAX_OLE_NAME_LEN - SUFFIX_LEN);
+        let used: HashSet<String> = (1..1000).map(|i| format!("{prefix}~{i:03}")).collect();
+        let result = generate_ole_name(&name, &used);
+        assert!(result.encode_utf16().count() <= MAX_OLE_NAME_LEN);
         assert!(result.contains('~'));
     }
 
