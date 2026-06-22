@@ -617,18 +617,21 @@ pub fn encode_data_stream(symbol: &Symbol) -> crate::altium::error::AltiumResult
         index_counter += 1;
     }
 
-    // 3. Pins (binary format)
+    // 3. Rectangles — written before the pins so the body shape sits at the
+    //    back. Emitting pins first lets a solid-filled body paint over the pin
+    //    names that sit inside it (names vanish). This matches Altium's own
+    //    ordering (body rectangle precedes pins in its symbol records).
+    for rect in &symbol.rectangles {
+        let record = encode_rectangle(rect, index_counter);
+        write_text_record(&mut data, &record)?;
+        index_counter += 1;
+    }
+
+    // 4. Pins (binary format)
     for pin in &symbol.pins {
         write_binary_pin(&mut data, pin)?;
         // Pins occupy an ordinal slot too; advance so later records' IndexInSheet
         // values match Altium's primitive numbering.
-        index_counter += 1;
-    }
-
-    // 4. Rectangles
-    for rect in &symbol.rectangles {
-        let record = encode_rectangle(rect, index_counter);
-        write_text_record(&mut data, &record)?;
         index_counter += 1;
     }
 
@@ -816,6 +819,47 @@ mod tests {
         let text = String::from_utf8_lossy(&data);
         assert!(text.contains("RECORD=1"), "component record present");
         assert!(text.contains("RECORD=44"), "implementation list present");
+    }
+
+    #[test]
+    fn body_rectangle_is_written_before_pins() {
+        // A solid-filled body must sit behind the pins, else its fill paints
+        // over the pin names. The rectangle record must precede every pin.
+        let mut symbol = Symbol::new("TEST");
+        symbol.add_rectangle(Rectangle::new(-30, -30, 30, 30));
+        symbol.add_pin(Pin::new("IN", "1", -60, 10, 30, PinOrientation::Left));
+        symbol.add_pin(Pin::new("OUT", "2", 60, 10, 30, PinOrientation::Right));
+
+        let data = encode_data_stream(&symbol).expect("encoding should succeed");
+
+        // Walk the record stream: [len:3 LE][flags:1][payload]; flags 1 = pin.
+        let mut off = 0;
+        let mut rect_idx = None;
+        let mut first_pin_idx = None;
+        let mut idx = 0;
+        while off + 4 <= data.len() {
+            let len = (data[off] as usize)
+                | ((data[off + 1] as usize) << 8)
+                | ((data[off + 2] as usize) << 16);
+            let flags = data[off + 3];
+            let payload = &data[off + 4..off + 4 + len];
+            if flags == 1 && first_pin_idx.is_none() {
+                first_pin_idx = Some(idx);
+            } else if flags == 0
+                && rect_idx.is_none()
+                && String::from_utf8_lossy(payload).contains("RECORD=14")
+            {
+                rect_idx = Some(idx);
+            }
+            off += 4 + len;
+            idx += 1;
+        }
+        let rect_idx = rect_idx.expect("rectangle record present");
+        let first_pin_idx = first_pin_idx.expect("pin record present");
+        assert!(
+            rect_idx < first_pin_idx,
+            "rectangle (idx {rect_idx}) must precede the first pin (idx {first_pin_idx})"
+        );
     }
 
     #[test]
