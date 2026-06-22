@@ -1098,6 +1098,11 @@ impl McpServer {
             // Use write_pcblib parsing logic via serde
             match serde_json::from_value::<Footprint>(fp_json.clone()) {
                 Ok(footprint) => {
+                    // Validate fresh geometry before it reaches save (serde
+                    // bypasses the create-path validators).
+                    if let Err(e) = Self::validate_footprint_coordinates(&footprint) {
+                        return ToolCallResult::error(format!("Footprint {idx} ('{name}'): {e}"));
+                    }
                     library.add(footprint);
                     imported_count += 1;
                 }
@@ -1299,6 +1304,11 @@ impl McpServer {
             // Parse symbol via serde
             match serde_json::from_value::<Symbol>(sym_json.clone()) {
                 Ok(symbol) => {
+                    // Range-validate fresh geometry (validate_symbol_json only
+                    // checks presence; serde bypasses the create validators).
+                    if let Err(e) = Self::validate_symbol_coordinates(&symbol) {
+                        return ToolCallResult::error(format!("Symbol {idx} ('{name}'): {e}"));
+                    }
                     library.add(symbol);
                     imported_count += 1;
                 }
