@@ -194,10 +194,9 @@ impl PcbLib {
             }
         }
 
-        // Fall back to pipe-delimited key=value format (legacy)
-        let Ok(text) = String::from_utf8(data) else {
-            return Ok(metadata);
-        };
+        // Fall back to pipe-delimited key=value format (legacy).
+        // Altium stores these as Windows-1252, not UTF-8 (#68).
+        let text = crate::altium::decode_windows1252(&data);
 
         for pair in text.split('|') {
             if let Some((key, value)) = pair.split_once('=') {
@@ -489,18 +488,18 @@ impl PcbLib {
             data
         };
 
-        if let Ok(text) = String::from_utf8(text_data.to_vec()) {
-            let params = crate::altium::parse_pipe_params(&text);
-            // Use PATTERN as the canonical name since OLE storage names are
-            // limited to 31 characters; DESCRIPTION is free text.
-            if let Some(pattern) = params.get("pattern") {
-                if !pattern.is_empty() {
-                    footprint.name.clone_from(pattern);
-                }
+        // Altium stores parameter strings as Windows-1252, not UTF-8 (#68).
+        let text = crate::altium::decode_windows1252(text_data);
+        let params = crate::altium::parse_pipe_params(&text);
+        // Use PATTERN as the canonical name since OLE storage names are
+        // limited to 31 characters; DESCRIPTION is free text.
+        if let Some(pattern) = params.get("pattern") {
+            if !pattern.is_empty() {
+                footprint.name.clone_from(pattern);
             }
-            if let Some(description) = params.get("description") {
-                footprint.description.clone_from(description);
-            }
+        }
+        if let Some(description) = params.get("description") {
+            footprint.description.clone_from(description);
         }
     }
 

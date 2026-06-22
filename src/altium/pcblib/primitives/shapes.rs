@@ -48,6 +48,17 @@ pub struct Track {
     /// Unique ID assigned by Altium (8-character alphanumeric string).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unique_id: Option<String>,
+    /// Solder mask expansion in mm. `None` (the default) writes 0; preserved
+    /// when reading an Altium-authored track (round-trip fidelity, #113).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::altium::serde_round::option"
+    )]
+    pub solder_mask_expansion: Option<f64>,
+    /// Keepout restrictions bitmask. `None` (the default) writes 0.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keepout_restrictions: Option<u8>,
 }
 
 impl Track {
@@ -63,6 +74,8 @@ impl Track {
             layer,
             flags: PcbFlags::empty(),
             unique_id: None,
+            solder_mask_expansion: None,
+            keepout_restrictions: None,
         }
     }
 }
@@ -99,6 +112,8 @@ impl Track {
 ///     layer: Layer::TopOverlay,
 ///     flags: Default::default(),
 ///     unique_id: None,
+///     solder_mask_expansion: None,
+///     keepout_restrictions: None,
 /// };
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -129,6 +144,17 @@ pub struct Arc {
     /// Unique ID assigned by Altium (8-character alphanumeric string).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unique_id: Option<String>,
+    /// Solder mask expansion in mm. `None` (the default) writes 0; preserved
+    /// when reading an Altium-authored arc (round-trip fidelity, #113).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::altium::serde_round::option"
+    )]
+    pub solder_mask_expansion: Option<f64>,
+    /// Keepout restrictions bitmask. `None` (the default) writes 0.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keepout_restrictions: Option<u8>,
 }
 
 impl Arc {
@@ -145,6 +171,8 @@ impl Arc {
             layer,
             flags: PcbFlags::empty(),
             unique_id: None,
+            solder_mask_expansion: None,
+            keepout_restrictions: None,
         }
     }
 }

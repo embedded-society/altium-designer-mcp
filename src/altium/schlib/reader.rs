@@ -299,6 +299,7 @@ fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
     let show_name = (flags & 0x08) != 0;
     let show_designator = (flags & 0x10) != 0;
     let graphically_locked = (flags & 0x40) != 0;
+    let is_not_accessible = (flags & 0x20) != 0;
 
     // length (2 bytes)
     let length = i32::from(read_i16(data, offset).unwrap_or(10));
@@ -336,6 +337,7 @@ fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
         owner_part_id: owner_part_id.into(),
         colour,
         graphically_locked,
+        is_not_accessible,
         symbol_inner_edge,
         symbol_outer_edge,
         symbol_inside,
@@ -380,6 +382,7 @@ fn parse_rectangle(props: &HashMap<String, String>) -> Option<Rectangle> {
         filled: true,
         transparent,
         owner_part_id,
+        unique_id: props.get("uniqueid").cloned(),
     })
 }
 
@@ -411,6 +414,7 @@ fn parse_line(props: &HashMap<String, String>) -> Option<Line> {
         line_width,
         color,
         owner_part_id,
+        unique_id: props.get("uniqueid").cloned(),
     })
 }
 
@@ -522,6 +526,7 @@ fn parse_polyline(props: &HashMap<String, String>) -> Option<Polyline> {
         end_line_shape,
         line_shape_size,
         owner_part_id,
+        unique_id: props.get("uniqueid").cloned(),
     })
 }
 
@@ -571,6 +576,7 @@ fn parse_polygon(props: &HashMap<String, String>) -> Option<Polygon> {
         fill_color,
         filled,
         owner_part_id,
+        unique_id: props.get("uniqueid").cloned(),
     })
 }
 
@@ -613,6 +619,7 @@ fn parse_ellipse(props: &HashMap<String, String>) -> Option<Ellipse> {
         fill_color,
         filled,
         owner_part_id,
+        unique_id: props.get("uniqueid").cloned(),
     })
 }
 
@@ -653,6 +660,7 @@ fn parse_arc(props: &HashMap<String, String>) -> Option<Arc> {
         line_width,
         color,
         owner_part_id,
+        unique_id: props.get("uniqueid").cloned(),
     })
 }
 
@@ -693,6 +701,7 @@ fn parse_bezier(props: &HashMap<String, String>) -> Option<Bezier> {
         line_width,
         color,
         owner_part_id,
+        unique_id: props.get("uniqueid").cloned(),
     })
 }
 
@@ -743,6 +752,7 @@ fn parse_round_rect(props: &HashMap<String, String>) -> Option<RoundRect> {
         fill_color,
         filled,
         owner_part_id,
+        unique_id: props.get("uniqueid").cloned(),
     })
 }
 
@@ -806,6 +816,7 @@ fn parse_elliptical_arc(props: &HashMap<String, String>) -> Option<EllipticalArc
         line_width,
         color,
         owner_part_id,
+        unique_id: props.get("uniqueid").cloned(),
     })
 }
 
@@ -849,6 +860,7 @@ fn parse_label(props: &HashMap<String, String>) -> Option<Label> {
         is_mirrored,
         is_hidden,
         owner_part_id,
+        unique_id: props.get("uniqueid").cloned(),
     })
 }
 
@@ -892,6 +904,7 @@ fn parse_text(props: &HashMap<String, String>) -> Option<Text> {
         is_mirrored,
         is_hidden,
         owner_part_id,
+        unique_id: props.get("uniqueid").cloned(),
     })
 }
 

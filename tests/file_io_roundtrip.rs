@@ -304,6 +304,109 @@ fn schlib_file_roundtrip_simple_symbol() {
     assert_eq!(read_sym.rectangles.len(), 1);
 }
 
+// =============================================================================
+// Issue #68: on-disk strings must be Windows-1252, not UTF-8
+// =============================================================================
+
+/// Returns true if `haystack` contains `needle` as a contiguous byte run.
+fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
+    needle.is_empty() || haystack.windows(needle.len()).any(|w| w == needle)
+}
+
+/// Altium stores strings as Windows-1252. A footprint description with non-ASCII
+/// characters must round-trip AND be written as single-byte Windows-1252 (e.g.
+/// `µ` = `0xB5`), never as the two-byte UTF-8 sequence (`0xC2 0xB5`) that Altium
+/// misreads. ASCII is identical in both encodings, so only non-ASCII exposes the
+/// bug — which is why it survived an all-ASCII test suite.
+#[test]
+fn pcblib_non_ascii_description_is_windows1252() {
+    let temp_dir = test_temp_dir();
+    let file_path = temp_dir.path().join("test_win1252.PcbLib");
+
+    let mut lib = PcbLib::new();
+    let mut fp = Footprint::new("CAP_0402");
+    fp.description = "cap 10µF ±5% é°".to_string();
+    fp.add_pad(Pad::smd("1", -0.5, 0.0, 0.6, 0.5));
+    lib.add(fp);
+    lib.save(&file_path).expect("Failed to write PcbLib");
+
+    // Round-trip preserves the exact string.
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read PcbLib");
+    let read_fp = read_lib.get("CAP_0402").expect("Footprint not found");
+    assert_eq!(read_fp.description, "cap 10µF ±5% é°");
+
+    // The on-disk bytes are Windows-1252, not UTF-8.
+    let raw = std::fs::read(&file_path).expect("read raw file");
+    assert!(
+        contains_bytes(&raw, b"10\xb5F"),
+        "description should be Windows-1252 (0xB5 for µ)"
+    );
+    assert!(
+        !contains_bytes(&raw, b"10\xc2\xb5F"),
+        "description must NOT be UTF-8 (0xC2 0xB5 for µ) — Altium would misread it"
+    );
+}
+
+/// The `SchLib` `FileHeader` (component description) must likewise be Windows-1252.
+#[test]
+fn schlib_non_ascii_description_is_windows1252() {
+    let temp_dir = test_temp_dir();
+    let file_path = temp_dir.path().join("test_win1252.SchLib");
+
+    let mut lib = SchLib::new();
+    let mut sym = Symbol::new("RES");
+    sym.description = "résistance 10µF".to_string();
+    sym.add_pin(Pin::new("1", "1", -20, 0, 10, PinOrientation::Left));
+    lib.add(sym);
+    lib.save(&file_path).expect("Failed to write SchLib");
+
+    let read_lib = SchLib::open(&file_path).expect("Failed to read SchLib");
+    let read_sym = read_lib.get("RES").expect("Symbol not found");
+    assert_eq!(read_sym.description, "résistance 10µF");
+
+    let raw = std::fs::read(&file_path).expect("read raw file");
+    assert!(
+        contains_bytes(&raw, b"10\xb5F"),
+        "description should be Windows-1252 (0xB5 for µ)"
+    );
+    assert!(
+        !contains_bytes(&raw, b"10\xc2\xb5F"),
+        "description must NOT be UTF-8 (0xC2 0xB5 for µ)"
+    );
+}
+
+#[test]
+fn schlib_preserves_unique_id_and_pin_accessibility() {
+    // #113: reading an Altium symbol and writing it back must preserve each
+    // shape's UniqueID (object identity) and the pin IsNotAccessible flag,
+    // rather than regenerating/dropping them.
+    let temp_dir = test_temp_dir();
+    let file_path = temp_dir.path().join("test_fidelity.SchLib");
+
+    let mut lib = SchLib::new();
+    let mut sym = Symbol::new("RES");
+    let mut pin = Pin::new("1", "1", -20, 0, 10, PinOrientation::Left);
+    pin.is_not_accessible = true;
+    sym.add_pin(pin);
+    let mut rect = Rectangle::new(-20, -50, 20, 50);
+    rect.unique_id = Some("ABCD1234".to_string());
+    sym.add_rectangle(rect);
+    lib.add(sym);
+    lib.save(&file_path).expect("Failed to write SchLib");
+
+    let read_lib = SchLib::open(&file_path).expect("Failed to read SchLib");
+    let read_sym = read_lib.get("RES").expect("Symbol not found");
+    assert_eq!(
+        read_sym.rectangles[0].unique_id.as_deref(),
+        Some("ABCD1234"),
+        "rectangle UniqueID must survive read->write, not be regenerated"
+    );
+    assert!(
+        read_sym.pins[0].is_not_accessible,
+        "pin IsNotAccessible must survive read->write"
+    );
+}
+
 #[test]
 fn schlib_file_roundtrip_multiple_symbols() {
     let temp_dir = test_temp_dir();
