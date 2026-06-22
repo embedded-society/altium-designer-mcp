@@ -62,6 +62,11 @@ pub struct Pin {
     #[serde(default)]
     pub graphically_locked: bool,
 
+    /// Whether the pin is not accessible for selection in Altium's editor
+    /// (conglomerate bit `0x20`); preserved on round-trip (#113).
+    #[serde(default)]
+    pub is_not_accessible: bool,
+
     /// Symbol decoration on the inner edge (closest to component body).
     #[serde(default)]
     pub symbol_inner_edge: PinSymbol,
@@ -113,6 +118,7 @@ impl Pin {
             owner_part_id: 1,
             colour: 0,
             graphically_locked: false,
+            is_not_accessible: false,
             symbol_inner_edge: PinSymbol::None,
             symbol_outer_edge: PinSymbol::None,
             symbol_inside: PinSymbol::None,
@@ -360,6 +366,10 @@ pub struct Rectangle {
     /// Owner part ID.
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,
+    /// Altium unique ID (8-char). Preserved on read so a round-trip keeps the
+    /// shape identity; a from-scratch shape generates a fresh one on write (#113).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unique_id: Option<String>,
 }
 
 const fn default_line_width() -> u8 {
@@ -381,6 +391,7 @@ impl Rectangle {
             filled: true,
             transparent: false,
             owner_part_id: 1,
+            unique_id: None,
         }
     }
 }
@@ -405,6 +416,10 @@ pub struct Line {
     /// Owner part ID.
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,
+    /// Altium unique ID (8-char). Preserved on read so a round-trip keeps the
+    /// shape identity; a from-scratch shape generates a fresh one on write (#113).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unique_id: Option<String>,
 }
 
 impl Line {
@@ -419,6 +434,7 @@ impl Line {
             line_width: 1,
             color: 0x00_00_80, // Dark red (BGR)
             owner_part_id: 1,
+            unique_id: None,
         }
     }
 }
@@ -449,6 +465,10 @@ pub struct Polyline {
     /// Owner part ID.
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,
+    /// Altium unique ID (8-char). Preserved on read so a round-trip keeps the
+    /// shape identity; a from-scratch shape generates a fresh one on write (#113).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unique_id: Option<String>,
 }
 
 /// A filled polygon.
@@ -471,6 +491,10 @@ pub struct Polygon {
     /// Owner part ID.
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,
+    /// Altium unique ID (8-char). Preserved on read so a round-trip keeps the
+    /// shape identity; a from-scratch shape generates a fresh one on write (#113).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unique_id: Option<String>,
 }
 
 /// An arc or circle.
@@ -500,6 +524,10 @@ pub struct Arc {
     /// Owner part ID.
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,
+    /// Altium unique ID (8-char). Preserved on read so a round-trip keeps the
+    /// shape identity; a from-scratch shape generates a fresh one on write (#113).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unique_id: Option<String>,
 }
 
 const fn default_end_angle() -> f64 {
@@ -540,6 +568,10 @@ pub struct Bezier {
     /// Owner part ID.
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,
+    /// Altium unique ID (8-char). Preserved on read so a round-trip keeps the
+    /// shape identity; a from-scratch shape generates a fresh one on write (#113).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unique_id: Option<String>,
 }
 
 impl Bezier {
@@ -568,6 +600,7 @@ impl Bezier {
             line_width: 1,
             color: 0x00_00_80, // Dark red (BGR)
             owner_part_id: 1,
+            unique_id: None,
         }
     }
 }
@@ -598,6 +631,10 @@ pub struct Ellipse {
     /// Owner part ID.
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,
+    /// Altium unique ID (8-char). Preserved on read so a round-trip keeps the
+    /// shape identity; a from-scratch shape generates a fresh one on write (#113).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unique_id: Option<String>,
 }
 
 impl Ellipse {
@@ -614,6 +651,7 @@ impl Ellipse {
             fill_color: 0xFF_FF_B0, // Light yellow (BGR)
             filled: true,
             owner_part_id: 1,
+            unique_id: None,
         }
     }
 
@@ -656,6 +694,10 @@ pub struct RoundRect {
     /// Owner part ID.
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,
+    /// Altium unique ID (8-char). Preserved on read so a round-trip keeps the
+    /// shape identity; a from-scratch shape generates a fresh one on write (#113).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unique_id: Option<String>,
 }
 
 impl RoundRect {
@@ -682,6 +724,7 @@ impl RoundRect {
             fill_color: 0xFF_FF_B0, // Light yellow (BGR)
             filled: true,
             owner_part_id: 1,
+            unique_id: None,
         }
     }
 }
@@ -720,6 +763,10 @@ pub struct EllipticalArc {
     /// Owner part ID.
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,
+    /// Altium unique ID (8-char). Preserved on read so a round-trip keeps the
+    /// shape identity; a from-scratch shape generates a fresh one on write (#113).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unique_id: Option<String>,
 }
 
 impl EllipticalArc {
@@ -743,6 +790,7 @@ impl EllipticalArc {
             line_width: 1,
             color: 0x00_00_80, // Dark red (BGR)
             owner_part_id: 1,
+            unique_id: None,
         }
     }
 
@@ -783,6 +831,10 @@ pub struct Label {
     /// Owner part ID.
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,
+    /// Altium unique ID (8-char). Preserved on read so a round-trip keeps the
+    /// shape identity; a from-scratch shape generates a fresh one on write (#113).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unique_id: Option<String>,
 }
 
 /// A text annotation (RECORD=3).
@@ -818,6 +870,10 @@ pub struct Text {
     /// Owner part ID.
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,
+    /// Altium unique ID (8-char). Preserved on read so a round-trip keeps the
+    /// shape identity; a from-scratch shape generates a fresh one on write (#113).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unique_id: Option<String>,
 }
 
 const fn default_font_id() -> u8 {
