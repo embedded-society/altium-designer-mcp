@@ -2402,6 +2402,64 @@ fn test_multiple_step_models_in_library() {
     }
 }
 
+/// Re-embedding a footprint's model from a new explicit path (and re-saving)
+/// must replace the previously-embedded model, not leave it orphaned in the
+/// library — otherwise self.models bloats on every save (bug #7 / issue #103).
+#[test]
+fn test_reembed_model_replaces_without_bloat() {
+    use std::io::Write;
+
+    let temp_dir = test_temp_dir();
+    let pcblib_path = temp_dir.path().join("reembed.PcbLib");
+    let step_a = temp_dir.path().join("model_a.step");
+    let step_b = temp_dir.path().join("model_b.step");
+    File::create(&step_a)
+        .unwrap()
+        .write_all(b"ISO-10303-21;HEADER;FILE_DESCRIPTION(('Model A'));ENDSEC;DATA;ENDSEC;END-ISO-10303-21;")
+        .unwrap();
+    File::create(&step_b)
+        .unwrap()
+        .write_all(b"ISO-10303-21;HEADER;FILE_DESCRIPTION(('Model B'));ENDSEC;DATA;ENDSEC;END-ISO-10303-21;")
+        .unwrap();
+
+    let mut lib = PcbLib::new();
+    let mut fp = Footprint::new("FP");
+    fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+    fp.model_3d = Some(Model3D {
+        filepath: step_a.to_string_lossy().to_string(),
+        x_offset: 0.0,
+        y_offset: 0.0,
+        z_offset: 0.0,
+        rotation: 0.0,
+    });
+    lib.add(fp);
+
+    // First save embeds model A (footprint now has a ComponentBody).
+    lib.save(&pcblib_path).expect("first save");
+    assert_eq!(lib.model_count(), 1, "one model after the first embed");
+
+    // Point the footprint at a new explicit path and save again -> re-embed.
+    lib.get_mut("FP")
+        .unwrap()
+        .model_3d
+        .as_mut()
+        .unwrap()
+        .filepath = step_b.to_string_lossy().to_string();
+    lib.save(&pcblib_path).expect("second save");
+
+    // The old model must be dropped, not left as an orphan.
+    assert_eq!(lib.model_count(), 1, "re-embed must not bloat self.models");
+
+    // And the on-disk library now holds model B.
+    let read = PcbLib::open(&pcblib_path).expect("read back");
+    assert_eq!(read.model_count(), 1);
+    let content = read.models().next().unwrap().as_string().unwrap();
+    assert!(
+        content.contains("Model B"),
+        "re-embedded model should be B, got: {content}"
+    );
+}
+
 /// Tests copying a footprint with embedded STEP model between libraries.
 /// The STEP file must remain available since the target library re-embeds from the filepath.
 #[test]
