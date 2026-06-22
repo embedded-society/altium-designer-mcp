@@ -763,6 +763,64 @@ impl McpServer {
         }
     }
 
+    /// Writes an Altium Library Package (`.LibPkg`) project file that groups
+    /// the given source documents so Altium can compile them into an
+    /// Integrated Library. Only generates the project source; compiling to
+    /// `.IntLib` is done inside Altium.
+    pub(crate) fn call_write_libpkg(&self, arguments: &Value) -> ToolCallResult {
+        use crate::altium::libpkg;
+
+        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
+            return ToolCallResult::error("Missing required parameter: filepath");
+        };
+
+        // Validate path is within allowed directories
+        if let Err(e) = self.validate_path(filepath) {
+            return ToolCallResult::error(e);
+        }
+
+        // Validate file extension
+        let ext = std::path::Path::new(filepath)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_lowercase);
+        if ext.as_deref() != Some("libpkg") {
+            return ToolCallResult::error("write_libpkg only supports .LibPkg files");
+        }
+
+        let Some(documents) = arguments.get("documents").and_then(Value::as_array) else {
+            return ToolCallResult::error("Missing required parameter: documents");
+        };
+        let docs: Vec<String> = documents
+            .iter()
+            .filter_map(|d| d.as_str().map(String::from))
+            .collect();
+        if docs.is_empty() {
+            return ToolCallResult::error(
+                "documents must contain at least one .SchLib/.PcbLib path",
+            );
+        }
+
+        let path = std::path::Path::new(filepath);
+        let content = libpkg::build_libpkg(path, &docs);
+        if let Err(e) = std::fs::write(path, content) {
+            return ToolCallResult::error(format!("Failed to write LibPkg: {e}"));
+        }
+
+        let relative: Vec<String> = docs
+            .iter()
+            .map(|d| libpkg::relative_to_libpkg(path, d))
+            .collect();
+        let result = json!({
+            "status": "success",
+            "filepath": filepath,
+            "documents": relative,
+            "count": relative.len(),
+            "note": "Open in Altium and run Project > Compile Integrated Library to produce the .IntLib.",
+        });
+        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
     /// Lists component names in a library file.
     #[allow(clippy::cast_possible_truncation, clippy::too_many_lines)]
     pub(crate) fn call_list_components(&self, arguments: &Value) -> ToolCallResult {
