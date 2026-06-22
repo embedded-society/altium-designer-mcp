@@ -253,6 +253,10 @@ impl McpServer {
         if to_width <= 0.0 {
             return ToolCallResult::error("to_width must be greater than 0");
         }
+        // Range-check too, so a huge width can't saturate in from_mm() on save.
+        if let Err(e) = Self::validate_coordinate(to_width, "to_width") {
+            return ToolCallResult::error(e);
+        }
 
         let mut total_updated = 0usize;
         let mut footprints_updated = Vec::new();
