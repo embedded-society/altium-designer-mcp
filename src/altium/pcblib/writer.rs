@@ -944,7 +944,7 @@ fn encode_region_properties(region: &Region) -> Vec<u8> {
     // Build parameter string (leading pipe, matching Altium).
     let layer_name = region.layer.as_str().replace(' ', "").to_uppercase();
     let params = format!("|V7_LAYER={layer_name}|NAME=|KIND=0");
-    let params_bytes = params.as_bytes();
+    let params_bytes = crate::altium::encode_windows1252(&params);
 
     let mut block = Vec::with_capacity(22 + params_bytes.len() + 4 + vertex_count * 16);
 
@@ -955,7 +955,7 @@ fn encode_region_properties(region: &Region) -> Vec<u8> {
     block.extend_from_slice(&[0x00; 5]);
 
     // C-string parameter block (length includes the null terminator).
-    write_cstring_param_block(&mut block, params_bytes);
+    write_cstring_param_block(&mut block, &params_bytes);
 
     // Vertex count
     write_u32(&mut block, vertex_count as u32);
@@ -1059,7 +1059,7 @@ fn encode_component_body_block(body: &ComponentBody, outline: &[(f64, f64)]) -> 
 
     // Parameter string as a C-string block (length includes the null).
     let param_str = build_component_body_params(body);
-    write_cstring_param_block(&mut block, param_str.as_bytes());
+    write_cstring_param_block(&mut block, &crate::altium::encode_windows1252(&param_str));
 
     // Outline polygon: vertex count then (f64 x, f64 y) per vertex, in Altium
     // internal units (1 mil = 10000). Altium needs a non-empty outline to place

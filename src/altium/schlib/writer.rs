@@ -751,14 +751,15 @@ pub fn encode_file_header(symbols: &[&Symbol], ole_names: &[String]) -> Vec<u8> 
     }
 
     let text = format!("|{}", parts.join("|"));
-    let text_bytes = text.as_bytes();
+    // Altium stores parameter strings as Windows-1252, not UTF-8 (#68).
+    let text_bytes = crate::altium::encode_windows1252(&text);
 
     // Format: [length:4 LE][text + 0x00]. The block is a C-string: it MUST be
     // null-terminated and the length MUST include the terminator (matches Altium
     // WriteCStringParameterBlockRaw). Omitting it is issue #68's "Data does not
     // end with 0x00".
     let mut data = Vec::with_capacity(4 + text_bytes.len() + 1);
-    write_cstring_param_block(&mut data, text_bytes);
+    write_cstring_param_block(&mut data, &text_bytes);
 
     data
 }

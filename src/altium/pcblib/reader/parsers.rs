@@ -1077,7 +1077,8 @@ pub(super) fn parse_component_body(data: &[u8], offset: usize) -> ParseResult<Co
     // Parse block 0 to extract parameters
     // Format: [header bytes][parameter_string]
     // Parameter string is pipe-separated key=value pairs starting with V7_LAYER=
-    let block_str = String::from_utf8_lossy(block0);
+    // Altium stores these as Windows-1252, not UTF-8 (#68).
+    let block_str = crate::altium::decode_windows1252(block0);
 
     // Find the parameter string (starts with V7_LAYER= or similar key)
     let params = parse_component_body_params(&block_str);
