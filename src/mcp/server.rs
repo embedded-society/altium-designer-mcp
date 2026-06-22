@@ -1019,6 +1019,10 @@ mod tests {
         assert!(McpServer::validate_schlib_coordinate(-32000, "x").is_ok());
         assert!(McpServer::validate_schlib_coordinate(32001, "x").is_err());
         assert!(McpServer::validate_schlib_coordinate(-32001, "x").is_err());
+        // Extremes must be rejected without panicking: `value.abs()` overflowed
+        // on i32::MIN (panic in debug, wrap-negative bypass in release).
+        assert!(McpServer::validate_schlib_coordinate(i32::MIN, "x").is_err());
+        assert!(McpServer::validate_schlib_coordinate(i32::MAX, "x").is_err());
     }
 
     #[test]

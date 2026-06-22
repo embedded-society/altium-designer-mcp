@@ -120,39 +120,28 @@ fn write_binary_pin(data: &mut Vec<u8>, pin: &Pin) -> crate::altium::error::Alti
         });
     }
 
-    // Validate that string lengths fit in u8 range (binary pin format limitation)
-    if pin.name.len() > MAX_STRING_LEN {
-        return Err(AltiumError::InvalidParameter {
-            name: "pin.name".to_string(),
-            message: format!(
-                "Pin '{}' name length {} exceeds maximum of {} bytes",
-                pin.designator,
-                pin.name.len(),
-                MAX_STRING_LEN
-            ),
-        });
-    }
-    if pin.designator.len() > MAX_STRING_LEN {
-        return Err(AltiumError::InvalidParameter {
-            name: "pin.designator".to_string(),
-            message: format!(
-                "Pin designator '{}' length {} exceeds maximum of {} bytes",
-                pin.designator,
-                pin.designator.len(),
-                MAX_STRING_LEN
-            ),
-        });
-    }
-    if pin.description.len() > MAX_STRING_LEN {
-        return Err(AltiumError::InvalidParameter {
-            name: "pin.description".to_string(),
-            message: format!(
-                "Pin '{}' description length {} exceeds maximum of {} bytes",
-                pin.designator,
-                pin.description.len(),
-                MAX_STRING_LEN
-            ),
-        });
+    // Strings are stored as Windows-1252 Pascal short strings; validate the
+    // ENCODED byte length (what the u8 length prefix actually holds), not the
+    // UTF-8 String length — otherwise non-ASCII text is wrongly rejected even
+    // though it fits in 255 encoded bytes.
+    let name = crate::altium::encode_windows1252(&pin.name);
+    let designator = crate::altium::encode_windows1252(&pin.designator);
+    let description = crate::altium::encode_windows1252(&pin.description);
+    for (bytes, field) in [
+        (&name, "name"),
+        (&designator, "designator"),
+        (&description, "description"),
+    ] {
+        if bytes.len() > MAX_STRING_LEN {
+            return Err(AltiumError::InvalidParameter {
+                name: format!("pin.{field}"),
+                message: format!(
+                    "Pin '{}' {field} length {} exceeds maximum of {MAX_STRING_LEN} bytes",
+                    pin.designator,
+                    bytes.len(),
+                ),
+            });
+        }
     }
 
     let mut record = Vec::with_capacity(64);
@@ -164,6 +153,15 @@ fn write_binary_pin(data: &mut Vec<u8>, pin: &Pin) -> crate::altium::error::Alti
     record.push(0x00);
 
     // Owner part ID (2 bytes)
+    if pin.owner_part_id < I16_MIN || pin.owner_part_id > I16_MAX {
+        return Err(AltiumError::InvalidParameter {
+            name: "pin.owner_part_id".to_string(),
+            message: format!(
+                "Pin '{}' owner_part_id {} exceeds i16 range (±32767)",
+                pin.designator, pin.owner_part_id
+            ),
+        });
+    }
     #[allow(clippy::cast_possible_truncation)]
     let owner_part = pin.owner_part_id as i16;
     record.extend_from_slice(&owner_part.to_le_bytes());
@@ -178,10 +176,7 @@ fn write_binary_pin(data: &mut Vec<u8>, pin: &Pin) -> crate::altium::error::Alti
     record.push(pin.symbol_outside.to_id());
 
     // Description: Pascal short string [length:1][string]
-    write_pascal_string(
-        &mut record,
-        &crate::altium::encode_windows1252(&pin.description),
-    );
+    write_pascal_string(&mut record, &description);
 
     // Formal type (1 byte) - 0x01 for a normal pin (matches Altium's output).
     record.push(0x01);
@@ -229,13 +224,10 @@ fn write_binary_pin(data: &mut Vec<u8>, pin: &Pin) -> crate::altium::error::Alti
     record.extend_from_slice(&pin.colour.to_le_bytes());
 
     // Name: [length:1][string]
-    write_pascal_string(&mut record, &crate::altium::encode_windows1252(&pin.name));
+    write_pascal_string(&mut record, &name);
 
     // Designator: [length:1][string]
-    write_pascal_string(
-        &mut record,
-        &crate::altium::encode_windows1252(&pin.designator),
-    );
+    write_pascal_string(&mut record, &designator);
 
     // Pin swap-id tail (Pascal short strings), matching Altium's output:
     //   SwapIdGroup = "" , PartAndSequence = "|&|" , DefaultValue = "".

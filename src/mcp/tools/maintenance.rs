@@ -608,8 +608,24 @@ impl McpServer {
             pad.shape = new_shape;
         }
 
+        // Reject invalid geometry the create path enforces — update bypassed it,
+        // and out-of-range values would silently saturate in from_mm() on save.
+        if pad.width <= 0.0 || pad.height <= 0.0 {
+            return ToolCallResult::error(format!(
+                "Pad '{designator}': width and height must be positive"
+            ));
+        }
+        if pad.hole_size.is_some_and(|h| h < 0.0) {
+            return ToolCallResult::error(format!("Pad '{designator}': hole_size must be >= 0"));
+        }
+
         if changes.is_empty() {
             return ToolCallResult::error("No valid updates specified");
+        }
+
+        // Coordinate range check over the whole footprint (matches the write path).
+        if let Err(e) = Self::validate_footprint_coordinates(footprint) {
+            return ToolCallResult::error(e);
         }
 
         // Save if not dry run
@@ -1028,6 +1044,35 @@ impl McpServer {
 
         if changes.is_empty() {
             return ToolCallResult::error("No valid updates specified for this primitive type");
+        }
+
+        // Re-validate after the in-place edits: update bypassed the create-path
+        // checks, so an out-of-range coordinate would silently saturate in
+        // from_mm() and a non-positive dimension would write a degenerate shape.
+        if let Err(e) = Self::validate_footprint_coordinates(footprint) {
+            return ToolCallResult::error(e);
+        }
+        let dim_err = match primitive_type {
+            "track" => {
+                (footprint.tracks[index].width <= 0.0).then_some("track width must be positive")
+            }
+            "arc" => {
+                let a = &footprint.arcs[index];
+                if a.radius <= 0.0 {
+                    Some("arc radius must be positive")
+                } else if a.width < 0.0 {
+                    Some("arc width must be >= 0")
+                } else {
+                    None
+                }
+            }
+            "text" => {
+                (footprint.text[index].height <= 0.0).then_some("text height must be positive")
+            }
+            _ => None,
+        };
+        if let Some(msg) = dim_err {
+            return ToolCallResult::error(format!("Primitive {index} ({primitive_type}): {msg}"));
         }
 
         // Save if not dry run

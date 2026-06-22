@@ -82,6 +82,7 @@ impl McpServer {
         let original_count = library.len();
         let mut results: Vec<Value> = Vec::with_capacity(names.len());
         let mut deleted_count = 0;
+        let mut seen = std::collections::HashSet::new();
 
         // Check which components exist (for dry_run) or remove them
         for name in names {
@@ -92,7 +93,11 @@ impl McpServer {
                         "name": name,
                         "status": "would_delete"
                     }));
-                    deleted_count += 1;
+                    // Count each distinct existing name once so duplicate names
+                    // can't over-count (which underflowed remaining_count).
+                    if seen.insert(*name) {
+                        deleted_count += 1;
+                    }
                 } else {
                     results.push(json!({
                         "name": name,
@@ -151,7 +156,7 @@ impl McpServer {
             "dry_run": dry_run,
             "original_count": original_count,
             "deleted_count": deleted_count,
-            "remaining_count": if dry_run { original_count - deleted_count } else { library.len() },
+            "remaining_count": if dry_run { original_count.saturating_sub(deleted_count) } else { library.len() },
             "orphaned_models_removed": orphaned_models_removed,
             "results": results,
         });
@@ -190,6 +195,7 @@ impl McpServer {
         let original_count = library.len();
         let mut results: Vec<Value> = Vec::with_capacity(names.len());
         let mut deleted_count = 0;
+        let mut seen = std::collections::HashSet::new();
 
         // Check which components exist (for dry_run) or remove them
         for name in names {
@@ -200,7 +206,11 @@ impl McpServer {
                         "name": name,
                         "status": "would_delete"
                     }));
-                    deleted_count += 1;
+                    // Count each distinct existing name once so duplicate names
+                    // can't over-count (which underflowed remaining_count).
+                    if seen.insert(*name) {
+                        deleted_count += 1;
+                    }
                 } else {
                     results.push(json!({
                         "name": name,
@@ -252,7 +262,7 @@ impl McpServer {
             "dry_run": dry_run,
             "original_count": original_count,
             "deleted_count": deleted_count,
-            "remaining_count": if dry_run { original_count - deleted_count } else { library.len() },
+            "remaining_count": if dry_run { original_count.saturating_sub(deleted_count) } else { library.len() },
             "results": results,
         });
 

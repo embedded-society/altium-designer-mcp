@@ -651,17 +651,23 @@ impl PcbLib {
         // Read compressed model streams
         let mut model_data: Vec<(usize, Vec<u8>)> = Vec::new();
 
-        // Determine max index: use header count if available, otherwise use model_index size
-        let max_index = if model_count > 0 {
-            model_count
-        } else {
-            // Fall back to max index from model_index + 1
-            model_index
-                .values()
-                .map(|(idx, _)| *idx + 1)
-                .max()
-                .unwrap_or(0)
-        };
+        // Bound the scan by the indices actually present in the parsed Data
+        // index. The Header count (`model_count`) comes straight from the
+        // untrusted /Library/Models/Header stream and is uncapped, so it must
+        // never drive the loop — a crafted count would otherwise force an
+        // unbounded stream scan (DoS). Treat it as advisory only.
+        let max_index = model_index
+            .values()
+            .map(|(idx, _)| idx.saturating_add(1))
+            .max()
+            .unwrap_or(0);
+        if model_count != max_index {
+            tracing::debug!(
+                header_count = model_count,
+                indexed = max_index,
+                "Model Header count disagrees with parsed index; using the index"
+            );
+        }
 
         // Model streams are numbered 0, 1, 2, ...
         for idx in 0..max_index {
@@ -905,15 +911,26 @@ impl PcbLib {
                     });
                 }
 
-                // If we have component_bodies but user explicitly set a path that exists,
-                // they want to re-embed. Clear the old component_bodies first.
+                // If we have component_bodies but the user explicitly set a path
+                // that exists, they want to re-embed. Clear the old
+                // component_bodies first — and drop the embedded models those
+                // bodies referenced, so they don't linger in self.models as
+                // orphans (which previously bloated the library on every save).
                 if !footprint.component_bodies.is_empty() {
                     tracing::debug!(
                         footprint = %footprint.name,
                         old_bodies = footprint.component_bodies.len(),
                         "Clearing old ComponentBodies for re-embedding from new path"
                     );
+                    let stale: std::collections::HashSet<String> = footprint
+                        .component_bodies
+                        .iter()
+                        .filter(|cb| cb.embedded)
+                        .map(|cb| cb.model_id.to_lowercase())
+                        .collect();
                     footprint.component_bodies.clear();
+                    self.models
+                        .retain(|m| !stale.contains(&m.id.to_lowercase()));
                 }
 
                 // Read the STEP file

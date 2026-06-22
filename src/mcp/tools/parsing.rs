@@ -7,6 +7,16 @@ use serde_json::Value;
 
 use crate::mcp::server::McpServer;
 
+/// Reads a JSON integer field as `i32`, returning `None` if it is missing, not
+/// an integer, or outside `i32` range — so an out-of-range value is rejected
+/// rather than silently wrapped (`as i32`), which previously let an absurd input
+/// land as a small in-range coordinate that bypassed range validation.
+fn json_i32(json: &Value, field: &str) -> Option<i32> {
+    json.get(field)
+        .and_then(Value::as_i64)
+        .and_then(|v| i32::try_from(v).ok())
+}
+
 impl McpServer {
     // ==================== Primitive Parsing Helpers ====================
 
@@ -317,9 +327,9 @@ impl McpServer {
             .get("name")
             .and_then(Value::as_str)
             .unwrap_or(designator);
-        let x = json.get("x").and_then(Value::as_i64)? as i32;
-        let y = json.get("y").and_then(Value::as_i64)? as i32;
-        let length = json.get("length").and_then(Value::as_i64).unwrap_or(10) as i32;
+        let x = json_i32(json, "x")?;
+        let y = json_i32(json, "y")?;
+        let length = json_i32(json, "length").unwrap_or(10);
 
         let orientation =
             json.get("orientation")
@@ -354,10 +364,7 @@ impl McpServer {
             .get("show_designator")
             .and_then(Value::as_bool)
             .unwrap_or(true);
-        let owner_part_id = json
-            .get("owner_part_id")
-            .and_then(Value::as_i64)
-            .unwrap_or(1) as i32;
+        let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
 
         // Helper to parse PinSymbol from string
         let parse_pin_symbol = |s: &str| -> PinSymbol {
@@ -431,10 +438,10 @@ impl McpServer {
     pub(crate) fn parse_schlib_rectangle(json: &Value) -> Option<crate::altium::schlib::Rectangle> {
         use crate::altium::schlib::Rectangle;
 
-        let x1 = json.get("x1").and_then(Value::as_i64)? as i32;
-        let y1 = json.get("y1").and_then(Value::as_i64)? as i32;
-        let x2 = json.get("x2").and_then(Value::as_i64)? as i32;
-        let y2 = json.get("y2").and_then(Value::as_i64)? as i32;
+        let x1 = json_i32(json, "x1")?;
+        let y1 = json_i32(json, "y1")?;
+        let x2 = json_i32(json, "x2")?;
+        let y2 = json_i32(json, "y2")?;
 
         let line_width = json.get("line_width").and_then(Value::as_u64).unwrap_or(1) as u8;
         let line_color = json
@@ -446,10 +453,7 @@ impl McpServer {
             .and_then(Value::as_u64)
             .unwrap_or(0xFF_FF_B0) as u32;
         let filled = json.get("filled").and_then(Value::as_bool).unwrap_or(true);
-        let owner_part_id = json
-            .get("owner_part_id")
-            .and_then(Value::as_i64)
-            .unwrap_or(1) as i32;
+        let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
 
         Some(Rectangle {
             x1,
@@ -470,20 +474,17 @@ impl McpServer {
     pub(crate) fn parse_schlib_line(json: &Value) -> Option<crate::altium::schlib::Line> {
         use crate::altium::schlib::Line;
 
-        let x1 = json.get("x1").and_then(Value::as_i64)? as i32;
-        let y1 = json.get("y1").and_then(Value::as_i64)? as i32;
-        let x2 = json.get("x2").and_then(Value::as_i64)? as i32;
-        let y2 = json.get("y2").and_then(Value::as_i64)? as i32;
+        let x1 = json_i32(json, "x1")?;
+        let y1 = json_i32(json, "y1")?;
+        let x2 = json_i32(json, "x2")?;
+        let y2 = json_i32(json, "y2")?;
 
         let line_width = json.get("line_width").and_then(Value::as_u64).unwrap_or(1) as u8;
         let color = json
             .get("color")
             .and_then(Value::as_u64)
             .unwrap_or(0x00_00_80) as u32;
-        let owner_part_id = json
-            .get("owner_part_id")
-            .and_then(Value::as_i64)
-            .unwrap_or(1) as i32;
+        let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
 
         Some(Line {
             x1,
@@ -508,18 +509,15 @@ impl McpServer {
             .unwrap_or("*")
             .to_string();
 
-        let x = json.get("x").and_then(Value::as_i64).unwrap_or(0) as i32;
-        let y = json.get("y").and_then(Value::as_i64).unwrap_or(0) as i32;
+        let x = json_i32(json, "x").unwrap_or(0);
+        let y = json_i32(json, "y").unwrap_or(0);
         let font_id = json.get("font_id").and_then(Value::as_u64).unwrap_or(1) as u8;
         let color = json
             .get("color")
             .and_then(Value::as_u64)
             .unwrap_or(0x80_00_00) as u32;
         let hidden = json.get("hidden").and_then(Value::as_bool).unwrap_or(false);
-        let owner_part_id = json
-            .get("owner_part_id")
-            .and_then(Value::as_i64)
-            .unwrap_or(1) as i32;
+        let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
 
         Some(Parameter {
             name: name.to_string(),
@@ -549,8 +547,8 @@ impl McpServer {
         let points: Vec<(i32, i32)> = points_json
             .iter()
             .filter_map(|p| {
-                let x = p.get("x").and_then(Value::as_i64)? as i32;
-                let y = p.get("y").and_then(Value::as_i64)? as i32;
+                let x = json_i32(p, "x")?;
+                let y = json_i32(p, "y")?;
                 Some((x, y))
             })
             .collect();
@@ -564,10 +562,7 @@ impl McpServer {
             .get("color")
             .and_then(Value::as_u64)
             .unwrap_or(0x00_00_80) as u32;
-        let owner_part_id = json
-            .get("owner_part_id")
-            .and_then(Value::as_i64)
-            .unwrap_or(1) as i32;
+        let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
 
         Some(Polyline {
             points,
@@ -586,9 +581,9 @@ impl McpServer {
     pub(crate) fn parse_schlib_arc(json: &Value) -> Option<crate::altium::schlib::Arc> {
         use crate::altium::schlib::Arc;
 
-        let x = json.get("x").and_then(Value::as_i64)? as i32;
-        let y = json.get("y").and_then(Value::as_i64)? as i32;
-        let radius = json.get("radius").and_then(Value::as_i64)? as i32;
+        let x = json_i32(json, "x")?;
+        let y = json_i32(json, "y")?;
+        let radius = json_i32(json, "radius")?;
         let start_angle = json
             .get("start_angle")
             .and_then(Value::as_f64)
@@ -602,10 +597,7 @@ impl McpServer {
             .get("color")
             .and_then(Value::as_u64)
             .unwrap_or(0x00_00_80) as u32;
-        let owner_part_id = json
-            .get("owner_part_id")
-            .and_then(Value::as_i64)
-            .unwrap_or(1) as i32;
+        let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
 
         Some(Arc {
             x,
@@ -624,10 +616,10 @@ impl McpServer {
     pub(crate) fn parse_schlib_ellipse(json: &Value) -> Option<crate::altium::schlib::Ellipse> {
         use crate::altium::schlib::Ellipse;
 
-        let x = json.get("x").and_then(Value::as_i64)? as i32;
-        let y = json.get("y").and_then(Value::as_i64)? as i32;
-        let radius_x = json.get("radius_x").and_then(Value::as_i64)? as i32;
-        let radius_y = json.get("radius_y").and_then(Value::as_i64)? as i32;
+        let x = json_i32(json, "x")?;
+        let y = json_i32(json, "y")?;
+        let radius_x = json_i32(json, "radius_x")?;
+        let radius_y = json_i32(json, "radius_y")?;
 
         let line_width = json.get("line_width").and_then(Value::as_u64).unwrap_or(1) as u8;
         let line_color = json
@@ -639,10 +631,7 @@ impl McpServer {
             .and_then(Value::as_u64)
             .unwrap_or(0xFF_FF_B0) as u32;
         let filled = json.get("filled").and_then(Value::as_bool).unwrap_or(true);
-        let owner_part_id = json
-            .get("owner_part_id")
-            .and_then(Value::as_i64)
-            .unwrap_or(1) as i32;
+        let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
 
         Some(Ellipse {
             x,
@@ -662,8 +651,8 @@ impl McpServer {
     pub(crate) fn parse_schlib_label(json: &Value) -> Option<crate::altium::schlib::Label> {
         use crate::altium::schlib::{Label, TextJustification};
 
-        let x = json.get("x").and_then(Value::as_i64)? as i32;
-        let y = json.get("y").and_then(Value::as_i64)? as i32;
+        let x = json_i32(json, "x")?;
+        let y = json_i32(json, "y")?;
         let text = json.get("text").and_then(Value::as_str)?.to_string();
 
         let font_id = json.get("font_id").and_then(Value::as_u64).unwrap_or(1) as u8;
@@ -681,10 +670,7 @@ impl McpServer {
             .or_else(|| json.get("hidden"))
             .and_then(Value::as_bool)
             .unwrap_or(false);
-        let owner_part_id = json
-            .get("owner_part_id")
-            .and_then(Value::as_i64)
-            .unwrap_or(1) as i32;
+        let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
 
         let justification = json.get("justification").and_then(Value::as_str).map_or(
             TextJustification::BottomLeft,
@@ -724,8 +710,8 @@ impl McpServer {
     pub(crate) fn parse_schlib_text(json: &Value) -> Option<crate::altium::schlib::Text> {
         use crate::altium::schlib::{Text, TextJustification};
 
-        let x = json.get("x").and_then(Value::as_i64)? as i32;
-        let y = json.get("y").and_then(Value::as_i64)? as i32;
+        let x = json_i32(json, "x")?;
+        let y = json_i32(json, "y")?;
         let text = json.get("text").and_then(Value::as_str)?.to_string();
 
         let font_id = json.get("font_id").and_then(Value::as_u64).unwrap_or(1) as u8;
@@ -743,10 +729,7 @@ impl McpServer {
             .or_else(|| json.get("hidden"))
             .and_then(Value::as_bool)
             .unwrap_or(false);
-        let owner_part_id = json
-            .get("owner_part_id")
-            .and_then(Value::as_i64)
-            .unwrap_or(1) as i32;
+        let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
 
         let justification = json.get("justification").and_then(Value::as_str).map_or(
             TextJustification::BottomLeft,
