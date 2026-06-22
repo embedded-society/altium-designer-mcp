@@ -1195,13 +1195,21 @@ impl PcbLib {
         Ok(())
     }
 
-    /// Writes the root `/FileVersionInfo` storage (Altium's version-history
-    /// metadata). The payload is a fixed, library-agnostic blob.
+    /// The `/FileVersionInfo` payload — Altium's version-history metadata, stored
+    /// as reviewable `|KEY=VALUE|` text rather than an opaque binary blob, so any
+    /// change shows up in a diff (it cannot be silently swapped). The C-string
+    /// block framing (`[u32 len][text][0x00]`) is re-added on write, reproducing
+    /// byte-for-byte the stream Altium emits.
+    const FVI_TEXT: &str = include_str!("assets/file_version_info.txt");
+
+    /// Writes the root `/FileVersionInfo` storage. The payload is a fixed,
+    /// library-agnostic version-history blob (see [`Self::FVI_TEXT`]).
     fn write_file_version_info<F: std::io::Read + std::io::Write + std::io::Seek>(
         cfb: &mut cfb::CompoundFile<F>,
     ) -> AltiumResult<()> {
-        const FVI_DATA: &[u8] = include_bytes!("assets/file_version_info.bin");
-        Self::write_meta_storage(cfb, "/FileVersionInfo", 1, FVI_DATA)
+        let mut data = Vec::new();
+        crate::altium::framing::write_cstring_param_block(&mut data, Self::FVI_TEXT.as_bytes());
+        Self::write_meta_storage(cfb, "/FileVersionInfo", 1, &data)
     }
 
     /// Builds the pipe-delimited parameter string for `/Library/Data`.
@@ -1553,6 +1561,20 @@ mod tests {
 
         assert_eq!(fp.name, "TEST");
         assert_eq!(fp.pads.len(), 2);
+    }
+
+    #[test]
+    fn file_version_info_frames_to_canonical_bytes() {
+        // The embedded FileVersionInfo text must frame to exactly the bytes
+        // Altium expects. Guards the asset against accidental mangling (a stray
+        // newline, an editor re-encode, git EOL normalisation) that would
+        // silently change the emitted /FileVersionInfo stream.
+        let mut data = Vec::new();
+        crate::altium::framing::write_cstring_param_block(&mut data, PcbLib::FVI_TEXT.as_bytes());
+        assert_eq!(data.len(), 2573, "FileVersionInfo stream size changed");
+        assert_eq!(&data[..4], &[0x09, 0x0a, 0x00, 0x00]); // LE length prefix = 2569
+        assert_eq!(*data.last().unwrap(), 0x00);
+        assert!(PcbLib::FVI_TEXT.starts_with("|COUNT="));
     }
 
     #[test]
