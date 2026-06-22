@@ -860,47 +860,28 @@ impl PcbLib {
         use uuid::Uuid;
 
         for footprint in &mut self.footprints {
-            if let Some(ref model_3d) = footprint.model_3d {
-                let path = std::path::Path::new(&model_3d.filepath);
+            let Some(ref model_3d) = footprint.model_3d else {
+                continue;
+            };
+            let path = std::path::Path::new(&model_3d.filepath);
 
-                // Only ever surface the bare file name in logs/errors, never the
-                // caller's full path (sanitisation rule).
-                let display_name = path.file_name().map_or_else(
-                    || "<model>".to_string(),
-                    |n| n.to_string_lossy().into_owned(),
-                );
+            // Only ever surface the bare file name in logs/errors, never the
+            // caller's full path (sanitisation rule).
+            let display_name = path.file_name().map_or_else(
+                || "<model>".to_string(),
+                |n| n.to_string_lossy().into_owned(),
+            );
 
-                // Check if the filepath looks like an explicit path (has directory components)
-                // vs just a model name (which gets set during read from ComponentBody)
-                let is_explicit_path = path.parent().is_some_and(|p| !p.as_os_str().is_empty());
+            // The three conditions that decide what to do with this model_3d.
+            let has_bodies = !footprint.component_bodies.is_empty();
+            // An explicit path has directory components; a bare model name (set
+            // when reading a ComponentBody back) does not.
+            let is_explicit_path = path.parent().is_some_and(|p| !p.as_os_str().is_empty());
+            let file_present = path.exists() && path.is_file();
 
-                // If footprint already has component_bodies AND filepath is just a name
-                // (not an explicit path), skip to prevent Bug #2 (duplicate component bodies
-                // from accidentally matching a file with the same name as the model)
-                if !footprint.component_bodies.is_empty() && !is_explicit_path {
-                    tracing::trace!(
-                        footprint = %footprint.name,
-                        component_bodies = footprint.component_bodies.len(),
-                        model = %display_name,
-                        "Skipping model_3d - footprint already has ComponentBody and filepath is not explicit"
-                    );
-                    continue;
-                }
-
-                // Check if file exists
-                if !path.exists() || !path.is_file() {
-                    // If footprint has existing component_bodies, the model is already embedded
-                    // from a previous save - just skip (the filepath is stale)
-                    if !footprint.component_bodies.is_empty() {
-                        tracing::trace!(
-                            footprint = %footprint.name,
-                            model = %display_name,
-                            "Skipping model_3d - file not found but ComponentBody exists"
-                        );
-                        continue;
-                    }
-
-                    // For NEW footprints, the file MUST exist - return error
+            match (has_bodies, is_explicit_path, file_present) {
+                // New footprint whose STEP file is missing — the path is required.
+                (false, _, false) => {
                     return Err(AltiumError::InvalidParameter {
                         name: "step_model.filepath".to_string(),
                         message: format!(
@@ -910,17 +891,26 @@ impl PcbLib {
                         ),
                     });
                 }
-
-                // If we have component_bodies but the user explicitly set a path
-                // that exists, they want to re-embed. Clear the old
-                // component_bodies first — and drop the embedded models those
-                // bodies referenced, so they don't linger in self.models as
+                // Already embedded, and either the filepath is a bare model name
+                // (from a prior read) or it no longer points at a file — keep the
+                // existing ComponentBody as-is.
+                (true, false, _) | (true, _, false) => {
+                    tracing::trace!(
+                        footprint = %footprint.name,
+                        model = %display_name,
+                        "Skipping model_3d - already embedded or filepath not actionable"
+                    );
+                    continue;
+                }
+                // Already embedded but the user pointed at a new explicit path that
+                // exists — re-embed. Drop the old ComponentBodies AND the models
+                // they referenced, so the latter don't linger in self.models as
                 // orphans (which previously bloated the library on every save).
-                if !footprint.component_bodies.is_empty() {
+                (true, true, true) => {
                     tracing::debug!(
                         footprint = %footprint.name,
                         old_bodies = footprint.component_bodies.len(),
-                        "Clearing old ComponentBodies for re-embedding from new path"
+                        "Re-embedding model_3d from new explicit path"
                     );
                     let stale: std::collections::HashSet<String> = footprint
                         .component_bodies
@@ -932,47 +922,41 @@ impl PcbLib {
                     self.models
                         .retain(|m| !stale.contains(&m.id.to_lowercase()));
                 }
-
-                // Read the STEP file
-                let step_data = std::fs::read(path).map_err(|e| AltiumError::file_read(path, e))?;
-
-                // Generate a GUID for the model
-                let guid = format!("{{{}}}", Uuid::new_v4().to_string().to_uppercase());
-
-                // Extract filename from path
-                let filename = path.file_name().map_or_else(
-                    || "model.step".to_string(),
-                    |n| n.to_string_lossy().to_string(),
-                );
-
-                // Create EmbeddedModel
-                let embedded_model = EmbeddedModel::new(&guid, &filename, step_data);
-                self.models.push(embedded_model);
-
-                // Create ComponentBody referencing the model
-                let component_body = ComponentBody {
-                    model_id: guid,
-                    model_name: filename,
-                    embedded: true,
-                    rotation_x: 0.0,
-                    rotation_y: 0.0,
-                    rotation_z: model_3d.rotation,
-                    z_offset: model_3d.z_offset,
-                    overall_height: 0.0, // Could be calculated from STEP, but not implemented
-                    standoff_height: 0.0,
-                    layer: Layer::Top3DBody,
-                    outline: Vec::new(), // Synthesised from the footprint extent on write
-                    unique_id: None,
-                };
-
-                footprint.component_bodies.push(component_body);
-
-                tracing::debug!(
-                    footprint = %footprint.name,
-                    filepath = %model_3d.filepath,
-                    "Converted model_3d to ComponentBody"
-                );
+                // Fresh embed: new footprint, file present.
+                (false, _, true) => {}
             }
+
+            // Embed: read the STEP file, then create the EmbeddedModel +
+            // ComponentBody (shared by the fresh-embed and re-embed cases above).
+            let step_data = std::fs::read(path).map_err(|e| AltiumError::file_read(path, e))?;
+            let guid = format!("{{{}}}", Uuid::new_v4().to_string().to_uppercase());
+            let filename = path.file_name().map_or_else(
+                || "model.step".to_string(),
+                |n| n.to_string_lossy().to_string(),
+            );
+
+            self.models
+                .push(EmbeddedModel::new(&guid, &filename, step_data));
+            footprint.component_bodies.push(ComponentBody {
+                model_id: guid,
+                model_name: filename,
+                embedded: true,
+                rotation_x: 0.0,
+                rotation_y: 0.0,
+                rotation_z: model_3d.rotation,
+                z_offset: model_3d.z_offset,
+                overall_height: 0.0, // Could be calculated from STEP, but not implemented
+                standoff_height: 0.0,
+                layer: Layer::Top3DBody,
+                outline: Vec::new(), // Synthesised from the footprint extent on write
+                unique_id: None,
+            });
+
+            tracing::debug!(
+                footprint = %footprint.name,
+                filepath = %model_3d.filepath,
+                "Converted model_3d to ComponentBody"
+            );
         }
 
         Ok(())
