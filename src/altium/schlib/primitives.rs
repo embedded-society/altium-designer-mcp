@@ -769,7 +769,7 @@ pub struct Label {
     #[serde(default)]
     pub color: u32,
     /// Text justification.
-    #[serde(default)]
+    #[serde(default = "default_justification")]
     pub justification: TextJustification,
     /// Rotation in degrees.
     #[serde(default, serialize_with = "crate::altium::serde_round::serialize")]
@@ -804,7 +804,7 @@ pub struct Text {
     #[serde(default)]
     pub color: u32,
     /// Text justification.
-    #[serde(default)]
+    #[serde(default = "default_justification")]
     pub justification: TextJustification,
     /// Rotation in degrees.
     #[serde(default, serialize_with = "crate::altium::serde_round::serialize")]
@@ -824,29 +824,15 @@ const fn default_font_id() -> u8 {
     1
 }
 
-/// Text justification.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TextJustification {
-    /// Bottom-left aligned.
-    #[default]
-    BottomLeft,
-    /// Bottom-centre aligned.
-    BottomCenter,
-    /// Bottom-right aligned.
-    BottomRight,
-    /// Middle-left aligned.
-    MiddleLeft,
-    /// Middle-centre aligned.
-    MiddleCenter,
-    /// Middle-right aligned.
-    MiddleRight,
-    /// Top-left aligned.
-    TopLeft,
-    /// Top-centre aligned.
-    TopCenter,
-    /// Top-right aligned.
-    TopRight,
+/// Text justification. Shared with `PcbLib`; the canonical definition is
+/// [`crate::altium::TextJustification`].
+pub use crate::altium::TextJustification;
+
+/// `SchLib`'s per-field default justification. Unlike `PcbLib` (which defaults
+/// to `MiddleCenter`, the shared enum's `Default`), `SchLib` text/labels default
+/// to `BottomLeft`, so the `justification` fields set this explicitly.
+const fn default_justification() -> TextJustification {
+    TextJustification::BottomLeft
 }
 
 /// A component parameter (e.g., Value, Part Number).

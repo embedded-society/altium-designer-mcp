@@ -29,10 +29,12 @@ pub(crate) mod framing;
 pub mod pcblib;
 pub mod schlib;
 pub(crate) mod serde_round;
+pub(crate) mod text;
 
 pub use error::{AltiumError, AltiumResult};
 pub use pcblib::{Footprint, PcbLib};
 pub use schlib::{SchLib, Symbol};
+pub use text::TextJustification;
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
@@ -267,6 +269,23 @@ pub(crate) fn parse_pipe_params(text: &str) -> std::collections::HashMap<String,
         }
     }
     map
+}
+
+/// Builds a stable-reorder ranking function from a desired name order.
+///
+/// The returned closure maps a name to its sort rank: its index in `new_order`,
+/// or `new_order.len()` for names not listed — so unlisted items sort after
+/// listed ones, keeping their original relative order under a stable sort.
+/// Shared by both libraries' `reorder` methods, which differ only in their
+/// backing collection (`IndexMap` vs `Vec`).
+pub(crate) fn order_ranker<'a>(new_order: &[&'a str]) -> impl Fn(&str) -> usize + 'a {
+    let order_map: std::collections::HashMap<&'a str, usize> = new_order
+        .iter()
+        .enumerate()
+        .map(|(i, name)| (*name, i))
+        .collect();
+    let max_pos = new_order.len();
+    move |name: &str| order_map.get(name).copied().unwrap_or(max_pos)
 }
 
 #[cfg(test)]
