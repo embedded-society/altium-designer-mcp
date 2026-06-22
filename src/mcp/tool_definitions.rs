@@ -404,6 +404,19 @@ impl McpServer {
                                             },
                                             "required": ["name"]
                                         }
+                                    },
+                                    "footprints": {
+                                        "type": "array",
+                                        "description": "Footprint model references (links to PCB footprints)",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "name": { "type": "string", "description": "Footprint name (entity in the PcbLib)" },
+                                                "description": { "type": "string", "description": "Model description" },
+                                                "library_path": { "type": "string", "description": "Optional absolute path to the .PcbLib containing the footprint, written as ModelDatafile0 so Altium resolves/previews the model. Omit to link by name only (requires the library to be installed/in the project)." }
+                                            },
+                                            "required": ["name"]
+                                        }
                                     }
                                 },
                                 "required": ["name", "pins"]
@@ -1119,6 +1132,10 @@ impl McpServer {
                         "description": {
                             "type": "string",
                             "description": "Footprint description (optional for add)"
+                        },
+                        "library_path": {
+                            "type": "string",
+                            "description": "Optional (add): absolute path to the .PcbLib containing the footprint, written as ModelDatafile0 so Altium can resolve and preview the model. Omit to link by name only (requires the library to be installed/in the project, else 'footprint not found')."
                         }
                     },
                     "required": ["filepath", "component_name", "operation"]

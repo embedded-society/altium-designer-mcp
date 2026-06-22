@@ -168,6 +168,12 @@ fn parse_text_record_from_string(symbol: &mut Symbol, text: &str) {
                 if let Some(desc) = props.get("description") {
                     fp.description.clone_from(desc);
                 }
+                // Preserve the PcbLib path (ModelDatafile0) so it round-trips.
+                if let Some(path) = props.get("modeldatafile0") {
+                    if !path.is_empty() {
+                        fp.library_path = Some(path.clone());
+                    }
+                }
                 symbol.add_footprint(fp);
             }
         }

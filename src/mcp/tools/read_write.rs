@@ -717,6 +717,12 @@ impl McpServer {
                         if let Some(desc) = fp_json.get("description").and_then(Value::as_str) {
                             fp.description = desc.to_string();
                         }
+                        // Optional PcbLib path -> ModelDatafile0, so Altium can
+                        // resolve the footprint instead of reporting "not found".
+                        if let Some(lib_path) = fp_json.get("library_path").and_then(Value::as_str)
+                        {
+                            fp.library_path = Some(lib_path.to_string());
+                        }
                         symbol.add_footprint(fp);
                     }
                 }
