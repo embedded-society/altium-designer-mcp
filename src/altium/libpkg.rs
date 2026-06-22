@@ -21,7 +21,7 @@
 //! file**. This module only generates the project source; compiling it to a
 //! binary `.IntLib` is an operation performed inside Altium Designer.
 
-use std::path::{Component, Path};
+use std::path::Path;
 
 /// Computes the path of `document` relative to the directory containing
 /// `libpkg_path`, using Windows-style `\` separators (Altium's convention).
@@ -31,7 +31,7 @@ use std::path::{Component, Path};
 #[must_use]
 pub fn relative_to_libpkg(libpkg_path: &Path, document: &str) -> String {
     let base = libpkg_path.parent().unwrap_or_else(|| Path::new(""));
-    relative_path(base, Path::new(document))
+    relative_path(&base.to_string_lossy(), document)
 }
 
 /// Builds the full text of a `.LibPkg` referencing `documents`.
@@ -47,27 +47,35 @@ pub fn build_libpkg(libpkg_path: &Path, documents: &[String]) -> String {
 }
 
 /// Lexically relativizes `target` against the directory `base`.
-fn relative_path(base: &Path, target: &Path) -> String {
-    let b: Vec<Component> = base.components().collect();
-    let t: Vec<Component> = target.components().collect();
+///
+/// Both are treated as **Windows-style** paths (Altium's convention) regardless
+/// of the host OS: we split on `\` or `/` ourselves rather than via
+/// [`std::path::Path::components`], which only treats `\` as a separator on
+/// Windows and would mis-parse `C:\…` paths on Linux/macOS. Segment comparison
+/// is case-insensitive, matching Windows path semantics.
+fn relative_path(base: &str, target: &str) -> String {
+    let split = |p: &str| -> Vec<String> {
+        p.split(['\\', '/'])
+            .filter(|s| !s.is_empty())
+            .map(ToString::to_string)
+            .collect()
+    };
+    let b = split(base);
+    let t = split(target);
 
     let mut shared = 0;
-    while shared < b.len() && shared < t.len() && b[shared] == t[shared] {
+    while shared < b.len() && shared < t.len() && b[shared].eq_ignore_ascii_case(&t[shared]) {
         shared += 1;
     }
 
     // No shared root — a bare file name or a different drive. Emit as given
     // (normalised to backslashes) rather than inventing a bogus `..` chain.
     if shared == 0 {
-        return target.to_string_lossy().replace('/', "\\");
+        return target.replace('/', "\\");
     }
 
     let mut parts: Vec<String> = vec!["..".to_string(); b.len() - shared];
-    parts.extend(
-        t[shared..]
-            .iter()
-            .map(|c| c.as_os_str().to_string_lossy().into_owned()),
-    );
+    parts.extend(t[shared..].iter().cloned());
     parts.join("\\")
 }
 
