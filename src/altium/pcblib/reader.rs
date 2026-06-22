@@ -225,40 +225,16 @@ pub fn parse_unique_id_stream(data: &[u8]) -> UniqueIdMap {
 /// |PRIMITIVEINDEX=1|PRIMITIVEOBJECTID=Pad|UNIQUEID=QHHMRSCB
 /// ```
 fn parse_unique_id_record(record: &str) -> Option<UniqueIdEntry> {
-    let mut primitive_index: Option<usize> = None;
-    let mut primitive_type: Option<String> = None;
-    let mut unique_id: Option<String> = None;
-
-    for pair in record.split('|') {
-        if pair.is_empty() {
-            continue;
-        }
-
-        if let Some((key, value)) = pair.split_once('=') {
-            match key {
-                "PRIMITIVEINDEX" => {
-                    primitive_index = value.parse().ok();
-                }
-                "PRIMITIVEOBJECTID" => {
-                    primitive_type = Some(value.to_string());
-                }
-                "UNIQUEID" => {
-                    unique_id = Some(value.to_string());
-                }
-                _ => {}
-            }
-        }
-    }
-
-    // Only return if we have all required fields
-    match (primitive_index, primitive_type, unique_id) {
-        (Some(index), Some(ptype), Some(uid)) if !uid.is_empty() => Some(UniqueIdEntry {
-            primitive_index: index,
-            primitive_type: ptype,
-            unique_id: uid,
-        }),
-        _ => None,
-    }
+    let params = crate::altium::parse_pipe_params_raw(record);
+    let primitive_index: usize = params.get("PRIMITIVEINDEX")?.parse().ok()?;
+    let primitive_type = params.get("PRIMITIVEOBJECTID")?.clone();
+    let unique_id = params.get("UNIQUEID")?.clone();
+    // Only return if all required fields are present and the id is non-empty.
+    (!unique_id.is_empty()).then_some(UniqueIdEntry {
+        primitive_index,
+        primitive_type,
+        unique_id,
+    })
 }
 
 /// Applies unique IDs from the `UniqueIDPrimitiveInformation` stream to footprint primitives.
@@ -1897,21 +1873,10 @@ fn parse_component_body_outline(block0: &[u8]) -> Vec<(f64, f64)> {
 
 /// Parses key=value parameters from a `ComponentBody` block string.
 fn parse_component_body_params(s: &str) -> std::collections::HashMap<String, String> {
-    let mut params = std::collections::HashMap::new();
-
-    // Find the start of parameters (look for V7_LAYER=)
-    if let Some(start) = s.find("V7_LAYER") {
-        let params_str = &s[start..];
-        for pair in params_str.split('|') {
-            if let Some((key, val)) = pair.split_once('=') {
-                // Clean up null bytes and whitespace
-                let val = val.trim_end_matches('\0').trim();
-                params.insert(key.to_string(), val.to_string());
-            }
-        }
-    }
-
-    params
+    // Parameters begin at the first `V7_LAYER=` key (after the binary header).
+    s.find("V7_LAYER")
+        .map(|start| crate::altium::parse_pipe_params_raw(&s[start..]))
+        .unwrap_or_default()
 }
 
 /// Parses a value in mils (e.g., "15.748mil") to mm.
@@ -2008,22 +1973,9 @@ pub fn parse_model_data_stream(data: &[u8]) -> ModelIndex {
             .unwrap_or_else(|_| record_data.iter().map(|&b| b as char).collect());
 
         // Extract ID (GUID) and NAME from the record
-        let mut guid = String::new();
-        let mut name = String::new();
-
-        for pair in record_text.split('|') {
-            if pair.is_empty() {
-                continue;
-            }
-
-            if let Some((key, value)) = pair.split_once('=') {
-                match key {
-                    "ID" => guid = value.trim_end_matches('\0').to_string(),
-                    "NAME" => name = value.trim_end_matches('\0').to_string(),
-                    _ => {}
-                }
-            }
-        }
+        let params = crate::altium::parse_pipe_params_raw(&record_text);
+        let guid = params.get("ID").cloned().unwrap_or_default();
+        let name = params.get("NAME").cloned().unwrap_or_default();
 
         if !guid.is_empty() {
             tracing::trace!(

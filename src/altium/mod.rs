@@ -286,6 +286,23 @@ pub(crate) fn parse_pipe_params(text: &str) -> std::collections::HashMap<String,
     map
 }
 
+/// Like [`parse_pipe_params`] but preserves key case verbatim and trims trailing
+/// NUL padding (then surrounding whitespace) from values. `PcbLib` records match
+/// keys in their native UPPERCASE form and pad values with `\0`, neither of which
+/// the lowercasing `parse_pipe_params` handles. Callers look keys up in UPPERCASE.
+pub(crate) fn parse_pipe_params_raw(text: &str) -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+    for part in text.split('|') {
+        if let Some((key, value)) = part.split_once('=') {
+            map.insert(
+                key.to_string(),
+                value.trim_end_matches('\0').trim().to_string(),
+            );
+        }
+    }
+    map
+}
+
 /// Builds a stable-reorder ranking function from a desired name order.
 ///
 /// The returned closure maps a name to its sort rank: its index in `new_order`,
