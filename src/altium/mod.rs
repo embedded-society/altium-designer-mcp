@@ -26,6 +26,7 @@
 pub(crate) mod bytes;
 pub mod error;
 pub(crate) mod framing;
+pub mod libpkg;
 pub mod pcblib;
 pub mod schlib;
 pub(crate) mod serde_round;

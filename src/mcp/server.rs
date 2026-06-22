@@ -769,6 +769,7 @@ impl McpServer {
                 "write_pcblib" => self.call_write_pcblib(&params.arguments),
                 "read_schlib" => self.call_read_schlib(&params.arguments),
                 "write_schlib" => self.call_write_schlib(&params.arguments),
+                "write_libpkg" => self.call_write_libpkg(&params.arguments),
                 "list_components" => self.call_list_components(&params.arguments),
                 "extract_style" => self.call_extract_style(&params.arguments),
                 // Library management tools

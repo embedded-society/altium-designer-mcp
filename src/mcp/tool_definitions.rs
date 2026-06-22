@@ -417,6 +417,33 @@ impl McpServer {
                     "required": ["filepath", "symbols"]
                 }),
             },
+            ToolDefinition {
+                name: "write_libpkg".to_string(),
+                description: Some(
+                    "Write an Altium Library Package (.LibPkg) project file that groups source \
+                     library documents (.SchLib and .PcbLib) so they can be compiled into an \
+                     Integrated Library (.IntLib). Member documents are referenced by their path \
+                     relative to the .LibPkg. This generates only the project source; compiling \
+                     to a binary .IntLib is a one-click operation inside Altium Designer \
+                     (Project > Compile Integrated Library)."
+                        .to_string(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "filepath": {
+                            "type": "string",
+                            "description": "Path to the .LibPkg file to create"
+                        },
+                        "documents": {
+                            "type": "array",
+                            "description": "Member document paths (.SchLib / .PcbLib). Each is referenced relative to the .LibPkg location; same-folder files become bare names.",
+                            "items": { "type": "string" }
+                        }
+                    },
+                    "required": ["filepath", "documents"]
+                }),
+            },
             // === Library Management ===
             ToolDefinition {
                 name: "delete_component".to_string(),
