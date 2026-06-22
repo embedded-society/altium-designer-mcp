@@ -565,15 +565,62 @@ fn encode_implementation_list() -> String {
     "|RECORD=44".to_string()
 }
 
-/// Encodes a footprint model record.
-fn encode_footprint_model(model: &FootprintModel, owner_index: usize) -> String {
+/// Counts the records already written to a Data-stream buffer, using the
+/// `[u24 length LE][u8 flags][payload]` framing. The result is the stream-index
+/// the next record will occupy (records are 0-indexed, matching the values
+/// Altium stores in `OwnerIndex`).
+fn count_records(data: &[u8]) -> usize {
+    let mut offset = 0;
+    let mut count = 0;
+    while offset + 4 <= data.len() {
+        let len = (data[offset] as usize)
+            | ((data[offset + 1] as usize) << 8)
+            | ((data[offset + 2] as usize) << 16);
+        offset += 4 + len;
+        count += 1;
+    }
+    count
+}
+
+/// Encodes a footprint model record (`RECORD=45`).
+///
+/// `owner_index` is the stream-index of the owning `RECORD=44` implementation list.
+/// `is_current` marks the default footprint (`IsCurrent=T`, set on one model).
+///
+/// `DatafileCount=1` plus `ModelDatafileEntity0` is what lets Altium *resolve*
+/// the model to an actual footprint in a `PcbLib` (rendering the preview and
+/// finding it on placement); a name-only record with `DatafileCount=0` shows in
+/// the list but reports "model not found".
+fn encode_footprint_model(model: &FootprintModel, owner_index: usize, is_current: bool) -> String {
+    // ModelDatafile0 (the .PcbLib path) is what lets Altium resolve the footprint
+    // directly; omitted when no path is known (falls back to name search).
+    let datafile = model
+        .library_path
+        .as_deref()
+        .map(|p| format!("|ModelDatafile0={p}"))
+        .unwrap_or_default();
     format!(
-        "|RECORD=45|OwnerIndex={}|Description={}|ModelName={}|ModelType=PCBLIB|DatafileCount=0|UniqueID={}",
+        "|RECORD=45|OwnerIndex={}|IndexInSheet=-1|Description={}|ModelName={}|ModelType=PCBLIB|DatafileCount=1{}|ModelDatafileEntity0={}|ModelDatafileKind0=PCBLib|IsCurrent={}|UniqueID={}",
         owner_index,
         model.description,
         model.name,
+        datafile,
+        model.name,
+        if is_current { "T" } else { "F" },
         generate_unique_id()
     )
+}
+
+/// Encodes a model datafile link record (`RECORD=46`) — a child of a footprint
+/// model. `owner_index` is the stream-index of the owning `RECORD=45`.
+fn encode_model_datafile_link(owner_index: usize) -> String {
+    format!("|RECORD=46|OwnerIndex={owner_index}")
+}
+
+/// Encodes an implementation record (`RECORD=48`) — a child of a footprint
+/// model. `owner_index` is the stream-index of the owning `RECORD=45`.
+fn encode_implementation(owner_index: usize) -> String {
+    format!("|RECORD=48|OwnerIndex={owner_index}")
 }
 
 /// Generates a random 8-character unique ID (similar to Altium's format).
@@ -695,10 +742,22 @@ pub fn encode_data_stream(symbol: &Symbol) -> crate::altium::error::AltiumResult
 
     // 16. Implementation list — Altium always writes RECORD=44, then a model
     // record per footprint.
+    // Every footprint model (RECORD=45) is owned by the single RECORD=44
+    // ImplementationList, so its OwnerIndex must be that record's stream-index —
+    // not the model's own position (the previous behaviour, which orphaned every
+    // model after the first).
+    let impl_index = count_records(&data);
     write_text_record(&mut data, &encode_implementation_list())?;
     for (i, model) in symbol.footprints.iter().enumerate() {
-        let record = encode_footprint_model(model, i);
-        write_text_record(&mut data, &record)?;
+        // The RECORD=45 is owned by the RECORD=44; its RECORD=46/48 children are
+        // in turn owned by the RECORD=45 (its own stream-index).
+        let model_index = count_records(&data);
+        write_text_record(
+            &mut data,
+            &encode_footprint_model(model, impl_index, i == 0),
+        )?;
+        write_text_record(&mut data, &encode_model_datafile_link(model_index))?;
+        write_text_record(&mut data, &encode_implementation(model_index))?;
     }
 
     // No end-of-stream sentinel: Altium reads records until the stream is
@@ -800,6 +859,51 @@ mod tests {
         let text = String::from_utf8_lossy(&data);
         assert!(text.contains("RECORD=1"), "component record present");
         assert!(text.contains("RECORD=44"), "implementation list present");
+    }
+
+    #[test]
+    fn footprint_models_owned_by_implementation_list() {
+        let mut symbol = Symbol::new("R");
+        symbol.add_pin(Pin::new("1", "1", -10, 0, 10, PinOrientation::Left));
+        symbol.add_pin(Pin::new("2", "2", 10, 0, 10, PinOrientation::Right));
+        let mut a = FootprintModel::new("R0402");
+        a.library_path = Some("X:/Lib/Test.PcbLib".to_string());
+        symbol.add_footprint(a);
+        symbol.add_footprint(FootprintModel::new("R0603"));
+
+        let data = encode_data_stream(&symbol).expect("encode");
+
+        // Parse records: [u24 length LE][u8 flags][payload].
+        let mut records: Vec<String> = Vec::new();
+        let mut off = 0;
+        while off + 4 <= data.len() {
+            let len = data[off] as usize
+                | ((data[off + 1] as usize) << 8)
+                | ((data[off + 2] as usize) << 16);
+            records.push(String::from_utf8_lossy(&data[off + 4..off + 4 + len]).into_owned());
+            off += 4 + len;
+        }
+
+        let impl_idx = records
+            .iter()
+            .position(|t| t.contains("|RECORD=44"))
+            .expect("RECORD=44 present");
+        let models: Vec<&String> = records.iter().filter(|t| t.contains("|RECORD=45")).collect();
+        assert_eq!(models.len(), 2, "both footprint models written");
+        for m in &models {
+            // Every model is owned by the single implementation list, not its own index.
+            assert!(
+                m.contains(&format!("OwnerIndex={impl_idx}")),
+                "model owned by RECORD=44 (index {impl_idx}): {m}"
+            );
+        }
+        // The library path is emitted as ModelDatafile0 so Altium can resolve it.
+        assert!(records
+            .iter()
+            .any(|t| t.contains("ModelDatafile0=X:/Lib/Test.PcbLib")));
+        // Each model carries its RECORD=46 / RECORD=48 children.
+        assert!(records.iter().any(|t| t.contains("|RECORD=46")));
+        assert!(records.iter().any(|t| t.contains("|RECORD=48")));
     }
 
     #[test]

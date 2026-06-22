@@ -896,6 +896,13 @@ pub struct FootprintModel {
     /// Description.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub description: String,
+    /// Path to the `PcbLib` that contains this footprint, written as
+    /// `ModelDatafile0`. When set, Altium resolves the footprint directly from
+    /// that file (rendering the preview); when absent it falls back to searching
+    /// available libraries by name, which reports "footprint not found" if the
+    /// library isn't installed/in the project.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub library_path: Option<String>,
 }
 
 impl FootprintModel {
@@ -905,6 +912,7 @@ impl FootprintModel {
         Self {
             name: name.into(),
             description: String::new(),
+            library_path: None,
         }
     }
 }

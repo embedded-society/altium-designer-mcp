@@ -337,6 +337,7 @@ impl McpServer {
                         json!({
                             "name": f.name,
                             "description": f.description,
+                            "library_path": f.library_path,
                         })
                     })
                     .collect();
@@ -391,6 +392,14 @@ impl McpServer {
                     // Apply optional description
                     if let Some(desc) = arguments.get("description").and_then(Value::as_str) {
                         footprint.description = desc.to_string();
+                    }
+
+                    // Apply optional PcbLib path so Altium can resolve the
+                    // footprint (written as ModelDatafile0). Without it the model
+                    // links by name only and shows "footprint not found" unless
+                    // the library is installed/in the project.
+                    if let Some(lib_path) = arguments.get("library_path").and_then(Value::as_str) {
+                        footprint.library_path = Some(lib_path.to_string());
                     }
 
                     symbol.add_footprint(footprint);
