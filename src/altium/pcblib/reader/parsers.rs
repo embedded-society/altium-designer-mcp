@@ -496,6 +496,12 @@ pub(super) fn parse_track(data: &[u8], offset: usize) -> ParseResult<Track> {
             .ok_or_else(|| AltiumError::parse_error(offset + 29, "failed to read Track width"))?,
     );
 
+    // Extended tail (round-trip fidelity, #113): solder-mask expansion @35-38,
+    // keepout restrictions @45. Kept `None` when absent or zero so a from-scratch
+    // track (which writes 0) round-trips without gaining these keys.
+    let solder_mask_expansion = read_i32(block, 35).map(to_mm).filter(|v| v.abs() > 1e-4);
+    let keepout_restrictions = block.get(45).copied().filter(|&b| b != 0);
+
     let track = Track {
         x1,
         y1,
@@ -505,6 +511,8 @@ pub(super) fn parse_track(data: &[u8], offset: usize) -> ParseResult<Track> {
         layer,
         flags,
         unique_id: None,
+        solder_mask_expansion,
+        keepout_restrictions,
     };
 
     Ok((track, next))
@@ -558,6 +566,10 @@ pub(super) fn parse_arc(data: &[u8], offset: usize) -> ParseResult<Arc> {
             .ok_or_else(|| AltiumError::parse_error(offset + 41, "failed to read Arc width"))?,
     );
 
+    // Extended tail (round-trip fidelity, #113): solder-mask @47-50, keepout @56.
+    let solder_mask_expansion = read_i32(block, 47).map(to_mm).filter(|v| v.abs() > 1e-4);
+    let keepout_restrictions = block.get(56).copied().filter(|&b| b != 0);
+
     let arc = Arc {
         x,
         y,
@@ -568,6 +580,8 @@ pub(super) fn parse_arc(data: &[u8], offset: usize) -> ParseResult<Arc> {
         layer,
         flags,
         unique_id: None,
+        solder_mask_expansion,
+        keepout_restrictions,
     };
 
     Ok((arc, next))

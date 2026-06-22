@@ -1004,6 +1004,45 @@ mod tests {
     }
 
     #[test]
+    fn track_arc_extended_tail_round_trips() {
+        // #113: a track/arc's solder-mask expansion and keepout restrictions are
+        // preserved on read->write (previously silently dropped). Additive: a
+        // default primitive (None) must round-trip back to None.
+        let mut fp = Footprint::new("FIDELITY");
+        let mut track = Track::new(0.0, 0.0, 1.0, 0.0, 0.2, Layer::TopLayer);
+        track.solder_mask_expansion = Some(0.1);
+        track.keepout_restrictions = Some(0x05);
+        fp.add_track(track);
+        let mut arc = Arc::circle(2.0, 0.0, 0.5, 0.15, Layer::TopLayer);
+        arc.solder_mask_expansion = Some(0.08);
+        arc.keepout_restrictions = Some(0x03);
+        fp.add_arc(arc);
+        // A default track to prove additivity (None stays None).
+        fp.add_track(Track::new(5.0, 0.0, 6.0, 0.0, 0.2, Layer::TopOverlay));
+
+        let data = writer::encode_data_stream(&fp).expect("encode");
+        let mut decoded = Footprint::new("FIDELITY");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        assert_eq!(decoded.tracks.len(), 2);
+        assert!(approx_eq(
+            decoded.tracks[0].solder_mask_expansion.unwrap(),
+            0.1,
+            0.001
+        ));
+        assert_eq!(decoded.tracks[0].keepout_restrictions, Some(0x05));
+        assert!(approx_eq(
+            decoded.arcs[0].solder_mask_expansion.unwrap(),
+            0.08,
+            0.001
+        ));
+        assert_eq!(decoded.arcs[0].keepout_restrictions, Some(0x03));
+        // Additive: the default track did not gain these fields.
+        assert_eq!(decoded.tracks[1].solder_mask_expansion, None);
+        assert_eq!(decoded.tracks[1].keepout_restrictions, None);
+    }
+
+    #[test]
     fn binary_roundtrip_via() {
         let mut original = Footprint::new("ROUNDTRIP_VIA");
 
