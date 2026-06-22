@@ -1286,6 +1286,7 @@ fn test_schlib_rename_component() {
         filled: true,
         transparent: false,
         owner_part_id: 1,
+        unique_id: None,
     });
     sym.pins.push(Pin {
         name: "VCC".to_string(),
@@ -1306,6 +1307,7 @@ fn test_schlib_rename_component() {
         symbol_outer_edge: PinSymbol::None,
         symbol_inside: PinSymbol::None,
         symbol_outside: PinSymbol::None,
+        is_not_accessible: false,
     });
     lib.add(sym);
     lib.save(&file_path).expect("Failed to write");
@@ -1505,6 +1507,7 @@ fn test_schlib_copy_cross_library() {
         filled: true,
         transparent: false,
         owner_part_id: 1,
+        unique_id: None,
     });
     sym.pins.push(Pin {
         name: "VCC".to_string(),
@@ -1525,6 +1528,7 @@ fn test_schlib_copy_cross_library() {
         symbol_outer_edge: PinSymbol::None,
         symbol_inside: PinSymbol::None,
         symbol_outside: PinSymbol::None,
+        is_not_accessible: false,
     });
     source_lib.add(sym);
     source_lib
@@ -1646,6 +1650,7 @@ fn test_schlib_json_roundtrip() {
         filled: true,
         transparent: false,
         owner_part_id: 1,
+        unique_id: None,
     });
     sym.pins.push(Pin {
         name: "VCC".to_string(),
@@ -1666,6 +1671,7 @@ fn test_schlib_json_roundtrip() {
         symbol_outer_edge: PinSymbol::None,
         symbol_inside: PinSymbol::None,
         symbol_outside: PinSymbol::None,
+        is_not_accessible: false,
     });
     lib.add(sym);
     lib.save(&original_path).expect("Failed to write original");
@@ -1904,6 +1910,7 @@ fn test_schlib_merge_libraries() {
         filled: true,
         transparent: false,
         owner_part_id: 1,
+        unique_id: None,
     });
     lib1.add(sym1);
     lib1.save(&source1_path).expect("Failed to write source1");
@@ -1932,6 +1939,7 @@ fn test_schlib_merge_libraries() {
         symbol_outer_edge: PinSymbol::None,
         symbol_inside: PinSymbol::None,
         symbol_outside: PinSymbol::None,
+        is_not_accessible: false,
     });
     lib2.add(sym2);
     lib2.save(&source2_path).expect("Failed to write source2");
@@ -2082,6 +2090,7 @@ fn test_schlib_search() {
         filled: false,
         transparent: false,
         owner_part_id: 1,
+        unique_id: None,
     });
     lib.add(sym1);
 
@@ -2097,6 +2106,7 @@ fn test_schlib_search() {
         filled: false,
         transparent: false,
         owner_part_id: 1,
+        unique_id: None,
     });
     lib.add(sym2);
 
@@ -2112,6 +2122,7 @@ fn test_schlib_search() {
         filled: false,
         transparent: false,
         owner_part_id: 1,
+        unique_id: None,
     });
     lib.add(sym3);
 
@@ -2208,6 +2219,7 @@ fn test_schlib_get_component() {
         filled: false,
         transparent: false,
         owner_part_id: 1,
+        unique_id: None,
     });
     sym1.pins.push(Pin {
         name: "IN".to_string(),
@@ -2228,6 +2240,7 @@ fn test_schlib_get_component() {
         symbol_outer_edge: PinSymbol::None,
         symbol_inside: PinSymbol::None,
         symbol_outside: PinSymbol::None,
+        is_not_accessible: false,
     });
     lib.add(sym1);
 
