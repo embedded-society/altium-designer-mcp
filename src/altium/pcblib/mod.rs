@@ -978,6 +978,71 @@ mod tests {
     }
 
     #[test]
+    fn via_is_single_321_byte_block() {
+        // #113: Altium writes a via as ONE block — the 13-byte common header plus
+        // the 321-byte via SubRecord-1 — matching `PcbLibWriter.WriteVia`. We used
+        // to emit six pad-style blocks, which Altium misreads. A self-consistent
+        // round-trip can't catch that, so assert the on-disk block structure.
+        let mut fp = Footprint::new("VIA_ONLY");
+        fp.add_via(Via::new(1.0, 2.0, 0.6, 0.3));
+        let data = writer::encode_data_stream(&fp).expect("encode");
+
+        // The via record is `[0x03][block_len: u32 LE][block]`; 321 == 0x0000_0141.
+        let sig = [0x03u8, 0x41, 0x01, 0x00, 0x00];
+        let pos = data
+            .windows(sig.len())
+            .position(|w| w == sig)
+            .expect("via must be a single 321-byte block");
+        let block = &data[pos + 5..pos + 5 + 321];
+        // Common-header layer byte is MultiLayer (74) for a via.
+        assert_eq!(block[0], 74, "via common header should be on MultiLayer");
+        // Exactly one block — no second via sub-block follows (the old 6-block bug).
+        assert!(
+            !data[pos + 5 + 321..].windows(sig.len()).any(|w| w == sig),
+            "via should emit exactly one block, not several"
+        );
+    }
+
+    #[test]
+    fn track_arc_extended_tail_round_trips() {
+        // #113: a track/arc's solder-mask expansion and keepout restrictions are
+        // preserved on read->write (previously silently dropped). Additive: a
+        // default primitive (None) must round-trip back to None.
+        let mut fp = Footprint::new("FIDELITY");
+        let mut track = Track::new(0.0, 0.0, 1.0, 0.0, 0.2, Layer::TopLayer);
+        track.solder_mask_expansion = Some(0.1);
+        track.keepout_restrictions = Some(0x05);
+        fp.add_track(track);
+        let mut arc = Arc::circle(2.0, 0.0, 0.5, 0.15, Layer::TopLayer);
+        arc.solder_mask_expansion = Some(0.08);
+        arc.keepout_restrictions = Some(0x03);
+        fp.add_arc(arc);
+        // A default track to prove additivity (None stays None).
+        fp.add_track(Track::new(5.0, 0.0, 6.0, 0.0, 0.2, Layer::TopOverlay));
+
+        let data = writer::encode_data_stream(&fp).expect("encode");
+        let mut decoded = Footprint::new("FIDELITY");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        assert_eq!(decoded.tracks.len(), 2);
+        assert!(approx_eq(
+            decoded.tracks[0].solder_mask_expansion.unwrap(),
+            0.1,
+            0.001
+        ));
+        assert_eq!(decoded.tracks[0].keepout_restrictions, Some(0x05));
+        assert!(approx_eq(
+            decoded.arcs[0].solder_mask_expansion.unwrap(),
+            0.08,
+            0.001
+        ));
+        assert_eq!(decoded.arcs[0].keepout_restrictions, Some(0x03));
+        // Additive: the default track did not gain these fields.
+        assert_eq!(decoded.tracks[1].solder_mask_expansion, None);
+        assert_eq!(decoded.tracks[1].keepout_restrictions, None);
+    }
+
+    #[test]
     fn binary_roundtrip_via() {
         let mut original = Footprint::new("ROUNDTRIP_VIA");
 

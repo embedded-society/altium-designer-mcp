@@ -296,7 +296,10 @@ impl PcbLib {
         // component count + names.
         let params = Self::build_library_params(self.filepath.as_deref().unwrap_or(""));
         let mut data = Vec::new();
-        crate::altium::framing::write_cstring_param_block(&mut data, params.as_bytes());
+        crate::altium::framing::write_cstring_param_block(
+            &mut data,
+            &crate::altium::encode_windows1252(&params),
+        );
 
         // Component count
         #[allow(clippy::cast_possible_truncation)]
@@ -305,7 +308,10 @@ impl PcbLib {
         // Component names as WriteStringBlock: [block_len:4][str_len:1][string].
         // The read-side mirror is `read_library_data`.
         for ole_name in ole_names {
-            crate::altium::framing::write_string_block(&mut data, ole_name.as_bytes());
+            crate::altium::framing::write_string_block(
+                &mut data,
+                &crate::altium::encode_windows1252(ole_name),
+            );
         }
 
         // Write Library/Data
@@ -324,7 +330,10 @@ impl PcbLib {
     /// [`crate::altium::framing::write_cstring_param_block`] frame.
     fn param_block(text: &str) -> Vec<u8> {
         let mut v = Vec::new();
-        crate::altium::framing::write_cstring_param_block(&mut v, text.as_bytes());
+        crate::altium::framing::write_cstring_param_block(
+            &mut v,
+            &crate::altium::encode_windows1252(text),
+        );
         v
     }
 
@@ -491,7 +500,10 @@ impl PcbLib {
             footprint.name, footprint.description
         );
         let mut params_data = Vec::new();
-        crate::altium::framing::write_cstring_param_block(&mut params_data, params.as_bytes());
+        crate::altium::framing::write_cstring_param_block(
+            &mut params_data,
+            &crate::altium::encode_windows1252(&params),
+        );
         crate::altium::write_stream(cfb, &format!("{storage_path}/Parameters"), &params_data)?;
 
         // Write Data stream with primitives

@@ -249,6 +249,8 @@ impl McpServer {
             layer,
             flags: PcbFlags::empty(),
             unique_id: None,
+            solder_mask_expansion: None,
+            keepout_restrictions: None,
         })
     }
 
@@ -430,6 +432,7 @@ impl McpServer {
             symbol_outer_edge,
             symbol_inside,
             symbol_outside,
+            is_not_accessible: false,
         })
     }
 
@@ -466,6 +469,7 @@ impl McpServer {
             filled,
             transparent: false,
             owner_part_id,
+            unique_id: None,
         })
     }
 
@@ -494,6 +498,7 @@ impl McpServer {
             line_width,
             color,
             owner_part_id,
+            unique_id: None,
         })
     }
 
@@ -573,6 +578,7 @@ impl McpServer {
             end_line_shape: 0,
             line_shape_size: 0,
             owner_part_id,
+            unique_id: None,
         })
     }
 
@@ -608,6 +614,7 @@ impl McpServer {
             line_width,
             color,
             owner_part_id,
+            unique_id: None,
         })
     }
 
@@ -643,6 +650,7 @@ impl McpServer {
             fill_color,
             filled,
             owner_part_id,
+            unique_id: None,
         })
     }
 
@@ -702,6 +710,7 @@ impl McpServer {
             is_mirrored,
             is_hidden,
             owner_part_id,
+            unique_id: None,
         })
     }
 
@@ -761,6 +770,7 @@ impl McpServer {
             is_mirrored,
             is_hidden,
             owner_part_id,
+            unique_id: None,
         })
     }
 }
