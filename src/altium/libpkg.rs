@@ -30,8 +30,13 @@ use std::path::Path;
 /// no shared root (a bare name, or a different drive) is emitted unchanged.
 #[must_use]
 pub fn relative_to_libpkg(libpkg_path: &Path, document: &str) -> String {
-    let base = libpkg_path.parent().unwrap_or_else(|| Path::new(""));
-    relative_path(&base.to_string_lossy(), document)
+    // Derive the containing directory by dropping the final `\`/`/` segment
+    // ourselves. `Path::parent` is host-dependent and returns nothing for a
+    // `C:\…` path on non-Windows hosts (which would drop the shared root and
+    // emit the whole absolute path instead of a relative one).
+    let full = libpkg_path.to_string_lossy();
+    let base = full.rfind(['\\', '/']).map_or("", |i| &full[..i]);
+    relative_path(base, document)
 }
 
 /// Builds the full text of a `.LibPkg` referencing `documents`.
