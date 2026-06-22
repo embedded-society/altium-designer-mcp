@@ -41,22 +41,12 @@ See `CONTRIBUTING.md` § British Spelling for the full spelling guide.
 
 ## Rust
 
-### Formatting
+Standard Rust conventions, enforced by CI:
 
-Use `rustfmt` with default settings. CI enforces this.
+- **Formatting:** `rustfmt` with default settings.
+- **Linting:** `clippy` with warnings as errors.
 
-```bash
-cargo fmt --all         # Format all code
-cargo fmt --all --check # Check without modifying
-```
-
-### Linting
-
-Use `clippy` with warnings as errors. CI enforces this.
-
-```bash
-cargo clippy --all-targets --all-features -- -D warnings
-```
+The exact commands are canonical in [`CONTRIBUTING.md` § Development Setup](CONTRIBUTING.md#setup) — this guide does not repeat them.
 
 ### Naming Conventions
 
