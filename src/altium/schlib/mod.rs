@@ -793,6 +793,7 @@ mod tests {
             fill_color: 0xFF_00_00, // Blue fill
             filled: true,
             owner_part_id: 1,
+            unique_id: None,
         };
         symbol.add_polygon(polygon.clone());
 
@@ -804,6 +805,7 @@ mod tests {
             fill_color: 0,
             filled: false,
             owner_part_id: 1,
+            unique_id: None,
         };
         symbol.add_polygon(polygon);
 

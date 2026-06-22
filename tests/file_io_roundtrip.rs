@@ -376,6 +376,38 @@ fn schlib_non_ascii_description_is_windows1252() {
 }
 
 #[test]
+fn schlib_preserves_unique_id_and_pin_accessibility() {
+    // #113: reading an Altium symbol and writing it back must preserve each
+    // shape's UniqueID (object identity) and the pin IsNotAccessible flag,
+    // rather than regenerating/dropping them.
+    let temp_dir = test_temp_dir();
+    let file_path = temp_dir.path().join("test_fidelity.SchLib");
+
+    let mut lib = SchLib::new();
+    let mut sym = Symbol::new("RES");
+    let mut pin = Pin::new("1", "1", -20, 0, 10, PinOrientation::Left);
+    pin.is_not_accessible = true;
+    sym.add_pin(pin);
+    let mut rect = Rectangle::new(-20, -50, 20, 50);
+    rect.unique_id = Some("ABCD1234".to_string());
+    sym.add_rectangle(rect);
+    lib.add(sym);
+    lib.save(&file_path).expect("Failed to write SchLib");
+
+    let read_lib = SchLib::open(&file_path).expect("Failed to read SchLib");
+    let read_sym = read_lib.get("RES").expect("Symbol not found");
+    assert_eq!(
+        read_sym.rectangles[0].unique_id.as_deref(),
+        Some("ABCD1234"),
+        "rectangle UniqueID must survive read->write, not be regenerated"
+    );
+    assert!(
+        read_sym.pins[0].is_not_accessible,
+        "pin IsNotAccessible must survive read->write"
+    );
+}
+
+#[test]
 fn schlib_file_roundtrip_multiple_symbols() {
     let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("test_multi.SchLib");

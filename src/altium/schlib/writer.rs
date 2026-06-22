@@ -205,6 +205,9 @@ fn write_binary_pin(data: &mut Vec<u8>, pin: &Pin) -> crate::altium::error::Alti
     if pin.graphically_locked {
         flags |= 0x40;
     }
+    if pin.is_not_accessible {
+        flags |= 0x20;
+    }
     record.push(flags);
 
     // Length (2 bytes)
@@ -283,7 +286,7 @@ fn encode_rectangle(rect: &Rectangle, index: usize) -> String {
         rect.line_color,
         rect.fill_color,
         transparent,
-        generate_unique_id()
+        rect.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
 }
 
@@ -299,7 +302,7 @@ fn encode_line(line: &Line, index: usize) -> String {
         line.y2,
         line.line_width,
         line.color,
-        generate_unique_id()
+        line.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
 }
 
@@ -352,7 +355,13 @@ fn encode_polyline(polyline: &Polyline, index: usize) -> String {
         parts.push(format!("Y{}={}", i + 1, y));
     }
 
-    parts.push(format!("UniqueID={}", generate_unique_id()));
+    parts.push(format!(
+        "UniqueID={}",
+        polyline
+            .unique_id
+            .clone()
+            .unwrap_or_else(generate_unique_id)
+    ));
 
     format!("|{}", parts.join("|"))
 }
@@ -377,7 +386,10 @@ fn encode_polygon(polygon: &Polygon, index: usize) -> String {
         parts.push(format!("Y{}={}", i + 1, y));
     }
 
-    parts.push(format!("UniqueID={}", generate_unique_id()));
+    parts.push(format!(
+        "UniqueID={}",
+        polygon.unique_id.clone().unwrap_or_else(generate_unique_id)
+    ));
 
     format!("|{}", parts.join("|"))
 }
@@ -395,7 +407,7 @@ fn encode_arc(arc: &Arc, index: usize) -> String {
         arc.end_angle,
         arc.line_width,
         arc.color,
-        generate_unique_id()
+        arc.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
 }
 
@@ -415,7 +427,7 @@ fn encode_bezier(bezier: &Bezier, index: usize) -> String {
         bezier.y3,
         bezier.x4,
         bezier.y4,
-        generate_unique_id()
+        bezier.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
 }
 
@@ -434,7 +446,7 @@ fn encode_ellipse(ellipse: &Ellipse, index: usize) -> String {
         ellipse.line_color,
         ellipse.fill_color,
         is_solid,
-        generate_unique_id()
+        ellipse.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
 }
 
@@ -458,7 +470,10 @@ fn encode_round_rect(round_rect: &RoundRect, index: usize) -> String {
         round_rect.line_color,
         round_rect.fill_color,
         is_solid,
-        generate_unique_id()
+        round_rect
+            .unique_id
+            .clone()
+            .unwrap_or_else(generate_unique_id)
     )
 }
 
@@ -492,7 +507,7 @@ fn encode_elliptical_arc(arc: &EllipticalArc, index: usize) -> String {
         arc.end_angle,
         arc.line_width,
         arc.color,
-        generate_unique_id()
+        arc.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
 }
 
@@ -516,7 +531,7 @@ fn encode_label(label: &Label, index: usize) -> String {
         is_mirrored,
         is_hidden,
         label.text,
-        generate_unique_id()
+        label.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
 }
 
@@ -540,7 +555,7 @@ fn encode_text(text: &Text, index: usize) -> String {
         is_mirrored,
         is_hidden,
         text.text,
-        generate_unique_id()
+        text.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
 }
 
