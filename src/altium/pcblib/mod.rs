@@ -1111,9 +1111,7 @@ impl PcbLib {
         // Component names as WriteStringBlock: [block_len:4][str_len:1][string].
         // The read-side mirror is `read_library_data`.
         for ole_name in ole_names {
-            let mut name_block = Vec::new();
-            crate::altium::framing::write_pascal_string(&mut name_block, ole_name.as_bytes());
-            crate::altium::framing::write_block(&mut data, &name_block);
+            crate::altium::framing::write_string_block(&mut data, ole_name.as_bytes());
         }
 
         // Write Library/Data

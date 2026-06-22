@@ -46,6 +46,17 @@ pub fn write_pascal_string(record: &mut Vec<u8>, bytes: &[u8]) {
     record.extend_from_slice(bytes);
 }
 
+/// Appends a `WriteStringBlock`: a Pascal short string wrapped in an outer
+/// length-prefixed block — `[u32 LE block_len][u8 str_len][bytes]`.
+///
+/// The exact inverse of reading with [`read_block`] then [`read_pascal_string`].
+/// Callers validate `bytes.len() <= 255` (the inner Pascal length prefix).
+pub fn write_string_block(data: &mut Vec<u8>, bytes: &[u8]) {
+    let mut inner = Vec::with_capacity(1 + bytes.len());
+    write_pascal_string(&mut inner, bytes);
+    write_block(data, &inner);
+}
+
 /// Reads a length-prefixed binary block written by [`write_block`]:
 /// `[u32 LE length][bytes]`.
 ///

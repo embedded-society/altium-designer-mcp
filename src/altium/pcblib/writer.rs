@@ -38,7 +38,7 @@ fn write_f64(data: &mut Vec<u8>, value: f64) {
 
 // Shared byte frames live in crate::altium::framing so PcbLib and SchLib use
 // one implementation each (see that module).
-use crate::altium::framing::{write_block, write_cstring_param_block, write_pascal_string};
+use crate::altium::framing::{write_block, write_cstring_param_block};
 
 /// Writes a length-prefixed string block: outer `[u32 len]` wrapping a Pascal
 /// short string `[u8 len][bytes]`.
@@ -67,9 +67,7 @@ fn write_string_block(
         });
     }
 
-    let mut block = Vec::with_capacity(1 + bytes.len());
-    write_pascal_string(&mut block, &bytes);
-    write_block(data, &block);
+    crate::altium::framing::write_string_block(data, &bytes);
     Ok(())
 }
 
