@@ -420,6 +420,22 @@ impl McpServer {
     /// Maximum number of timestamped backups to retain per file.
     const MAX_BACKUPS: usize = 5;
 
+    /// Backs up `filepath`, then persists the library via `save`.
+    ///
+    /// Centralises the backup → save sequence shared by every mutating tool
+    /// handler so create and update paths cannot drift (see #104). On failure it
+    /// returns the tool-error response; the caller builds its own success result.
+    pub(crate) fn backup_then_save(
+        filepath: &str,
+        save: impl FnOnce() -> crate::altium::AltiumResult<()>,
+    ) -> Result<(), ToolCallResult> {
+        if let Err(e) = Self::create_backup(filepath) {
+            return Err(ToolCallResult::error(e));
+        }
+        save().map_err(|e| ToolCallResult::error(format!("Failed to write library: {e}")))?;
+        Ok(())
+    }
+
     /// Creates a timestamped backup of an existing file before modification.
     ///
     /// Copies `filepath` to `filepath.YYYYMMDD_HHMMSS.bak`, keeping up to

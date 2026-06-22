@@ -190,13 +190,8 @@ impl McpServer {
 
         // Write back if any updates were made (and not dry-run)
         if symbols_updated > 0 && !dry_run {
-            // Create backup before destructive operation
-            if let Err(e) = Self::create_backup(filepath) {
-                return ToolCallResult::error(e);
-            }
-
-            if let Err(e) = library.save(filepath) {
-                return ToolCallResult::error(format!("Failed to write library: {e}"));
+            if let Err(resp) = Self::backup_then_save(filepath, || library.save(filepath)) {
+                return resp;
             }
         }
 
@@ -284,13 +279,8 @@ impl McpServer {
 
         // Write the updated library if any changes were made (and not dry-run)
         if total_updated > 0 && !dry_run {
-            // Create backup before destructive operation
-            if let Err(e) = Self::create_backup(filepath) {
-                return ToolCallResult::error(e);
-            }
-
-            if let Err(e) = library.save(filepath) {
-                return ToolCallResult::error(format!("Failed to write updated library: {e}"));
+            if let Err(resp) = Self::backup_then_save(filepath, || library.save(filepath)) {
+                return resp;
             }
         }
 
@@ -417,13 +407,8 @@ impl McpServer {
 
         // Write the updated library if any changes were made (and not dry-run)
         if total_updated > 0 && !dry_run {
-            // Create backup before destructive operation
-            if let Err(e) = Self::create_backup(filepath) {
-                return ToolCallResult::error(e);
-            }
-
-            if let Err(e) = library.save(filepath) {
-                return ToolCallResult::error(format!("Failed to write updated library: {e}"));
+            if let Err(resp) = Self::backup_then_save(filepath, || library.save(filepath)) {
+                return resp;
             }
         }
 
