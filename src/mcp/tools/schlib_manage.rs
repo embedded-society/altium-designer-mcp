@@ -264,14 +264,8 @@ impl McpServer {
                     _ => unreachable!(),
                 };
 
-                // Create backup before destructive operation
-                if let Err(e) = Self::create_backup(filepath) {
-                    return ToolCallResult::error(e);
-                }
-
-                // Save the modified library
-                if let Err(e) = library.save(filepath) {
-                    return ToolCallResult::error(format!("Failed to save library: {e}"));
+                if let Err(resp) = Self::backup_then_save(filepath, || library.save(filepath)) {
+                    return resp;
                 }
 
                 // Run post-write validation
@@ -430,14 +424,8 @@ impl McpServer {
                     })
                 };
 
-                // Create backup before destructive operation
-                if let Err(e) = Self::create_backup(filepath) {
-                    return ToolCallResult::error(e);
-                }
-
-                // Save the modified library
-                if let Err(e) = library.save(filepath) {
-                    return ToolCallResult::error(format!("Failed to save library: {e}"));
+                if let Err(resp) = Self::backup_then_save(filepath, || library.save(filepath)) {
+                    return resp;
                 }
 
                 // Run post-write validation

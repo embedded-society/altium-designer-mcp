@@ -1114,14 +1114,8 @@ impl McpServer {
             }
         }
 
-        // Create backup before destructive operation (if file exists)
-        if let Err(e) = Self::create_backup(output_path) {
-            return ToolCallResult::error(e);
-        }
-
-        // Write the library
-        if let Err(e) = library.save(output_path) {
-            return ToolCallResult::error(format!("Failed to write library: {e}"));
+        if let Err(resp) = Self::backup_then_save(output_path, || library.save(output_path)) {
+            return resp;
         }
 
         let total_count = library.len();
@@ -1320,14 +1314,8 @@ impl McpServer {
             }
         }
 
-        // Create backup before destructive operation (if file exists)
-        if let Err(e) = Self::create_backup(output_path) {
-            return ToolCallResult::error(e);
-        }
-
-        // Write the library
-        if let Err(e) = library.save(output_path) {
-            return ToolCallResult::error(format!("Failed to write library: {e}"));
+        if let Err(resp) = Self::backup_then_save(output_path, || library.save(output_path)) {
+            return resp;
         }
 
         let total_count = library.len();

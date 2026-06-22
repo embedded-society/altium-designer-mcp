@@ -183,14 +183,8 @@ impl McpServer {
         // Perform the actual update
         library.update(component_name, footprint);
 
-        // Create backup before destructive operation
-        if let Err(e) = Self::create_backup(filepath) {
-            return ToolCallResult::error(e);
-        }
-
-        // Write the library back
-        if let Err(e) = library.save(filepath) {
-            return ToolCallResult::error(format!("Failed to write library: {e}"));
+        if let Err(resp) = Self::backup_then_save(filepath, || library.save(filepath)) {
+            return resp;
         }
 
         let mut result = json!({
@@ -421,14 +415,8 @@ impl McpServer {
         // Perform the actual update
         library.update(component_name, symbol);
 
-        // Create backup before destructive operation
-        if let Err(e) = Self::create_backup(filepath) {
-            return ToolCallResult::error(e);
-        }
-
-        // Write the library back
-        if let Err(e) = library.save(filepath) {
-            return ToolCallResult::error(format!("Failed to write library: {e}"));
+        if let Err(resp) = Self::backup_then_save(filepath, || library.save(filepath)) {
+            return resp;
         }
 
         let mut result = json!({

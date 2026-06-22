@@ -118,14 +118,8 @@ impl McpServer {
             return ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap());
         }
 
-        // Create backup before destructive operation
-        if let Err(e) = Self::create_backup(filepath) {
-            return ToolCallResult::error(e);
-        }
-
-        // Write the updated library
-        if let Err(e) = library.save(filepath) {
-            return ToolCallResult::error(format!("Failed to write library: {e}"));
+        if let Err(resp) = Self::backup_then_save(filepath, || library.save(filepath)) {
+            return resp;
         }
 
         let mut result = json!({
@@ -201,14 +195,8 @@ impl McpServer {
             return ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap());
         }
 
-        // Create backup before destructive operation
-        if let Err(e) = Self::create_backup(filepath) {
-            return ToolCallResult::error(e);
-        }
-
-        // Write the updated library
-        if let Err(e) = library.save(filepath) {
-            return ToolCallResult::error(format!("Failed to write library: {e}"));
+        if let Err(resp) = Self::backup_then_save(filepath, || library.save(filepath)) {
+            return resp;
         }
 
         let mut result = json!({
@@ -326,14 +314,8 @@ impl McpServer {
             return ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap());
         }
 
-        // Create backup before destructive operation
-        if let Err(e) = Self::create_backup(filepath) {
-            return ToolCallResult::error(e);
-        }
-
-        // Write the updated library
-        if let Err(e) = library.save(filepath) {
-            return ToolCallResult::error(format!("Failed to write library: {e}"));
+        if let Err(resp) = Self::backup_then_save(filepath, || library.save(filepath)) {
+            return resp;
         }
 
         let mut result = json!({
@@ -399,14 +381,8 @@ impl McpServer {
             return ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap());
         }
 
-        // Create backup before destructive operation
-        if let Err(e) = Self::create_backup(filepath) {
-            return ToolCallResult::error(e);
-        }
-
-        // Write the updated library
-        if let Err(e) = library.save(filepath) {
-            return ToolCallResult::error(format!("Failed to write library: {e}"));
+        if let Err(resp) = Self::backup_then_save(filepath, || library.save(filepath)) {
+            return resp;
         }
 
         let mut result = json!({
@@ -620,14 +596,10 @@ impl McpServer {
         // Add the footprint to target library
         target_library.add(new_footprint);
 
-        // Create backup before destructive operation
-        if let Err(e) = Self::create_backup(target_filepath) {
-            return ToolCallResult::error(e);
-        }
-
-        // Write the target library
-        if let Err(e) = target_library.save(target_filepath) {
-            return ToolCallResult::error(format!("Failed to write target library: {e}"));
+        if let Err(resp) =
+            Self::backup_then_save(target_filepath, || target_library.save(target_filepath))
+        {
+            return resp;
         }
 
         let mut result = json!({
@@ -739,14 +711,10 @@ impl McpServer {
         // Add the symbol to target library
         target_library.add(new_symbol);
 
-        // Create backup before destructive operation
-        if let Err(e) = Self::create_backup(target_filepath) {
-            return ToolCallResult::error(e);
-        }
-
-        // Write the target library
-        if let Err(e) = target_library.save(target_filepath) {
-            return ToolCallResult::error(format!("Failed to write target library: {e}"));
+        if let Err(resp) =
+            Self::backup_then_save(target_filepath, || target_library.save(target_filepath))
+        {
+            return resp;
         }
 
         let mut result = json!({
@@ -980,14 +948,10 @@ impl McpServer {
 
         // Only write if not dry-run
         if !dry_run {
-            // Create backup before destructive operation
-            if let Err(e) = Self::create_backup(target_filepath) {
-                return ToolCallResult::error(e);
-            }
-
-            // Write the merged library
-            if let Err(e) = target_library.save(target_filepath) {
-                return ToolCallResult::error(format!("Failed to write target library: {e}"));
+            if let Err(resp) =
+                Self::backup_then_save(target_filepath, || target_library.save(target_filepath))
+            {
+                return resp;
             }
         }
 
@@ -1140,14 +1104,10 @@ impl McpServer {
 
         // Only write if not dry-run
         if !dry_run {
-            // Create backup before destructive operation
-            if let Err(e) = Self::create_backup(target_filepath) {
-                return ToolCallResult::error(e);
-            }
-
-            // Write the merged library
-            if let Err(e) = target_library.save(target_filepath) {
-                return ToolCallResult::error(format!("Failed to write target library: {e}"));
+            if let Err(resp) =
+                Self::backup_then_save(target_filepath, || target_library.save(target_filepath))
+            {
+                return resp;
             }
         }
 
