@@ -249,6 +249,8 @@ impl McpServer {
             layer,
             flags: PcbFlags::empty(),
             unique_id: None,
+            solder_mask_expansion: None,
+            keepout_restrictions: None,
         })
     }
 
