@@ -885,15 +885,13 @@ fn encode_text_geometry(text: &Text) -> Vec<u8> {
 /// Encodes a Region primitive (filled polygon).
 ///
 /// Region format (matching Altium):
-/// - Block 0: Properties block containing common header, parameter string, and vertices
-/// - Block 1: Empty block
+/// - Single block: common header, parameter string, and the vertex outline.
+///
+/// Altium's `WriteRegion` emits exactly one block; an earlier guess appended a
+/// spurious empty second block, which desynchronised the record stream.
 fn encode_region(data: &mut Vec<u8>, region: &Region) {
-    // Block 0: Properties with embedded vertices
     let props = encode_region_properties(region);
     write_block(data, &props);
-
-    // Block 1: Empty block (required by Altium format)
-    write_block(data, &[]);
 }
 
 /// Returns the canonical Altium `V7_LAYER` token for a layer.

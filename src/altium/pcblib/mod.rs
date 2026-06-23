@@ -758,6 +758,34 @@ mod tests {
     }
 
     #[test]
+    fn binary_roundtrip_text_flags() {
+        // parse_text previously discarded the flag word (read PcbFlags::empty());
+        // a locked / tented text must now round-trip its flags.
+        let mut original = Footprint::new("TEXT_FLAGS");
+        original.add_text(Text {
+            x: 0.0,
+            y: 0.0,
+            text: "LOCKED".to_string(),
+            height: 0.5,
+            layer: Layer::TopOverlay,
+            rotation: 0.0,
+            kind: TextKind::Stroke,
+            stroke_font: None,
+            justification: TextJustification::MiddleCenter,
+            flags: PcbFlags::LOCKED | PcbFlags::TENTING_TOP,
+            unique_id: None,
+        });
+
+        let data = writer::encode_data_stream(&original).expect("encoding should succeed");
+        let mut decoded = Footprint::new("TEXT_FLAGS");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        assert_eq!(decoded.text.len(), 1);
+        assert!(decoded.text[0].flags.contains(PcbFlags::LOCKED));
+        assert!(decoded.text[0].flags.contains(PcbFlags::TENTING_TOP));
+    }
+
+    #[test]
     fn binary_roundtrip_region() {
         let mut original = Footprint::new("ROUNDTRIP_REGION");
 
