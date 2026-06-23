@@ -484,6 +484,7 @@ fn parse_parameter(props: &HashMap<String, String>) -> Option<Parameter> {
         read_only_state,
         param_type,
         owner_part_id,
+        unique_id: props.get("uniqueid").cloned(),
     })
 }
 
@@ -677,6 +678,7 @@ fn parse_arc(props: &HashMap<String, String>) -> Option<Arc> {
         x,
         y,
         radius,
+        is_not_accessible: props.get("isnotaccesible").is_some_and(|s| s == "T"),
         start_angle,
         end_angle,
         line_width,
@@ -1008,5 +1010,37 @@ mod tests {
         ))
         .unwrap();
         assert!(filled.filled, "IsSolid=T must read as filled");
+    }
+
+    #[test]
+    fn test_parameter_uniqueid_preserved() {
+        let p = parse_parameter(&parse_properties(
+            "|RECORD=41|Name=Value|Text=10k|UniqueID=ABCD1234|",
+        ))
+        .unwrap();
+        assert_eq!(p.unique_id.as_deref(), Some("ABCD1234"));
+        assert_eq!(p.name, "Value");
+        assert_eq!(p.value, "10k");
+    }
+
+    #[test]
+    fn test_arc_is_not_accessible_parsed() {
+        let tagged = parse_arc(&parse_properties(
+            "|RECORD=12|Location.X=5|Location.Y=5|Radius=10|IsNotAccesible=T|",
+        ))
+        .unwrap();
+        assert!(
+            tagged.is_not_accessible,
+            "IsNotAccesible=T must parse as true"
+        );
+
+        let untagged = parse_arc(&parse_properties(
+            "|RECORD=12|Location.X=5|Location.Y=5|Radius=10|",
+        ))
+        .unwrap();
+        assert!(
+            !untagged.is_not_accessible,
+            "absent IsNotAccesible defaults false on read"
+        );
     }
 }

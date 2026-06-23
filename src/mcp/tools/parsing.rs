@@ -535,6 +535,7 @@ impl McpServer {
             read_only_state: 0,
             param_type: 0,
             owner_part_id,
+            unique_id: None,
         })
     }
 
@@ -609,6 +610,7 @@ impl McpServer {
             x,
             y,
             radius,
+            is_not_accessible: true,
             start_angle,
             end_angle,
             line_width,
