@@ -896,6 +896,22 @@ fn encode_region(data: &mut Vec<u8>, region: &Region) {
     write_block(data, &[]);
 }
 
+/// Returns the canonical Altium `V7_LAYER` token for a layer.
+///
+/// Altium identifies a Region's layer by this parameter string, NOT the
+/// common-header layer byte. Mechanical and component-pair layers must use their
+/// `MECHANICAL{n}` token (e.g. Top Courtyard -> `MECHANICAL4`). The display name
+/// with spaces stripped (`TOPCOURTYARD`) is not a valid token, so Altium fails to
+/// resolve the layer and silently drops the region onto Top Layer (copper). The
+/// 3D-body encoder already hardcodes `MECHANICAL6`/`MECHANICAL7` for this reason.
+fn region_v7_layer_token(layer: Layer) -> String {
+    match layer_to_id(layer) {
+        id @ 57..=72 => format!("MECHANICAL{}", id - 56),
+        id @ 186..=201 => format!("MECHANICAL{}", id - 169),
+        _ => layer.as_str().replace(' ', "").to_uppercase(),
+    }
+}
+
 /// Encodes the properties block for a region.
 ///
 /// Format (matching Altium):
@@ -912,7 +928,7 @@ fn encode_region_properties(region: &Region) -> Vec<u8> {
     let vertex_count = region.vertices.len();
 
     // Build parameter string (leading pipe, matching Altium).
-    let layer_name = region.layer.as_str().replace(' ', "").to_uppercase();
+    let layer_name = region_v7_layer_token(region.layer);
     let params = format!("|V7_LAYER={layer_name}|NAME=|KIND=0");
     let params_bytes = crate::altium::encode_windows1252(&params);
 
@@ -1614,6 +1630,38 @@ mod tests {
         assert_eq!(layer_to_id(Layer::TopPadMaster), 83);
         assert_eq!(layer_to_id(Layer::BottomPadMaster), 84);
         assert_eq!(layer_to_id(Layer::DRCDetailLayer), 85);
+    }
+
+    #[test]
+    fn test_region_v7_layer_token() {
+        use crate::altium::pcblib::primitives::Vertex;
+        // Component-pair / mechanical layers must use the MECHANICAL{n} token,
+        // not the display name (which Altium can't resolve -> falls back to Top Layer).
+        assert_eq!(region_v7_layer_token(Layer::TopCourtyard), "MECHANICAL4");
+        assert_eq!(region_v7_layer_token(Layer::TopAssembly), "MECHANICAL2");
+        assert_eq!(region_v7_layer_token(Layer::Mechanical1), "MECHANICAL1");
+        assert_eq!(region_v7_layer_token(Layer::Mechanical17), "MECHANICAL17");
+        assert_eq!(region_v7_layer_token(Layer::Mechanical32), "MECHANICAL32");
+        // Non-mechanical layers keep the stripped/uppercased display token.
+        assert_eq!(region_v7_layer_token(Layer::TopLayer), "TOPLAYER");
+        assert_eq!(region_v7_layer_token(Layer::TopOverlay), "TOPOVERLAY");
+
+        // A region on Top Courtyard must serialize V7_LAYER=MECHANICAL4.
+        let region = Region {
+            vertices: vec![
+                Vertex { x: -1.0, y: -1.0 },
+                Vertex { x: 1.0, y: -1.0 },
+                Vertex { x: 1.0, y: 1.0 },
+                Vertex { x: -1.0, y: 1.0 },
+            ],
+            layer: Layer::TopCourtyard,
+            flags: PcbFlags::default(),
+            unique_id: None,
+        };
+        let props = encode_region_properties(&region);
+        let s = String::from_utf8_lossy(&props);
+        assert!(s.contains("V7_LAYER=MECHANICAL4"), "got: {s}");
+        assert!(!s.contains("TOPCOURTYARD"));
     }
 
     #[test]
