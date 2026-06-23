@@ -6,15 +6,19 @@
 //! # Data Stream Format
 //!
 //! ```text
-//! [RecordLength:2 LE][RecordType:2 BE][data:RecordLength]
+//! [length:3 LE][flags:1][data:length]
 //! ...
-//! [0x00 0x00]  // End marker (length = 0)
 //! ```
 //!
-//! # Record Types
+//! The 4-byte header is one 32-bit little-endian size word: low 24 bits = payload
+//! length, high byte = flag. There is NO end-of-stream marker — records run until
+//! the stream is exhausted (a trailing `0x0000` would be mis-read as a zero-length
+//! record; see issue #68). The reader stops on a zero length defensively.
 //!
-//! - `0x0000`: Text record (pipe-delimited key=value)
-//! - `0x0001`: Binary pin record
+//! # Record Types (flag byte)
+//!
+//! - `0x00`: Text record (pipe-delimited key=value)
+//! - `0x01`: Binary pin record
 
 use super::primitives::{
     Arc, Bezier, Ellipse, EllipticalArc, FootprintModel, Label, Line, Parameter, Pin,
@@ -484,7 +488,7 @@ fn parse_parameter(props: &HashMap<String, String>) -> Option<Parameter> {
 
 /// Parses a polyline from properties.
 fn parse_polyline(props: &HashMap<String, String>) -> Option<Polyline> {
-    // Polylines have LocationCount and Location{n}.X/Location{n}.Y properties
+    // Polylines have LocationCount and X{n}/Y{n} vertex properties
     let location_count: usize = props
         .get("locationcount")
         .and_then(|s| s.parse().ok())
