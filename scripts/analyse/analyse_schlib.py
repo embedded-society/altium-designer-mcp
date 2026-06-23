@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Analyze SchLib binary format for reverse engineering."""
+"""Analyse SchLib binary format for reverse engineering."""
 
 import sys
 from pathlib import Path
@@ -77,11 +77,11 @@ def parse_binary_pin(data: bytes) -> dict:
     return props
 
 
-def analyze_schlib(filepath: str):
-    """Analyze a SchLib file."""
+def analyse_schlib(filepath: str):
+    """Analyse a SchLib file."""
     ole = olefile.OleFileIO(filepath)
 
-    print(f"=== Analyzing: {filepath} ===")
+    print(f"=== Analysing: {filepath} ===")
     print()
 
     # List all streams
@@ -114,7 +114,7 @@ def analyze_schlib(filepath: str):
         print(f"  Component {i}: {name}")
     print()
 
-    # Analyze each component's Data stream
+    # Analyse each component's Data stream
     for comp_name in comp_names:
         stream_path = f"{comp_name}/Data"
         print(f"=== Component: {comp_name} ===")
@@ -199,17 +199,17 @@ def analyze_schlib(filepath: str):
 
 def main():
     script_dir = Path(__file__).parent
-    default_path = script_dir / "sample.SchLib"
+    default_path = script_dir.parent / "samples" / "sample.SchLib"
 
     if len(sys.argv) > 1:
         filepath = sys.argv[1]
     elif default_path.exists():
         filepath = str(default_path)
     else:
-        print("Usage: python analyze_schlib.py [path/to/file.SchLib]")
+        print("Usage: python analyse_schlib.py [path/to/file.SchLib]")
         sys.exit(1)
 
-    analyze_schlib(filepath)
+    analyse_schlib(filepath)
 
 
 if __name__ == "__main__":

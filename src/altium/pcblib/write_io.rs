@@ -452,7 +452,7 @@ impl PcbLib {
         // V9 layer stack + full board configuration. A synthesised stack is
         // rejected by Altium ("Catastrophic failure whilst loading section
         // Library"), so we splice in a complete, known-good stack captured
-        // verbatim from a real Altium-authored library (scripts/sample.PcbLib).
+        // verbatim from a real Altium-authored library (scripts/samples/sample.PcbLib).
         p.push('|');
         p.push_str(include_str!("assets/library_data_stack.txt"));
 
