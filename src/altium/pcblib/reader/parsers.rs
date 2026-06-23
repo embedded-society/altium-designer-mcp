@@ -631,7 +631,9 @@ pub(super) fn parse_text(
     // Common header (13 bytes): layer at 0, Altium flag word at offsets 1-2.
     let layer_id = geometry_block[0];
     let layer = layer_from_id(layer_id);
-    let flags = PcbFlags::empty();
+    // Decode the lock/tenting/keepout flag word like every other primitive does,
+    // rather than discarding it (the write side already encodes these correctly).
+    let flags = read_flags(geometry_block);
 
     // The authoritative text kind lives at offset 160 in the 252-byte record
     // (0 = Stroke, 1 = TrueType, 2 = BarCode).
@@ -826,10 +828,9 @@ pub(super) fn parse_region(data: &[u8], offset: usize) -> ParseResult<Region> {
     //   - Parameter string (ASCII key=value pairs)
     //   - Vertex count (4 bytes)
     //   - Vertices (count * 16 bytes, each as 2 doubles)
-    // Block 1: Usually empty (0 bytes)
-
-    // Block 0: Properties with embedded vertices
-    let (props_block, mut current) = read_block(data, offset).ok_or_else(|| {
+    // A region is a single block: common header, parameter string, and the
+    // vertex outline embedded within it.
+    let (props_block, current) = read_block(data, offset).ok_or_else(|| {
         AltiumError::parse_error(offset, "failed to read Region properties block")
     })?;
 
@@ -908,10 +909,9 @@ pub(super) fn parse_region(data: &[u8], offset: usize) -> ParseResult<Region> {
         vertices.push(Vertex { x, y });
     }
 
-    // Block 1: Usually empty, but still need to read it
-    if let Some((_, next)) = read_block(data, current) {
-        current = next;
-    }
+    // A region is a single block — there is no second block. (We previously read a
+    // spurious empty "Block 1"; doing so against a real Altium region would mis-read
+    // the next record's bytes.)
 
     let region = Region {
         vertices,
