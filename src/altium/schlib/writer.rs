@@ -894,12 +894,18 @@ mod tests {
         let mut unfilled = Rectangle::new(-5, -5, 5, 5);
         unfilled.filled = false;
         let s = encode_rectangle(&unfilled, 1);
-        assert!(!s.contains("IsSolid"), "unfilled rectangle must omit IsSolid: {s}");
+        assert!(
+            !s.contains("IsSolid"),
+            "unfilled rectangle must omit IsSolid: {s}"
+        );
 
         let mut filled = Rectangle::new(-5, -5, 5, 5);
         filled.filled = true;
         let s = encode_rectangle(&filled, 1);
-        assert!(s.contains("|IsSolid=T"), "filled rectangle must emit IsSolid=T: {s}");
+        assert!(
+            s.contains("|IsSolid=T"),
+            "filled rectangle must emit IsSolid=T: {s}"
+        );
         assert!(!s.contains("IsSolid=F"), "never emit IsSolid=F: {s}");
     }
 

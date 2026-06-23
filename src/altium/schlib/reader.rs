@@ -357,7 +357,10 @@ fn coord<T>(props: &HashMap<String, String>, key: &str) -> T
 where
     T: std::str::FromStr + Default,
 {
-    props.get(key).and_then(|s| s.parse().ok()).unwrap_or_default()
+    props
+        .get(key)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_default()
 }
 
 /// Parses a rectangle from properties.
