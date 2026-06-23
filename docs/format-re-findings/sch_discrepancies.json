@@ -1,0 +1,1091 @@
+[
+  {
+    "record": "sch:arc (RECORD=12)",
+    "field": "Location.X / Location.Y / Radius reader early-return",
+    "severity": "high",
+    "kind": "our-code-bug",
+    "detail": "parse_arc (reader.rs L628-630) uses `props.get(\"location.x\")?` / `location.y?` / `radius?` so any arc with X==0 or Y==0 (or omitted radius) returns None and the whole arc is silently dropped. Golden corpus: Location.X present in only 34/42 arcs, Location.Y in only 26/42 (ARC_FULL, ANALOG_IN, ANALOG_OUT, PHOTOTRANS emit neither). AltiumSharp omits zero coords (AddCoordParam) and defaults missing to 0.",
+    "evidence": "reader.rs L628-630 `?` early-return; golden ARC_FULL = '|RECORD=12|...|Radius=20|...' with no Location.X/Y; AltiumSharp CreateArc reads AsIntOrDefault()->0.",
+    "recommendation": "Default missing location.x/location.y/radius to 0 (`.and_then(parse).unwrap_or(0)`) instead of `?`."
+  },
+  {
+    "record": "sch:ellipse (RECORD=8)",
+    "field": "Location.X / Location.Y / Radius reader early-return",
+    "severity": "high",
+    "kind": "our-code-bug",
+    "detail": "parse_ellipse (reader.rs L585-587) uses `?` on location.x/location.y/radius. 3 of 4 golden ellipses (ELLIPSE_TEST, CIRCLE_FILLED, CIRCLE_OUTLINE) omit Location.X/Y (origin-centred) and are silently dropped. A zero-radius ellipse is likewise dropped.",
+    "evidence": "reader.rs L585-587 confirmed by direct read; golden ELLIPSE_TEST = '|RECORD=8|IsNotAccesible=T|OwnerPartId=1|Radius=20|...' with no Location.X/Y.",
+    "recommendation": "Default missing location.x/location.y/radius to 0 instead of `?`."
+  },
+  {
+    "record": "sch:rectangle (RECORD=14)",
+    "field": "Corner.X / Corner.Y reader early-return",
+    "severity": "high",
+    "kind": "our-code-bug",
+    "detail": "parse_rectangle (reader.rs L352-353) uses `props.get(\"corner.x\")?` / `corner.y?`; a rectangle whose Corner.X or Corner.Y is exactly 0 is silently dropped. Golden COLOR_TEST IndexInSheet=6 has Corner.X but no Corner.Y; CONN_2PIN has no Corner.X.",
+    "evidence": "reader.rs L350-353; golden COLOR_TEST omits Corner.Y; AltiumSharp AddCoordParam omits zero coords, CreateRectangle defaults missing to 0.",
+    "recommendation": "Default missing Location.*/Corner.* to 0 (`.unwrap_or(0)`)."
+  },
+  {
+    "record": "sch:line (RECORD=13)",
+    "field": "Location.X/Y / Corner.X/Y reader early-return",
+    "severity": "high",
+    "kind": "our-code-bug",
+    "detail": "parse_line (reader.rs L391-394) uses `?` on all four coords. Real golden DFF blocks omit Corner.Y (block @665, value 0) and Location.Y (block @798, value 0); both lines are silently dropped on read.",
+    "evidence": "reader.rs L391-394; golden DFF/Data @665 '|RECORD=13|...|Corner.X=-27|LineWidth=1|UniqueID=ASYMCQNU' (no Corner.Y); @798 omits Location.Y.",
+    "recommendation": "Default missing coordinate keys to 0 instead of `?`."
+  },
+  {
+    "record": "sch:polyline (RECORD=6)",
+    "field": "X{n}/Y{n} vertex reader early-return",
+    "severity": "high",
+    "kind": "our-code-bug",
+    "detail": "parse_polyline (reader.rs L486-487) uses `?` on x{i}/y{i}; the whole polyline is dropped when any vertex coordinate is 0. Golden POLYLINE_ARROW_TEST record #4 has X1=-30 but no Y1/Y2 (vertices y=0).",
+    "evidence": "reader.rs L486-487; AltiumSharp CreatePolyline reads missing coord as 0.",
+    "recommendation": "Replace the two `?` with `.unwrap_or(0)`."
+  },
+  {
+    "record": "sch:polygon (RECORD=7)",
+    "field": "X{n}/Y{n} vertex reader early-return",
+    "severity": "high",
+    "kind": "our-code-bug",
+    "detail": "parse_polygon (reader.rs L549-550) uses `?` on every X{i}/Y{i}; missing coord drops the entire polygon. This is the common case: BUFFER_GATE omits Y3, POLYGON_TEST omits X1/Y2/X3/Y4, VDD/VSS omit X2.",
+    "evidence": "reader.rs L549-550; AltiumSharp CreatePolygon comments 'Altium omits coordinates with value 0' and adds vertex with default 0.",
+    "recommendation": "Treat missing X{i}/Y{i} as 0 (default); do not use `?` to short-circuit."
+  },
+  {
+    "record": "sch:bezier (RECORD=5)",
+    "field": "X{n}/Y{n} reader early-return (8 coords required)",
+    "severity": "high",
+    "kind": "our-code-bug",
+    "detail": "parse_bezier (reader.rs L670-677) requires all 8 coords via `?`; AltiumSharp omits any coord whose schematic-unit string == \"0\" and defaults missing to 0, so a bezier with any zero control coord (e.g. a (0,0) start point) is dropped by our reader.",
+    "evidence": "reader.rs L670-677; AltiumSharp AddSchVertex `if (sx != \"0\")`, CreateBezier defaults missing to 0.",
+    "recommendation": "Default missing X{n}/Y{n} to 0 (gate on LocationCount or coord presence, not all-8-present)."
+  },
+  {
+    "record": "sch:ellipticalarc (RECORD=11)",
+    "field": "Location.X reader early-return",
+    "severity": "high",
+    "kind": "our-code-bug",
+    "detail": "parse_elliptical_arc (reader.rs L761) uses `props.get(\"location.x\")?` while Location.Y already uses unwrap_or(0). Golden ELLIPSE_ARC_TEST record @2156 has no Location.X (X==0): the entire elliptical arc is silently dropped on read.",
+    "evidence": "reader.rs L761 `?` vs L763 unwrap_or(0); golden @2156 '|RECORD=11|...|Location.Y=-25|Radius=6|...' (no Location.X).",
+    "recommendation": "Treat Location.X like Location.Y with `.unwrap_or(0)`."
+  },
+  {
+    "record": "sch:label (RECORD=4)",
+    "field": "Location.X / Location.Y reader early-return",
+    "severity": "high",
+    "kind": "our-code-bug",
+    "detail": "parse_label (reader.rs L825-826) uses `?` on location.x/location.y; Altium omits these when 0, so every label on the Y-axis (X=0) or X-axis (Y=0) is silently dropped. Golden FONT_TEST and ELLIPSE_ARC_TEST labels omit Location.X.",
+    "evidence": "reader.rs L825-826; golden FONT_TEST '|...|OwnerPartId=1|Location.Y=30|Justification=4|...' (no Location.X).",
+    "recommendation": "Default missing location.x/location.y to 0 instead of `?`."
+  },
+  {
+    "record": "sch:pin (RECORD=2 binary)",
+    "field": "FormalType hardcoded to 0x01; no model field; reader discards",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "writer.rs L181-182 hardcodes the FormalType byte to 0x01; reader.rs L285-286 reads-and-discards it; Pin struct has no formal_type field. AltiumSharp round-trips pin.FormalType. A read->write round-trip is not byte-exact and loses the value. (Verifier caveat: the specific 'STM32 GPIO pins show FT=0' golden evidence is NOT reproducible in the available TestData corpus — all binary pins there are FT=1 — but the code-level lossy non-round-trip is real.)",
+    "evidence": "writer.rs L181-182 push(0x01); reader.rs L285-286 'offset += 1; unused'; primitives.rs Pin has no formal_type.",
+    "recommendation": "Add formal_type:u8 to Pin, read it in reader.rs (replace the skip), write pin.formal_type instead of hardcoded 0x01."
+  },
+  {
+    "record": "sch:pin (RECORD=2 binary)",
+    "field": "DefaultValue tail field missing (reader+writer+model)",
+    "severity": "medium",
+    "kind": "our-missing-feature",
+    "detail": "reader.rs stops after Designator (L323) and never reads DefaultValue; writer.rs L240 always writes empty (push 0); Pin has no default_value field. Golden PIN_PROPS_TEST power pins carry DefaultValue '3.3V'/'0V' — silently dropped on round-trip.",
+    "evidence": "Golden PIN_PROPS_TEST pin#1 tail '02 30 56'=Pascal[2]'0V'; pin#9 '04 33 2e 33 56'='3.3V'. AltiumSharp writes pin.DefaultValue.",
+    "recommendation": "Add default_value:String to Pin; read the 3rd tail Pascal string in reader.rs; write pin.default_value in writer.rs L240 instead of push(0)."
+  },
+  {
+    "record": "sch:rectangle (RECORD=14)",
+    "field": "IsSolid always written (writer) + always filled (reader)",
+    "severity": "high",
+    "kind": "our-code-bug",
+    "detail": "encode_rectangle (writer.rs L278) hardcodes '|IsSolid=T' unconditionally, ignoring rect.filled; parse_rectangle (reader.rs L382) hardcodes filled:true, never reading IsSolid. Altium omits IsSolid when unfilled (golden LINESTYLE_TEST has no IsSolid). Unfilled rectangles cannot be written and every read rectangle becomes filled.",
+    "evidence": "writer.rs L278; reader.rs L382; golden LINESTYLE_TEST IndexInSheet=18 has no IsSolid.",
+    "recommendation": "Emit IsSolid=T only when filled, omit otherwise; read filled = props.get(\"issolid\")==Some(\"T\"), default false."
+  },
+  {
+    "record": "sch:ellipse (RECORD=8)",
+    "field": "IsSolid always written (writer)",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "encode_ellipse (writer.rs L436,448) always writes IsSolid=T or IsSolid=F. Altium omits IsSolid when false (AddBool). Golden ELLIPSE_TEST and CIRCLE_OUTLINE have no IsSolid key. Writing IsSolid=F is not byte-faithful.",
+    "evidence": "writer.rs L436/L448; golden ELLIPSE_TEST omits IsSolid.",
+    "recommendation": "Emit IsSolid=T only when filled; omit when not."
+  },
+  {
+    "record": "sch:roundrect (RECORD=10)",
+    "field": "IsSolid filled default polarity (reader) + always-emitted (writer)",
+    "severity": "high",
+    "kind": "our-code-bug",
+    "detail": "parse_round_rect (reader.rs L737) `filled = !props.get(\"issolid\").is_some_and(|s| s==\"F\")` => omitted IsSolid yields filled=true; AltiumSharp defaults omitted to false (unfilled). Golden ROUNDRECT_TEST omits IsSolid (isSolid=false) and would be read as filled. Reader also treats any value other than 'F' as true. Writer always emits IsSolid={T/F}.",
+    "evidence": "reader.rs L737; golden ROUNDRECT_TEST and FULL IndexInSheet=12 omit IsSolid with json isSolid=false.",
+    "recommendation": "filled = props.get(\"issolid\").is_some_and(|s| matches!(s.as_str(),\"T\"|\"t\"|\"TRUE\"|\"true\")) (default false); emit IsSolid=T only when filled."
+  },
+  {
+    "record": "sch:polygon (RECORD=7)",
+    "field": "IsSolid always written (writer) + filled-true default (reader)",
+    "severity": "high",
+    "kind": "our-code-bug",
+    "detail": "encode_polygon (writer.rs L371,380) always writes IsSolid=T/F; parse_polygon (reader.rs L566) `filled = !get(\"issolid\")==Some(\"F\")` yields filled=true when omitted; AltiumSharp omits IsSolid when unfilled and defaults omitted to false. Golden BUFFER_GATE/COMPARATOR omit IsSolid (unfilled) but we read them as filled and write IsSolid=F.",
+    "evidence": "writer.rs L371/L380; reader.rs L566; golden BUFFER_GATE has no IsSolid.",
+    "recommendation": "Emit IsSolid=T only when filled (omit otherwise); read filled = matches positive T/t/TRUE, default false. Also fix struct default filled (primitives.rs L489) so an unfilled polygon can be expressed."
+  },
+  {
+    "record": "sch:rectangle (RECORD=14)",
+    "field": "Color always emitted + wrong read default (0x000080)",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "encode_rectangle (writer.rs L286) always emits Color even when 0; parse_rectangle (reader.rs L359-362) defaults missing Color to 0x000080. AltiumSharp omits Color when 0 and defaults missing to 0 (black). Golden COLOR_TEST omits Color; we fabricate dark-red.",
+    "evidence": "writer.rs L286; reader.rs L359-362; golden COLOR_TEST IndexInSheet=6 has no Color.",
+    "recommendation": "Omit Color when 0 on write; default missing Color to 0 (not 0x000080) on read."
+  },
+  {
+    "record": "sch:rectangle (RECORD=14)",
+    "field": "AreaColor always emitted + wrong read default (0xFFFFB0)",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "encode_rectangle (writer.rs L287) always emits AreaColor even when 0; parse_rectangle (reader.rs L363-366) defaults missing AreaColor to 0xFFFFB0=16776624 — a byte-order-confused fabrication. Real-Altium light-yellow is 11599871=0xB0FFEF; AltiumSharp omits AreaColor when 0 and defaults missing to 0. The 0xFFFFB0 constant also seeds Rectangle::new (primitives.rs L390).",
+    "evidence": "writer.rs L287; reader.rs L366 `.unwrap_or(0xFF_FF_B0)`; primitives.rs L390; vendor files use AreaColor=11599871.",
+    "recommendation": "Omit AreaColor when 0 on write; default missing AreaColor to 0 (or the documented 11599871) on read; fix the 0xFFFFB0 constant in Rectangle::new."
+  },
+  {
+    "record": "sch:rectangle (RECORD=14)",
+    "field": "Transparent always emitted (writes Transparent=F)",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "encode_rectangle (writer.rs L274,288) emits '|Transparent=F' when false; Altium omits Transparent when false. Across all 26 golden rects there is no 'Transparent=F'.",
+    "evidence": "writer.rs L274/L288; golden has no Transparent=F anywhere.",
+    "recommendation": "Emit Transparent only when true; omit when false."
+  },
+  {
+    "record": "sch:rectangle (RECORD=14)",
+    "field": "LineStyleExt / dashed-dotted line style missing",
+    "severity": "medium",
+    "kind": "our-missing-feature",
+    "detail": "Rectangle struct has no line_style field; LineStyleExt (placed before LineWidth, AddNonZero) is never written or read. Golden LINESTYLE_TEST carries LineStyleExt=1 and =2. Dashed/dotted borders are lost.",
+    "evidence": "primitives.rs L340-373; golden LINESTYLE_TEST IndexInSheet=19 '...|Corner.Y=-30|LineStyleExt=1|LineWidth=1|...'.",
+    "recommendation": "Add line_style field; write LineStyleExt (AddNonZero, before LineWidth) and read it back."
+  },
+  {
+    "record": "sch:rectangle (RECORD=14)",
+    "field": "LineWidth semantics: always emitted, treated as raw int not enum index",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "line_width is a raw u8 written verbatim and never omitted at 0; Altium treats LineWidth as a 0-3 enum index (Small/Medium/Large/Largest) and omits it when 0 (Small). Every real-Altium vendor rectangle omits LineWidth (index 0/Small) so our always-emitted LineWidth=0/1 is the single most common byte divergence in the real corpus.",
+    "evidence": "writer.rs L285; AltiumSharp LineWidthToIndex/FromIndex, LineWidths[]={1,2,4,6} mils; vendor rects omit LineWidth.",
+    "recommendation": "Omit LineWidth when 0; document/treat it as a 0-3 enum index."
+  },
+  {
+    "record": "sch:rectangle (RECORD=14)",
+    "field": "LOCATION/CORNER *_FRAC fractional coordinates missing",
+    "severity": "medium",
+    "kind": "our-missing-feature",
+    "detail": "Rectangle uses i32 x1/y1/x2/y2 only; *_FRAC keys neither written nor read. AltiumSharp Coord = int*100000 + frac. (Verifier caveat: no golden rectangle exercises _Frac, but the format/AltiumSharp support it; other primitives in vendor files do use _Frac.)",
+    "evidence": "primitives.rs L343-350; AltiumSharp SchRectangleDto LocationX/YFrac, CornerX/YFrac.",
+    "recommendation": "Add optional *_Frac support (or store raw units) for fractional-grid fidelity."
+  },
+  {
+    "record": "sch:rectangle (RECORD=14)",
+    "field": "Key field order not canonical",
+    "severity": "low",
+    "kind": "our-code-bug",
+    "detail": "Our order places IsNotAccesible after OwnerPartId and lacks LineStyleExt; Altium order is RECORD, IsNotAccesible, IndexInSheet, OwnerPartId, Location, Corner, LineStyleExt, LineWidth, ... — IsNotAccesible first, LineStyleExt before LineWidth. Output not byte-identical to canonical.",
+    "evidence": "writer.rs L276-278 vs golden/vendor ordering.",
+    "recommendation": "Reorder: IsNotAccesible first, then IndexInSheet, OwnerPartId; LineStyleExt before LineWidth."
+  },
+  {
+    "record": "sch:rectangle (RECORD=14)",
+    "field": "Doc: 'IsSolid is always written as T' and incomplete field table",
+    "severity": "medium",
+    "kind": "our-doc-error",
+    "detail": "docs/SCHLIB_FORMAT.md L383 codifies the writer bug as intended ('Rectangle IsSolid is always written as T'). The rectangle table (L369-383) also omits LineStyleExt, *_FRAC, omit-when-default notes, and DXP units. Doc lines 324/337 correctly say AreaColor default 11599871 / Color 128, contradicting the reader's 0xFFFFB0 fabrication.",
+    "evidence": "SCHLIB_FORMAT.md L383, L369-383, L324, L337.",
+    "recommendation": "Rewrite: IsSolid emitted only when filled; add LineStyleExt/*_FRAC rows; note omit-when-default and DXP units; align reader AreaColor default with documented 11599871."
+  },
+  {
+    "record": "sch:line (RECORD=13)",
+    "field": "IsNotAccesible hardcoded T (writer) + no model field",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "encode_line (writer.rs L296) hardcodes '|IsNotAccesible=T|' on every line; Line struct has no field and parse_line never reads it. Altium emits it only when true. A selectable line is wrongly marked not-accessible and the flag is dropped on round-trip.",
+    "evidence": "writer.rs L296; primitives.rs Line has no is_not_accessible.",
+    "recommendation": "Add is_not_accessible bool; emit only when true; read ISNOTACCESIBLE."
+  },
+  {
+    "record": "sch:line (RECORD=13)",
+    "field": "Color always emitted + non-zero default color",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "encode_line (writer.rs L304) always emits Color; Altium omits Color when 0. Line::new default color is 0x000080 (not 0), so every from-scratch line writes 'Color=33152' where Altium writes nothing. Golden DFF lines omit Color.",
+    "evidence": "writer.rs L296/L304; primitives.rs Line::new default 0x000080; golden DFF blocks omit Color.",
+    "recommendation": "Omit Color when 0; reconsider the non-zero default."
+  },
+  {
+    "record": "sch:line (RECORD=13)",
+    "field": "LineStyle missing",
+    "severity": "medium",
+    "kind": "our-missing-feature",
+    "detail": "Line struct has no line_style field; dashed/dotted lines round-trip as solid. AltiumSharp serialises LineStyle (omitted when 0).",
+    "evidence": "primitives.rs Line L401-423 (line_style only on polyline); AltiumSharp WriteLineRecord LineStyle.",
+    "recommendation": "Add line_style:u8; emit LineStyle when non-zero; read LINESTYLE."
+  },
+  {
+    "record": "sch:line (RECORD=13)",
+    "field": "_Frac coordinates missing",
+    "severity": "medium",
+    "kind": "our-missing-feature",
+    "detail": "Line stores x1/y1/x2/y2 as plain i32; *_Frac never read/written, losing sub-DXP precision. The arc path already handles Radius_Frac, so the asymmetry is Line-specific.",
+    "evidence": "primitives.rs Line L403-409; arc reader/writer handle _Frac.",
+    "recommendation": "Model coordinates at raw precision or add *_frac fields; read/write _Frac like the arc path."
+  },
+  {
+    "record": "sch:line (RECORD=13)",
+    "field": "Doc + write field order incomplete/non-canonical",
+    "severity": "medium",
+    "kind": "our-doc-error",
+    "detail": "docs/SCHLIB_FORMAT.md L572-581 lists only Location/Corner/LineWidth/Color, omitting IsNotAccesible, IndexInSheet, OwnerPartId, *_Frac, LineStyle, LineStyleExt, AreaColor, UniqueID, state flags, the zero-omission rule, the LineWidth-is-index fact, and BGR colours. Also our write order is RECORD, IndexInSheet, OwnerPartId, IsNotAccesible,... whereas Altium emits IsNotAccesible before IndexInSheet/OwnerPartId; IndexInSheet/OwnerPartId are themselves omit-when-zero.",
+    "evidence": "SCHLIB_FORMAT.md L572-581; golden DFF @665 begins '|RECORD=13|IsNotAccesible=T|IndexInSheet=6|OwnerPartId=1|...'.",
+    "recommendation": "Expand the RECORD=13 table with the full field set, mark zero-valued keys as omitted, note LineWidth is an enum index and colours are BGR; reorder writer keys."
+  },
+  {
+    "record": "sch:arc (RECORD=12)",
+    "field": "Radius_Frac / Location.X_Frac / Location.Y_Frac missing",
+    "severity": "high",
+    "kind": "our-missing-feature",
+    "detail": "Arc.x/y/radius are plain i32; *_Frac neither written nor read; sub-DXP geometry lost. Golden CM_CHOKE has 8 arcs with Radius_Frac=50000 (2.5 DXP) and Location.X_Frac=±50000 (signed). Reading truncates 2.5->2 and snaps centres.",
+    "evidence": "primitives.rs L504-508; AltiumSharp AddCoordParam split + CoordFromDxp recombine; golden CM_CHOKE.",
+    "recommendation": "Store x/y/radius as raw (or add *_frac fields); split on write, recombine on read preserving sign."
+  },
+  {
+    "record": "sch:arc (RECORD=12)",
+    "field": "IsNotAccesible not written/read; deliberate single-'s' spelling",
+    "severity": "high",
+    "kind": "our-code-bug",
+    "detail": "encode_arc never emits IsNotAccesible; parse_arc ignores it; Arc struct lacks the field. IsNotAccesible=T appears in 42/42 golden arcs. From-scratch arcs are byte-different and the flag is dropped.",
+    "evidence": "writer.rs L400 (no IsNotAccesible); golden 42/42 carry IsNotAccesible=T.",
+    "recommendation": "Add is_not_accessible:bool (default true to match Altium's own arcs); emit `IsNotAccesible=T` (single 's') when set; parse it."
+  },
+  {
+    "record": "sch:arc (RECORD=12)",
+    "field": "IndexInSheet emitted from write-counter, unconditionally; not read",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "encode_arc (writer.rs L400-401) emits IndexInSheet from the running write counter unconditionally; parse_arc never reads INDEXINSHEET. AltiumSharp writes the stored value via AddNonZero (omit when 0). Golden IndexInSheet=12/13/14/15 are stored z-orders; ARC_FULL omits it (0). Our counter overwrites the real value on save.",
+    "evidence": "writer.rs L400-401; golden COLOR_TEST arcs carry z-orders 12-15.",
+    "recommendation": "Model IndexInSheet as a stored field; read it; emit via AddNonZero (omit when 0); stop reusing the write counter."
+  },
+  {
+    "record": "sch:arc (RECORD=12)",
+    "field": "StartAngle/EndAngle format ('{}' vs F3) + StartAngle not omitted at 0",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "writer.rs L406-407 format angles with '{}' producing '360'/'0'; Altium uses F3 ('360.000') and omits StartAngle when 0. Golden EndAngle=360.000 in 42/42; StartAngle present in 16/42 and never 0. Every arc is byte-different.",
+    "evidence": "writer.rs L406-407; AltiumSharp FormatAngle F3, StartAngle `if != 0`.",
+    "recommendation": "Format both angles with 3 fixed decimals; omit StartAngle when 0; always emit EndAngle."
+  },
+  {
+    "record": "sch:arc (RECORD=12)",
+    "field": "Color always emitted + wrong read default (128)",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "writer.rs L409 always emits Color (even 0); reader.rs L648 defaults missing Color to 0x000080=128. AltiumSharp omits Color when 0 and defaults missing to 0 (black). Golden Color present in only 4/42 arcs; 38 omit it and are black; we read them as navy.",
+    "evidence": "writer.rs L409; reader.rs L648 `.unwrap_or(0x00_00_80)`.",
+    "recommendation": "Omit Color when 0 on write; default absent Color to 0 on read."
+  },
+  {
+    "record": "sch:arc (RECORD=12)",
+    "field": "AreaColor not modelled",
+    "severity": "low",
+    "kind": "our-missing-feature",
+    "detail": "Arc struct has no area_color field; AltiumSharp emits AREACOLOR via AddNonZero. Absent in all 42 golden arcs (lossless today) but a defined field.",
+    "evidence": "primitives.rs L502-531; AltiumSharp SchArcDto.AreaColor.",
+    "recommendation": "Optionally add area_color (AddNonZero on write); low priority."
+  },
+  {
+    "record": "sch:arc (RECORD=12)",
+    "field": "OwnerPartDisplayMode / OwnerIndex not modelled",
+    "severity": "low",
+    "kind": "our-missing-feature",
+    "detail": "Arc lacks owner_part_display_mode/owner_index. Both default-zero across all 42 golden SchLib arcs, so omission matches; only SchDoc/alt-display use would lose state. (Our omission of OwnerIndex actually matches all goldens.)",
+    "evidence": "primitives.rs L502-531; AltiumSharp SchArcDto fields.",
+    "recommendation": "Leave as-is for SchLib; model only if SchDoc/alt-display support is added."
+  },
+  {
+    "record": "sch:arc (RECORD=12)",
+    "field": "Doc Arc table incomplete (7 fields)",
+    "severity": "medium",
+    "kind": "our-doc-error",
+    "detail": "docs/SCHLIB_FORMAT.md L558-570 lists only Location.X/Y, Radius, StartAngle, EndAngle, LineWidth, Color. Missing IsNotAccesible (42/42), OwnerPartId (42/42), UniqueID (42/42), IndexInSheet (41/42), *_Frac, AreaColor, plus zero-omission/F3-angle/LineWidth-enum/BGR conventions.",
+    "evidence": "SCHLIB_FORMAT.md L558-570 vs golden corpus.",
+    "recommendation": "Expand the doc table and document the conventions."
+  },
+  {
+    "record": "sch:arc (RECORD=12)",
+    "field": "Parameter key order + OwnerPartId always emitted (extra findings)",
+    "severity": "low",
+    "kind": "our-code-bug",
+    "detail": "encode_arc emits keys in order RECORD,IndexInSheet,OwnerPartId,Location...,EndAngle,LineWidth,Color,UniqueID; golden order is RECORD,IsNotAccesible,IndexInSheet,OwnerPartId,Location,Location.X_Frac,Location.Y,Radius,Radius_Frac,LineWidth,StartAngle,EndAngle,Color,AreaColor,UniqueID (LineWidth BEFORE the angles). OwnerPartId is also always emitted (Altium omits when 0).",
+    "evidence": "Verifier extraFindings on RECORD=12.",
+    "recommendation": "Match Altium key order (LineWidth before StartAngle/EndAngle; IsNotAccesible first); omit OwnerPartId when 0."
+  },
+  {
+    "record": "sch:ellipse (RECORD=8)",
+    "field": "Location/Radius *_FRAC missing (sub-DXP precision)",
+    "severity": "high",
+    "kind": "our-missing-feature",
+    "detail": "Ellipse stores plain i32 x/y/radius_x/radius_y; *_Frac (LOCATION.X_FRAC/Y_FRAC, RADIUS_FRAC, SECONDARYRADIUS_FRAC) neither read nor written. Golden TRANSPARENCY_TEST has Location.X_Frac=50000, Location.Y_Frac=-50000 (negative). Reading 17.5 yields 17; sub-DXP precision lost. (Verifier corrected the RE's 'off by 100000x' framing — whole coords round-trip self-consistently; the defect is the dropped fractional remainder.)",
+    "evidence": "primitives.rs L610-638; reader.rs L585-592; golden TRANSPARENCY_TEST.",
+    "recommendation": "Add _Frac companion fields (or store raw units = dxp*100000+frac); read/write LOCATION.X_FRAC etc."
+  },
+  {
+    "record": "sch:ellipse (RECORD=8)",
+    "field": "IsNotAccesible missing",
+    "severity": "medium",
+    "kind": "our-missing-feature",
+    "detail": "encode_ellipse never emits IsNotAccesible (unlike encode_round_rect); Ellipse struct has no field; reader ignores it. All 4 golden ellipses begin RECORD=8|IsNotAccesible=T. Flag dropped, output not byte-faithful.",
+    "evidence": "writer.rs L437-450; golden all carry IsNotAccesible=T.",
+    "recommendation": "Add is_not_accessible (default true); emit IsNotAccesible=T when set, as encode_round_rect does."
+  },
+  {
+    "record": "sch:ellipse (RECORD=8)",
+    "field": "IndexInSheet from write-counter; doc default -1",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "encode_ellipse always writes IndexInSheet from the running counter; Altium omits when 0 and stores a semantic index. Golden simple ellipses omit it; TRANSPARENCY_TEST has 14. Doc (SCHLIB_FORMAT.md L635) says default -1, matching neither.",
+    "evidence": "writer.rs L654/L722-724; SCHLIB_FORMAT.md L635.",
+    "recommendation": "Omit IndexInSheet (or store/round-trip the real value); fix the doc default."
+  },
+  {
+    "record": "sch:ellipse (RECORD=8)",
+    "field": "Color always emitted + wrong read default (0x000080)",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "encode_ellipse always writes Color (default 0x000080); reader defaults missing to 0x000080. Altium omits Color when 0 and defaults missing to 0 (black). Golden simple ellipses omit Color; we force dark-red.",
+    "evidence": "writer.rs L446; reader.rs L598-601; primitives.rs L650.",
+    "recommendation": "Omit Color when 0; default missing Color to 0 on read."
+  },
+  {
+    "record": "sch:ellipse (RECORD=8)",
+    "field": "Transparent missing",
+    "severity": "medium",
+    "kind": "our-missing-feature",
+    "detail": "Ellipse has no transparent field; Transparent=T (AddBool) is dropped on round-trip. (Verifier correction: no golden ellipse actually contains a Transparent key — TRANSPARENCY_TEST has IsTransparent false — so do not cite golden presence; the capability gap is real via the DTO/writer.)",
+    "evidence": "primitives.rs L610-638; AltiumSharp SchEllipseDto.Transparent.",
+    "recommendation": "Add is_transparent; emit Transparent=T when set, omit otherwise."
+  },
+  {
+    "record": "sch:ellipse (RECORD=8)",
+    "field": "OwnerPartId always emitted; OwnerPartDisplayMode/GraphicallyLocked/Disabled/Dimmed/OwnerIndex not modelled",
+    "severity": "low",
+    "kind": "our-missing-feature",
+    "detail": "encode_ellipse always emits OwnerPartId (Altium omits when 0); Ellipse models none of OwnerPartDisplayMode/GraphicallyLocked/Disabled/Dimmed/OwnerIndex. All default in golden so low impact.",
+    "evidence": "writer.rs L440; SchEllipseDto fields.",
+    "recommendation": "Omit OwnerPartId when 0; add the other fields for full fidelity (deferrable)."
+  },
+  {
+    "record": "sch:ellipse (RECORD=8)",
+    "field": "Doc ellipse table understates field set",
+    "severity": "low",
+    "kind": "our-doc-error",
+    "detail": "docs/SCHLIB_FORMAT.md L585-594 lists only 8 plain-int/bool fields; omits _Frac, IsNotAccesible, IndexInSheet, OwnerPartId, Transparent, state flags, UniqueID, and the dxp*100000+frac coordinate model.",
+    "evidence": "SCHLIB_FORMAT.md L585-594; SchEllipseDto ~20 params.",
+    "recommendation": "Expand the ellipse table with all RECORD=8 keys and document the coordinate encoding / omit-when-default rules."
+  },
+  {
+    "record": "sch:ellipse (RECORD=8)",
+    "field": "AreaColor fabricated read default (0xFFFFB0) — extra finding",
+    "severity": "low",
+    "kind": "our-code-bug",
+    "detail": "reader.rs L602-605 defaults missing AreaColor to 0xFFFFB0; AltiumSharp reads AreaColor as plain int default 0 and the writer always emits it. All golden ellipses carry AreaColor explicitly so never triggers, but the fallback is a fabricated value.",
+    "evidence": "reader.rs L602-605.",
+    "recommendation": "Default missing AreaColor to 0 (or omit the fallback)."
+  },
+  {
+    "record": "sch:bezier (RECORD=5)",
+    "field": "X{n}/Y{n} always emit zeros (writer)",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "encode_bezier (writer.rs L416-431) always emits X1..Y4 including zeros; AltiumSharp omits any coord whose schematic-unit string == '0'. Byte-divergent and inflates the record.",
+    "evidence": "writer.rs L416-431; AltiumSharp AddSchVertex.",
+    "recommendation": "Skip emitting any X{n}/Y{n} whose value is 0."
+  },
+  {
+    "record": "sch:bezier (RECORD=5)",
+    "field": "IsNotAccesible hardcoded T; no model field; not read",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "writer.rs L417 hardcodes '|IsNotAccesible=T|'; Bezier struct has no field; reader never reads it. AltiumSharp emits only when true. (Verifier correction: the real golden bezier in sample.SchLib DOES contain IsNotAccesible=T, so the 'golden omits it' sub-claim is wrong; the unconditional-default/unread bug is still real.)",
+    "evidence": "writer.rs L417; primitives.rs Bezier L545-575.",
+    "recommendation": "Add is_not_accessible bool; emit only when true; read it. Default false."
+  },
+  {
+    "record": "sch:bezier (RECORD=5)",
+    "field": "IndexInSheet = write counter; not read",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "encode_bezier (writer.rs L416-418) emits IndexInSheet from the running counter unconditionally; AltiumSharp writes the stored value via AddNonZero. Golden bezier IndexInSheet=9 while it is the 6th visible record — proving it is a stored index, not an emit ordinal.",
+    "evidence": "writer.rs L416-418; golden sample.SchLib bezier IndexInSheet=9.",
+    "recommendation": "Add an index_in_sheet field; emit the stored value (omit when 0); read it back."
+  },
+  {
+    "record": "sch:bezier (RECORD=5)",
+    "field": "Color always emitted + AreaColor not modelled + wrong Color default (128)",
+    "severity": "low",
+    "kind": "our-code-bug",
+    "detail": "encode_bezier always emits Color (even 0); AreaColor has no field. AltiumSharp writes both only when non-zero. Reader also defaults missing Color to 0x000080=128 vs AltiumSharp 0, silently changing colour.",
+    "evidence": "writer.rs L417; reader.rs L686.",
+    "recommendation": "Omit Color when 0; add area_color (emit when non-zero); default missing Color to 0 on read."
+  },
+  {
+    "record": "sch:bezier (RECORD=5)",
+    "field": "OwnerPartDisplayMode/GraphicallyLocked/Disabled/Dimmed/OwnerIndex/AreaColor not modelled",
+    "severity": "medium",
+    "kind": "our-missing-feature",
+    "detail": "Bezier struct has no fields for these common properties; AltiumSharp writes them conditionally and reads them. Default-absent in both goldens, but any bezier carrying them loses data.",
+    "evidence": "primitives.rs Bezier L545-575; AltiumSharp SchBezierDto / AddCommonProperties.",
+    "recommendation": "Add fields; write conditionally (omit defaults) and read back."
+  },
+  {
+    "record": "sch:bezier (RECORD=5)",
+    "field": "LocationCount hardcoded 4; ignored on read",
+    "severity": "low",
+    "kind": "our-missing-feature",
+    "detail": "writer.rs L417 hardcodes LocationCount=4; reader ignores it. Cubic beziers are always 4 points so values coincide, but we cannot represent/read other counts.",
+    "evidence": "writer.rs L417; SCHLIB_FORMAT.md L622.",
+    "recommendation": "Document the 4-point-only support; optionally validate LocationCount on read. Low priority."
+  },
+  {
+    "record": "sch:bezier (RECORD=5)",
+    "field": "Doc Bezier table incomplete + write field order",
+    "severity": "low",
+    "kind": "our-doc-error",
+    "detail": "SCHLIB_FORMAT.md L613-622 lists only LocationCount/X{n}/Y{n}/LineWidth/Color and says LocationCount 'always 4 / not validated'. Omits the common tokens + UniqueID, the schematic-unit fact, and the omit-when-zero rule. Our field order also differs (IsNotAccesible should be first).",
+    "evidence": "SCHLIB_FORMAT.md L613-622; verifier extraFindings.",
+    "recommendation": "Expand the table; state coords are schematic units; document zero-omission and reader default-to-0 requirement; reorder writer keys."
+  },
+  {
+    "record": "sch:polyline (RECORD=6)",
+    "field": "IsNotAccesible missing (model/reader/writer)",
+    "severity": "high",
+    "kind": "our-missing-feature",
+    "detail": "encode_polyline never emits IsNotAccesible (unlike encode_polygon); Polyline struct has no field; reader ignores it. All 8 golden polylines begin RECORD=6|IsNotAccesible=T. Flag dropped, output diverges.",
+    "evidence": "writer.rs L340-351; golden 8/8 carry IsNotAccesible=T.",
+    "recommendation": "Add is_not_accessible:bool (default true); read and emit IsNotAccesible=T when true."
+  },
+  {
+    "record": "sch:polyline (RECORD=6)",
+    "field": "LineStyleExt missing",
+    "severity": "medium",
+    "kind": "our-missing-feature",
+    "detail": "Altium writes LineStyleExt=<LineStyle> after the vertex block when LineStyle!=0; we neither write nor read it. Golden POLYLINE_ARROW_TEST record #7 (LineStyle=1) ends '...Y4=-35|LineStyleExt=1|UniqueID=...'.",
+    "evidence": "AltiumSharp WritePolylineRecord LineStyleExt; golden record #7.",
+    "recommendation": "Emit LineStyleExt=<line_style> after vertices when line_style != 0; optionally prefer it over LineStyle on read."
+  },
+  {
+    "record": "sch:polyline (RECORD=6)",
+    "field": "Color always emitted + wrong read default (0x000080)",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "Writer always emits Color even when 0; reader defaults missing Color to 0x000080. Altium omits Color when 0 and defaults missing to 0/black. POLYLINE_TEST omits Color (its colour is 0); we read it as dark-red.",
+    "evidence": "writer.rs L345; reader.rs L495-498.",
+    "recommendation": "Omit Color when 0; default missing Color to 0 on read."
+  },
+  {
+    "record": "sch:polyline (RECORD=6)",
+    "field": "Parameter emit order (Color position) + zero-value omission",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "Our order puts Color right after LineWidth; Altium puts Color after LineShapeSize (...|LineShapeSize|Color|LocationCount). We also always emit IndexInSheet, OwnerPartId, LineStyle, StartLineShape, EndLineShape, LineShapeSize even when 0; Altium omits zero (LineWidth excepted). Golden record #1 omits IndexInSheet; LineStyle=0 records omit LineStyle/shapes; POLYLINE_TEST omits Color.",
+    "evidence": "writer.rs L344-350; golden ordering and omissions.",
+    "recommendation": "Reorder to LineWidth, LineStyle, StartLineShape, EndLineShape, LineShapeSize, Color, LocationCount; emit the omittable keys only when non-zero (keep LineWidth always)."
+  },
+  {
+    "record": "sch:polyline (RECORD=6)",
+    "field": "parse_polyline doc comment wrong key names",
+    "severity": "low",
+    "kind": "our-doc-error",
+    "detail": "reader.rs L472 comment says 'Location{n}.X/Location{n}.Y' but real keys are X{n}/Y{n}; code correctly uses x{i}/y{i}.",
+    "evidence": "reader.rs L472.",
+    "recommendation": "Fix the comment to reference X{n}/Y{n}."
+  },
+  {
+    "record": "sch:polyline (RECORD=6)",
+    "field": "LocationCount>=2 hard rejection on read",
+    "severity": "low",
+    "kind": "our-code-bug",
+    "detail": "parse_polyline (reader.rs L478-480) returns None if LocationCount<2; AltiumSharp does not reject low counts (scans up to max(LocationCount,50)). A 1-vertex/LocationCount-missing polyline is dropped.",
+    "evidence": "reader.rs L478-480.",
+    "recommendation": "Relax to accept LocationCount>=1 (or scan by vertex presence)."
+  },
+  {
+    "record": "sch:polygon (RECORD=7)",
+    "field": "X{n}/Y{n} always emit zeros (writer)",
+    "severity": "high",
+    "kind": "our-code-bug",
+    "detail": "encode_polygon (writer.rs L384-387) always emits every X{n}/Y{n} including zero coords; AltiumSharp omits when value string == '0'. Golden BUFFER_GATE omits Y3=0, VDD omits X2=0.",
+    "evidence": "writer.rs L384-387; golden BUFFER_GATE.",
+    "recommendation": "Omit X{n}/Y{n} when the formatted coordinate equals '0'."
+  },
+  {
+    "record": "sch:polygon (RECORD=7)",
+    "field": "Color always emitted + wrong read default (0x000080)",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "encode_polygon (writer.rs L378) always emits Color even when 0; reader (L558-561) defaults missing to 0x000080. AltiumSharp omits Color when 0, defaults missing to 0. Golden BUFFER_GATE/COMPARATOR/VDD/VSS omit Color.",
+    "evidence": "writer.rs L378; reader.rs L558-561.",
+    "recommendation": "Omit Color when 0; default missing Color to 0."
+  },
+  {
+    "record": "sch:polygon (RECORD=7)",
+    "field": "IndexInSheet always emitted including 0",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "encode_polygon (writer.rs L374) always writes IndexInSheet; Altium omits when 0. Golden POLYGON_TEST and the first POLYGON_COLORS_TEST polygon (index 0) carry no IndexInSheet.",
+    "evidence": "writer.rs L374; golden POLYGON_TEST.",
+    "recommendation": "Omit IndexInSheet when index == 0."
+  },
+  {
+    "record": "sch:polygon (RECORD=7)",
+    "field": "Field order (writer) non-canonical",
+    "severity": "high",
+    "kind": "our-code-bug",
+    "detail": "Our order is RECORD, IndexInSheet, OwnerPartId, IsNotAccesible, LineWidth, Color, AreaColor, IsSolid, LocationCount; golden/AltiumSharp order is RECORD, IsNotAccesible, IndexInSheet, OwnerPartId, LineWidth, [Color], AreaColor, [IsSolid], LocationCount. IsNotAccesible must be first. Breaks byte-for-byte golden comparison independently of the omission bugs.",
+    "evidence": "writer.rs L372-382; golden ordering.",
+    "recommendation": "Emit IsNotAccesible first, then IndexInSheet, OwnerPartId, ..."
+  },
+  {
+    "record": "sch:polygon (RECORD=7)",
+    "field": "OwnerPartId always emitted",
+    "severity": "low",
+    "kind": "our-code-bug",
+    "detail": "encode_polygon (writer.rs L375) always writes OwnerPartId; Altium omits when 0. No golden uses 0 so no observed diff; reader default 1 also differs from AltiumSharp's 0 but is never exercised.",
+    "evidence": "writer.rs L375; reader.rs L570.",
+    "recommendation": "Omit OwnerPartId when 0 (low priority)."
+  },
+  {
+    "record": "sch:polygon (RECORD=7)",
+    "field": "Transparent / GraphicallyLocked / Disabled / Dimmed / OwnerPartDisplayMode not modelled",
+    "severity": "low",
+    "kind": "our-missing-feature",
+    "detail": "Polygon struct lacks transparent and the four common state flags; AltiumSharp writes/reads them. All default in golden so corpus round-trips, but a file setting them loses data.",
+    "evidence": "primitives.rs L476-498; SchPolygonDto fields.",
+    "recommendation": "Add the fields if full fidelity is required; otherwise document the data-loss."
+  },
+  {
+    "record": "sch:polygon (RECORD=7)",
+    "field": "Minimum vertex count guard (<3 rejection)",
+    "severity": "low",
+    "kind": "our-code-bug",
+    "detail": "parse_polygon (reader.rs L541-543) drops the polygon if LocationCount<3; AltiumSharp imposes no minimum. A 1-2 vertex Altium polygon would be dropped. Doc L413 also asserts the non-Altium minimum.",
+    "evidence": "reader.rs L541-543; SCHLIB_FORMAT.md L413.",
+    "recommendation": "Remove the <3 rejection or document it as a deliberate deviation."
+  },
+  {
+    "record": "sch:polygon (RECORD=7)",
+    "field": "Doc: 'IsSolid = border solid' wrong + incomplete table",
+    "severity": "medium",
+    "kind": "our-doc-error",
+    "detail": "docs/SCHLIB_FORMAT.md L409/L411 describe IsSolid as 'whether border is solid' and 'default filled' — wrong: IsSolid is the FILL flag and the Altium default is unfilled/omitted. The table omits IsNotAccesible (always present), IndexInSheet, OwnerPartId, UniqueID, Transparent, and the omission rules.",
+    "evidence": "SCHLIB_FORMAT.md L400-413.",
+    "recommendation": "Rewrite: IsSolid = whether polygon is FILLED (default unfilled/omitted); document omission of zero coords/Color/IsSolid/IndexInSheet/OwnerPartId; list always-present IsNotAccesible/LineWidth/AreaColor/LocationCount/UniqueID."
+  },
+  {
+    "record": "sch:polygon (RECORD=7)",
+    "field": "AreaColor fabricated read default (0xFFFFB0) — extra finding",
+    "severity": "low",
+    "kind": "our-code-bug",
+    "detail": "reader.rs L562-565 defaults missing AreaColor to 0xFFFFB0; AltiumSharp default is 0. All golden polygons write AreaColor explicitly so it never triggers, but the fallback is fabricated. (Writer's unconditional AreaColor emit is correct and matches Altium.)",
+    "evidence": "reader.rs L562-565.",
+    "recommendation": "Default missing AreaColor to 0."
+  },
+  {
+    "record": "sch:roundrect (RECORD=10)",
+    "field": "CORNERXRADIUS_FRAC / CORNERYRADIUS_FRAC missing",
+    "severity": "medium",
+    "kind": "our-missing-feature",
+    "detail": "Writer emits only whole-DXP CornerXRadius/CornerYRadius; reader ignores *_Frac. Golden ROUNDRECT_TEST_FULL emits CornerXRadius=2|CornerXRadius_Frac=50000 (2.5 DXP). A 2.5-DXP radius becomes 2.",
+    "evidence": "writer.rs L459; reader.rs L716-723; golden ROUNDRECT_TEST_FULL idx3.",
+    "recommendation": "Add corner_x/y_radius_frac (or store raw units); read/write the _Frac params."
+  },
+  {
+    "record": "sch:roundrect (RECORD=10)",
+    "field": "LOCATION/CORNER *_FRAC coords missing",
+    "severity": "medium",
+    "kind": "our-missing-feature",
+    "detail": "Coords limited to whole DXP; no *_FRAC for x1/y1/x2/y2. AltiumSharp CoordFromDxp(value,frac). Not exercised by golden roundrects but format-supported.",
+    "evidence": "primitives.rs L671-677; reader.rs L711-714.",
+    "recommendation": "Model the four *_FRAC remainders (or store raw units)."
+  },
+  {
+    "record": "sch:roundrect (RECORD=10)",
+    "field": "LINESTYLE missing",
+    "severity": "medium",
+    "kind": "our-missing-feature",
+    "detail": "RoundRect has no line_style field; LineStyle (AddNonZero) never written/read; dashed/dotted lost. FULL json has a roundrect with lineStyle=1. (Verifier caveat: dump did not show a literal LineStyle= key, possibly a dump-window artefact, but the DTO/writer/json establish it.)",
+    "evidence": "primitives.rs L669-701; AltiumSharp SchRoundedRectangleDto.LineStyle.",
+    "recommendation": "Add line_style:u8; read LINESTYLE; write LineStyle via non-zero-omit."
+  },
+  {
+    "record": "sch:roundrect (RECORD=10)",
+    "field": "TRANSPARENT missing",
+    "severity": "low",
+    "kind": "our-missing-feature",
+    "detail": "No is_transparent field; TRANSPARENT (AddBool) never written/read. FULL json has transparent=true on one roundrect.",
+    "evidence": "primitives.rs L669-701; SchRoundedRectangleDto.Transparent.",
+    "recommendation": "Add is_transparent:bool; read/write TRANSPARENT (emit only when true)."
+  },
+  {
+    "record": "sch:roundrect (RECORD=10)",
+    "field": "Color always emitted even when 0",
+    "severity": "low",
+    "kind": "our-code-bug",
+    "detail": "encode_round_rect (writer.rs L460/L470) always emits Color; AltiumSharp omits when 0. Golden ROUNDRECT_TEST_FULL first roundrect (color 0) has no Color key.",
+    "evidence": "writer.rs L460/L470; golden ROUNDRECT_TEST_FULL.",
+    "recommendation": "Omit Color when 0."
+  },
+  {
+    "record": "sch:roundrect (RECORD=10)",
+    "field": "IndexInSheet always emitted even when 0",
+    "severity": "low",
+    "kind": "our-code-bug",
+    "detail": "writer.rs L457 always emits IndexInSheet; Altium omits when 0. Golden first FULL roundrect (index 0) omits it.",
+    "evidence": "writer.rs L457; golden ROUNDRECT_TEST_FULL.",
+    "recommendation": "Omit IndexInSheet when 0."
+  },
+  {
+    "record": "sch:roundrect (RECORD=10)",
+    "field": "Reader non-'F' truthiness + always-emit OwnerPartId/IsNotAccesible (extra)",
+    "severity": "low",
+    "kind": "our-code-bug",
+    "detail": "reader.rs L737 treats any IsSolid value other than literal 'F' as filled=true; AltiumSharp AsBool treats only T/t/TRUE as true. Writer also always emits OwnerPartId and IsNotAccesible=T (Altium omits OwnerPartId when 0 / IsNotAccesible when false); matches library shapes but diverges for document-level roundrects.",
+    "evidence": "reader.rs L737; writer.rs L457.",
+    "recommendation": "Use a positive T/t/TRUE match (default false); omit OwnerPartId when 0 and IsNotAccesible when false."
+  },
+  {
+    "record": "sch:roundrect (RECORD=10)",
+    "field": "Doc RECORD=10 table incomplete + units",
+    "severity": "medium",
+    "kind": "our-doc-error",
+    "detail": "docs/SCHLIB_FORMAT.md L598-611 lists only 11 fields; omits IsNotAccesible, IndexInSheet, OwnerPartId, OwnerPartDisplayMode, OwnerIndex, all *_FRAC (coords+radii), LineStyle, Transparent, GraphicallyLocked, Disabled, Dimmed, UniqueID, and the DXP-units / IsSolid-absent=>false semantics.",
+    "evidence": "SCHLIB_FORMAT.md L598-611.",
+    "recommendation": "Extend the table to the full DTO field set; add DXP-units and IsSolid-absent=>false notes."
+  },
+  {
+    "record": "sch:roundrect (RECORD=10)",
+    "field": "Module-doc comment '[RecordType:2 BE]' framing",
+    "severity": "low",
+    "kind": "our-doc-error",
+    "detail": "writer.rs L8-9 header comment describes the frame as [RecordLength:2 LE][RecordType:2 BE]; the implementation correctly writes u24 length + 1 flag byte. The '2 BE type' wording is wrong (it is a 1-byte flag at offset 3).",
+    "evidence": "writer.rs L8-9 vs write_record_frame L40-64.",
+    "recommendation": "Update the comment to [Length:3 LE][Flags:1]."
+  },
+  {
+    "record": "sch:ellipticalarc (RECORD=11)",
+    "field": "StartAngle/EndAngle format ('{}' vs F3) + StartAngle not omitted at 0",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "writer.rs L496-507 formats angles with '{}' (e.g. '90'); AltiumSharp FormatAngle uses F3 ('90.000') and omits StartAngle when 0. Golden shows EndAngle=90.000/180.000/270.000 and StartAngle absent when 0.",
+    "evidence": "writer.rs L496-507; golden ELLIPSE_ARC_TEST.",
+    "recommendation": "Format angles with {:.3}; omit StartAngle when 0; always emit EndAngle."
+  },
+  {
+    "record": "sch:ellipticalarc (RECORD=11)",
+    "field": "Radius_Frac / SecondaryRadius_Frac always emitted",
+    "severity": "low",
+    "kind": "our-code-bug",
+    "detail": "writer.rs L494-495 always emits Radius_Frac/SecondaryRadius_Frac even when 0; AltiumSharp omits *_Frac when the fractional part is 0. Golden integer-radius records contain neither.",
+    "evidence": "writer.rs L494-495; golden ELLIPSE_ARC_TEST.",
+    "recommendation": "Omit the *_Frac tokens when the fractional component is 0."
+  },
+  {
+    "record": "sch:ellipticalarc (RECORD=11)",
+    "field": "Color always emitted even when 0",
+    "severity": "low",
+    "kind": "our-code-bug",
+    "detail": "writer.rs L497 always emits Color; AltiumSharp uses AddNonZero (omit when 0).",
+    "evidence": "writer.rs L497; AltiumSharp AddNonZero.",
+    "recommendation": "Use a non-zero guard for Color."
+  },
+  {
+    "record": "sch:ellipticalarc (RECORD=11)",
+    "field": "AreaColor missing in model/reader/writer",
+    "severity": "medium",
+    "kind": "our-missing-feature",
+    "detail": "EllipticalArc struct has no area_color field; AREACOLOR (AddNonZero) never written/read; fill colour dropped on round-trip. Absent in golden so undetected by ELLIPSE_ARC_TEST.",
+    "evidence": "primitives.rs L736-770; SchEllipticalArcDto.AreaColor.",
+    "recommendation": "Add area_color; read 'areacolor'; emit AREACOLOR (non-zero guard)."
+  },
+  {
+    "record": "sch:ellipticalarc (RECORD=11)",
+    "field": "Location.X/Y *_FRAC missing",
+    "severity": "medium",
+    "kind": "our-missing-feature",
+    "detail": "x/y stored as plain i32; LOCATION.X_FRAC/Y_FRAC not handled; sub-DXP centre precision lost. (Radii do carry frac in our model via f64; coords do not.)",
+    "evidence": "primitives.rs L738-741; reader.rs L761-766; writer.rs L493.",
+    "recommendation": "Add Location.X_FRAC/Y_FRAC handling if sub-grid centre precision matters."
+  },
+  {
+    "record": "sch:ellipticalarc (RECORD=11)",
+    "field": "IsNotAccesible hardcoded; IndexInSheet from counter; common flags not modelled; values mutated on round-trip",
+    "severity": "medium",
+    "kind": "our-missing-feature",
+    "detail": "Struct lacks owner_index/is_not_accessible/index_in_sheet/graphically_locked/disabled/dimmed/owner_part_display_mode/line_width_frac. writer.rs L492 hardcodes IsNotAccesible=T and L498 passes the emit-counter as IndexInSheet; reader discards them. A loaded arc's IndexInSheet (golden 10/12/14) is overwritten by the counter on re-save — an actual value mutation.",
+    "evidence": "primitives.rs L736-770; writer.rs L492/L498; reader.rs L809-820.",
+    "recommendation": "Model and round-trip these fields; preserve the read IndexInSheet rather than re-deriving from the counter."
+  },
+  {
+    "record": "sch:ellipticalarc (RECORD=11)",
+    "field": "SecondaryRadius fallback drops Radius frac (extra finding)",
+    "severity": "low",
+    "kind": "our-code-bug",
+    "detail": "reader.rs L777-780 defaults missing SecondaryRadius to radius_int (integer part of Radius), dropping any fractional part; AltiumSharp defaults RadiusY to the full CoordFromDxp(Radius,RadiusFrac). Only matters for a fractional-radius circle with omitted SecondaryRadius.",
+    "evidence": "reader.rs L777-780.",
+    "recommendation": "Default missing SecondaryRadius to the full radius value including frac."
+  },
+  {
+    "record": "sch:ellipticalarc (RECORD=11)",
+    "field": "Field ordering + doc table incomplete",
+    "severity": "low",
+    "kind": "our-doc-error",
+    "detail": "Our key order reorders IsNotAccesible/IndexInSheet/OwnerPartId and puts LineWidth after the angles; Altium order is RECORD, IsNotAccesible, IndexInSheet, OwnerPartId, Location, Radius, SecondaryRadius, LineWidth, [StartAngle], EndAngle, Color, UniqueID. docs/SCHLIB_FORMAT.md L538-549 (10 rows) omits AreaColor, UniqueID, IndexInSheet, OwnerPartId, IsNotAccesible, Location.*_Frac and the zero-omission/F3/frame notes.",
+    "evidence": "writer.rs L491-497; SCHLIB_FORMAT.md L536-556.",
+    "recommendation": "Reorder keys to match Altium; add the missing doc rows and the omission/F3/frame notes."
+  },
+  {
+    "record": "sch:label (RECORD=4)",
+    "field": "LOCATION.X_FRAC / LOCATION.Y_FRAC missing",
+    "severity": "high",
+    "kind": "our-missing-feature",
+    "detail": "Label stores only integer DXP x/y; _Frac neither read nor written. Real golden labels carry sub-DXP coords (TRANSPARENCY_TEST 'Location.X=-17|Location.X_Frac=-50000' = -17.5; POLYLINE_ARROW_TEST 'Location.Y=27|Location.Y_Frac=50000'). A -17.5 DXP label round-trips to -17 (5 mil error).",
+    "evidence": "primitives.rs L808-810; reader.rs L825-826; writer.rs L525-526; golden TRANSPARENCY_TEST/POLYLINE_ARROW_TEST.",
+    "recommendation": "Store coords as raw units (dxp*100000+frac) or add x_frac/y_frac; read combine, write split (omit _Frac when 0); the golden samples validate the signed truncate-toward-zero convention."
+  },
+  {
+    "record": "sch:label (RECORD=4)",
+    "field": "COLOR / ORIENTATION / JUSTIFICATION emitted when zero",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "encode_label (writer.rs L522,527,529,530) unconditionally emits Color/Orientation/Justification including =0; Altium omits via AddNonZero. Golden: Color on 19/67, Orientation on 3/67, Justification on 66/67 (the omission has Justification=0). A default label emits keys that never appear in any golden.",
+    "evidence": "writer.rs L522/L527/L529/L530; golden histogram.",
+    "recommendation": "Emit Color/Orientation/Justification only when non-zero."
+  },
+  {
+    "record": "sch:label (RECORD=4)",
+    "field": "ISHIDDEN / ISMIRRORED emit 'F' and wrong placement",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "Writer always emits IsMirrored=T/F and IsHidden=T/F before Text; Altium emits them only when TRUE, after Text, in order IsHidden then IsMirrored. Golden: 0/67 carry IsHidden; the one IsMirrored label shows '...|Text=Mirrored|IsMirrored=T|...'.",
+    "evidence": "writer.rs L519-520/L531-532; golden LABEL_JUSTIFY_TEST.",
+    "recommendation": "Drop both when false; place after Text in order IsHidden, IsMirrored."
+  },
+  {
+    "record": "sch:label (RECORD=4)",
+    "field": "Color default on read (0x800000 vs 0)",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "parse_label (reader.rs L833-836) defaults missing Color to 0x800000 (dark blue); AltiumSharp defaults to 0 (black). 48/67 golden labels omit Color and are mis-read as dark blue; combined with the unconditional Color write a black label re-writes as Color=8388608.",
+    "evidence": "reader.rs L833-836.",
+    "recommendation": "Default missing Color to 0."
+  },
+  {
+    "record": "sch:label (RECORD=4)",
+    "field": "RECORD=3 mislabelled 'Text'; encode_text writes RECORD=4",
+    "severity": "high",
+    "kind": "our-code-bug",
+    "detail": "Our reader maps RECORD=3 to parse_text and the doc calls RECORD=3 'Text annotation', but RECORD=3 is Symbol (a graphic with no Text). encode_text writes our Text type as RECORD=4 (identical to Label). Consequences: a real RECORD=3 Symbol is mis-parsed as text, and our own Text reads back as a Label. There is no on-disk record matching our 'Text' concept.",
+    "evidence": "reader.rs L198-203; writer.rs encode_text L546 '|RECORD=4|'; SCHLIB_FORMAT.md L427-444; AltiumSharp SchRecordType.Symbol=3, Label=4.",
+    "recommendation": "Map RECORD=3 to a Symbol primitive (no text); reserve RECORD=4 for Label only; fix the doc; do not write Text as RECORD=4 nor parse RECORD=3 as text."
+  },
+  {
+    "record": "sch:label (RECORD=4)",
+    "field": "Location.X/Y == 0 drops the label (extra finding)",
+    "severity": "high",
+    "kind": "our-code-bug",
+    "detail": "parse_label (reader.rs L825-826) uses `?` on location.x/location.y so a label with X==0 or Y==0 is silently dropped (data loss, not just displacement). Golden FONT_TEST and ELLIPSE_ARC_TEST labels omit Location.X. (Same root cause as the _Frac finding but a separate, strictly worse bug.)",
+    "evidence": "reader.rs L825-826; golden FONT_TEST.",
+    "recommendation": "Default missing location.x/location.y to 0 (`.unwrap_or(0)`)."
+  },
+  {
+    "record": "sch:label (RECORD=4)",
+    "field": "IndexInSheet always emitted including 0 (extra finding)",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "Writer emits '|IndexInSheet={index}|' unconditionally; Altium omits when 0 (AddNonZero). Golden FONT_TEST first label (index 0) has no IndexInSheet.",
+    "evidence": "writer.rs L522; golden FONT_TEST.",
+    "recommendation": "Omit IndexInSheet when 0."
+  },
+  {
+    "record": "sch:label (RECORD=4)",
+    "field": "Whole label field order non-canonical (extra finding)",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "Our order: RECORD, IndexInSheet, OwnerPartId, IsNotAccesible, Location.X, Location.Y, Color, FontID, Orientation, Justification, IsMirrored, IsHidden, Text, UniqueID. Golden/Altium: RECORD, IsNotAccesible, IndexInSheet, OwnerPartId, Location.X, Location.X_Frac, Location.Y, Location.Y_Frac, Orientation, Justification, Color, FontID, Text, [AreaColor, IsHidden, IsMirrored], UniqueID. IsNotAccesible must be first; Color after Justification.",
+    "evidence": "writer.rs L522; golden ordering.",
+    "recommendation": "Reorder to match the canonical key order."
+  },
+  {
+    "record": "sch:label (RECORD=4)",
+    "field": "OwnerPartId emitted when 0; IsNotAccesible/AreaColor/state flags not modelled; font_id u8",
+    "severity": "low",
+    "kind": "our-missing-feature",
+    "detail": "Writer always emits OwnerPartId (Altium omits when 0). Label lacks is_not_accessible (hardcoded T, unread), area_color, owner_index, owner_part_display_mode, graphically_locked, disabled, dimmed. font_id is u8 vs int32 (overflow risk for >255 fonts). All default in golden so low impact.",
+    "evidence": "writer.rs L522/L524; primitives.rs Label L806-838 (font_id u8 L815).",
+    "recommendation": "Omit OwnerPartId when 0; read IsNotAccesible instead of hardcoding; widen font_id to u32; add remaining fields for fidelity (deferrable)."
+  },
+  {
+    "record": "sch:designator-parameter (RECORD=34/41)",
+    "field": "encode_designator omits Location.X",
+    "severity": "high",
+    "kind": "our-code-bug",
+    "detail": "encode_designator (writer.rs L330-336) emits only Location.Y, no Location.X. Golden Altium designators write Location.X=-5 (CAPACITOR/RESISTOR/MCU_8BIT/LDO_REG). Mis-positions the designator and diverges from every golden.",
+    "evidence": "writer.rs L330-336; golden CAPACITOR designator '|RECORD=34|...|Location.X=-5|Location.Y=5|...'.",
+    "recommendation": "Drive Location.X from the model and emit it (omit only when 0)."
+  },
+  {
+    "record": "sch:designator-parameter (RECORD=34/41)",
+    "field": "encode_designator Location.Y hardcoded -6",
+    "severity": "high",
+    "kind": "our-code-bug",
+    "detail": "writer.rs L332 hardcodes 'Location.Y=-6'. Golden Altium-authored designators use Location.Y=5; -6 appears only in our own sample.SchLib.",
+    "evidence": "writer.rs L332; golden designators Location.Y=5.",
+    "recommendation": "Drive Location.Y from the model, not a literal."
+  },
+  {
+    "record": "sch:designator-parameter (RECORD=34/41)",
+    "field": "encode_parameter IsHidden=F always written",
+    "severity": "high",
+    "kind": "our-code-bug",
+    "detail": "encode_parameter (writer.rs L311-313) always writes IsHidden=T or IsHidden=F; Altium writes IsHidden=T only when hidden and never IsHidden=F. Corpus: 0/160 RECORD=41 contain IsHidden=F; reader treats absence as visible.",
+    "evidence": "writer.rs L311-313; corpus scan 0/160.",
+    "recommendation": "Emit IsHidden=T only when hidden; never emit IsHidden=F."
+  },
+  {
+    "record": "sch:designator-parameter (RECORD=34/41)",
+    "field": "encode_parameter ReadOnlyState/ParamType always written + wrong position",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "writer.rs L313 always emits ReadOnlyState and ParamType (even 0) and positions them BEFORE Text; Altium emits ReadOnlyState only when read-only and ParamType only when non-zero, both AFTER Name. Corpus: 0/160 carry either key.",
+    "evidence": "writer.rs L313; corpus scan.",
+    "recommendation": "Emit ReadOnlyState only when read-only and ParamType only when non-zero, both after Name."
+  },
+  {
+    "record": "sch:designator-parameter (RECORD=34/41)",
+    "field": "encode_parameter IndexInSheet = running record index",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "writer.rs L662/L313 sets IndexInSheet to the global record counter; Altium writes the primitive's own value (often -1 for component params) via AddNonZero. Golden Comment IndexInSheet=-1; 156/160 carry the primitive's value, never the loop counter.",
+    "evidence": "writer.rs L313/L662; golden corpus.",
+    "recommendation": "Carry IndexInSheet on the Parameter model (default -1); stop coupling to the writer loop counter."
+  },
+  {
+    "record": "sch:designator-parameter (RECORD=34/41)",
+    "field": "No %UTF8%Text handling",
+    "severity": "medium",
+    "kind": "our-missing-feature",
+    "detail": "writer.rs L313 always emits Text={value} as cp1252; non-cp1252 chars become '?'. Altium promotes to a %UTF8%Text key (UTF-8 byte sequence) and decodes on read. No golden sample needs it (hence medium), but the data-loss path is real.",
+    "evidence": "writer.rs L313; AltiumSharp RequiresUtf8 / EncodeUtf8ParameterValue.",
+    "recommendation": "Detect values not representable in cp1252 and emit %UTF8%Text; decode the prefix on read."
+  },
+  {
+    "record": "sch:designator-parameter (RECORD=34/41)",
+    "field": "Text always emitted even when empty",
+    "severity": "low",
+    "kind": "our-code-bug",
+    "detail": "writer.rs L313 always emits Text={value} including Text= for empty; Altium omits the Text key when the value is empty. 0/160 golden have an empty Text key.",
+    "evidence": "writer.rs L313; corpus scan.",
+    "recommendation": "Omit the Text key when value is empty."
+  },
+  {
+    "record": "sch:designator-parameter (RECORD=34/41)",
+    "field": "UNIQUEID not preserved (regenerated; no field)",
+    "severity": "low",
+    "kind": "our-code-bug",
+    "detail": "writer.rs L325/L334 always call generate_unique_id(); Parameter struct has no unique_id field (unlike every other primitive). AltiumSharp preserves and re-emits the read UniqueId. Round-tripping churns every parameter/designator id.",
+    "evidence": "writer.rs L325/L334; primitives.rs Parameter L896-948.",
+    "recommendation": "Add unique_id:Option<String> to Parameter; preserve on round-trip, generate only when absent."
+  },
+  {
+    "record": "sch:designator-parameter (RECORD=34/41)",
+    "field": "Location *_FRAC not handled (extra finding)",
+    "severity": "low",
+    "kind": "our-missing-feature",
+    "detail": "Parameter uses plain i32 x/y; writer emits only Location.X/Y, no _Frac. Real STM32 golden has '|Location.X_Frac=-5|Location.Y_Frac=-15|'. Sub-DXP parameter positions cannot be represented.",
+    "evidence": "primitives.rs L904-907; writer.rs L313.",
+    "recommendation": "Add _Frac support to the parameter coordinate path."
+  },
+  {
+    "record": "sch:designator-parameter (RECORD=34/41)",
+    "field": "Doc Designator/Parameter tables incomplete + wrong Location.Y",
+    "severity": "medium",
+    "kind": "our-doc-error",
+    "detail": "docs/SCHLIB_FORMAT.md L500-524 Designator table omits Location.X and enshrines 'Location.Y typically -6'; golden uses Location.X=-5, Location.Y=5. L485-498 Parameter table lists only ~10 fields and implies IsHidden/ReadOnlyState/ParamType are mandatory; SchParameterDto has ~39 keys, mostly omit-at-default.",
+    "evidence": "SCHLIB_FORMAT.md L485-524.",
+    "recommendation": "Add Location.X; correct Y to the model-driven value (5); document the shared RECORD=34/41 field set and the omit-on-default convention."
+  },
+  {
+    "record": "sch:implementation (RECORD=44/45/46/47/48)",
+    "field": "RECORD=46/47/48 mislabelled in doc + code comments",
+    "severity": "high",
+    "kind": "our-doc-error",
+    "detail": "docs/SCHLIB_FORMAT.md L130-132/L678-681 and writer.rs L629/L635 comments label 46=ModelDatafileLink, 47=ModelDatafileEntity, 48=Implementation. AltiumSharp: 44=ImplementationList, 45=Implementation, 46=MapDefinerList, 47=MapDefiner (pin mapping), 48=ImplementationParameters.",
+    "evidence": "SCHLIB_FORMAT.md L130-132/L678-681; writer.rs L629/L635; AltiumSharp SchRecordType L53-57.",
+    "recommendation": "Relabel: 46=MapDefinerList, 47=MapDefiner, 48=ImplementationParameters in the table, the Notes, and the writer comments."
+  },
+  {
+    "record": "sch:implementation (RECORD=44/45/46/47/48)",
+    "field": "MODELDATAFILEKIND{i}/ENTITY{i} 0-based vs AltiumSharp 1-based",
+    "severity": "high",
+    "kind": "our-code-bug",
+    "detail": "writer.rs L618 emits ModelDatafileKind0/ModelDatafileEntity0 (0-based); AltiumSharp writes/reads 1-based (KIND1/ENTITY1, loop i=1..count) so its reader never picks up our ...0 entries and the model loses its resolution link. (Real-Altium index base unverified — no populated golden exists — see liveAltiumGaps.)",
+    "evidence": "writer.rs L618; AltiumSharp SchLibWriter i+1 / SchLibReader loop i=1.",
+    "recommendation": "Switch to 1-based (MODELDATAFILEKIND1/ENTITY1) to match AltiumSharp; confirm the true base against live Altium."
+  },
+  {
+    "record": "sch:implementation (RECORD=44/45/46/47/48)",
+    "field": "OwnerIndex on SchLib RECORD=45/46/48 (SchDoc form, not SchLib)",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "writer.rs L618/L632/L638 add OwnerIndex to RECORD=45/46/48; AltiumSharp's SchLib path writes none (ownership is positional), only the SchDoc path writes OWNERINDEX. Our RECORD=44 correctly has no OwnerIndex. Likely benign (extra key) but diverges from the SchLib answer key. (Whether genuine Altium emits it in a SchLib stream is unverified.)",
+    "evidence": "writer.rs L618/L632/L638; AltiumSharp WriteImplementationRecord ownerIndex=-1.",
+    "recommendation": "Drop OwnerIndex from 45/46/48 in the SchLib writer (confirm against live Altium first since it is benign)."
+  },
+  {
+    "record": "sch:implementation (RECORD=44/45/46/47/48)",
+    "field": "MapDefiner (RECORD=47) unmodelled; reader discards 46/47/48",
+    "severity": "medium",
+    "kind": "our-missing-feature",
+    "detail": "Writer never emits RECORD=47; reader.rs L234 lumps 46/47/48 into a no-op skip. AltiumSharp models RECORD=47 (DESINTF/DESIMPCOUNT/DESIMP{i}/ISTRIVIAL/UNIQUEID) as schematic-to-footprint pin mapping; any pin-mapping is dropped. Our own read path also never re-reads DataFileKind/Entity (reader.rs L164-179), so the resolution link is not round-tripped even by us.",
+    "evidence": "reader.rs L234/L164-179; AltiumSharp WriteMapDefinerRecord/CreateMapDefiner.",
+    "recommendation": "Model RECORD=47 if pin-mapping round-trip is a goal; otherwise document it as unsupported. At minimum re-read DataFileKind/Entity."
+  },
+  {
+    "record": "sch:implementation (RECORD=44/45/46/47/48)",
+    "field": "IsCurrent=F written for non-current models",
+    "severity": "low",
+    "kind": "our-code-bug",
+    "detail": "writer.rs L624 emits IsCurrent=F for non-current models; AltiumSharp writes ISCURRENT=T only when current and omits otherwise. Round-trip-equivalent but byte-divergent. (The committed sample.SchLib predates this code path.)",
+    "evidence": "writer.rs L618/L624; AltiumSharp SchLibWriter `if (impl.IsCurrent)`.",
+    "recommendation": "Emit IsCurrent only when true; regenerate sample.SchLib so committed bytes match current code."
+  },
+  {
+    "record": "sch:implementation (RECORD=44/45/46/47/48)",
+    "field": "DataFileCount hardcoded 1; reader ignores it",
+    "severity": "low",
+    "kind": "our-code-bug",
+    "detail": "writer.rs L618 hardcodes DatafileCount=1 and one Kind/Entity pair; reader.rs L164-179 never consults DATAFILECOUNT. AltiumSharp derives the count and loops N pairs. Cannot represent 0 or >1 datafiles per model.",
+    "evidence": "writer.rs L618; reader.rs L164-179.",
+    "recommendation": "Derive the count and loop; or document the single-pair assumption."
+  },
+  {
+    "record": "sch:implementation (RECORD=44/45/46/47/48)",
+    "field": "Doc RECORD=45/48 inconsistent + ModelDataFileEntity missing",
+    "severity": "low",
+    "kind": "our-doc-error",
+    "detail": "docs/SCHLIB_FORMAT.md L525 titles 'Implementation (RECORD=45)' while L132/L681 also call RECORD=48 'Implementation'. The RECORD=45 table lists ModelDataFileKind{N} without the index-base note and omits the resolution-critical ModelDataFileEntity{N} row.",
+    "evidence": "SCHLIB_FORMAT.md L132/L525/L681.",
+    "recommendation": "Rename RECORD=48 to 'ImplementationParameters'; add a ModelDataFileEntity{N} row and the index-base note."
+  },
+  {
+    "record": "sch:implementation (RECORD=44/45/46/47/48)",
+    "field": "Doc [0x00 0x00] end marker (extra finding, shared across records)",
+    "severity": "medium",
+    "kind": "our-doc-error",
+    "detail": "docs/SCHLIB_FORMAT.md L663/L87 still describe a trailing [0x00 0x00] / '0x0000' Data-stream end marker, and reader.rs treats a zero length as an end-break. Our writer correctly emits NO marker (writer.rs L781-783, issue #68; MEMORY note 'never add a trailing 0x00 end marker'). The doc contradicts the answer key and our own writer and could cause someone to re-add the #68 crash.",
+    "evidence": "SCHLIB_FORMAT.md L87/L663; writer.rs L781-783; AltiumSharp loops while HasMore with no sentinel.",
+    "recommendation": "Remove the [0x00 0x00] end-marker text from the doc and the reader module-doc; drop the 'End marker' framing in reader.rs's zero-length comment."
+  },
+  {
+    "record": "sch:component (RECORD=1)",
+    "field": "UniqueID not emitted/read on RECORD=1",
+    "severity": "medium",
+    "kind": "our-missing-feature",
+    "detail": "encode_component_header (writer.rs L249-266) never emits UniqueID; the reader's RECORD=1 branch never reads it. UniqueID is present in 103/103 golden components (and in our sample.SchLib). Component identity is not preserved across round-trips.",
+    "evidence": "writer.rs L249-266; reader.rs L108-139; golden corpus 103/103.",
+    "recommendation": "Add a UniqueID field to Symbol; read it; emit it in the canonical slot (after TargetFileName, before AreaColor); generate when absent."
+  },
+  {
+    "record": "sch:component (RECORD=1)",
+    "field": "AllPinCount ordering (should be last)",
+    "severity": "low",
+    "kind": "our-code-bug",
+    "detail": "writer.rs L262 emits AllPinCount BEFORE AreaColor/Color/PartIDLocked; all 103 golden components place AllPinCount LAST (after PartIDLocked). Value is correct; order is not byte-identical.",
+    "evidence": "writer.rs L262-265; golden ordering.",
+    "recommendation": "Reorder so AllPinCount is the final key, after PartIDLocked."
+  },
+  {
+    "record": "sch:component (RECORD=1)",
+    "field": "ComponentDescription always emitted",
+    "severity": "low",
+    "kind": "our-code-bug",
+    "detail": "writer.rs L254 always writes ComponentDescription= even when empty; AltiumSharp omits it when null, so an undescribed component reads back as null not \"\".",
+    "evidence": "writer.rs L254; AltiumSharp `if (Description != null)`.",
+    "recommendation": "Only emit ComponentDescription when non-empty."
+  },
+  {
+    "record": "sch:component (RECORD=1)",
+    "field": "PartCount read flooring (.max(1)) corrupts round-trip",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "reader.rs L121-122 does raw.saturating_sub(1).max(1), forcing >=1; AltiumSharp uses Max(0, PartCount-1). Golden CAPACITOR (on-disk PartCount=1) should read 0 parts but we read 1; combined with writer's +1, a round-trip of CAPACITOR changes on-disk PartCount 1->2 — a concrete byte regression.",
+    "evidence": "reader.rs L121-122; writer.rs L253; golden CAPACITOR PartCount=1, json partCount:0.",
+    "recommendation": "Drop the .max(1): part_count = raw_count.saturating_sub(1) (allow 0)."
+  },
+  {
+    "record": "sch:component (RECORD=1)",
+    "field": "Reader ignores most RECORD=1 fields",
+    "severity": "low",
+    "kind": "our-missing-feature",
+    "detail": "reader.rs L108-139 reads only ~8 fields; AltiumSharp maps ~60. Currently-visible drops on the simple corpus: UniqueID, AreaColor, Color, AllPinCount, IndexInSheet, OwnerPartId, LibraryPath. Managed/multi-attribute components lose more.",
+    "evidence": "reader.rs L108-139; AltiumSharp ApplyComponentParameters ~60 fields.",
+    "recommendation": "At minimum capture UniqueID, AreaColor, Color, AllPinCount on read. Full parity is a larger effort for managed components."
+  },
+  {
+    "record": "sch:component (RECORD=1) / FileHeader",
+    "field": "FileHeader Weight hardcoded 47",
+    "severity": "low",
+    "kind": "our-code-bug",
+    "detail": "encode_file_header (writer.rs L799) hardcodes Weight=47 for every library; golden Weight is per-file/record-derived (CAPACITOR=9, IC_16PIN=22, DFF=13). The rest of our FileHeader is byte-structurally identical to the golden generator (so do NOT 'fix' it toward AltiumSharp's leaner header), and we correctly emit no binary CompCount+name tail.",
+    "evidence": "writer.rs L799; golden Weight values; verifier extra findings.",
+    "recommendation": "Derive Weight per-library (tracks a record/component count metric) instead of hardcoding 47; leave the rest of encode_file_header unchanged. (Exact formula not pinned — see liveAltiumGaps.)"
+  },
+  {
+    "record": "sch:component (RECORD=1)",
+    "field": "Frame model documented as u16-len + u16-BE-type",
+    "severity": "low",
+    "kind": "our-doc-error",
+    "detail": "docs/SCHLIB_FORMAT.md L84-92 and reader.rs/writer.rs module-doc diagrams describe the frame as [RecordLength:2 LE][RecordType:2 BE]; the real model is one i32 LE size word: low 24 bits length, high byte flags (0=text,1=pin). Byte-identical for <16MiB payloads but the model naming is wrong. The test_write_text_record (writer.rs L855-859) also bakes the old model.",
+    "evidence": "SCHLIB_FORMAT.md L84-92; reader.rs L8-12; writer.rs L8-11/L855-859.",
+    "recommendation": "Fix the doc table/diagrams to u24-length + u8-flag; rewrite the stale test assertion to the flag model."
+  },
+  {
+    "record": "sch:pin (RECORD=2 binary)",
+    "field": "Doc Description block mis-frames Description + omits FormalType",
+    "severity": "high",
+    "kind": "our-doc-error",
+    "detail": "docs/SCHLIB_FORMAT.md L150-156 'Description Block' shows offset 12=length, offset 13='Reserved', offset 14+=string. There is NO interior reserved byte: Description is a plain Pascal short string [u8 len][N bytes]. The byte the doc calls 'Reserved' is FORMALTYPE, which comes AFTER the whole string, between Description and Electrical. The 'Pin Properties' section omits FormalType entirely.",
+    "evidence": "SCHLIB_FORMAT.md L150-162; golden PIN_PROPS_TEST '0c \"Hidden power\" 01 07 3c'.",
+    "recommendation": "Rewrite the Description block as a single Pascal short string; insert a FormalType (1 byte) field between Description and Electrical_Type."
+  },
+  {
+    "record": "sch:pin (RECORD=2 binary)",
+    "field": "Doc omits SwapIdGroup/PartAndSequence/DefaultValue tail",
+    "severity": "low",
+    "kind": "our-doc-error",
+    "detail": "docs/SCHLIB_FORMAT.md ends the binary-pin section at the Designator block. There are three more Pascal short strings after Designator: SwapIdGroup, PartAndSequence, DefaultValue.",
+    "evidence": "SCHLIB_FORMAT.md L176-181; AltiumSharp SchLibReader reads three more strings.",
+    "recommendation": "Document the three trailing Pascal short strings after the Designator block."
+  },
+  {
+    "record": "sch:pin (RECORD=2 binary)",
+    "field": "SwapId / PinFrac / SymbolLineWidth not modelled",
+    "severity": "low",
+    "kind": "our-missing-feature",
+    "detail": "writer.rs hardcodes the PartAndSequence tail to '|&|' (empty part/seq, field present); SwapIdPart/Sequence/HasSwapIdField are not modelled. Length/X/Y are i16 DXP only (no PinFrac aux-stream sub-unit precision), and per-pin SymbolLineWidth is unhandled — PIN_PROPS_TEST carries a real 798-byte PinSymbolLineWidth stream our code ignores. Byte-correct for the available goldens (all empty/integer) but representational gaps.",
+    "evidence": "writer.rs L238-239; AltiumSharp PinFrac/PinSymbolLineWidth streams; golden PIN_PROPS_TEST PinSymbolLineWidth stream.",
+    "recommendation": "Add swap_id_part/sequence/has_swap_id_field; add PinFrac/PinSymbolLineWidth aux-stream support if off-grid pins or per-pin line widths must be preserved (deferrable)."
+  }
+]

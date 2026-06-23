@@ -1,0 +1,434 @@
+[
+  {
+    "record": "pcb:pad (0x02)",
+    "field": "Pad size/shape Block5 layout — reader (parse_per_layer_data) AND writer (encode_pad_per_layer_data)",
+    "severity": "high",
+    "kind": "our-code-bug",
+    "detail": "Both the reader (parsers.rs L258-346) and writer (writer.rs L327-395) use a wrong ad-hoc 320/576-byte layout (32 size-pairs@0-255, shapes@256, radii@288, offsets@320) for any non-Simple pad. The real Altium block is 596 bytes: 29 X-sizes@0, 29 Y-sizes@116, 29 internal shapes@232, reserved@261, holeType@262, slotLen i32@263, holeRot f64@267, 32 Xoff@275, 32 Yoff@403, hasRR@531, 32 shapes@532, 32 radii@564, then a [32 reserved][u32 count][u32 stride=15][count×15B] full-stack tail (block len = 636 + count×15). Non-Simple pads we emit are <596 bytes and AltiumSharp/Altium reject them (they require sanitizedSize>=596). The Simple-pad path (holeType@262, radii@564) is correct.",
+    "evidence": "Golden PAD_STACKED_MODES block len=696, shape@232=1; PAD_TH_SLOT len=651 with slotLen@263=0x927C0; PAD_SMD_ROUNDED len=651 hasRR@531=1 shape@532=9 radii@564=50. AltiumSharp ReadPadSizeShapeBlock requires >=596 and reads the offsets above; our writer's encode_pad_size_shape_block (simple path) is correct but the per-layer path is not.",
+    "recommendation": "Replace both parse_per_layer_data and encode_pad_per_layer_data with the canonical 596-byte layout already used by encode_pad_size_shape_block; require len>=596 on read; add full-stack tail support."
+  },
+  {
+    "record": "pcb:pad (0x02)",
+    "field": "PadShape id 3 (Octagonal mapped to Oval)",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "Altium PadShape enum is 1=Round,2=Rectangular,3=Octagonal,9=RoundedRectangle — there is NO Oval. Our pad_shape_from_id (reader/mod.rs L528) maps id 3 -> Oval and pad_shape_to_id (writer.rs L207) Oval -> 3, so an Altium octagonal pad becomes 'Oval' and a user 'Oval' is written as octagonal.",
+    "evidence": "Golden PAD_TH_OCTAGONAL main shape@49=3 confirmed octagonal. AltiumSharp PcbPad.cs PadShape has no Oval.",
+    "recommendation": "Rename/replace Oval with Octagonal (id 3) in PadShape to match Altium semantics."
+  },
+  {
+    "record": "pcb:pad (0x02)",
+    "field": "Full-stack tail entries (Block5 +596) not modelled",
+    "severity": "medium",
+    "kind": "our-missing-feature",
+    "detail": "Real full/stacked pads append [32 reserved][u32 count][u32 stride=15][count×15-byte PadFullStackEntry] after the 596-byte block; we model none, so full-stack opening entries are dropped.",
+    "evidence": "Golden PAD_TH_SLOT count=1 (block 651), PAD_STACKED_MODES count=4 (block 696); block len = 636 + count×15 exactly.",
+    "recommendation": "Add a full-stack-entry list to the Pad model and round-trip the +596 tail when present."
+  },
+  {
+    "record": "pcb:pad (0x02)",
+    "field": "HoleSlotLength (+263) and HoleRotation (+267) hardcoded to 0",
+    "severity": "medium",
+    "kind": "our-missing-feature",
+    "detail": "encode_pad_size_shape_block (writer.rs L477-478) always writes 0 for slot length and hole rotation; parse_pad never reads them. A slot pad we author loses its slot length and hole rotation.",
+    "evidence": "Golden PAD_TH_SLOT slotLen@263=600000 (0x927C0), holeRot@267=0.0.",
+    "recommendation": "Add hole_slot_length (i32) and hole_rotation (f64) to the Pad model; read/write at size/shape +263/+267."
+  },
+  {
+    "record": "pcb:pad (0x02)",
+    "field": "IsPlated derived from hole presence",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "encode_pad_geometry (writer.rs L614) writes IsPlated = hole_size.is_some(). Altium stores IsPlated independently at SR5 +60 (default true). A non-plated through-hole (e.g. mounting hole) cannot be represented and would be written as plated.",
+    "evidence": "Golden TH pads plated@60=1, SMD plated@60=0; AltiumSharp reads the byte at SR5+60 independently.",
+    "recommendation": "Add an explicit is_plated bool (default true) to Pad; read/write SR5 +60."
+  },
+  {
+    "record": "pcb:pad (0x02)",
+    "field": "PasteMask/SolderMask expansion MODE (SR5 +101/+102) is tri-state, modelled as bool",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "SR5 +101/+102 are u8 modes 0=None,1=FromRule(default),2=Manual. We use bools (writes 0/1, reads !=0 as manual), cannot express mode 0 vs 2, and our default false writes 0=None over the template's correct 0x01=FromRule. Verifier extra-finding: build_pad_extended_tail writes u8::from(false)=0, so every from-scratch pad emits mode=0=None for both masks instead of Altium's 1=FromRule.",
+    "evidence": "Golden @101=1 @102=1 (FromRule); PAD_EXTENDED_TAIL_TEMPLATE @101=@102=1 but encode overwrites with the bool default 0.",
+    "recommendation": "Model paste/solder mask expansion mode as a 3-value enum (None/FromRule/Manual), default FromRule; only treat the expansion value as manual when mode==Manual."
+  },
+  {
+    "record": "pcb:pad (0x02)",
+    "field": "SolderMaskExpansion template default leaks into parsed model (value 0x9C40=40000, NOT 0x40000)",
+    "severity": "low",
+    "kind": "our-code-bug",
+    "detail": "Default pads carry SR5 +90 SolderMaskExpansion = 40000 (0x9C40 = 4 mil = ~0.1016mm) and +121 cache = 40000. parse_pad filters |x|<0.0001mm to None; 0.1016mm passes, so a stock pad surfaces a spurious manual solder expansion even though mode@102=1 (FromRule). NOTE: the RE magnitude (0x40000/262144/~0.0067mm) is wrong — real value is 0x9C40.",
+    "evidence": "Golden solder@90=40000=0x9C40; template writer.rs L512 @90=0x9C40.",
+    "recommendation": "Only treat solder/paste expansion as a value when mode==Manual; document the 40000 (4-mil) template default (0x9C40, not 0x40000)."
+  },
+  {
+    "record": "pcb:pad (0x02)",
+    "field": "unique_id (IdentityGuid SR5 +126) never read; middle/bottom sizes dropped",
+    "severity": "low",
+    "kind": "our-missing-feature",
+    "detail": "parse_pad always sets unique_id:None and never reads the GUID at SR5+126, so the per-pad identity regenerates on every write. Additionally (verifier extra-finding) parse_pad reads only size_top; SR5 middle (29-36)/bottom (37-44) sizes are dropped, so TopMiddleBottom pads lose middle/bottom sizes even before the Block5 bug.",
+    "evidence": "AltiumSharp reads IdentityGuid TG(126) and SizeMiddle/SizeBottom@29/37; our Pad has no middle/bottom size fields.",
+    "recommendation": "Read the 16-byte GUID at SR5+126 into unique_id and reuse on write; add middle/bottom size fields."
+  },
+  {
+    "record": "pcb:track (0x04)",
+    "field": "docs/PCBLIB_FORMAT.md Track table omits the 16-byte extended tail",
+    "severity": "medium",
+    "kind": "our-doc-error",
+    "detail": "The doc Track table (L374-382) ends at Width@29-32, describing a 33-byte record; the real (and our-written) record is 49 bytes including subpoly@33-34, solder-mask@35-38, paste-mask@39-40, v7 layer id@41-44, keepout@45, reserved@46-48.",
+    "evidence": "All 4 golden tracks have 49-byte bodies; AltiumSharp WriteTrack and our encode_track write the full tail.",
+    "recommendation": "Extend the doc Track table to offset 48 with the six tail fields."
+  },
+  {
+    "record": "pcb:arc (0x01)",
+    "field": "docs/PCBLIB_FORMAT.md Arc table omits the extended tail",
+    "severity": "medium",
+    "kind": "our-doc-error",
+    "detail": "The doc Arc table (L388-397) ends at Width@41-44 implying a ~45-byte block; the real block is 60 bytes with tail 45-46 subpoly i16, 47-50 solder-mask i32, 51 paste-mask u8, 52-55 v7 layer id u32, 56 keepout u8, 57-59 reserved.",
+    "evidence": "Golden ARCS_TEST block_len=60; our encode_arc/parse_arc handle the tail; matches AltiumSharp WriteArc.",
+    "recommendation": "Append the tail rows 45-59 to the doc Arc table and state total block = 60 bytes."
+  },
+  {
+    "record": "pcb:via (0x03)",
+    "field": "solder_mask_expansion_mode (SR1 offset 66) modelled as bool",
+    "severity": "high",
+    "kind": "our-code-bug",
+    "detail": "Offset 66 is a 3-valued enum (0=None,1=FromRule,2=Manual). Our reader (parsers.rs L409) reads it as bool (b!=0) and writer (writer.rs L680) emits u8::from(bool)=0/1, losing the None vs Manual distinction. Verifier extra-finding: the via default is false -> byte 66 = 0 (None) for from-scratch vias, mismatching the golden default 1 (FromRule).",
+    "evidence": "Golden mode66=1 in all vias EXCEPT VIA_BURIED[0]=0 — three distinct values exist; bool cannot represent them.",
+    "recommendation": "Replace the bool with a u8/enum solder_mask_expansion_mode (0/1/2), default FromRule; read/write byte 66 verbatim."
+  },
+  {
+    "record": "pcb:via (0x03)",
+    "field": "identity GUIDs (SR1 259-274 uid, 275-290 sig) never overlaid",
+    "severity": "high",
+    "kind": "our-missing-feature",
+    "detail": "encode_via never writes offsets 259-290, so every via we emit carries the single hardcoded VIA_SR1_TEMPLATE GUID pair — all vias share one UNIQUEID. parse_via never reads them (unique_id:None).",
+    "evidence": "Golden VIA_TYPES shows 3 distinct per-via uids@259 with a shared per-footprint sig@275; AltiumSharp generates a fresh GUID per via.",
+    "recommendation": "Generate a fresh 16-byte uid per via and a per-footprint sig; overlay at 259/275 and wire Via.unique_id into these slots."
+  },
+  {
+    "record": "pcb:via (0x03)",
+    "field": "solder_mask_expansion_back (SR1 242-245) not written/read",
+    "severity": "medium",
+    "kind": "our-missing-feature",
+    "detail": "encode_via never writes offset 242, so the back-side mask stays at the template constant 40000; parse_via never reads it. If a user sets the front mask (offset 54) the back stays 40000 — front/back diverge.",
+    "evidence": "Golden VIA_BURIED[0] smFront54=40000 but smBack242=0, proving back can differ from front.",
+    "recommendation": "Read I32(242) into a back-mask field; on write mirror the front mask (or carry the round-tripped value) to 242."
+  },
+  {
+    "record": "pcb:via (0x03)",
+    "field": "docs/PCBLIB_FORMAT.md Via section describes a stale 6-block pad-style layout with wrong offsets",
+    "severity": "high",
+    "kind": "our-doc-error",
+    "detail": "The doc (L145, L178, L623-662) describes a via as 6 blocks with offsets thermal 31-34/count 35/width 36-39/mask 40-43/stack 45/per-layer 46. The real via is ONE 321-byte block: thermal 32-35, conductor count 36, conductor width 38-41, front mask 54-57, mode 66, stack 74, per-layer diameters 75-202. Our code already uses the correct single-block layout; only the doc is stale.",
+    "evidence": "Golden vias are each a single 321-byte SubRecord-1; our parse_via/encode_via use the single-block offsets.",
+    "recommendation": "Rewrite the Via section as a single 321-byte block; fix the record table (L145) and minimum-size table (L178)."
+  },
+  {
+    "record": "pcb:via (0x03)",
+    "field": "net/comp/power-plane/paste/from-hole-edge/drill-pair fields not modelled",
+    "severity": "low",
+    "kind": "our-missing-feature",
+    "detail": "parse_via drops net@3, comp@7, power-plane-connect@31, pp-relief@42, pp-clear@46, paste-mask@50, from-hole-edge@258, hole tolerances@291/295, drill_layer_pair_type@312. Output is byte-correct for free library vias (template sentinels match golden) but blind/buried and power-plane vias cannot be represented.",
+    "evidence": "Golden common-case values match our template; drill_layer_pair_type@312 governs blind/buried vias.",
+    "recommendation": "Lower priority; model and round-trip these (esp. drill_layer_pair_type@312) only if blind/buried/power-plane vias are needed."
+  },
+  {
+    "record": "pcb:text (0x05)",
+    "field": "flags (offset 1-2) discarded on read",
+    "severity": "high",
+    "kind": "our-code-bug",
+    "detail": "parse_text hardcodes flags = PcbFlags::empty() (parsers.rs L634) and never reads bytes 1-2, silently discarding lock/tenting/keepout on read. The write side is correct.",
+    "evidence": "Golden flags@1-2=0x000C in all 8 text files; a working decode path exists but parse_text doesn't call it.",
+    "recommendation": "In parse_text, read the u16 at bytes 1-3 and pass through decode_altium_flags instead of hardcoding empty()."
+  },
+  {
+    "record": "pcb:text (0x05)",
+    "field": "strokeWidth (offset 36-39) not modelled",
+    "severity": "high",
+    "kind": "our-code-bug",
+    "detail": "Text struct has no stroke_width; parse_text never reads offset 36 and encode_text_geometry never overlays 36-39, so every text inherits the template constant. The bug (stroke width lost on read, fixed on write) is real; the RE '1024mm garbage' magnitude is WRONG — the template value is 40000 (=4 mil, a benign default).",
+    "evidence": "Golden strokeWidth=40000/50000/100000; template bytes @36 = 40 9C 00 00 = 40000.",
+    "recommendation": "Model stroke_width on Text; read I32@36, write PutI32@36."
+  },
+  {
+    "record": "pcb:text (0x05)",
+    "field": "InvertedRectWidth/Height (offsets 124-131) carry real stale template constants",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "The genuine non-zero stale constants our writer replays are at 124-127 (2745806 = InvertedRectWidth) and 128-131 (479871 = InvertedRectHeight) — NOT at wideStringIndex@115 or unionIndex@119 (those are 0 in our template; the RE was off by 9 bytes). Golden shows these vary per text; we hardcode one captured pair for every text and never read them. Also note offset 248-251 (SnapPointY = -750000) is another stale non-zero replay.",
+    "evidence": "Reconstructed TEXT_SR1_TEMPLATE: @115=00000000, @119=00000000, @124-131=2745806/479871. Golden values vary (2745806/479871, 1432902/599838, 0/0 for barcode).",
+    "recommendation": "Either model InvertedRectWidth/Height (and SnapPointX/Y) or zero offsets 124-131 (and 248-251) in the template so from-scratch output is byte-clean."
+  },
+  {
+    "record": "pcb:text (0x05)",
+    "field": "mirrored (35), baseFontType (43), italic (45) not modelled",
+    "severity": "medium",
+    "kind": "our-missing-feature",
+    "detail": "Text has no mirrored field (byte 35 ignored), and encode_text_geometry only overlays the kind byte at 160, leaving baseFontType@43 and italic@45 at template 0. For TrueType text Altium writes @43=1; mirrored and italic are lost.",
+    "evidence": "Golden TEXT_TEST#2 mirrored@35=1; TEXT_TRUETYPE @43=1, italic@45=1.",
+    "recommendation": "Model mirrored/bold/italic; derive byte 43 from kind (TrueType->1); read/write bytes 35/43/44/45."
+  },
+  {
+    "record": "pcb:text (0x05)",
+    "field": "fontId / StrokeFont mapping (offset 25-26) collapses arbitrary ids",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "stroke_font is read only when kind==Stroke and only surfaced for id>1; stroke_font_from_id maps any id other than 2/3 to Default, so custom font ids (e.g. 7) collapse and non-stroke text never reads the font id. AltiumSharp keeps the raw FontId verbatim.",
+    "evidence": "Golden TEXT_ALL_STROKE_FONTS fontId@25=7,6,5 all collapse to Default.",
+    "recommendation": "Store the raw fontId (i16) verbatim regardless of kind; do not collapse unknown ids."
+  },
+  {
+    "record": "pcb:text (0x05)",
+    "field": "font name fields (46-109, 161-224) and the whole inverted/barcode/frame/snap field set not modelled",
+    "severity": "high",
+    "kind": "our-missing-feature",
+    "detail": "Text models only ~11 fields; ~40 binary fields (font name, inverted-rect, barcode, frame, snap, net/component) are hardcoded to template literals or dropped, so the font is always 'Arial' and load->edit->save is lossy/corrupting for inverted/barcode/framed/designator/comment/snapped text.",
+    "evidence": "Template @46 = 'Arial' UTF-16; encode_text_geometry overlays only 0-34,160,226-229; AltiumSharp models ~50 fields.",
+    "recommendation": "Fully model the record (or at minimum FontName + zero the non-zero stale fields 124-131, 248-251)."
+  },
+  {
+    "record": "pcb:text (0x05)",
+    "field": "justification (offset 132) neither read nor written; doc uses schematic encoding",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "Text.justification is read as default and never written; offset 132 (PCB column-major PcbTextJustification: 0=Manual,1=LeftTop..9=RightBottom) exists in every record. The doc maps the schematic row-major encoding, which is wrong for PCB.",
+    "evidence": "Golden justification@132=3 in all 8 files.",
+    "recommendation": "Read/write byte 132 using the PCB column-major encoding, separate from the schematic enum."
+  },
+  {
+    "record": "pcb:text (0x05)",
+    "field": "docs/PCBLIB_FORMAT.md Text section wholesale wrong (offset 1, layout, 80-byte block, stroke-font ids, justification, WideStrings reserved indices)",
+    "severity": "high",
+    "kind": "our-doc-error",
+    "detail": "Doc L430 says offset 1 = 'Text kind' (really the flags word; kind is byte 160). Doc L435-447 describes a guessed 80-byte layout (font name @43, justification @72, WideStringsIndex 115-116 u16) — real record is fixed 252 bytes with strokeWidth 36-39, font name 46-109 (UTF-16 64B), wideStringIndex 115-118 i32. Stroke font ids are mislabelled 0/1/3 (real 1=Default,2=SansSerif,3=Serif). Justification table is the schematic row-major scheme. The WideStrings 'index 0=.Designator, 1=.Comment' reserved-index note is our invention — special strings live in the ASCII block at wideStringIndex 0.",
+    "evidence": "All 8 golden text records are 252 bytes; kind@160; AltiumSharp PcbStrokeFont Default=1; golden .Designator/.Comment have wideStringIndex=0 with the literal in the ASCII block.",
+    "recommendation": "Rewrite the Text section to the verified 252-byte layout, fix the stroke-font (1/2/3) and PCB justification tables, and delete the reserved WideStrings-index claim."
+  },
+  {
+    "record": "pcb:fill (0x06)",
+    "field": "v7_layer_id (offset 42-45) written as zero",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "encode_fill_block writes a blanket [0x00;13] pad over offsets 37-49, so bytes 42-45 = 0 instead of the layer-derived v7 id. AltiumSharp ReadFill ignores it on read so our own round-trip survives, but our bytes differ from genuine Altium output.",
+    "evidence": "Golden FILLS_TEST rec1(layer1) @42-45 = 0x01000001, rec2(layer32) = 0x0100FFFF; ours = 00000000.",
+    "recommendation": "Replace the [0x00;13] pad with explicit fields and write V7LayerId(layer) at 42-45 (port AltiumSharp's V7LayerId mapping)."
+  },
+  {
+    "record": "pcb:fill (0x06)",
+    "field": "solder_mask_expansion (37-40) and keepout_restrictions (46) not modelled",
+    "severity": "low",
+    "kind": "our-missing-feature",
+    "detail": "Fill struct lacks these; values are emitted as 0 via the pad and never parsed. Golden values are 0 so output matches today, but a non-zero solder-mask override or keepout-restriction mask is silently zeroed on write and dropped on read.",
+    "evidence": "AltiumSharp ReadFill decodes SolderMaskExpansion@37 and KeepoutRestrictions@46.",
+    "recommendation": "Add solder_mask_expansion (i32) and keepout_restrictions (u8) to Fill (fold into the v7_layer_id fix)."
+  },
+  {
+    "record": "pcb:fill (0x06)",
+    "field": "docs/PCBLIB_FORMAT.md Fill offsets 1-12 and 37-49 mislabelled",
+    "severity": "low",
+    "kind": "our-doc-error",
+    "detail": "Doc L521 collapses bytes 1-12 into 'Flags and padding' (really flags u16@1, net@3, polygon@5, component@7, reserved@9). Doc L527 calls 37-49 'Reserved (zeros)' but 42-45 carries a non-zero layer-derived v7 id.",
+    "evidence": "Golden fill bytes: flags=0x000c, net/poly/comp=0xffff, reserved=0xffffffff, v7@42-45 non-zero.",
+    "recommendation": "Enumerate the common-header sub-fields and the 37-49 tail (37-40 solder-mask, 41 paste-mask, 42-45 v7 layer id, 46 keepout, 47-49 reserved)."
+  },
+  {
+    "record": "pcb:region (0x0B)",
+    "field": "spurious extra empty Block 1",
+    "severity": "high",
+    "kind": "our-code-bug",
+    "detail": "encode_region writes write_block(&[]) as a second 'Block 1' (writer.rs L896), emitting a stray 4-byte 00 00 00 00 after every region; parse_region optionally consumes it. Real Altium regions are exactly ONE block, so our output desynchronises the record stream and a strict Altium parser could mis-bind to a following record.",
+    "evidence": "Every golden region ends at its outer block boundary with no trailing 00 00 00 00; blockend==stream length; AltiumSharp WriteRegion is a single WriteBlock.",
+    "recommendation": "Drop write_block(&[]) in encode_region and remove the optional Block-1 consume in parse_region."
+  },
+  {
+    "record": "pcb:region (0x0B)",
+    "field": "param string has leading pipe and only 3 keys",
+    "severity": "high",
+    "kind": "our-code-bug",
+    "detail": "encode_region_properties emits '|V7_LAYER={token}|NAME=|KIND=0' — a LEADING pipe, only 3 keys, empty NAME. Altium writes NO leading pipe, 8 canonical keys (V7_LAYER|NAME|KIND|SUBPOLYINDEX|UNIONINDEX|ARCRESOLUTION|ISSHAPEBASED|CAVITYHEIGHT), and NAME is a single space. Our own doc example is more correct than the writer.",
+    "evidence": "Golden REGION_COPPER param: 'V7_LAYER=TOP|NAME= |KIND=0|SUBPOLYINDEX=-1|UNIONINDEX=0|ARCRESOLUTION=0.5mil|ISSHAPEBASED=FALSE|CAVITYHEIGHT=0mil'.",
+    "recommendation": "Remove the leading '|', default NAME to a single space, and emit the full canonical key set (append KEEPOUTRESTRICTIONS when present)."
+  },
+  {
+    "record": "pcb:region (0x0B)",
+    "field": "hole_count (block offset 14) and hole contours not modelled",
+    "severity": "high",
+    "kind": "our-missing-feature",
+    "detail": "Region has no holes field; parse_region never reads holeCount@14 or the per-hole [u32 count][count×(f64 X,f64 Y)] contours, and encode_region always writes holeCount=0. Regions with internal cutouts are silently lost on read and impossible to write.",
+    "evidence": "Golden REGION_COMPLEX holeCount@14=2, two 4-vertex holes consuming exactly to blockend.",
+    "recommendation": "Add a holes: Vec<Vec<Vertex>> field; read holeCount@14 and the per-hole contours after the outline; write them back."
+  },
+  {
+    "record": "pcb:region (0x0B)",
+    "field": "KIND and other semantic params (SUBPOLYINDEX/UNIONINDEX/ARCRESOLUTION/ISSHAPEBASED/CAVITYHEIGHT/KEEPOUTRESTRICTIONS/NAME) not modelled",
+    "severity": "medium",
+    "kind": "our-missing-feature",
+    "detail": "KIND is hardcoded 0, so a KIND=1 cutout is re-emitted as a solid region; the other typed params are absent, blocking cavity height, keepout restrictions, polygon/union membership and arc resolution.",
+    "evidence": "Golden REGION_CUTOUT KIND=1; REGION_CAVITY CAVITYHEIGHT=50mil; KEEPOUT_REGION KEEPOUTRESTRICTIONS=31.",
+    "recommendation": "Add typed fields and serialise in AltiumSharp's canonical order with proper defaults (ARCRESOLUTION=0.5mil, SUBPOLYINDEX=-1, ISSHAPEBASED=FALSE, CAVITYHEIGHT=0mil)."
+  },
+  {
+    "record": "pcb:region (0x0B)",
+    "field": "docs/PCBLIB_FORMAT.md Region section wrong (Block 1, holeCount hidden, partial params)",
+    "severity": "medium",
+    "kind": "our-doc-error",
+    "detail": "Doc describes a non-existent display Block 1, hides holeCount@14 inside a generic 'Reserved 13-17' span, and lists only V7_LAYER/NAME/KIND. Region is a single block with holeCount@14 (u16), 8 canonical params, and post-outline hole contours.",
+    "evidence": "Golden regions are single blocks; holeCount@14; REGION_COMPLEX has inline hole contours.",
+    "recommendation": "Correct the doc: single block (no Block 1), document holeCount@14 and bytes 13/16-17 reserved, the full 8-key param set, and the hole-contour layout."
+  },
+  {
+    "record": "pcb:componentbody (0x0C)",
+    "field": "MODEL.CHECKSUM hardcoded to 0",
+    "severity": "high",
+    "kind": "our-code-bug",
+    "detail": "writer.rs L1143 always writes 'MODEL.CHECKSUM=0' and the reader never reads it, so any real body's checksum is dropped on read and zeroed on write; the struct cannot carry it.",
+    "evidence": "Golden checksums 2485012861 / 2486528267 / 1468567647.",
+    "recommendation": "Add a model_checksum field (u32/i64), read MODEL.CHECKSUM and round-trip it verbatim."
+  },
+  {
+    "record": "pcb:componentbody (0x0C)",
+    "field": "MODEL.MODELTYPE hardcoded to 1",
+    "severity": "high",
+    "kind": "our-code-bug",
+    "detail": "writer.rs L1156 always writes MODEL.MODELTYPE=1, mislabelling the common extruded case (which is 0) as an embedded model.",
+    "evidence": "Golden BODY_3D & EXTENDED MODELTYPE=0; only embedded STEP=1.",
+    "recommendation": "Add a model_type field, read MODEL.MODELTYPE, default 0 for extruded bodies."
+  },
+  {
+    "record": "pcb:componentbody (0x0C)",
+    "field": "MODEL.EXTRUDED.MINZ / MAXZ never read or written",
+    "severity": "high",
+    "kind": "our-missing-feature",
+    "detail": "For the most common (extruded) body, Altium stores the vertical extent in these two optional keys; we neither read nor write them, so an extruded body's height bounds are lost and our output omits keys Altium emits.",
+    "evidence": "Golden BODY_3D MINZ=0mil/MAXZ=100mil; EXTENDED 10mil/150mil; STEP omits them.",
+    "recommendation": "Add optional model_extruded_min_z/max_z fields; read/write when present (extruded bodies)."
+  },
+  {
+    "record": "pcb:componentbody (0x0C)",
+    "field": "MODEL.MODELSOURCE always emitted as 'Undefined'",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "writer.rs L1157 unconditionally emits MODEL.MODELSOURCE=Undefined; Altium omits the key for extruded bodies and only emits it (=Undefined) for embedded STEP. The extra key shifts plen and is not byte-faithful.",
+    "evidence": "Golden BODY_3D & EXTENDED omit MODELSOURCE; only STEP has it.",
+    "recommendation": "Make MODEL.MODELSOURCE optional (Option<String>); only emit when present."
+  },
+  {
+    "record": "pcb:componentbody (0x0C)",
+    "field": "V7_LAYER + binary layer byte forced to MECHANICAL6/62",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "We map Top3DBody -> binary layer 62 / V7_LAYER=MECHANICAL6 (Bottom -> MECHANICAL7), but Altium's footprint exporter places 3D bodies on MECHANICAL1/57. Both the layer byte and the V7_LAYER token differ from golden.",
+    "evidence": "All 4 golden bodies use layer 57 (0x39) and V7_LAYER=MECHANICAL1.",
+    "recommendation": "Default 3D-body layer to MECHANICAL1 (byte 57); only emit MECHANICAL6/7 if a read file actually used them."
+  },
+  {
+    "record": "pcb:componentbody (0x0C)",
+    "field": "broad field coverage — colour/opacity/texture/2D-placement/identifier/kind hardcoded",
+    "severity": "high",
+    "kind": "our-missing-feature",
+    "detail": "ComponentBody models ~12 fields; the rest of the ~60-field param block is hardcoded (BODYCOLOR3D=8421504, BODYOPACITY3D=1.000, NAME, KIND, TEXTURE*, MODEL.2D.*, IDENTIFIER, etc.). Concrete proof (verifier): golden BODY_3D_EXTENDED carries BODYCOLOR3D=65280 and BODYOPACITY3D=0.800 — we cannot reproduce that file's bytes. Also (extra-finding) ComponentBody::new defaults embedded=true while extruded golden bodies are MODEL.EMBED=FALSE.",
+    "evidence": "Golden EXTENDED BODYCOLOR3D=65280, BODYOPACITY3D=0.800; AltiumSharp models 60+ typed properties + AdditionalParameters.",
+    "recommendation": "Promote the hardcoded literals (at minimum BODYCOLOR3D, BODYOPACITY3D, NAME, KIND, IDENTIFIER, TEXTURE*, MODEL.2D.*, MODEL.EMBED) to round-tripped fields and add an additional-parameters passthrough map."
+  },
+  {
+    "record": "pcb:componentbody (0x0C)",
+    "field": "docs/PCBLIB_FORMAT.md ComponentBody invents 3 blocks, a SNAPCOUNT key, and mislabels flags",
+    "severity": "medium",
+    "kind": "our-doc-error",
+    "detail": "Doc L571-610 describes 3 blocks ('Block 1 Model snap points', 'Block 2 Reserved') and a MODEL.SNAPCOUNT key that do not exist; bytes 1-2 are the u16 flags word (0x000C) not a 'record type marker'. The body is exactly one block. Our writer/comment also mislabel bytes 1-2.",
+    "evidence": "Golden bodies are a single 774-byte block; no SNAPCOUNT key in any golden or AltiumSharp.",
+    "recommendation": "Rewrite the doc to one block; delete the SNAPCOUNT and Block 1/2 rows; relabel bytes 1-2 as the flags word; fix the writer.rs comment."
+  },
+  {
+    "record": "pcb:common-header (shared)",
+    "field": "docs/PCBLIB_FORMAT.md Common Header bytes 3-12 labelled 'Padding'",
+    "severity": "high",
+    "kind": "our-doc-error",
+    "detail": "Doc L407 calls offsets 3-12 'Padding (typically 0xFF)'. They are structured: netIndex u16@3, polygonIndex u16@5, componentIndex u16@7, reserved u32@9 — only all-0xFF because library primitives are free. The same mislabel recurs in the per-record tables (Arc L391, Text L431, Fill L521) and in Rust source doc-comments (parse_pad). Project-wide blast radius.",
+    "evidence": "Golden KEEPOUT_REGION header 38 0c 02 ff*10 decodes to those sub-fields; AltiumSharp WriteCommonPrimitiveData writes them in order.",
+    "recommendation": "Replace the row with four labelled sub-fields; sweep the per-record tables and source comments for the same 'padding' wording."
+  },
+  {
+    "record": "pcb:common-header (shared)",
+    "field": "docs/PCBLIB_FORMAT.md PcbFlags bit table is wholly wrong",
+    "severity": "high",
+    "kind": "our-doc-error",
+    "detail": "Doc L413-417 lists 0x0001 Locked, 0x0002 Polygon, 0x0004 KeepOut, 0x0008 TentingTop, 0x0010 TentingBottom. Real on-wire bits are 0x04 Unlocked (inverted: clear=locked), 0x08 Saved, 0x20 TentingTop, 0x40 TentingBottom, 0x200 Keepout. The doc has no Saved bit and mislocates Keepout (0x0004 vs real 0x0200); the listed values are actually our internal abstract PcbFlags enum. Our code (flags.rs) is correct; only the doc is wrong. Note L419 'most flags 0x00 for library components' is also false (every saved primitive has >=0x000C).",
+    "evidence": "Golden flags=0x000C (Unlocked|Saved) on every primitive, 0x020C on keepout (0x200 set); AltiumSharp PcbBinaryConstants and our flags.rs match.",
+    "recommendation": "Rewrite the table to the real wire bits (0x04 Unlocked/clear=Locked, 0x08 Saved, 0x20 TentingTop, 0x40 TentingBottom, 0x200 Keepout), note Unlocked is inverted, and document the internal abstract enum separately."
+  },
+  {
+    "record": "pcb:layers-coords (shared)",
+    "field": "docs/PCBLIB_FORMAT.md '255 = Unknown' layer row has no basis",
+    "severity": "low",
+    "kind": "our-doc-error",
+    "detail": "Doc L267 lists '255 = Unknown' as a defined layer ID; the layer field is a plain u8 and 255 is merely out-of-range (LayerNameToByte returns 0=NoLayer for unknown names).",
+    "evidence": "AltiumSharp has no layer 255; goldens never carry it.",
+    "recommendation": "Remove or footnote the '255 = Unknown' row as an out-of-range sentinel, not a real layer."
+  },
+  {
+    "record": "pcb:streams (OLE layout)",
+    "field": "docs/PCBLIB_FORMAT.md FileHeader described as 32 bytes / 1 field",
+    "severity": "high",
+    "kind": "our-doc-error",
+    "detail": "Doc L64 says 'Total: 32 bytes' with only the version string; the real FileHeader is 53 bytes (version-string block + f64 5.01 + 8-char UniqueId block). Our CODE writes all 53 bytes correctly; only the doc (and its File-Structure tree, which omits SectionKeys/FileVersionInfo/EmbeddedFonts/LayerKindMapping/PadViaLibrary/ComponentParamsTOC/Textures/ModelsNoEmbed/PrimitiveGuids) is wrong. Contradicts our own MEMORY.md.",
+    "evidence": "Golden MULTIPIN_SOIC FileHeader = 53 bytes incl. f64 5.01 and 8-char uid 'QMFHLNUI'.",
+    "recommendation": "Update the FileHeader section to the 53-byte 3-field layout and add the missing root/library streams to the structure tree."
+  },
+  {
+    "record": "pcb:streams (OLE layout)",
+    "field": "SectionKeys stream never read or written",
+    "severity": "high",
+    "kind": "our-missing-feature",
+    "detail": "No code path reads/writes the root SectionKeys stream. Altium writes it whenever a footprint name (>31 chars) differs from its 31-char OLE storage key, and a strict Altium reader resolves storages via it. For long-named libraries our output omits it; our own reader compensates by scanning every Data-bearing storage and reading PATTERN.",
+    "evidence": "Golden sample.PcbLib has a 956-byte SectionKeys with 12 full-name->31-char-key entries; grep finds zero references in src/.",
+    "recommendation": "On write, emit a root SectionKeys stream when any OLE name is truncated; on read, parse it to resolve storage->full-name."
+  },
+  {
+    "record": "pcb:streams (OLE layout)",
+    "field": "UniqueIDPrimitiveInformation PRIMITIVEINDEX is 0-based; Altium is 1-based",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "encode_unique_id_stream passes 0-based enumerate() index (first primitive=0); real Altium files are 1-based (1..N). The writer comment 'AltiumSharp convention is 0-based' is unsupported. Our reader auto-detects so self round-trip survives, but output is off by one vs Altium and could misalign a position-keyed PrimitiveGuids lookup.",
+    "evidence": "Golden SOIC indices 1..16, QFP 1..44, SOP 1..8, BGA 1..36 — index 0 never present.",
+    "recommendation": "Emit i+1 (1-based); fix the writer.rs L1296 comment and the doc; keep the reader's 0/1 auto-detect for back-compat."
+  },
+  {
+    "record": "pcb:streams (OLE layout)",
+    "field": "WideStrings empty encoding is blockLen=2 with a spurious leading '|'",
+    "severity": "medium",
+    "kind": "our-code-bug",
+    "detail": "encode_component_wide_strings seeds content with '|' unconditionally (writer.rs L1448), so an empty stream is [02 00 00 00]['|'][00] (blockLen=2); Altium emits blockLen=1 (just NUL).",
+    "evidence": "Golden MULTIPIN_SOIC WideStrings = 5 bytes [01 00 00 00][00], blockLen=1.",
+    "recommendation": "When there are no text entries, write an empty content string (not '|') so the block is [01 00 00 00][00]; update the doc which currently asserts the wrong empty form."
+  },
+  {
+    "record": "pcb:streams (OLE layout)",
+    "field": "WideStrings non-empty trailing pipe + skip/desync of '.'-prefixed/empty texts",
+    "severity": "low",
+    "kind": "our-code-bug",
+    "detail": "writer.rs L1455 emits 'ENCODEDTEXT{i}={...}|' with a TRAILING '|' after the last entry; Altium uses leading pipe, no trailing pipe. Also writer.rs L1442 skips texts starting with '.' or empty, whereas Altium emits one ENCODEDTEXT per Text in order, desyncing ENCODEDTEXT{n} from the Text primitive index.",
+    "evidence": "Golden TEXT_ALL_STROKE_FONTS WideStrings ends '...32,48\\x00' with no trailing '|'.",
+    "recommendation": "Emit '|KEY=VAL' (leading pipe, no trailing) and emit one ENCODEDTEXT per Text primitive in order without the skip."
+  },
+  {
+    "record": "pcb:streams (OLE layout)",
+    "field": "PrimitiveGuids sub-storage omitted",
+    "severity": "medium",
+    "kind": "our-missing-feature",
+    "detail": "We deliberately omit the PrimitiveGuids storage on write and never read it. Altium always carries it: Header=u32 count, Data = N×[u32 typeId][u32 index][16-byte GUID], with a leading typeId=85 component record. Altium tolerates its absence on read, so this is a fidelity gap, not a load failure.",
+    "evidence": "Golden MULTIPIN_SOIC PrimitiveGuids Header=22, Data=528=22×24 bytes, first record typeId=0x55=85.",
+    "recommendation": "Optionally emit PrimitiveGuids using the confirmed 24-byte record layout (typeId 85 + per-primitive typeId/index/GUID) and read it back; lower priority than SectionKeys."
+  },
+  {
+    "record": "pcb:streams (OLE layout)",
+    "field": "FileHeader pipe-delimited fallback has no Altium counterpart",
+    "severity": "low",
+    "kind": "our-code-bug",
+    "detail": "read_io.rs has a pipe-delimited |HEADER=..|COMPCOUNT=..|LIBREF{n}=..| FileHeader fallback that Altium never emits for PcbLib; the binary path returns early so it cannot mis-parse a valid header. Dead/defensive code.",
+    "evidence": "AltiumSharp ReadFileHeader only reads the 53-byte binary layout; no golden uses a pipe header.",
+    "recommendation": "Keep as harmless defensive code or remove the pipe fallback; clarify the doc comment that PcbLib FileHeader is always the 53-byte binary form."
+  }
+]
