@@ -818,18 +818,16 @@ pub(super) fn find_ascii_in_block(block: &[u8], pattern: &str) -> Option<usize> 
 /// ```
 #[allow(clippy::cast_possible_truncation)] // Altium coords fit in i32
 pub(super) fn parse_region(data: &[u8], offset: usize) -> ParseResult<Region> {
-    // Region format (observed from Altium files):
-    // Block 0: Properties block containing:
+    // Region format (observed from Altium files): a single block containing:
     //   - Common header (13 bytes): layer, flags, padding
     //   - Unknown data (5 bytes)
     //   - Parameter string length (4 bytes)
     //   - Parameter string (ASCII key=value pairs)
     //   - Vertex count (4 bytes)
     //   - Vertices (count * 16 bytes, each as 2 doubles)
-    // Block 1: Usually empty (0 bytes)
 
-    // Block 0: Properties with embedded vertices
-    let (props_block, mut current) = read_block(data, offset).ok_or_else(|| {
+    // Properties with embedded vertices
+    let (props_block, current) = read_block(data, offset).ok_or_else(|| {
         AltiumError::parse_error(offset, "failed to read Region properties block")
     })?;
 
@@ -908,11 +906,9 @@ pub(super) fn parse_region(data: &[u8], offset: usize) -> ParseResult<Region> {
         vertices.push(Vertex { x, y });
     }
 
-    // Block 1: Usually empty, but still need to read it
-    if let Some((_, next)) = read_block(data, current) {
-        current = next;
-    }
-
+    // A Region is a single block. Altium-authored files place the next record's
+    // type byte immediately after this block (no trailing empty block), so `current`
+    // already points at the next record.
     let region = Region {
         vertices,
         layer,
