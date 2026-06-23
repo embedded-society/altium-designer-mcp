@@ -272,10 +272,12 @@ fn encode_component_header(symbol: &Symbol) -> String {
 /// Encodes a rectangle record.
 fn encode_rectangle(rect: &Rectangle, index: usize) -> String {
     let transparent = if rect.transparent { "T" } else { "F" };
+    // Altium emits IsSolid only when the shape is filled, and omits it otherwise.
+    let is_solid = if rect.filled { "|IsSolid=T" } else { "" };
     format!(
         "|RECORD=14|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T\
          |Location.X={}|Location.Y={}|Corner.X={}|Corner.Y={}\
-         |LineWidth={}|Color={}|AreaColor={}|IsSolid=T|Transparent={}|UniqueID={}",
+         |LineWidth={}|Color={}|AreaColor={}{}|Transparent={}|UniqueID={}",
         index,
         rect.owner_part_id,
         rect.x1,
@@ -285,6 +287,7 @@ fn encode_rectangle(rect: &Rectangle, index: usize) -> String {
         rect.line_width,
         rect.line_color,
         rect.fill_color,
+        is_solid,
         transparent,
         rect.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
@@ -368,7 +371,6 @@ fn encode_polyline(polyline: &Polyline, index: usize) -> String {
 
 /// Encodes a polygon record.
 fn encode_polygon(polygon: &Polygon, index: usize) -> String {
-    let is_solid = if polygon.filled { "T" } else { "F" };
     let mut parts = vec![
         "RECORD=7".to_string(),
         format!("IndexInSheet={index}"),
@@ -377,9 +379,12 @@ fn encode_polygon(polygon: &Polygon, index: usize) -> String {
         format!("LineWidth={}", polygon.line_width),
         format!("Color={}", polygon.line_color),
         format!("AreaColor={}", polygon.fill_color),
-        format!("IsSolid={is_solid}"),
-        format!("LocationCount={}", polygon.points.len()),
     ];
+    // Altium emits IsSolid only when filled, and omits it otherwise.
+    if polygon.filled {
+        parts.push("IsSolid=T".to_string());
+    }
+    parts.push(format!("LocationCount={}", polygon.points.len()));
 
     for (i, (x, y)) in polygon.points.iter().enumerate() {
         parts.push(format!("X{}={}", i + 1, x));
@@ -433,9 +438,10 @@ fn encode_bezier(bezier: &Bezier, index: usize) -> String {
 
 /// Encodes an ellipse record.
 fn encode_ellipse(ellipse: &Ellipse, index: usize) -> String {
-    let is_solid = if ellipse.filled { "T" } else { "F" };
+    // Altium emits IsSolid only when filled, and omits it otherwise.
+    let is_solid = if ellipse.filled { "|IsSolid=T" } else { "" };
     format!(
-        "|RECORD=8|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Radius={}|SecondaryRadius={}|LineWidth={}|Color={}|AreaColor={}|IsSolid={}|UniqueID={}",
+        "|RECORD=8|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Radius={}|SecondaryRadius={}|LineWidth={}|Color={}|AreaColor={}{}|UniqueID={}",
         index,
         ellipse.owner_part_id,
         ellipse.x,
@@ -452,12 +458,13 @@ fn encode_ellipse(ellipse: &Ellipse, index: usize) -> String {
 
 /// Encodes a rounded rectangle record.
 fn encode_round_rect(round_rect: &RoundRect, index: usize) -> String {
-    let is_solid = if round_rect.filled { "T" } else { "F" };
+    // Altium emits IsSolid only when filled, and omits it otherwise.
+    let is_solid = if round_rect.filled { "|IsSolid=T" } else { "" };
     format!(
         "|RECORD=10|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T\
          |Location.X={}|Location.Y={}|Corner.X={}|Corner.Y={}\
          |CornerXRadius={}|CornerYRadius={}\
-         |LineWidth={}|Color={}|AreaColor={}|IsSolid={}|UniqueID={}",
+         |LineWidth={}|Color={}|AreaColor={}{}|UniqueID={}",
         index,
         round_rect.owner_part_id,
         round_rect.x1,
@@ -878,6 +885,28 @@ mod tests {
         let text = String::from_utf8_lossy(&data);
         assert!(text.contains("RECORD=1"), "component record present");
         assert!(text.contains("RECORD=44"), "implementation list present");
+    }
+
+    #[test]
+    fn test_rectangle_issolid_emitted_only_when_filled() {
+        // Altium omits IsSolid for unfilled shapes and emits IsSolid=T only when
+        // filled — never IsSolid=F.
+        let mut unfilled = Rectangle::new(-5, -5, 5, 5);
+        unfilled.filled = false;
+        let s = encode_rectangle(&unfilled, 1);
+        assert!(
+            !s.contains("IsSolid"),
+            "unfilled rectangle must omit IsSolid: {s}"
+        );
+
+        let mut filled = Rectangle::new(-5, -5, 5, 5);
+        filled.filled = true;
+        let s = encode_rectangle(&filled, 1);
+        assert!(
+            s.contains("|IsSolid=T"),
+            "filled rectangle must emit IsSolid=T: {s}"
+        );
+        assert!(!s.contains("IsSolid=F"), "never emit IsSolid=F: {s}");
     }
 
     #[test]
