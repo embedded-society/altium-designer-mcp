@@ -375,14 +375,11 @@ fn parse_rectangle(props: &HashMap<String, String>) -> Option<Rectangle> {
         .get("linewidth")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
-    let line_color = props
-        .get("color")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0x00_00_80);
+    let line_color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
     let fill_color = props
         .get("areacolor")
         .and_then(|s| s.parse().ok())
-        .unwrap_or(0xFF_FF_B0);
+        .unwrap_or(0);
     let owner_part_id = props
         .get("ownerpartid")
         .and_then(|s| s.parse().ok())
@@ -417,10 +414,7 @@ fn parse_line(props: &HashMap<String, String>) -> Option<Line> {
         .get("linewidth")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
-    let color = props
-        .get("color")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0x00_00_80);
+    let color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
     let owner_part_id = props
         .get("ownerpartid")
         .and_then(|s| s.parse().ok())
@@ -513,10 +507,7 @@ fn parse_polyline(props: &HashMap<String, String>) -> Option<Polyline> {
         .get("linewidth")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
-    let color = props
-        .get("color")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0x00_00_80);
+    let color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
     let line_style = props
         .get("linestyle")
         .and_then(|s| s.parse().ok())
@@ -576,14 +567,11 @@ fn parse_polygon(props: &HashMap<String, String>) -> Option<Polygon> {
         .get("linewidth")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
-    let line_color = props
-        .get("color")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0x00_00_80);
+    let line_color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
     let fill_color = props
         .get("areacolor")
         .and_then(|s| s.parse().ok())
-        .unwrap_or(0xFF_FF_B0);
+        .unwrap_or(0);
     let filled = props.get("issolid").is_some_and(|s| s == "T");
     let owner_part_id = props
         .get("ownerpartid")
@@ -617,14 +605,11 @@ fn parse_ellipse(props: &HashMap<String, String>) -> Option<Ellipse> {
         .get("linewidth")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
-    let line_color = props
-        .get("color")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0x00_00_80);
+    let line_color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
     let fill_color = props
         .get("areacolor")
         .and_then(|s| s.parse().ok())
-        .unwrap_or(0xFF_FF_B0);
+        .unwrap_or(0);
     let filled = props.get("issolid").is_some_and(|s| s == "T");
     let owner_part_id = props
         .get("ownerpartid")
@@ -665,10 +650,7 @@ fn parse_arc(props: &HashMap<String, String>) -> Option<Arc> {
         .get("linewidth")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
-    let color = props
-        .get("color")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0x00_00_80);
+    let color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
     let owner_part_id = props
         .get("ownerpartid")
         .and_then(|s| s.parse().ok())
@@ -705,10 +687,7 @@ fn parse_bezier(props: &HashMap<String, String>) -> Option<Bezier> {
         .get("linewidth")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
-    let color = props
-        .get("color")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0x00_00_80);
+    let color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
     let owner_part_id = props
         .get("ownerpartid")
         .and_then(|s| s.parse().ok())
@@ -752,14 +731,11 @@ fn parse_round_rect(props: &HashMap<String, String>) -> Option<RoundRect> {
         .get("linewidth")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
-    let line_color = props
-        .get("color")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0x00_00_80);
+    let line_color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
     let fill_color = props
         .get("areacolor")
         .and_then(|s| s.parse().ok())
-        .unwrap_or(0xFF_FF_B0);
+        .unwrap_or(0);
     let filled = props.get("issolid").is_some_and(|s| s == "T");
     let owner_part_id = props
         .get("ownerpartid")
@@ -824,10 +800,7 @@ fn parse_elliptical_arc(props: &HashMap<String, String>) -> Option<EllipticalArc
         .get("linewidth")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
-    let color = props
-        .get("color")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0x00_00_80);
+    let color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
     let owner_part_id = props
         .get("ownerpartid")
         .and_then(|s| s.parse().ok())
@@ -858,10 +831,7 @@ fn parse_label(props: &HashMap<String, String>) -> Option<Label> {
         .get("fontid")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
-    let color = props
-        .get("color")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0x80_00_00); // Dark blue
+    let color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
     let rotation = props
         .get("orientation")
         .and_then(|s| s.parse::<i32>().ok())
@@ -903,10 +873,7 @@ fn parse_text(props: &HashMap<String, String>) -> Option<Text> {
         .get("fontid")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
-    let color = props
-        .get("color")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0x80_00_00); // Dark blue
+    let color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
     let rotation = props
         .get("orientation")
         .and_then(|s| s.parse::<i32>().ok())
@@ -1042,5 +1009,36 @@ mod tests {
             !untagged.is_not_accessible,
             "absent IsNotAccesible defaults false on read"
         );
+    }
+
+    #[test]
+    fn test_absent_colour_reads_black() {
+        // Altium omits Color/AreaColor when 0; AltiumSharp defaults absent to 0
+        // (black). We previously fabricated navy / pale-yellow defaults, so reading
+        // an Altium shape that omits these surfaced the wrong colour.
+        let arc = parse_arc(&parse_properties(
+            "|RECORD=12|Location.X=5|Location.Y=5|Radius=10|",
+        ))
+        .unwrap();
+        assert_eq!(arc.color, 0, "absent arc Color must read as black");
+
+        let poly = parse_polygon(&parse_properties(
+            "|RECORD=7|LocationCount=3|X1=0|Y1=0|X2=10|Y2=0|X3=5|Y3=10|",
+        ))
+        .unwrap();
+        assert_eq!(
+            poly.line_color, 0,
+            "absent polygon Color must read as black"
+        );
+        assert_eq!(
+            poly.fill_color, 0,
+            "absent polygon AreaColor must read as 0"
+        );
+
+        let label = parse_label(&parse_properties(
+            "|RECORD=4|Location.X=5|Location.Y=5|Text=R|",
+        ))
+        .unwrap();
+        assert_eq!(label.color, 0, "absent label Color must read as black");
     }
 }
