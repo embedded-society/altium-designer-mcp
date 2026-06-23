@@ -310,23 +310,38 @@ fn encode_line(line: &Line, index: usize) -> String {
 }
 
 /// Encodes a parameter record.
+///
+/// Follows Altium's conventions: `IsHidden` is emitted only when hidden (never
+/// `=F`), `ReadOnlyState` / `ParamType` only when non-zero, `Text` only when
+/// non-empty, and the read `UniqueID` is preserved.
 fn encode_parameter(param: &Parameter, index: usize) -> String {
-    let hidden = if param.hidden { "T" } else { "F" };
-    format!(
-        "|RECORD=41|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Color={}|FontID={}|IsHidden={}|ReadOnlyState={}|ParamType={}|Text={}|Name={}|UniqueID={}",
-        index,
-        param.owner_part_id,
-        param.x,
-        param.y,
-        param.color,
-        param.font_id,
-        hidden,
-        param.read_only_state,
-        param.param_type,
-        param.value,
-        param.name,
-        generate_unique_id()
-    )
+    let mut parts = vec![
+        "RECORD=41".to_string(),
+        format!("IndexInSheet={index}"),
+        format!("OwnerPartId={}", param.owner_part_id),
+        format!("Location.X={}", param.x),
+        format!("Location.Y={}", param.y),
+        format!("Color={}", param.color),
+        format!("FontID={}", param.font_id),
+    ];
+    if param.hidden {
+        parts.push("IsHidden=T".to_string());
+    }
+    if param.read_only_state != 0 {
+        parts.push(format!("ReadOnlyState={}", param.read_only_state));
+    }
+    if param.param_type != 0 {
+        parts.push(format!("ParamType={}", param.param_type));
+    }
+    if !param.value.is_empty() {
+        parts.push(format!("Text={}", param.value));
+    }
+    parts.push(format!("Name={}", param.name));
+    parts.push(format!(
+        "UniqueID={}",
+        param.unique_id.clone().unwrap_or_else(generate_unique_id)
+    ));
+    format!("|{}", parts.join("|"))
 }
 
 /// Encodes a designator record.
@@ -401,10 +416,17 @@ fn encode_polygon(polygon: &Polygon, index: usize) -> String {
 
 /// Encodes an arc record.
 fn encode_arc(arc: &Arc, index: usize) -> String {
+    // Altium tags arcs IsNotAccesible (its own single-'s' spelling); emit only when set.
+    let not_accessible = if arc.is_not_accessible {
+        "|IsNotAccesible=T"
+    } else {
+        ""
+    };
     format!(
-        "|RECORD=12|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Radius={}|StartAngle={}|EndAngle={}|LineWidth={}|Color={}|UniqueID={}",
+        "|RECORD=12|IndexInSheet={}|OwnerPartId={}{}|Location.X={}|Location.Y={}|Radius={}|StartAngle={}|EndAngle={}|LineWidth={}|Color={}|UniqueID={}",
         index,
         arc.owner_part_id,
+        not_accessible,
         arc.x,
         arc.y,
         arc.radius,
@@ -523,10 +545,15 @@ fn encode_label(label: &Label, index: usize) -> String {
     #[allow(clippy::cast_possible_truncation)]
     let orientation = (label.rotation / 90.0).round() as i32 % 4;
     let justification = justification_to_id(label.justification);
-    let is_mirrored = if label.is_mirrored { "T" } else { "F" };
-    let is_hidden = if label.is_hidden { "T" } else { "F" };
+    // Altium emits IsMirrored / IsHidden only when true — never `=F`.
+    let is_mirrored = if label.is_mirrored {
+        "|IsMirrored=T"
+    } else {
+        ""
+    };
+    let is_hidden = if label.is_hidden { "|IsHidden=T" } else { "" };
     format!(
-        "|RECORD=4|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T|Location.X={}|Location.Y={}|Color={}|FontID={}|Orientation={}|Justification={}|IsMirrored={}|IsHidden={}|Text={}|UniqueID={}",
+        "|RECORD=4|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T|Location.X={}|Location.Y={}|Color={}|FontID={}|Orientation={}|Justification={}{}{}|Text={}|UniqueID={}",
         index,
         label.owner_part_id,
         label.x,
@@ -1054,5 +1081,89 @@ mod tests {
         // LibRef should use the OLE-safe name
         let text = String::from_utf8_lossy(&data[4..]);
         assert!(text.contains("LibRef0=AAAAAAAAAAAAAAAAAAAAAAAAAAA~001"));
+    }
+
+    #[test]
+    fn test_parameter_canonical_emission() {
+        // Not hidden, empty value, zero read-only/param-type: Altium omits those keys.
+        let mut p = Parameter::new("Comment", "");
+        let s = encode_parameter(&p, 1);
+        assert!(
+            !s.contains("IsHidden"),
+            "omit IsHidden when not hidden: {s}"
+        );
+        assert!(!s.contains("Text="), "omit Text when empty: {s}");
+        assert!(
+            !s.contains("ReadOnlyState"),
+            "omit ReadOnlyState when 0: {s}"
+        );
+        assert!(!s.contains("ParamType"), "omit ParamType when 0: {s}");
+
+        // Hidden + value + a preserved UniqueID.
+        p.hidden = true;
+        p.value = "10k".to_string();
+        p.unique_id = Some("ABCD1234".to_string());
+        let s = encode_parameter(&p, 1);
+        assert!(
+            s.contains("|IsHidden=T"),
+            "emit IsHidden=T when hidden: {s}"
+        );
+        assert!(!s.contains("IsHidden=F"), "never IsHidden=F: {s}");
+        assert!(s.contains("|Text=10k"), "emit Text when set: {s}");
+        assert!(
+            s.contains("|UniqueID=ABCD1234"),
+            "preserve read UniqueID: {s}"
+        );
+    }
+
+    #[test]
+    fn test_label_booleans_only_when_true() {
+        let mut label = Label {
+            x: 0,
+            y: 0,
+            text: "R".to_string(),
+            font_id: 1,
+            color: 0,
+            justification: TextJustification::BottomLeft,
+            rotation: 0.0,
+            is_mirrored: false,
+            is_hidden: false,
+            owner_part_id: 1,
+            unique_id: Some("ABCD1234".to_string()),
+        };
+        let s = encode_label(&label, 1);
+        assert!(!s.contains("IsMirrored"), "omit IsMirrored when false: {s}");
+        assert!(!s.contains("IsHidden"), "omit IsHidden when false: {s}");
+
+        label.is_mirrored = true;
+        label.is_hidden = true;
+        let s = encode_label(&label, 1);
+        assert!(s.contains("|IsMirrored=T"), "emit IsMirrored=T: {s}");
+        assert!(s.contains("|IsHidden=T"), "emit IsHidden=T: {s}");
+        assert!(
+            !s.contains("IsMirrored=F") && !s.contains("IsHidden=F"),
+            "never =F: {s}"
+        );
+    }
+
+    #[test]
+    fn test_arc_tags_is_not_accessible() {
+        let arc = Arc {
+            x: 0,
+            y: 0,
+            radius: 10,
+            is_not_accessible: true,
+            start_angle: 0.0,
+            end_angle: 360.0,
+            line_width: 1,
+            color: 0,
+            owner_part_id: 1,
+            unique_id: Some("ABCD1234".to_string()),
+        };
+        let s = encode_arc(&arc, 1);
+        assert!(
+            s.contains("|IsNotAccesible=T"),
+            "arc must tag IsNotAccesible: {s}"
+        );
     }
 }
