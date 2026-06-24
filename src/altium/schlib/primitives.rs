@@ -82,6 +82,23 @@ pub struct Pin {
     /// Symbol decoration outside the pin line.
     #[serde(default)]
     pub symbol_outside: PinSymbol,
+
+    /// Pin formal type byte. Altium emits `1` for a normal pin; preserved on
+    /// round-trip. Non-default values come from Altium-authored files.
+    #[serde(default = "default_formal_type")]
+    pub formal_type: u8,
+
+    /// Pin swap-id group (empty for a from-scratch pin).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub swap_id_group: String,
+
+    /// Pin part-and-sequence swap id. Altium's default for a fresh pin is `|&|`.
+    #[serde(default = "default_part_and_sequence")]
+    pub part_and_sequence: String,
+
+    /// Pin default value (empty for a from-scratch pin).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub default_value: String,
 }
 
 const fn default_true() -> bool {
@@ -90,6 +107,14 @@ const fn default_true() -> bool {
 
 const fn default_owner_part() -> i32 {
     1
+}
+
+const fn default_formal_type() -> u8 {
+    1
+}
+
+fn default_part_and_sequence() -> String {
+    "|&|".to_string()
 }
 
 impl Pin {
@@ -123,6 +148,10 @@ impl Pin {
             symbol_outer_edge: PinSymbol::None,
             symbol_inside: PinSymbol::None,
             symbol_outside: PinSymbol::None,
+            formal_type: 1,
+            swap_id_group: String::new(),
+            part_and_sequence: "|&|".to_string(),
+            default_value: String::new(),
         }
     }
 }

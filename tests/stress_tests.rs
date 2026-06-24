@@ -1313,6 +1313,10 @@ fn test_schlib_rename_component() {
         symbol_inside: PinSymbol::None,
         symbol_outside: PinSymbol::None,
         is_not_accessible: false,
+        formal_type: 1,
+        swap_id_group: String::new(),
+        part_and_sequence: "|&|".to_string(),
+        default_value: String::new(),
     });
     lib.add(sym);
     lib.save(&file_path).expect("Failed to write");
@@ -1535,6 +1539,10 @@ fn test_schlib_copy_cross_library() {
         symbol_inside: PinSymbol::None,
         symbol_outside: PinSymbol::None,
         is_not_accessible: false,
+        formal_type: 1,
+        swap_id_group: String::new(),
+        part_and_sequence: "|&|".to_string(),
+        default_value: String::new(),
     });
     source_lib.add(sym);
     source_lib
@@ -1679,6 +1687,10 @@ fn test_schlib_json_roundtrip() {
         symbol_inside: PinSymbol::None,
         symbol_outside: PinSymbol::None,
         is_not_accessible: false,
+        formal_type: 1,
+        swap_id_group: String::new(),
+        part_and_sequence: "|&|".to_string(),
+        default_value: String::new(),
     });
     lib.add(sym);
     lib.save(&original_path).expect("Failed to write original");
@@ -1948,6 +1960,10 @@ fn test_schlib_merge_libraries() {
         symbol_inside: PinSymbol::None,
         symbol_outside: PinSymbol::None,
         is_not_accessible: false,
+        formal_type: 1,
+        swap_id_group: String::new(),
+        part_and_sequence: "|&|".to_string(),
+        default_value: String::new(),
     });
     lib2.add(sym2);
     lib2.save(&source2_path).expect("Failed to write source2");
@@ -2253,6 +2269,10 @@ fn test_schlib_get_component() {
         symbol_inside: PinSymbol::None,
         symbol_outside: PinSymbol::None,
         is_not_accessible: false,
+        formal_type: 1,
+        swap_id_group: String::new(),
+        part_and_sequence: "|&|".to_string(),
+        default_value: String::new(),
     });
     lib.add(sym1);
 

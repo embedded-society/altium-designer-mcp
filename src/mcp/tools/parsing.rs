@@ -439,6 +439,10 @@ impl McpServer {
             symbol_inside,
             symbol_outside,
             is_not_accessible: false,
+            formal_type: 1,
+            swap_id_group: String::new(),
+            part_and_sequence: "|&|".to_string(),
+            default_value: String::new(),
         })
     }
 

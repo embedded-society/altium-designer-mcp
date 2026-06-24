@@ -291,7 +291,8 @@ fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
     let (description, next) = crate::altium::framing::read_pascal_string(data, offset);
     offset = next;
 
-    // formal_type (1 byte) - unused
+    // formal_type (1 byte): preserved on round-trip (Altium emits 1).
+    let formal_type = data.get(offset).copied().unwrap_or(1);
     offset += 1;
 
     // electrical_type (1 byte)
@@ -329,7 +330,19 @@ fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
     offset = next;
 
     // designator: [length:1][string]
-    let (designator, _) = crate::altium::framing::read_pascal_string(data, offset);
+    let (designator, next) = crate::altium::framing::read_pascal_string(data, offset);
+    offset = next;
+
+    // Swap-id tail (Pascal short strings), in order: swap_id_group,
+    // part_and_sequence, default_value. `read_pascal_string` returns ("", offset)
+    // safely past the end of a truncated record, so a legacy/short pin reads ""
+    // for any absent tail field; we reproduce exactly what was read (do NOT
+    // coerce an empty part_and_sequence back to "|&|" here).
+    let (swap_id_group, next) = crate::altium::framing::read_pascal_string(data, offset);
+    offset = next;
+    let (part_and_sequence, next) = crate::altium::framing::read_pascal_string(data, offset);
+    offset = next;
+    let (default_value, _) = crate::altium::framing::read_pascal_string(data, offset);
 
     Some(Pin {
         name,
@@ -351,6 +364,10 @@ fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
         symbol_outer_edge,
         symbol_inside,
         symbol_outside,
+        formal_type,
+        swap_id_group,
+        part_and_sequence,
+        default_value,
     })
 }
 
@@ -986,6 +1003,30 @@ mod tests {
             symbol.part_count, 0,
             "raw PartCount=1 must decode to 0, not be floored to 1"
         );
+    }
+
+    #[test]
+    fn pin_tail_round_trips_non_default_values() {
+        use crate::altium::schlib::primitives::{Pin, PinOrientation};
+        use crate::altium::schlib::writer::write_binary_pin;
+
+        let mut pin = Pin::new("VCC", "1", 10, -20, 100, PinOrientation::Right);
+        pin.formal_type = 7;
+        pin.swap_id_group = "GRP".to_string();
+        pin.part_and_sequence = "A|&|B".to_string();
+        pin.default_value = "5V".to_string();
+
+        let mut data = Vec::new();
+        write_binary_pin(&mut data, &pin).unwrap();
+
+        // Strip the [u24 length LE][u8 flags] frame written by write_record_frame.
+        let body = &data[4..];
+        let parsed = parse_binary_pin(body).unwrap();
+
+        assert_eq!(parsed.formal_type, 7);
+        assert_eq!(parsed.swap_id_group, "GRP");
+        assert_eq!(parsed.part_and_sequence, "A|&|B");
+        assert_eq!(parsed.default_value, "5V");
     }
 
     #[test]
