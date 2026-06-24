@@ -354,6 +354,7 @@ fn test_complex_region() {
             Vertex { x: 1.0, y: 2.0 },
             Vertex { x: 0.0, y: 2.0 },
         ],
+        holes: Vec::new(),
         layer: Layer::TopCourtyard,
         flags: PcbFlags::default(),
         unique_id: None,
@@ -392,6 +393,7 @@ fn test_region_with_many_vertices() {
 
     let region = Region {
         vertices,
+        holes: Vec::new(),
         layer: Layer::TopCourtyard,
         flags: PcbFlags::default(),
         unique_id: None,
@@ -406,6 +408,49 @@ fn test_region_with_many_vertices() {
 
     assert_eq!(read_fp.regions.len(), 1);
     assert_eq!(read_fp.regions[0].vertices.len(), n);
+}
+
+#[test]
+fn region_with_holes_round_trips_through_write_then_read() {
+    let temp_dir = test_temp_dir();
+    let file_path = temp_dir.path().join("region_holes.PcbLib");
+
+    let mut lib = PcbLib::new();
+    let mut fp = Footprint::new("REGION_HOLES");
+
+    let mut region = Region::rectangle(0.0, 0.0, 10.0, 10.0, Layer::TopCourtyard);
+    region.holes = vec![
+        vec![
+            Vertex { x: 2.0, y: 2.0 },
+            Vertex { x: 4.0, y: 2.0 },
+            Vertex { x: 4.0, y: 4.0 },
+        ],
+        vec![
+            Vertex { x: 6.0, y: 6.0 },
+            Vertex { x: 8.0, y: 6.0 },
+            Vertex { x: 8.0, y: 8.0 },
+            Vertex { x: 6.0, y: 8.0 },
+        ],
+    ];
+    fp.add_region(region);
+
+    lib.add(fp);
+    lib.save(&file_path).expect("Failed to write");
+
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read");
+    let read_fp = read_lib.get("REGION_HOLES").expect("Footprint not found");
+
+    assert_eq!(read_fp.regions.len(), 1);
+    let r = &read_fp.regions[0];
+    assert_eq!(r.vertices.len(), 4);
+    assert_eq!(r.holes.len(), 2);
+    assert_eq!(r.holes[0].len(), 3);
+    assert_eq!(r.holes[1].len(), 4);
+    // Vertices round-trip via from_mm/to_mm quantisation, so allow a small tolerance
+    // (exact-double fidelity for loaded regions is a separate, deferred change).
+    let v = r.holes[1][3];
+    assert!((v.x - 6.0).abs() < 1e-3, "hole vertex x: {}", v.x);
+    assert!((v.y - 8.0).abs() < 1e-3, "hole vertex y: {}", v.y);
 }
 
 // =============================================================================
@@ -509,6 +554,7 @@ fn test_text_special_strings() {
         rotation: 0.0,
         stroke_font: None,
         stroke_width: None,
+        italic: false,
         justification: TextJustification::default(),
         flags: PcbFlags::default(),
         unique_id: None,
@@ -526,6 +572,7 @@ fn test_text_special_strings() {
         rotation: 0.0,
         stroke_font: None,
         stroke_width: None,
+        italic: false,
         justification: TextJustification::default(),
         flags: PcbFlags::default(),
         unique_id: None,

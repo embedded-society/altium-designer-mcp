@@ -410,6 +410,13 @@ pub(super) fn parse_via(data: &[u8], offset: usize) -> ParseResult<Via> {
     let solder_mask_expansion_mode = block.get(66).map_or(MaskExpansionMode::FromRule, |&b| {
         MaskExpansionMode::from_id(b)
     });
+    // Bottom-face solder-mask expansion @242. Only surfaced when it differs from the
+    // front @54, so a template-default via (both faces equal) reads back as `None`
+    // and re-emits byte-identically.
+    let solder_mask_expansion_back = match (read_i32(block, 242), read_i32(block, 54)) {
+        (Some(back), Some(front)) if back != front => Some(to_mm(back)),
+        _ => None,
+    };
     let diameter_stack_mode = block
         .get(74)
         .map_or(ViaStackMode::Simple, |&b| via_stack_mode_from_id(b));
@@ -435,6 +442,7 @@ pub(super) fn parse_via(data: &[u8], offset: usize) -> ParseResult<Via> {
         to_layer,
         solder_mask_expansion,
         solder_mask_expansion_mode,
+        solder_mask_expansion_back,
         thermal_relief_gap,
         thermal_relief_conductors,
         thermal_relief_width,
@@ -687,6 +695,10 @@ pub(super) fn parse_text(
     // A positive value is surfaced explicitly; 0/absent leaves it as the default.
     let stroke_width = read_i32(geometry_block, 36).filter(|&w| w > 0).map(to_mm);
 
+    // Italic style - offset 45 (bool). Absent/short blocks default to false.
+    // baseFontType@43 is not read: it is fully derived from `kind` (offset 160).
+    let italic = geometry_block.get(45).is_some_and(|&b| b != 0);
+
     // Normal (non-inverted) text does not carry a justification field in this
     // record — it only exists inside the inverted-rectangle sub-block — so
     // default it rather than mis-read a byte inside the font-name field.
@@ -719,6 +731,7 @@ pub(super) fn parse_text(
         kind,
         stroke_font,
         stroke_width,
+        italic,
         justification,
         flags,
         unique_id: None,
@@ -826,6 +839,56 @@ pub(super) fn find_ascii_in_block(block: &[u8], pattern: &str) -> Option<usize> 
 /// [x:8 f64][y:8 f64]       // Vertex 2
 /// ...
 /// ```
+/// Reads one count-prefixed vertex contour (`[u32 count][count x 16-byte (x, y)
+/// doubles]`) from `props_block` starting at `at`. Returns the vertices and the
+/// offset just past the contour. `label` names the contour in error messages and
+/// `offset` is the record's absolute base for error reporting.
+#[allow(clippy::cast_possible_truncation)] // Altium coords fit in i32
+fn read_region_contour(
+    props_block: &[u8],
+    at: usize,
+    offset: usize,
+    label: &str,
+) -> Result<(Vec<Vertex>, usize), AltiumError> {
+    let count = read_u32(props_block, at).ok_or_else(|| {
+        AltiumError::parse_error(offset + at, format!("failed to read {label} count"))
+    })? as usize;
+    let data_offset = at + 4;
+    let end = data_offset + count * 16;
+    if props_block.len() < end {
+        return Err(AltiumError::parse_error(
+            offset + at,
+            format!(
+                "Region block too short for {label} with {count} vertices: {} bytes, expected {end}",
+                props_block.len()
+            ),
+        ));
+    }
+
+    let mut contour = Vec::with_capacity(count);
+    for i in 0..count {
+        let base = data_offset + i * 16;
+        let x_internal = read_f64(props_block, base).ok_or_else(|| {
+            AltiumError::parse_error(
+                offset + base,
+                format!("failed to read {label} vertex {i} x"),
+            )
+        })?;
+        let y_internal = read_f64(props_block, base + 8).ok_or_else(|| {
+            AltiumError::parse_error(
+                offset + base + 8,
+                format!("failed to read {label} vertex {i} y"),
+            )
+        })?;
+        // Coordinates are doubles in internal units; quantise to mm.
+        contour.push(Vertex {
+            x: to_mm(x_internal.round() as i32),
+            y: to_mm(y_internal.round() as i32),
+        });
+    }
+    Ok((contour, end))
+}
+
 #[allow(clippy::cast_possible_truncation)] // Altium coords fit in i32
 pub(super) fn parse_region(data: &[u8], offset: usize) -> ParseResult<Region> {
     // Region format (observed from Altium files): a single block containing:
@@ -856,7 +919,10 @@ pub(super) fn parse_region(data: &[u8], offset: usize) -> ParseResult<Region> {
     let layer = layer_from_id(layer_id);
     let flags = read_flags(props_block);
 
-    // Skip unknown bytes (5 bytes after header)
+    // @13 reserved | @14-15 hole_count (u16) | @16-17 reserved. The trailing hole
+    // contours (if any) follow the outline. A no-hole region reports 0 here.
+    let hole_count = read_u16(props_block, 14).unwrap_or(0) as usize;
+
     // Read parameter string length at offset 18
     let param_len = read_u32(props_block, 18).ok_or_else(|| {
         AltiumError::parse_error(offset + 18, "failed to read Region parameter string length")
@@ -872,48 +938,19 @@ pub(super) fn parse_region(data: &[u8], offset: usize) -> ParseResult<Region> {
         ));
     }
 
-    // Read vertex count
-    let vertex_count = read_u32(props_block, vertex_offset).ok_or_else(|| {
-        AltiumError::parse_error(offset + vertex_offset, "failed to read Region vertex count")
-    })? as usize;
+    // Outline contour: count-prefixed vertices immediately after the param string.
+    let (vertices, mut next_offset) =
+        read_region_contour(props_block, vertex_offset, offset, "Region vertex")?;
 
-    // Each vertex is 2 doubles (16 bytes)
-    let vertex_data_offset = vertex_offset + 4;
-    let expected_size = vertex_data_offset + vertex_count * 16;
-
-    if props_block.len() < expected_size {
-        return Err(AltiumError::parse_error(
-            offset,
-            format!(
-                "Region block too short for {vertex_count} vertices: {} bytes, expected {expected_size}",
-                props_block.len()
-            ),
-        ));
-    }
-
-    // Parse vertices
-    let mut vertices = Vec::with_capacity(vertex_count);
-    for i in 0..vertex_count {
-        let base = vertex_data_offset + i * 16;
-        // Coordinates stored as doubles in internal units
-        let x_internal = read_f64(props_block, base).ok_or_else(|| {
-            AltiumError::parse_error(
-                offset + base,
-                format!("failed to read Region vertex {i} x coordinate"),
-            )
-        })?;
-        let y_internal = read_f64(props_block, base + 8).ok_or_else(|| {
-            AltiumError::parse_error(
-                offset + base + 8,
-                format!("failed to read Region vertex {i} y coordinate"),
-            )
-        })?;
-
-        // Convert from internal units to mm
-        let x = to_mm(x_internal.round() as i32);
-        let y = to_mm(y_internal.round() as i32);
-
-        vertices.push(Vertex { x, y });
+    // Trailing hole contours follow the outline, each as `[u32 count][count*16B]`.
+    // `hole_count` (read from @14) bounds the loop; the helper length-guards each
+    // contour so a truncated block fails cleanly instead of over-reading.
+    let mut holes = Vec::with_capacity(hole_count);
+    for h in 0..hole_count {
+        let label = format!("Region hole {h}");
+        let (contour, end) = read_region_contour(props_block, next_offset, offset, &label)?;
+        holes.push(contour);
+        next_offset = end;
     }
 
     // A region is a single block — there is no trailing empty "Block 1". Altium
@@ -922,6 +959,7 @@ pub(super) fn parse_region(data: &[u8], offset: usize) -> ParseResult<Region> {
     // which against a real Altium region would mis-read the next record's bytes.)
     let region = Region {
         vertices,
+        holes,
         layer,
         flags,
         unique_id: None,

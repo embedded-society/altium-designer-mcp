@@ -26,6 +26,11 @@ fn write_u32(data: &mut Vec<u8>, value: u32) {
     data.extend_from_slice(&value.to_le_bytes());
 }
 
+/// Writes a 2-byte little-endian unsigned integer.
+fn write_u16(data: &mut Vec<u8>, value: u16) {
+    data.extend_from_slice(&value.to_le_bytes());
+}
+
 /// Writes a 4-byte little-endian signed integer.
 fn write_i32(data: &mut Vec<u8>, value: i32) {
     data.extend_from_slice(&value.to_le_bytes());
@@ -680,6 +685,13 @@ fn encode_via(data: &mut Vec<u8>, via: &Via) {
     block[66] = via.solder_mask_expansion_mode.to_id();
     block[74] = via_stack_mode_to_id(via.diameter_stack_mode);
 
+    // Bottom-face solder-mask expansion @242. `None` mirrors the front face, so a
+    // default via reproduces the front bytes (preserving round-trip identity).
+    let back = via
+        .solder_mask_expansion_back
+        .unwrap_or(via.solder_mask_expansion);
+    block[242..246].copy_from_slice(&from_mm(back).to_le_bytes());
+
     // Per-layer diameters: 32 x i32 from offset 75. A real stack uses the
     // per-layer array; a simple via repeats its diameter on every layer so it
     // never reads back as zero-diameter per layer.
@@ -853,7 +865,7 @@ const TEXT_SR1_TEMPLATE: [u8; 252] = [
 /// varying field is written at its fixed offset. Real Altium text records are
 /// always this fixed 252-byte block — the previous ~80-byte guessed layout put
 /// the kind, stroke width, font id and v7 layer id at the wrong places.
-fn encode_text_geometry(text: &Text) -> Vec<u8> {
+pub fn encode_text_geometry(text: &Text) -> Vec<u8> {
     let mut block = TEXT_SR1_TEMPLATE;
 
     // Common header (offsets 0-12): layer + Altium flag word + 0xFF net/poly/comp.
@@ -880,6 +892,14 @@ fn encode_text_geometry(text: &Text) -> Vec<u8> {
 
     // Authoritative text kind (offset 160).
     block[160] = text_kind_to_id(text.kind);
+
+    // Base font type (offset 43) is derived from the text kind: Stroke -> 0,
+    // TrueType -> 1. The template default is 0, so stroke text stays
+    // byte-identical; the only change is the previously malformed TrueType record
+    // (kind@160=1 with base@43=0). BarCode is a deferred kind and not modelled here.
+    block[43] = u8::from(!matches!(text.kind, TextKind::Stroke));
+    // Italic style (offset 45). Default false reproduces the template's 0x00.
+    block[45] = u8::from(text.italic);
 
     // v7 layer id (offsets 226-229), derived from the layer.
     block[226..230].copy_from_slice(&v7_layer_id(layer_to_id(text.layer)).to_le_bytes());
@@ -922,13 +942,16 @@ fn region_v7_layer_token(layer: Layer) -> String {
 /// Format (matching Altium):
 /// ```text
 /// [common_header:13]       // Layer, flags, padding
-/// [unknown:5]              // Unknown bytes
+/// [reserved:1]             // @13 reserved (0)
+/// [hole_count:2 u16]       // @14-15 number of interior hole contours
+/// [reserved:2]             // @16-17 reserved (0)
 /// [param_len:4 u32]        // Parameter string length
 /// [params:param_len]       // Parameter string (ASCII)
-/// [vertex_count:4 u32]     // Number of vertices
-/// [vertices:count*16]      // Vertices as doubles
+/// [vertex_count:4 u32]     // Number of outline vertices
+/// [vertices:count*16]      // Outline vertices as doubles
+/// [hole:...]               // hole_count x [u32 count][count*16] hole contours
 /// ```
-#[allow(clippy::cast_possible_truncation)] // Vertex count and param length fit in u32
+#[allow(clippy::cast_possible_truncation)] // Vertex/hole count and param length fit in u32/u16
 fn encode_region_properties(region: &Region) -> Vec<u8> {
     let vertex_count = region.vertices.len();
 
@@ -949,21 +972,34 @@ fn encode_region_properties(region: &Region) -> Vec<u8> {
     // Common header (13 bytes)
     write_common_header(&mut block, region.layer, region.flags);
 
-    // Unknown bytes (5 bytes)
-    block.extend_from_slice(&[0x00; 5]);
+    // @13 reserved | @14-15 hole_count (u16 LE) | @16-17 reserved. With no holes
+    // this collapses to `00 00 00 00 00`, byte-identical to the previous output.
+    block.push(0x00);
+    write_u16(&mut block, region.holes.len() as u16);
+    block.extend_from_slice(&[0x00; 2]);
 
     // C-string parameter block (length includes the null terminator).
     write_cstring_param_block(&mut block, &params_bytes);
 
-    // Vertex count
+    // Outline vertex count
     write_u32(&mut block, vertex_count as u32);
 
-    // Vertices as doubles in internal units
+    // Outline vertices as doubles in internal units
     for vertex in &region.vertices {
         let x_internal = f64::from(from_mm(vertex.x));
         let y_internal = f64::from(from_mm(vertex.y));
         write_f64(&mut block, x_internal);
         write_f64(&mut block, y_internal);
+    }
+
+    // Trailing hole contours, each count-prefixed exactly like the outline. With
+    // no holes nothing is appended, so the output is unchanged.
+    for hole in &region.holes {
+        write_u32(&mut block, hole.len() as u32);
+        for vertex in hole {
+            write_f64(&mut block, f64::from(from_mm(vertex.x)));
+            write_f64(&mut block, f64::from(from_mm(vertex.y)));
+        }
     }
 
     block
@@ -1664,6 +1700,7 @@ mod tests {
                 Vertex { x: 1.0, y: 1.0 },
                 Vertex { x: -1.0, y: 1.0 },
             ],
+            holes: Vec::new(),
             layer: Layer::TopCourtyard,
             flags: PcbFlags::default(),
             unique_id: None,
@@ -1688,6 +1725,7 @@ mod tests {
                 Vertex { x: 1.0, y: 1.0 },
                 Vertex { x: -1.0, y: 1.0 },
             ],
+            holes: Vec::new(),
             layer: Layer::TopCourtyard,
             flags: PcbFlags::default(),
             unique_id: None,
@@ -1700,6 +1738,32 @@ mod tests {
             4 + block_len,
             "region must be a single block (4-byte length prefix + payload); \
              trailing bytes indicate a spurious empty block"
+        );
+    }
+
+    #[test]
+    fn encode_region_no_holes_keeps_reserved_bytes() {
+        use crate::altium::pcblib::primitives::Vertex;
+        // Oracle-safety: a region with no holes must emit hole_count=0 and no trailing
+        // arrays, leaving the @13-17 reserved slot as `00 00 00 00 00` (byte-identical
+        // to the pre-holes output). The header is 13 bytes, so the slot is props[13..18].
+        let region = Region {
+            vertices: vec![
+                Vertex { x: -1.0, y: -1.0 },
+                Vertex { x: 1.0, y: -1.0 },
+                Vertex { x: 1.0, y: 1.0 },
+                Vertex { x: -1.0, y: 1.0 },
+            ],
+            holes: Vec::new(),
+            layer: Layer::TopCourtyard,
+            flags: PcbFlags::default(),
+            unique_id: None,
+        };
+        let props = encode_region_properties(&region);
+        assert_eq!(
+            &props[13..18],
+            &[0x00, 0x00, 0x00, 0x00, 0x00],
+            "no-hole region must keep the reserved @13-17 slot zeroed (hole_count=0)"
         );
     }
 
@@ -1860,6 +1924,7 @@ mod tests {
                 Vertex { x: 1.0, y: 1.0 },
                 Vertex { x: -1.0, y: 1.0 },
             ],
+            holes: Vec::new(),
             layer: Layer::TopCourtyard,
             flags: PcbFlags::default(),
             unique_id: None,
@@ -1908,6 +1973,7 @@ mod tests {
             kind: TextKind::Stroke,
             stroke_font: None,
             stroke_width: None,
+            italic: false,
             justification: TextJustification::MiddleCenter,
             flags: PcbFlags::empty(),
             unique_id: None,

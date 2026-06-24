@@ -358,6 +358,16 @@ pub struct Via {
     #[serde(default)]
     pub solder_mask_expansion_mode: MaskExpansionMode,
 
+    /// Bottom-face solder-mask expansion in mm (Altium geometry offset 242). `None`
+    /// mirrors the front-face `solder_mask_expansion` (Altium's template encodes both
+    /// faces equally), so a default via round-trips byte-identically.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::altium::serde_round::option"
+    )]
+    pub solder_mask_expansion_back: Option<f64>,
+
     // Thermal relief settings (for polygon pours)
     /// Thermal relief air gap width in mm (default: 0.254mm = 10 mils).
     #[serde(
@@ -427,6 +437,7 @@ impl Via {
             to_layer: Layer::BottomLayer,
             solder_mask_expansion: 0.0,
             solder_mask_expansion_mode: MaskExpansionMode::FromRule,
+            solder_mask_expansion_back: None,
             thermal_relief_gap: 0.254, // 10 mils
             thermal_relief_conductors: 4,
             thermal_relief_width: 0.254, // 10 mils
@@ -455,6 +466,7 @@ impl Via {
             to_layer: to,
             solder_mask_expansion: 0.0,
             solder_mask_expansion_mode: MaskExpansionMode::FromRule,
+            solder_mask_expansion_back: None,
             thermal_relief_gap: 0.254, // 10 mils
             thermal_relief_conductors: 4,
             thermal_relief_width: 0.254, // 10 mils
