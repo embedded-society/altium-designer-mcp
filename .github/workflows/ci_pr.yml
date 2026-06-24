@@ -146,16 +146,19 @@ jobs:
               if: runner.os == 'Linux'
               run: python3 tests/integration/test_mcp_tools.py
 
-            # Independent-reader check that generated files are Altium-readable
-            # (issue #68). Install is best-effort; the harness skips cleanly if
-            # pyaltiumlib is unavailable and only fails on a NEW regression.
-            - name: Run Altium-readability oracle
+            # Independent-reader gate: confirm generated files are Altium-readable
+            # (issue #68) by parsing them with pyaltiumlib. Dependencies are pinned
+            # (requirements.txt) and isolated in a venv so the install is
+            # reproducible; ORACLE_REQUIRE_DEPS turns a missing dependency into a
+            # hard failure instead of a silent skip. Fails on any NEW regression.
+            - name: Run Altium-readability oracle (pyaltiumlib)
               if: runner.os == 'Linux'
+              env:
+                  ORACLE_REQUIRE_DEPS: "1"
               run: |
-                  python3 -m pip install --user --quiet pyaltiumlib olefile \
-                    || python3 -m pip install --user --quiet --break-system-packages pyaltiumlib olefile \
-                    || echo "pyaltiumlib install failed; oracle will skip"
-                  python3 tests/integration/test_altium_readability.py
+                  python3 -m venv tests/integration/.venv
+                  tests/integration/.venv/bin/pip install --quiet -r tests/integration/requirements.txt
+                  tests/integration/.venv/bin/python tests/integration/test_altium_readability.py
 
     coverage:
         name: Code Coverage

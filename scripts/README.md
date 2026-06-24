@@ -1,79 +1,51 @@
 # Scripts
 
-On-site developer tooling for working with the Altium binary formats. Everything here is for
-**manual, local use only** — none of it is part of the automated test suite, and **none of it
-runs in CI**. (CI verifies Altium-readability through the independent `pyaltiumlib` oracle in
+On-site developer tooling for the Altium binary formats. Everything here is for **manual,
+local use only** — none of it is part of the automated test suite, and **none of it runs in
+CI**. (CI verifies Altium-readability through the independent `pyaltiumlib` oracle in
 [`tests/integration/`](../tests/integration/).)
 
-The folder is organised into three parts:
+| Path | What it is | Needs Altium? |
+|------|------------|---------------|
+| [`Verify-Libraries.ps1`](Verify-Libraries.ps1) | Launch Altium to confirm a `.PcbLib`/`.SchLib` opens cleanly | **Yes** |
+| [`Generate-Samples.ps1`](Generate-Samples.ps1) | Launch Altium to author the golden sample libraries | **Yes** |
+| [`Resolve-AltiumExe.ps1`](Resolve-AltiumExe.ps1) | Shared helper: read `ALTIUM_EXE` from the repo-root `.env.local` | — |
+| [`altium/`](altium/) | The DelphiScript automation the launchers run | **Yes** |
+| [`samples/`](samples/) | Altium-authored golden libraries (ground truth for the tests) | No |
 
-| Folder | What it is | Needs Altium? |
-|--------|------------|---------------|
-| [`analyse/`](analyse/) | Passive binary-format dumpers (pure Python + `olefile`) | No |
-| [`altium/`](altium/) | On-site automation driven by a real Altium install | **Yes** |
-| [`samples/`](samples/) | Altium-authored reference libraries (ground truth for RE) | No |
+## Configuration — `.env.local`
 
----
+The launchers do **not** auto-discover Altium, because multiple versions may be installed and
+the wrong one could be picked. Copy the repo-root [`.env.local.example`](../.env.local.example)
+to `.env.local` (gitignored, per-machine) and set the path to your `X2.EXE`:
 
-## `analyse/` — binary-format analysis
-
-Dump the OLE structure and decoded primitive data of any `.PcbLib` / `.SchLib`, to help
-reverse-engineer the format. Pure Python; the only dependency is `olefile`.
-
-### Prerequisites
-
-Run these from the `scripts/` folder:
-
-```bash
-python -m venv .venv
-.venv\Scripts\activate          # Windows
-# or: source .venv/bin/activate  # Linux/macOS
-
-pip install olefile
+```ini
+ALTIUM_EXE=C:\Program Files\Altium\AD24\X2.EXE
 ```
 
-### Usage
-
-```bash
-# Default to the bundled Altium-authored sample in samples/
-python analyse/analyse_pcblib.py
-python analyse/analyse_schlib.py
-
-# Or point at a specific file
-python analyse/analyse_pcblib.py path/to/library.PcbLib
-python analyse/analyse_schlib.py path/to/library.SchLib
-```
-
-Output: OLE streams and storages, component names and parameters, and decoded primitive data
-(pads, tracks, arcs, pins, rectangles, …) with the byte-level detail needed for reverse
-engineering.
-
----
+Or pass `-AltiumExe <path>` to either launcher to override.
 
 ## `altium/` — on-site Altium automation
 
-Automation that drives a **real, locally-installed Altium Designer** to verify our output and to
-author golden reference libraries. Because it needs the GUI application and a licence, it
-**cannot run in CI** — it is strictly an on-site developer aid.
+DelphiScript that drives a **real, locally-installed Altium Designer** (developed against AD24)
+through Altium's `RunScript` CLI. Because it needs the GUI application and a licence, it
+**cannot run in CI**.
 
-See [`altium/README.md`](altium/README.md) for the planned tooling and prerequisites.
+| Path | Role |
+|------|------|
+| [`altium/verify/`](altium/verify/) | `AltiumVerify.pas` — opens each library and reports PASS/FAIL (run by `Verify-Libraries.ps1`) |
+| [`altium/generate/`](altium/generate/) | `GenerateSamples.pas` — authors the golden libraries (run by `Generate-Samples.ps1`) |
 
----
+The `RunScript` launch and the file-based request/response bridge are adapted from
+[coffeenmusic/altium-mcp](https://github.com/coffeenmusic/altium-mcp) (MIT).
 
-## `samples/` — reference libraries
+## `samples/` — golden libraries
 
-| File | Description |
-|------|-------------|
-| `sample.PcbLib` | Altium-authored PCB footprint library (generic chip resistor footprints) |
-| `sample.SchLib` | Altium-authored schematic symbol library |
+Altium-authored reference libraries, generated on-site by `Generate-Samples.ps1` and committed
+as binaries (like AltiumSharp's `TestData`) so CI can read them without Altium. They are the
+ground truth the reader and round-trip tests validate against. See
+[`samples/README.md`](samples/README.md).
 
-These were created by Altium itself, so they are authoritative ground truth for reverse
-engineering and for byte-diffing against our own writer's output. The `analyse/` scripts default
-to them when run with no argument.
-
----
-
-## Note
-
-The automated tests in [`tests/`](../tests/) generate their own data programmatically and do
-**not** depend on anything in this folder, so CI runs without Altium or these samples.
+> Building the golden set is **iterative**: generate → read back with the Rust tests → extend
+> the authoring script's primitive coverage → regenerate. The `samples/` folder is empty until
+> the first set lands.

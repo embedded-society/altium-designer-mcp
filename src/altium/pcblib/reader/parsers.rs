@@ -790,7 +790,7 @@ pub(super) fn extract_text_from_block(block: &[u8], wide_strings: Option<&WideSt
 
     // Try to find a WideStrings index in the block
     // The WideStringsIndex is a u16 at offset 115 in the geometry block
-    // Verified by reverse-engineering sample.PcbLib with Text primitives
+    // Verified by reverse-engineering an Altium-authored library with Text primitives
     if let Some(ws) = wide_strings {
         if block.len() > 117 {
             if let Some(index) = read_u16(block, 115) {

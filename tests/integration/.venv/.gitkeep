@@ -1,0 +1,3 @@
+# Reserves a home for the oracle's Python virtual environment.
+# Create it here with: python -m venv tests/integration/.venv
+# The venv's contents are gitignored; only this placeholder is tracked.

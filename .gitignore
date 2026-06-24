@@ -4,14 +4,12 @@ Cargo.lock
 .claude/settings.local.json
 nul
 .venv/
+# Reserve the oracle's venv location (the .gitkeep placeholder) while still
+# ignoring the venv's own contents.
+!tests/integration/.venv/
+tests/integration/.venv/*
+!tests/integration/.venv/.gitkeep
 node_modules/
 .tmp/
-
-# Coverage artefacts (cargo-llvm-cov)
-lcov.info
-*.lcov
-*.profraw
-*.profdata
-
-# Python integration-test caches
 __pycache__/
+.env.local
