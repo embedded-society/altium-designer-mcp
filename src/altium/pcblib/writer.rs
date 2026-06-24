@@ -995,8 +995,12 @@ fn encode_fill_block(fill: &Fill) -> Vec<u8> {
     // Rotation (8 bytes)
     write_f64(&mut block, fill.rotation);
 
-    // Unknown padding (13 bytes to match Altium's 50-byte block)
-    block.extend_from_slice(&[0x00; 13]);
+    // Tail (13 bytes, offsets 37-49). Altium carries a layer-derived v7 layer id
+    // at offsets 42-45; the solder-mask (37-40), paste-mask (41) and keepout (46)
+    // sub-fields are not yet modelled and stay zero.
+    let mut tail = [0x00u8; 13];
+    tail[5..9].copy_from_slice(&v7_layer_id(layer_to_id(fill.layer)).to_le_bytes());
+    block.extend_from_slice(&tail);
 
     block
 }
@@ -1860,5 +1864,16 @@ mod tests {
         // Verify each is compressed
         assert!(!prepared[0].1.is_empty());
         assert!(!prepared[1].1.is_empty());
+    }
+
+    #[test]
+    fn fill_block_writes_v7_layer_id() {
+        // The fill tail (offsets 37-49) carries the layer-derived v7 layer id at
+        // 42-45 — previously a blanket [0x00; 13] that left it zeroed.
+        let block = encode_fill_block(&Fill::new(-1.0, -1.0, 1.0, 1.0, Layer::TopPaste));
+        assert_eq!(block.len(), 50);
+        let v7 = u32::from_le_bytes([block[42], block[43], block[44], block[45]]);
+        assert_eq!(v7, v7_layer_id(layer_to_id(Layer::TopPaste)));
+        assert_ne!(v7, 0, "a real layer must yield a non-zero v7 id");
     }
 }
