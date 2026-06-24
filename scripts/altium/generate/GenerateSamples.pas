@@ -94,11 +94,98 @@ begin
                                   PCBM_BoardRegisteration, Pad.I_ObjectAddress);
 end;
 
+{ Adds one track (X1,Y1)->(X2,Y2) mils, width (mils), on Lay. Verified via UL FP_AddLine. }
+procedure AddTrack(Comp : IPCB_LibComponent; X1 : Integer; Y1 : Integer;
+                   X2 : Integer; Y2 : Integer; W : Integer; Lay : TLayer);
+var
+    Trk : IPCB_Track;
+begin
+    Trk := PCBServer.PCBObjectFactory(eTrackObject, eNoDimension, eCreate_Default);
+    if Trk = nil then Exit;
+    Trk.X1    := MilsToCoord(X1);
+    Trk.Y1    := MilsToCoord(Y1);
+    Trk.X2    := MilsToCoord(X2);
+    Trk.Y2    := MilsToCoord(Y2);
+    Trk.Width := MilsToCoord(W);
+    Trk.Layer := Lay;
+    Comp.AddPCBObject(Trk);
+    PCBServer.SendMessageToRobots(Comp.I_ObjectAddress, c_Broadcast,
+                                  PCBM_BoardRegisteration, Trk.I_ObjectAddress);
+end;
+
+{ Adds one arc centred (XC,YC) mils, radius/width (mils), start/end angles in degrees
+  (CCW from +X; full circle = 0..360). Verified via UL FP_AddArc: the width property is
+  LineWidth (NOT Width), and the angles take NO MilsToCoord wrapper. }
+procedure AddArc(Comp : IPCB_LibComponent; XC : Integer; YC : Integer; Radius : Integer;
+                 StartAngle : Double; EndAngle : Double; W : Integer; Lay : TLayer);
+var
+    Arc : IPCB_Arc;
+begin
+    Arc := PCBServer.PCBObjectFactory(eArcObject, eNoDimension, eCreate_Default);
+    if Arc = nil then Exit;
+    Arc.XCenter    := MilsToCoord(XC);
+    Arc.YCenter    := MilsToCoord(YC);
+    Arc.Radius     := MilsToCoord(Radius);
+    Arc.LineWidth  := MilsToCoord(W);
+    Arc.StartAngle := StartAngle;
+    Arc.EndAngle   := EndAngle;
+    Arc.Layer      := Lay;
+    Comp.AddPCBObject(Arc);
+    PCBServer.SendMessageToRobots(Comp.I_ObjectAddress, c_Broadcast,
+                                  PCBM_BoardRegisteration, Arc.I_ObjectAddress);
+end;
+
+{ Adds a filled rectangular region with corners (X1,Y1)-(X2,Y2) in mils, on Lyr.
+  Contour API verbatim from UL FP_AddPoly: MainContour.Replicate -> Count -> 1-based
+  X[i]/Y[i] -> SetOutlineContour (Altium auto-closes). A 4-vertex box keeps the
+  authoring free of array literals (unverified in DelphiScript); polygons come later. }
+procedure AddRegionBox(Comp : IPCB_LibComponent; X1 : Integer; Y1 : Integer;
+                       X2 : Integer; Y2 : Integer; Lyr : TLayer);
+var
+    Rgn  : IPCB_Region;
+    Cont : IPCB_Contour;
+begin
+    Rgn := PCBServer.PCBObjectFactory(eRegionObject, eNoDimension, eCreate_Default);
+    if Rgn = nil then Exit;
+    Cont := Rgn.MainContour.Replicate;
+    Rgn.Layer := Lyr;
+    Cont.Count := 4;
+    Cont.X[1] := MilsToCoord(X1);  Cont.Y[1] := MilsToCoord(Y1);
+    Cont.X[2] := MilsToCoord(X2);  Cont.Y[2] := MilsToCoord(Y1);
+    Cont.X[3] := MilsToCoord(X2);  Cont.Y[3] := MilsToCoord(Y2);
+    Cont.X[4] := MilsToCoord(X1);  Cont.Y[4] := MilsToCoord(Y2);
+    Rgn.SetOutlineContour(Cont);
+    Comp.AddPCBObject(Rgn);
+    PCBServer.SendMessageToRobots(Comp.I_ObjectAddress, c_Broadcast,
+                                  PCBM_BoardRegisteration, Rgn.I_ObjectAddress);
+end;
+
+{ Adds one stroke-font text. X,Y,Height in mils; Rot in degrees; Content is Windows-1252.
+  Factory default = stroke font. Verified via UL FP_AddText: .Size IS the text height. }
+procedure AddText(Comp : IPCB_LibComponent; X : Integer; Y : Integer; Content : String;
+                  Height : Integer; Rot : Double; Lyr : TLayer);
+var
+    Txt : IPCB_Text;
+begin
+    Txt := PCBServer.PCBObjectFactory(eTextObject, eNoDimension, eCreate_Default);
+    if Txt = nil then Exit;
+    Txt.XLocation := MilsToCoord(X);
+    Txt.YLocation := MilsToCoord(Y);
+    Txt.Layer     := Lyr;
+    Txt.Size      := MilsToCoord(Height);
+    Txt.Rotation  := Rot;
+    Txt.Text      := Content;
+    Comp.AddPCBObject(Txt);
+    PCBServer.SendMessageToRobots(Comp.I_ObjectAddress, c_Broadcast,
+                                  PCBM_BoardRegisteration, Txt.I_ObjectAddress);
+end;
+
 { ---- PcbLib authoring -------------------------------------------------------
 
-  Build order: PAD_SHAPES (four SMD pads, one per TShape) + PAD_HOLES (through-hole
-  pads, one per hole shape — non-round holes exercise the 651-byte size/shape block).
-  Expand to stacks, vias, tracks, arcs, regions, text, fills and 3D bodies later. }
+  Footprints: PAD_SHAPES, PAD_HOLES, VIAS, TRACKS, ARCS, REGIONS, TEXT_STROKE. Each new
+  footprint is wrapped in try/except so one failing primitive doesn't abort the whole
+  script (a missing footprint then shows up as a failed read test). FILLS, blind/buried
+  vias, stacks and 3D bodies follow in later batches. }
 procedure GeneratePcbLib;
 var
     Lib   : IPCB_Library;
@@ -137,6 +224,60 @@ begin
     AddThPad(Comp, 100, eSquareHole, 30,  0, '2');
     AddThPad(Comp, 200, eSlotHole,   40, 20, '3');
     PCBServer.PostProcess;
+
+    // TRACKS: a 4-segment silk box (10 mil) + one wider copper track (20 mil).
+    try
+        Comp := PCBServer.CreatePCBLibComp;
+        Comp.Name := 'TRACKS';
+        Lib.RegisterComponent(Comp);
+        PCBServer.PreProcess;
+        AddTrack(Comp, -100, -100,  100, -100, 10, eTopOverlay);
+        AddTrack(Comp,  100, -100,  100,  100, 10, eTopOverlay);
+        AddTrack(Comp,  100,  100, -100,  100, 10, eTopOverlay);
+        AddTrack(Comp, -100,  100, -100, -100, 10, eTopOverlay);
+        AddTrack(Comp, -100,    0,  100,    0, 20, eTopLayer);
+        PCBServer.PostProcess;
+    except
+    end;
+
+    // ARCS: full circle (r=50) + quarter arc (r=40).
+    try
+        Comp := PCBServer.CreatePCBLibComp;
+        Comp.Name := 'ARCS';
+        Lib.RegisterComponent(Comp);
+        PCBServer.PreProcess;
+        AddArc(Comp,   0, 0, 50, 0.0, 360.0,  8, eTopOverlay);
+        AddArc(Comp, 200, 0, 40, 0.0,  90.0, 10, eTopOverlay);
+        PCBServer.PostProcess;
+    except
+    end;
+
+    // REGIONS: a copper box + a mechanical box (4-vertex each).
+    try
+        Comp := PCBServer.CreatePCBLibComp;
+        Comp.Name := 'REGIONS';
+        Lib.RegisterComponent(Comp);
+        PCBServer.PreProcess;
+        AddRegionBox(Comp, -50, -50,  50,  50, eTopLayer);
+        AddRegionBox(Comp, 150, -40, 250,  40, eMechanical1);
+        PCBServer.PostProcess;
+    except
+    end;
+
+    // TEXT_STROKE: stroke text incl. a 90-deg rotation. (Win-1252 high chars deferred —
+    // DelphiScript did not interpret the #$B5 char literal; needs a Chr()-based approach.)
+    try
+        Comp := PCBServer.CreatePCBLibComp;
+        Comp.Name := 'TEXT_STROKE';
+        Lib.RegisterComponent(Comp);
+        PCBServer.PreProcess;
+        AddText(Comp,   0,   0, 'REF',  60,  0, eTopOverlay);
+        AddText(Comp,   0, 100, '10uF', 50,  0, eTopOverlay);
+        AddText(Comp, 200,   0, 'VERT', 60, 90, eTopOverlay);
+        AddText(Comp, 200, 100, '4u7',  50,  0, eTopOverlay);
+        PCBServer.PostProcess;
+    except
+    end;
 
     Lib.CurrentComponent := Comp;
 

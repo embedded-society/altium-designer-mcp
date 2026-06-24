@@ -5,7 +5,7 @@
 //! against the file's authored intent (rather than round-tripping our own
 //! writer's output, as `file_io_roundtrip.rs` does).
 
-use altium_designer_mcp::altium::pcblib::{HoleShape, Layer, PadShape, PcbLib};
+use altium_designer_mcp::altium::pcblib::{HoleShape, Layer, PadShape, PcbLib, TextKind};
 use std::path::PathBuf;
 
 /// Resolves a sample fixture by name under `scripts/samples/`.
@@ -37,17 +37,22 @@ fn samples_exist() {
 fn samples_pcblib_pad_shapes() {
     let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
 
-    // The library contains two footprints, PAD_SHAPES and PAD_HOLES.
-    assert_eq!(lib.len(), 2, "expected exactly two footprints");
+    // The library contains six footprints, one per primitive family.
+    assert_eq!(lib.len(), 6, "expected exactly six footprints");
     let names = lib.names();
-    assert!(
-        names.iter().any(|n| n == "PAD_SHAPES"),
-        "PAD_SHAPES missing from {names:?}",
-    );
-    assert!(
-        names.iter().any(|n| n == "PAD_HOLES"),
-        "PAD_HOLES missing from {names:?}",
-    );
+    for expected in [
+        "PAD_SHAPES",
+        "PAD_HOLES",
+        "TRACKS",
+        "ARCS",
+        "REGIONS",
+        "TEXT_STROKE",
+    ] {
+        assert!(
+            names.iter().any(|n| n == expected),
+            "{expected} missing from {names:?}",
+        );
+    }
 
     let footprint = lib
         .get("PAD_SHAPES")
@@ -130,5 +135,204 @@ fn samples_pcblib_pad_holes() {
         );
 
         assert_eq!(pad.hole_shape, hole_shape, "pad {designator} hole_shape");
+    }
+}
+
+#[test]
+fn samples_pcblib_tracks() {
+    let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
+
+    let footprint = lib.get("TRACKS").expect("footprint TRACKS not found");
+    assert_eq!(footprint.name, "TRACKS");
+    assert_eq!(footprint.tracks.len(), 5, "TRACKS has 5 tracks");
+
+    // Authored: a 5.08 mm silk box (four 0.254 mm = 10 mil segments on Top Overlay)
+    // plus one 0.508 mm = 20 mil copper track across the middle on Top Layer. We
+    // identify each by endpoints (order on disk is not guaranteed).
+    let silk_segments: [(f64, f64, f64, f64); 4] = [
+        (-2.54, -2.54, 2.54, -2.54),
+        (2.54, -2.54, 2.54, 2.54),
+        (2.54, 2.54, -2.54, 2.54),
+        (-2.54, 2.54, -2.54, -2.54),
+    ];
+
+    for (x1, y1, x2, y2) in silk_segments {
+        let track = footprint
+            .tracks
+            .iter()
+            .find(|t| {
+                approx_eq(t.x1, x1, 1e-3)
+                    && approx_eq(t.y1, y1, 1e-3)
+                    && approx_eq(t.x2, x2, 1e-3)
+                    && approx_eq(t.y2, y2, 1e-3)
+            })
+            .unwrap_or_else(|| panic!("silk track ({x1},{y1})->({x2},{y2}) not found"));
+
+        assert_eq!(track.layer, Layer::TopOverlay, "silk track layer");
+        assert!(
+            approx_eq(track.width, 0.254, 1e-3),
+            "silk track width: expected ~0.254 mm, got {}",
+            track.width,
+        );
+    }
+
+    // The lone copper track is the only 0.508 mm (20 mil) one.
+    let copper = footprint
+        .tracks
+        .iter()
+        .find(|t| approx_eq(t.width, 0.508, 1e-3))
+        .expect("copper track (width ~0.508 mm) not found");
+    assert_eq!(copper.layer, Layer::TopLayer, "copper track layer");
+    assert!(
+        approx_eq(copper.x1, -2.54, 1e-3)
+            && approx_eq(copper.y1, 0.0, 1e-3)
+            && approx_eq(copper.x2, 2.54, 1e-3)
+            && approx_eq(copper.y2, 0.0, 1e-3),
+        "copper track endpoints: got ({},{})->({},{})",
+        copper.x1,
+        copper.y1,
+        copper.x2,
+        copper.y2,
+    );
+}
+
+#[test]
+fn samples_pcblib_arcs() {
+    let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
+
+    let footprint = lib.get("ARCS").expect("footprint ARCS not found");
+    assert_eq!(footprint.name, "ARCS");
+    assert_eq!(footprint.arcs.len(), 2, "ARCS has 2 arcs");
+
+    // Two arcs on the Top Overlay: a full circle and a quarter arc. We identify
+    // them by radius (1.270 mm = 50 mil vs 1.016 mm = 40 mil).
+    let circle = footprint
+        .arcs
+        .iter()
+        .find(|a| approx_eq(a.radius, 1.270, 1e-2))
+        .expect("full-circle arc (radius ~1.270 mm) not found");
+    assert_eq!(circle.layer, Layer::TopOverlay, "circle layer");
+    assert!(
+        approx_eq(circle.x, 0.0, 1e-3) && approx_eq(circle.y, 0.0, 1e-3),
+        "circle centre: got ({},{})",
+        circle.x,
+        circle.y,
+    );
+    assert!(
+        approx_eq(circle.start_angle, 0.0, 1e-2),
+        "circle start angle: expected ~0, got {}",
+        circle.start_angle,
+    );
+    assert!(
+        approx_eq(circle.end_angle, 360.0, 1e-2),
+        "circle end angle: expected ~360, got {}",
+        circle.end_angle,
+    );
+
+    let quarter = footprint
+        .arcs
+        .iter()
+        .find(|a| approx_eq(a.radius, 1.016, 1e-2))
+        .expect("quarter arc (radius ~1.016 mm) not found");
+    assert_eq!(quarter.layer, Layer::TopOverlay, "quarter arc layer");
+    assert!(
+        approx_eq(quarter.x, 5.08, 1e-3) && approx_eq(quarter.y, 0.0, 1e-3),
+        "quarter arc centre: got ({},{})",
+        quarter.x,
+        quarter.y,
+    );
+    assert!(
+        approx_eq(quarter.start_angle, 0.0, 1e-2),
+        "quarter arc start angle: expected ~0, got {}",
+        quarter.start_angle,
+    );
+    assert!(
+        approx_eq(quarter.end_angle, 90.0, 1e-2),
+        "quarter arc end angle: expected ~90, got {}",
+        quarter.end_angle,
+    );
+}
+
+#[test]
+fn samples_pcblib_regions() {
+    let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
+
+    let footprint = lib.get("REGIONS").expect("footprint REGIONS not found");
+    assert_eq!(footprint.name, "REGIONS");
+    assert_eq!(footprint.regions.len(), 2, "REGIONS has 2 regions");
+
+    // Each region is a 4-vertex box; one is on the Top Layer, the other on
+    // Mechanical 1.
+    for region in &footprint.regions {
+        assert_eq!(
+            region.vertices.len(),
+            4,
+            "each region is a 4-vertex box, got {} on {:?}",
+            region.vertices.len(),
+            region.layer,
+        );
+    }
+
+    assert!(
+        footprint.regions.iter().any(|r| r.layer == Layer::TopLayer),
+        "expected a region on Top Layer, layers: {:?}",
+        footprint
+            .regions
+            .iter()
+            .map(|r| r.layer)
+            .collect::<Vec<_>>(),
+    );
+    assert!(
+        footprint
+            .regions
+            .iter()
+            .any(|r| r.layer == Layer::Mechanical1),
+        "expected a region on Mechanical 1, layers: {:?}",
+        footprint
+            .regions
+            .iter()
+            .map(|r| r.layer)
+            .collect::<Vec<_>>(),
+    );
+}
+
+#[test]
+fn samples_pcblib_text_stroke() {
+    let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
+
+    let footprint = lib
+        .get("TEXT_STROKE")
+        .expect("footprint TEXT_STROKE not found");
+    assert_eq!(footprint.name, "TEXT_STROKE");
+    assert_eq!(footprint.text.len(), 4, "TEXT_STROKE has 4 strings");
+
+    // Four stroke-font strings on the Top Overlay. We look each up by content and
+    // assert its height (mm), rotation, and that it is stroke (vector) text.
+    let expected: [(&str, f64, f64); 4] = [
+        ("REF", 1.524, 0.0),   // 60 mil, upright
+        ("10uF", 1.270, 0.0),  // 50 mil, upright
+        ("VERT", 1.524, 90.0), // 60 mil, rotated
+        ("4u7", 1.270, 0.0),   // 50 mil, upright
+    ];
+
+    for (content, height, rotation) in expected {
+        let text = footprint
+            .text
+            .iter()
+            .find(|t| t.text == content)
+            .unwrap_or_else(|| panic!("text {content:?} not found"));
+
+        assert_eq!(text.layer, Layer::TopOverlay, "text {content:?} layer");
+        assert_eq!(text.kind, TextKind::Stroke, "text {content:?} kind");
+        assert!(
+            approx_eq(text.height, height, 1e-2),
+            "text {content:?} height: expected ~{height} mm, got {}",
+            text.height,
+        );
+        assert!(
+            approx_eq(text.rotation, rotation, 1e-2),
+            "text {content:?} rotation: expected ~{rotation}, got {}",
+            text.rotation,
+        );
     }
 }
