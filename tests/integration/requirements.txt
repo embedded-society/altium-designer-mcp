@@ -1,0 +1,12 @@
+# Dependencies for the Altium-readability oracle (test_altium_readability.py).
+# Pinned for reproducible local + CI runs. The recommended local venv lives next
+# to this file (see the committed .venv/.gitkeep placeholder):
+#
+#   python -m venv tests/integration/.venv
+#   tests/integration/.venv/Scripts/Activate.ps1     # Windows (PowerShell)
+#   source tests/integration/.venv/bin/activate      # Linux / macOS
+#   pip install -r tests/integration/requirements.txt
+#
+# Then: python tests/integration/test_altium_readability.py
+pyaltiumlib==0.6.1
+olefile==0.47

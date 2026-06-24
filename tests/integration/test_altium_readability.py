@@ -15,8 +15,10 @@ a documented-broken check that fails is tolerated, a NEW failure (regression)
 fails the run, and a known failure that starts passing is flagged so it can be
 promoted. When ``KNOWN_FAILURES`` is empty the harness is fully strict.
 
-Requires ``pyaltiumlib`` and ``olefile`` (``pip install pyaltiumlib olefile``);
-skips cleanly if they are absent so environments without them are not broken.
+Requires ``pyaltiumlib`` and ``olefile`` (``pip install -r
+tests/integration/requirements.txt``); skips cleanly if they are absent so local
+environments without them are not broken — unless ``ORACLE_REQUIRE_DEPS`` is set
+(CI does), which makes a missing dependency a hard failure instead of a silent skip.
 
     cargo build
     python3 tests/integration/test_altium_readability.py
@@ -187,8 +189,12 @@ def main():
         import pyaltiumlib  # noqa: F401
         import olefile  # noqa: F401
     except ImportError as e:
-        print(f"SKIP: Altium-readability oracle needs pyaltiumlib + olefile ({e}). "
-              "Install with: pip install pyaltiumlib olefile")
+        msg = (f"Altium-readability oracle needs pyaltiumlib + olefile ({e}). "
+               "Install with: pip install -r tests/integration/requirements.txt")
+        if os.environ.get("ORACLE_REQUIRE_DEPS"):
+            print(f"ERROR: {msg}")
+            return 1
+        print(f"SKIP: {msg}")
         return 0
 
     binary = find_binary()
