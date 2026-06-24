@@ -40,12 +40,11 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
 
 ### A2. PcbLib stream / container layer
 
-- [ ] 🔴 **SectionKeys** stream never read/written (needed for long component names).
-- [ ] 🟠 **UniqueIDPrimitiveInformation** `PRIMITIVEINDEX` 0-based vs Altium **1-based**.
-- [ ] 🟠 **WideStrings** empty-encoding (blockLen=2 spurious leading pipe) + non-empty trailing-pipe
-      / `.`-prefixed desync handling.
 - [ ] ⚪ **PrimitiveGuids** sub-storage omitted; missing root streams (FileVersionInfo /
       EmbeddedFonts / LayerKindMap) in the File-Structure tree.
+
+  *(SectionKeys + the non-empty WideStrings fidelity were triaged to §B — they need a real
+  golden `.PcbLib` to settle. PRIMITIVEINDEX and the empty WideStrings form are shipped.)*
 
 ### A3. SchLib records (code bugs + missing features)
 
@@ -90,6 +89,12 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
 - [ ] Use those golden files to settle the ~50 gaps the RE could not confirm: pad cache/marker
       bytes, implementation datafile index base (0 vs 1), `OwnerIndex` on RECORD=45/46/48, pin
       `FormalType` / SwapId aux-stream layouts, etc. (see `{pcb,sch}_live_altium_gaps.json`).
+- [ ] 🔴 **SectionKeys** (long component names): format known (root stream, full-name→storage-key),
+      but the faithful fix is a coupled `Library/Data` full-name flip + reader-reorder lockstep with
+      an undecided `~NNN` collision rule — confirm the need against a real long-name `.PcbLib` first.
+- [ ] **WideStrings Tier 2**: text SubRecord-1 offset-115 `wideStringIndex`, the dot/empty-filtered
+      index base vs Altium's unfiltered, UTF-16-vs-Win1252 encoding, and the root-vs-per-component
+      reader path — needs a real multi-text footprint as the oracle.
 - [ ] Feed confirmed answers back into the fix ladder (especially the pad, A3).
 
 ## C. On-site Altium tooling
