@@ -38,56 +38,76 @@ begin
     end;
 end;
 
+{ Adds one SMD pad to a footprint at (X, 0) mils with the given TShape, size and name.
+  Mode := ePadMode_Simple + HoleSize := 0 make it a true single-layer SMD pad — the v0
+  left the factory's default hole, so it read back as a through-hole pad. Mirrors
+  UltraLibrarian's verified pad flow incl. the board-registration broadcast. }
+procedure AddPad(Comp : IPCB_LibComponent; X : Integer; PadShape : TShape;
+                 W : Integer; H : Integer; Nm : String);
+var
+    Pad : IPCB_Pad;
+begin
+    Pad := PCBServer.PCBObjectFactory(ePadObject, eNoDimension, eCreate_Default);
+    if Pad = nil then Exit;
+    Pad.Name     := Nm;
+    Pad.X        := MilsToCoord(X);
+    Pad.Y        := MilsToCoord(0);
+    Pad.Mode     := ePadMode_Simple;   // single-layer SMD pad (empty size/shape block)
+    Pad.Layer    := eTopLayer;
+    Pad.HoleSize := 0;                 // true SMD: no hole
+    Pad.TopShape := PadShape;
+    Pad.TopXSize := MilsToCoord(W);
+    Pad.TopYSize := MilsToCoord(H);
+    Comp.AddPCBObject(Pad);
+    // Altium's own constant is spelled PCBM_BoardRegisteration (the typo is real).
+    PCBServer.SendMessageToRobots(Comp.I_ObjectAddress, c_Broadcast,
+                                  PCBM_BoardRegisteration, Pad.I_ObjectAddress);
+end;
+
 { ---- PcbLib authoring -------------------------------------------------------
 
-  v0 seed: one footprint with a single SMD pad, saved to OUT_DIR. Expand the
-  placement (pad shapes x hole types, tracks, arcs, regions, text, vias, fills,
-  3D bodies — one footprint per feature) over iterations. }
+  Build order step 2: PAD_SHAPES — four SMD pads, one per TShape (Round, Rectangular,
+  Octagonal, RoundedRectangle), oblong (W != H). Expand to holes, stacks, vias,
+  tracks, arcs, regions, text, fills and 3D bodies over iterations. }
 procedure GeneratePcbLib;
 var
-    Lib  : IPCB_Library;
-    Comp : IPCB_LibComponent;
-    Pad  : IPCB_Pad;
-    Doc  : IServerDocument;
+    Lib   : IPCB_Library;
+    DefFP : IPCB_LibComponent;
+    Comp  : IPCB_LibComponent;
+    Doc   : IServerDocument;
 begin
-    // CreateNewDocumentFromDocumentKind is the global that creates + focuses a blank
-    // document and returns its IServerDocument (Client.OpenNewDocumentOfKind, used in
-    // the v0, does not exist in AD24).
+    // CreateNewDocumentFromDocumentKind creates + focuses a blank doc and returns its
+    // IServerDocument (Client.OpenNewDocumentOfKind, used in the v0, does not exist).
     Doc := CreateNewDocumentFromDocumentKind('PCBLIB');
     if Doc = nil then Exit;
 
     Lib := PCBServer.GetCurrentPCBLibrary;   // the new doc is focused
     if Lib = nil then Exit;
 
+    DefFP := Lib.CurrentComponent;           // capture Altium's auto-created default
+
     Comp := PCBServer.CreatePCBLibComp;
-    Comp.Name := 'PAD_SMD';
+    Comp.Name := 'PAD_SHAPES';
     Lib.RegisterComponent(Comp);             // register before mutating
 
-    // Primitive creation runs inside a Pre/PostProcess transaction, with a board-
-    // registration broadcast so the editor registers each new object.
     PCBServer.PreProcess;
-
-    Pad := PCBServer.PCBObjectFactory(ePadObject, eNoDimension, eCreate_Default);
-    Pad.X        := MMsToCoord(0.0);
-    Pad.Y        := MMsToCoord(0.0);
-    Pad.TopXSize := MMsToCoord(1.0);
-    Pad.TopYSize := MMsToCoord(0.6);
-    Pad.Layer    := eTopLayer;               // SMD pad -> top copper only
-    Pad.Name     := '1';
-    Comp.AddPCBObject(Pad);
-    // Altium's own constant is spelled PCBM_BoardRegisteration (the typo is real).
-    PCBServer.SendMessageToRobots(Comp.I_ObjectAddress, c_Broadcast,
-                                  PCBM_BoardRegisteration, Pad.I_ObjectAddress);
-
+    AddPad(Comp,   0, eRounded,            60, 40, '1');
+    AddPad(Comp, 100, eRectangular,        60, 40, '2');
+    AddPad(Comp, 200, eOctagonal,          60, 40, '3');
+    AddPad(Comp, 300, eRoundedRectangular, 60, 40, '4');
     PCBServer.PostProcess;
 
-    // TODO(iterate): one footprint per feature — non-round holes (slot/square),
-    //   corner-radius / oblong pads (the 651-byte size/shape cases), tracks, arcs,
-    //   regions (incl. holes), text, vias, fills, ComponentBody 3D models.
-
     Lib.CurrentComponent := Comp;
-    Lib.Board.ViewManager_FullUpdate;
 
+    // Delete Altium's empty auto-created default footprint. Unlike SchLib, the PCB
+    // removal works: DeRegisterComponent then RemoveComponent -> exactly one footprint.
+    if DefFP <> nil then
+    begin
+        Lib.DeRegisterComponent(DefFP);
+        Lib.RemoveComponent(DefFP);
+    end;
+
+    Lib.Board.ViewManager_FullUpdate;
     // IServerDocument has no DoFileSaveAs; DoSafeChangeFileNameAndSave is the
     // documented "Save As to a path" (the second arg is the document kind).
     Doc.SetModified(True);
