@@ -5,7 +5,7 @@
 //! against the file's authored intent (rather than round-tripping our own
 //! writer's output, as `file_io_roundtrip.rs` does).
 
-use altium_designer_mcp::altium::pcblib::{Layer, PadShape, PcbLib};
+use altium_designer_mcp::altium::pcblib::{HoleShape, Layer, PadShape, PcbLib};
 use std::path::PathBuf;
 
 /// Resolves a sample fixture by name under `scripts/samples/`.
@@ -37,12 +37,16 @@ fn samples_exist() {
 fn samples_pcblib_pad_shapes() {
     let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
 
-    // The library contains exactly one footprint, PAD_SHAPES.
-    assert_eq!(lib.len(), 1, "expected exactly one footprint");
-    assert_eq!(
-        lib.names(),
-        vec!["PAD_SHAPES"],
-        "unexpected footprint name(s)"
+    // The library contains two footprints, PAD_SHAPES and PAD_HOLES.
+    assert_eq!(lib.len(), 2, "expected exactly two footprints");
+    let names = lib.names();
+    assert!(
+        names.iter().any(|n| n == "PAD_SHAPES"),
+        "PAD_SHAPES missing from {names:?}",
+    );
+    assert!(
+        names.iter().any(|n| n == "PAD_HOLES"),
+        "PAD_HOLES missing from {names:?}",
     );
 
     let footprint = lib
@@ -53,14 +57,12 @@ fn samples_pcblib_pad_shapes() {
 
     // Authored pads: four 60x40 mil (1.524 x 1.016 mm) SMD pads on the Top Layer,
     // one per shape. We look pads up by designator because the on-disk order is
-    // not guaranteed to be 1..4. The shape column is the variant our reader
-    // reports, which differs from the authored Altium shape for pad "3": Altium's
-    // octagon has no `PadShape` variant, so the reader maps it to `Oval` (the
-    // closest match; see `pad_shape_from_id` in src/altium/pcblib/reader/mod.rs).
+    // not guaranteed to be 1..4. Each authored Altium shape maps faithfully to a
+    // `PadShape` variant, so the library round-trips losslessly.
     let expected: [(&str, PadShape); 4] = [
         ("1", PadShape::Round),            // authored Rounded
         ("2", PadShape::Rectangle),        // authored Rectangular
-        ("3", PadShape::Oval), // authored Octagonal — reads as Oval (no Octagonal variant)
+        ("3", PadShape::Octagonal),        // authored Octagonal
         ("4", PadShape::RoundedRectangle), // authored RoundedRectangle
     ];
 
@@ -87,5 +89,46 @@ fn samples_pcblib_pad_shapes() {
             "pad {designator} height: expected ~1.016 mm, got {}",
             pad.height,
         );
+    }
+}
+
+#[test]
+fn samples_pcblib_pad_holes() {
+    let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
+
+    let footprint = lib.get("PAD_HOLES").expect("footprint PAD_HOLES not found");
+    assert_eq!(footprint.name, "PAD_HOLES");
+    assert_eq!(footprint.pads.len(), 3, "PAD_HOLES has 3 pads");
+
+    // Authored pads: three ~70x70 mil (1.778 x 1.778 mm) Round through-hole pads on
+    // the Multi-Layer, one per hole shape. We look pads up by designator because the
+    // on-disk order is not guaranteed. A round drill reads back as `HoleShape::Round`
+    // (the enum's default) — it has no dedicated 651 block on disk, hence it serialises
+    // as the absent/default value rather than `None`.
+    let expected: [(&str, f64, HoleShape); 3] = [
+        ("1", 0.762, HoleShape::Round),  // round drill (no 651 block)
+        ("2", 0.762, HoleShape::Square), // square hole
+        ("3", 1.016, HoleShape::Slot),   // slot hole
+    ];
+
+    for (designator, hole_size, hole_shape) in expected {
+        let pad = footprint
+            .pads
+            .iter()
+            .find(|p| p.designator == designator)
+            .unwrap_or_else(|| panic!("pad {designator} not found"));
+
+        assert_eq!(pad.shape, PadShape::Round, "pad {designator} shape");
+        assert_eq!(pad.layer, Layer::MultiLayer, "pad {designator} layer");
+
+        let actual_hole = pad
+            .hole_size
+            .unwrap_or_else(|| panic!("pad {designator} is through-hole and must have a hole"));
+        assert!(
+            approx_eq(actual_hole, hole_size, 1e-2),
+            "pad {designator} hole_size: expected ~{hole_size} mm, got {actual_hole}",
+        );
+
+        assert_eq!(pad.hole_shape, hole_shape, "pad {designator} hole_shape");
     }
 }

@@ -230,8 +230,11 @@ pub enum PadShape {
     RoundedRectangle,
     /// Circular pad.
     Round,
-    /// Oval/oblong pad.
+    /// Oval/oblong pad. Altium has no dedicated oval shape; it draws a Round pad
+    /// with unequal X/Y sizes as an oblong, so this serialises as Round (id 1).
     Oval,
+    /// Octagonal pad (Altium shape id 3).
+    Octagonal,
 }
 
 /// Hole shape types for through-hole pads.
