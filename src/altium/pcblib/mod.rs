@@ -1152,6 +1152,37 @@ mod tests {
     }
 
     #[test]
+    fn via_solder_mask_mode_round_trips() {
+        use super::primitives::MaskExpansionMode;
+
+        // A fresh via defaults to FromRule (Altium's default, byte 66 = 1) — not the
+        // old `manual=false` which wrote 0 (None). A Manual via must round-trip.
+        let mut original = Footprint::new("VIA_MASK_MODE");
+        assert_eq!(
+            Via::new(0.0, 0.0, 0.6, 0.3).solder_mask_expansion_mode,
+            MaskExpansionMode::FromRule
+        );
+        original.add_via(Via::new(0.0, 0.0, 0.6, 0.3));
+        let mut manual = Via::new(1.0, 1.0, 0.6, 0.3);
+        manual.solder_mask_expansion_mode = MaskExpansionMode::Manual;
+        original.add_via(manual);
+
+        let data = writer::encode_data_stream(&original).expect("encode");
+        let mut decoded = Footprint::new("VIA_MASK_MODE");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        assert_eq!(decoded.vias.len(), 2);
+        assert_eq!(
+            decoded.vias[0].solder_mask_expansion_mode,
+            MaskExpansionMode::FromRule
+        );
+        assert_eq!(
+            decoded.vias[1].solder_mask_expansion_mode,
+            MaskExpansionMode::Manual
+        );
+    }
+
+    #[test]
     fn binary_roundtrip_mixed_with_vias() {
         let mut original = Footprint::new("ROUNDTRIP_MIXED_VIA");
 

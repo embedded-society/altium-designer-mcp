@@ -677,7 +677,7 @@ fn encode_via(data: &mut Vec<u8>, via: &Via) {
 
     // Solder mask expansion @54, its mode @66, diameter stack mode @74.
     block[54..58].copy_from_slice(&from_mm(via.solder_mask_expansion).to_le_bytes());
-    block[66] = u8::from(via.solder_mask_expansion_manual);
+    block[66] = via.solder_mask_expansion_mode.to_id();
     block[74] = via_stack_mode_to_id(via.diameter_stack_mode);
 
     // Per-layer diameters: 32 x i32 from offset 75. A real stack uses the
