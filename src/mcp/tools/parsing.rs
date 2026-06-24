@@ -478,7 +478,7 @@ impl McpServer {
         let fill_color = json
             .get("fill_color")
             .and_then(Value::as_u64)
-            .unwrap_or(0xFF_FF_B0) as u32;
+            .unwrap_or(0xB0_FF_FF) as u32;
         let filled = json.get("filled").and_then(Value::as_bool).unwrap_or(true);
         let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
 
@@ -667,7 +667,7 @@ impl McpServer {
         let fill_color = json
             .get("fill_color")
             .and_then(Value::as_u64)
-            .unwrap_or(0xFF_FF_B0) as u32;
+            .unwrap_or(0xB0_FF_FF) as u32;
         let filled = json.get("filled").and_then(Value::as_bool).unwrap_or(true);
         let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
 

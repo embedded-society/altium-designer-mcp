@@ -372,7 +372,7 @@ impl McpServer {
                                                 "y2": { "type": "integer", "description": "Top Y coordinate" },
                                                 "line_width": { "type": "integer", "description": "Border width. Default: 1" },
                                                 "line_color": { "type": "integer", "description": "Border BGR colour. Default: 0x000080" },
-                                                "fill_color": { "type": "integer", "description": "Fill BGR colour. Default: 0xFFFFB0" },
+                                                "fill_color": { "type": "integer", "description": "Fill BGR colour. Default: 0xB0FFFF (Altium light yellow)" },
                                                 "filled": { "type": "boolean", "description": "Whether filled. Default: true" },
                                                 "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" }
                                             },
