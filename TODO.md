@@ -53,9 +53,6 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
       cross-cutting across most records.
 - [ ] 🟠 **Fractional coordinates** (`*_FRAC`, sub-DXP precision) — cross-cutting across arc,
       ellipse, ellipticalarc, label, line, rectangle, roundrect, bezier.
-- [ ] 🟠 **Per-record missing model fields**: `IsNotAccesible` (line/ellipse/bezier/polyline/
-      ellipticalarc), `LineStyle`/`LineStyleExt` (line/polyline/rectangle/roundrect), `Transparent`,
-      `AreaColor` (arc/ellipticalarc).
 - [ ] 🟠 **Label / Text**: RECORD=3 is *Symbol*, not Text — `encode_text` writes RECORD=4 (clashing
       with Label); map RECORD=3/4 correctly. (Colour/Orientation/Justification omit + IsHidden/
       IsMirrored placement.)
@@ -95,6 +92,9 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
 - [ ] **WideStrings Tier 2**: text SubRecord-1 offset-115 `wideStringIndex`, the dot/empty-filtered
       index base vs Altium's unfiltered, UTF-16-vs-Win1252 encoding, and the root-vs-per-component
       reader path — needs a real multi-text footprint as the oracle.
+- [ ] **SchLib `IsNotAccesible` on Ellipse / Polyline**: the other per-record fields shipped, but
+      these two emit no token today, so adding the field changes from-scratch bytes — confirm the
+      default against a golden ellipse/polyline first.
 - [ ] Feed confirmed answers back into the fix ladder (especially the pad, A3).
 
 ## C. On-site Altium tooling

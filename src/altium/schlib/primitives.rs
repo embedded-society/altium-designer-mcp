@@ -357,6 +357,10 @@ pub struct Rectangle {
     /// Fill colour (BGR format).
     #[serde(default)]
     pub fill_color: u32,
+    /// Line style (0 = Solid, 1 = Dashed, 2 = Dotted). Maps to the
+    /// `LINESTYLEEXT` parameter for rectangles (Altium omits `LINESTYLE`).
+    #[serde(default)]
+    pub line_style: u8,
     /// Whether the rectangle is filled.
     #[serde(default = "default_true")]
     pub filled: bool,
@@ -388,6 +392,7 @@ impl Rectangle {
             line_width: 1,
             line_color: 0x00_00_80, // Dark red (BGR)
             fill_color: 0xFF_FF_B0, // Light yellow (BGR)
+            line_style: 0,
             filled: true,
             transparent: false,
             owner_part_id: 1,
@@ -413,6 +418,13 @@ pub struct Line {
     /// Line colour (BGR format).
     #[serde(default)]
     pub color: u32,
+    /// Line style (0 = Solid, 1 = Dashed, 2 = Dotted).
+    #[serde(default)]
+    pub line_style: u8,
+    /// Whether the line is marked not-accessible. Altium tags every line
+    /// `IsNotAccesible` (its own single-'s' spelling), so this defaults to true.
+    #[serde(default = "default_true")]
+    pub is_not_accessible: bool,
     /// Owner part ID.
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,
@@ -433,6 +445,8 @@ impl Line {
             y2,
             line_width: 1,
             color: 0x00_00_80, // Dark red (BGR)
+            line_style: 0,
+            is_not_accessible: true,
             owner_part_id: 1,
             unique_id: None,
         }
@@ -462,6 +476,9 @@ pub struct Polyline {
     /// Size of endpoint shapes.
     #[serde(default)]
     pub line_shape_size: u8,
+    /// Whether the polyline is transparent.
+    #[serde(default)]
+    pub transparent: bool,
     /// Owner part ID.
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,
@@ -525,6 +542,10 @@ pub struct Arc {
     /// Line colour (BGR format).
     #[serde(default)]
     pub color: u32,
+    /// Fill colour (BGR format). Maps to the `AreaColor` parameter; omitted
+    /// when zero.
+    #[serde(default)]
+    pub fill_color: u32,
     /// Owner part ID.
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,
@@ -569,6 +590,10 @@ pub struct Bezier {
     /// Line colour (BGR format).
     #[serde(default)]
     pub color: u32,
+    /// Whether the curve is marked not-accessible. Altium tags every Bezier
+    /// `IsNotAccesible` (its own single-'s' spelling), so this defaults to true.
+    #[serde(default = "default_true")]
+    pub is_not_accessible: bool,
     /// Owner part ID.
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,
@@ -603,6 +628,7 @@ impl Bezier {
             y4,
             line_width: 1,
             color: 0x00_00_80, // Dark red (BGR)
+            is_not_accessible: true,
             owner_part_id: 1,
             unique_id: None,
         }
@@ -632,6 +658,9 @@ pub struct Ellipse {
     /// Whether the ellipse is filled.
     #[serde(default = "default_true")]
     pub filled: bool,
+    /// Whether the ellipse is transparent.
+    #[serde(default)]
+    pub transparent: bool,
     /// Owner part ID.
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,
@@ -654,6 +683,7 @@ impl Ellipse {
             line_color: 0x00_00_80, // Dark red (BGR)
             fill_color: 0xFF_FF_B0, // Light yellow (BGR)
             filled: true,
+            transparent: false,
             owner_part_id: 1,
             unique_id: None,
         }
@@ -692,9 +722,15 @@ pub struct RoundRect {
     /// Fill colour (BGR format).
     #[serde(default)]
     pub fill_color: u32,
+    /// Line style (0 = Solid, 1 = Dashed, 2 = Dotted).
+    #[serde(default)]
+    pub line_style: u8,
     /// Whether the rectangle is filled.
     #[serde(default = "default_true")]
     pub filled: bool,
+    /// Whether the rectangle is transparent.
+    #[serde(default)]
+    pub transparent: bool,
     /// Owner part ID.
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,
@@ -726,7 +762,9 @@ impl RoundRect {
             line_width: 1,
             line_color: 0x00_00_80, // Dark red (BGR)
             fill_color: 0xFF_FF_B0, // Light yellow (BGR)
+            line_style: 0,
             filled: true,
+            transparent: false,
             owner_part_id: 1,
             unique_id: None,
         }
@@ -764,6 +802,10 @@ pub struct EllipticalArc {
     /// Line colour (BGR format).
     #[serde(default)]
     pub color: u32,
+    /// Fill colour (BGR format). Maps to the `AreaColor` parameter; omitted
+    /// when zero.
+    #[serde(default)]
+    pub fill_color: u32,
     /// Owner part ID.
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,
@@ -793,6 +835,7 @@ impl EllipticalArc {
             end_angle,
             line_width: 1,
             color: 0x00_00_80, // Dark red (BGR)
+            fill_color: 0,
             owner_part_id: 1,
             unique_id: None,
         }
