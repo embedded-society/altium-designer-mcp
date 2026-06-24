@@ -1085,6 +1085,58 @@ mod tests {
     }
 
     #[test]
+    fn elliptical_arc_radius_frac_carry_and_roundtrip() {
+        // Grid-aligned radii must emit NO _Frac token — the byte-identical / oracle-safe
+        // path for from-scratch symbols.
+        let mut grid = Symbol::new("EARC_GRID");
+        grid.add_elliptical_arc(EllipticalArc::new(0, 0, 5.0, 3.0, 0.0, 360.0));
+        let g = String::from_utf8_lossy(&writer::encode_data_stream(&grid).expect("encode"))
+            .into_owned();
+        assert!(!g.contains("_Frac"), "grid-aligned radii omit _Frac: {g}");
+        assert!(
+            g.contains("|Radius=5|"),
+            "integer radius emitted plainly: {g}"
+        );
+
+        // A near-boundary radius must CARRY into the integer part, not clamp to 99999.
+        let mut sym = Symbol::new("EARC_CARRY");
+        sym.add_elliptical_arc(EllipticalArc::new(0, 0, 4.999_995, 3.5, 0.0, 360.0));
+        let enc = String::from_utf8_lossy(&writer::encode_data_stream(&sym).expect("encode"))
+            .into_owned();
+        assert!(
+            enc.contains("|Radius=5|"),
+            "boundary radius carries to int: {enc}"
+        );
+        assert!(
+            !enc.contains("|Radius_Frac"),
+            "primary radius carried, so no Radius_Frac: {enc}"
+        );
+        assert!(
+            enc.contains("|SecondaryRadius_Frac=50000"),
+            "secondary 3.5 keeps its frac: {enc}"
+        );
+
+        // Round-trip: 4.999995 -> 5.0; 3.5 -> SecondaryRadius_Frac=50000 -> 3.5.
+        let mut lib = SchLib::new();
+        lib.add(sym);
+        let mut buf = Cursor::new(Vec::new());
+        lib.write(&mut buf).expect("write");
+        buf.set_position(0);
+        let read = SchLib::read(buf).expect("read");
+        let ea = &read.get("EARC_CARRY").expect("symbol").elliptical_arcs[0];
+        assert!(
+            (ea.radius - 5.0).abs() < 1e-9,
+            "carried radius round-trips: {}",
+            ea.radius
+        );
+        assert!(
+            (ea.secondary_radius - 3.5).abs() < 1e-9,
+            "frac round-trips: {}",
+            ea.secondary_radius
+        );
+    }
+
+    #[test]
     fn wrong_file_type_pcblib_as_schlib() {
         // Create a PcbLib file in memory (using SchLib format with length prefix)
         let mut buffer = Cursor::new(Vec::new());

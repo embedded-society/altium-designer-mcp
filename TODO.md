@@ -51,8 +51,6 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
 - [ ] 🟠 **Designator**: model `Location.X/Y` (Altium `X=-5, Y=5`; we hardcode `Y=-6`, omit `X`).
 - [ ] 🟠 **`IndexInSheet`** from a stored model field (default `-1`), not the write counter —
       cross-cutting across most records.
-- [ ] 🟠 **Fractional coordinates** (`*_FRAC`, sub-DXP precision) — cross-cutting across arc,
-      ellipse, ellipticalarc, label, line, rectangle, roundrect, bezier.
 - [ ] 🟠 **Label / Text**: RECORD=3 is *Symbol*, not Text — `encode_text` writes RECORD=4 (clashing
       with Label); map RECORD=3/4 correctly. (Colour/Orientation/Justification omit + IsHidden/
       IsMirrored placement.)
@@ -95,6 +93,11 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
 - [ ] **SchLib `IsNotAccesible` on Ellipse / Polyline**: the other per-record fields shipped, but
       these two emit no token today, so adding the field changes from-scratch bytes — confirm the
       default against a golden ellipse/polyline first.
+- [ ] **SchLib `*_FRAC` cross-cutting** (Location/Corner/X1..n on arc, ellipse, line, rectangle,
+      roundrect, label, bezier, polyline): encoding known (`raw = DXP*100000 + FRAC`, signed), but
+      every coord field is `i32` and can't hold sub-DXP precision — a faithful fix is a breaking
+      `i32`→`f64` model/API change, and the per-record `_Frac` key spellings need a byte-compared
+      golden. *(EllipticalArc radii already round-trip; the carry bug was fixed separately.)*
 - [ ] Feed confirmed answers back into the fix ladder (especially the pad, A3).
 
 ## C. On-site Altium tooling
