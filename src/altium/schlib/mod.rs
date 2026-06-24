@@ -16,8 +16,10 @@
 //! ```text
 //! [RecordLength:2 LE][RecordType:2 BE][data:RecordLength]
 //! ...
-//! [0x00 0x00]  // End marker
 //! ```
+//!
+//! There is NO end-of-stream marker — records run until the stream is exhausted.
+//! (A trailing `0x0000` would be mis-read as a zero-length record; see issue #68.)
 //!
 //! Record types:
 //! - `0x0000`: Text record (pipe-delimited key=value pairs)
@@ -641,6 +643,33 @@ mod tests {
         assert_eq!(pin1.x, -20);
         assert_eq!(pin1.y, 0);
         assert_eq!(pin1.length, 10);
+    }
+
+    #[test]
+    fn roundtrip_footprint_iscurrent_flag() {
+        // The writer emits IsCurrent positionally (first model = current); the reader
+        // now preserves that flag instead of dropping it.
+        let mut symbol = Symbol::new("R1");
+        symbol.add_footprint(FootprintModel::new("0603"));
+        symbol.add_footprint(FootprintModel::new("0805"));
+
+        let data = writer::encode_data_stream(&symbol).expect("encode");
+        let mut decoded = Symbol::new("R1");
+        reader::parse_data_stream(&mut decoded, &data);
+
+        assert_eq!(
+            decoded.footprints.len(),
+            2,
+            "both models survive the round-trip"
+        );
+        assert!(
+            decoded.footprints[0].is_current,
+            "first model is current (IsCurrent=T)"
+        );
+        assert!(
+            !decoded.footprints[1].is_current,
+            "second model is not current"
+        );
     }
 
     #[test]

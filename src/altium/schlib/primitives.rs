@@ -1011,6 +1011,11 @@ pub struct FootprintModel {
     /// library isn't installed/in the project.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub library_path: Option<String>,
+    /// Whether this is the current/default footprint model (`IsCurrent=T`).
+    /// Preserved on read; on write the first model is still emitted as current
+    /// (positional), so this is read-preserved only until multi-model authoring lands.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_current: bool,
 }
 
 impl FootprintModel {
@@ -1021,6 +1026,7 @@ impl FootprintModel {
             name: name.into(),
             description: String::new(),
             library_path: None,
+            is_current: false,
         }
     }
 }
