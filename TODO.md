@@ -48,16 +48,9 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
 
 ### A3. SchLib records (code bugs + missing features)
 
-- [ ] 🟠 **Designator**: model `Location.X/Y` (Altium `X=-5, Y=5`; we hardcode `Y=-6`, omit `X`).
-- [ ] 🟠 **`IndexInSheet`** from a stored model field (default `-1`), not the write counter —
-      cross-cutting across most records.
-- [ ] 🟠 **Label / Text**: RECORD=3 is *Symbol*, not Text — `encode_text` writes RECORD=4 (clashing
-      with Label); map RECORD=3/4 correctly. (Colour/Orientation/Justification omit + IsHidden/
-      IsMirrored placement.)
-- [ ] 🟠 **Implementation**: `MapDefiner` (RECORD=47) modelling; `DataFileCount` derive/loop;
-      `IsCurrent` only-when-true. *(1-based index + OwnerIndex → live-Altium gaps, section B.)*
-- [ ] 🟠 **Pin**: `FormalType` model field; `DefaultValue` tail string; `SwapId` / `PinFrac` /
-      `SymbolLineWidth`.
+The without-Altium field fidelity is **shipped** (#126–#129, #147–#151: per-record fields,
+elliptical-arc frac carry, PartCount floor, footprint `IsCurrent`, pin tail fields). Everything
+still outstanding needs an Altium-authored golden to settle — relocated to §B.
 
 ### A4. Doc rewrites (high correctness value, doc-only)
 
@@ -100,6 +93,18 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
       the component `UniqueID` (AltiumSharp carries it, but a fresh symbol would emit a brand-new
       random id — not byte-identical) and the dropped header fields (`DesignItemId` / `ComponentKind`
       / `LibraryPath` / `SheetPartFileName` / `IndexInSheet` / `OwnerPartId`) — need golden fixtures.
+- [ ] **SchLib Designator position**: emit `Location.X/Y` instead of the hardcoded `Y=-6` / omitted
+      `X`; the from-scratch default magnitude (Altium ~`X=-5, Y=5`) is unverified without a golden.
+- [ ] **SchLib `IndexInSheet`**: AltiumSharp does NOT default it to `-1` per shape — the correct
+      per-record value/emission needs a golden to confirm (the spec's `-1` design was wrong).
+- [ ] **SchLib Label/Text (RECORD=3/4)**: RECORD=3 is *Symbol* (glyph ref), not Text; `encode_text`
+      writes RECORD=4, clashing with Label. The correct mapping is a byte-changing rework — validate
+      against a golden.
+- [ ] **SchLib Implementation structural**: `MapDefiner` (RECORD=47) pin→pad map, the 46/48 payload
+      bodies + cross-record `OwnerIndex` chain, honouring `IsCurrent` on write, `DataFileCount` > 1.
+      *(IsCurrent read-back shipped #150.)*
+- [ ] **SchLib Pin aux streams**: `SymbolLineWidth` + `PinFrac` live in separate OLE streams, not the
+      pin record — need golden byte offsets. *(FormalType / SwapId / DefaultValue tail shipped #151.)*
 - [ ] Feed confirmed answers back into the fix ladder (especially the pad, A3).
 
 ## C. On-site Altium tooling
