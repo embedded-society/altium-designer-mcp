@@ -33,7 +33,6 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
 - [ ] 🟠 **Text**: `mirrored` @35 / `isComment` @40 / `isDesignator` @41; font-name fields
       @46-109/@161-224; InvertedRect template bytes @124-131. *(italic / baseFontType shipped #154;
       raw `fontId` @25 + justification @132 are custom-font / inverted-rect only — deferred.)*
-- [ ] 🟠 **ComponentBody**: broad field coverage (colour/opacity/texture/2D-placement/identifier).
 
 ### A2. PcbLib stream / container layer
 
@@ -102,6 +101,10 @@ still outstanding needs an Altium-authored golden to settle — relocated to §B
       *(IsCurrent read-back shipped #150.)*
 - [ ] **SchLib Pin aux streams**: `SymbolLineWidth` + `PinFrac` live in separate OLE streams, not the
       pin record — need golden byte offsets. *(FormalType / SwapId / DefaultValue tail shipped #151.)*
+- [ ] **PcbLib ComponentBody remaining**: the additive 3D-body param tier shipped; remaining is
+      `IDENTIFIER` (comma-separated codepoint list — would misrender as a plain string),
+      `MODEL.MODELTYPE`, `MODEL.SNAP*`, `TEXTURE`, and the non-default unit-formatted values
+      (`ARCRESOLUTION`/`CAVITYHEIGHT`/`MODEL.2D.X/Y`) — need a golden to validate the formatting.
 - [ ] Feed confirmed answers back into the fix ladder (especially the pad, A3).
 
 ## C. On-site Altium tooling

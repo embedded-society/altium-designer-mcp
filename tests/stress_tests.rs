@@ -832,6 +832,15 @@ fn test_component_body_roundtrip() {
         outline: Vec::new(),
         unique_id: None,
         model_checksum: 0,
+        name: " ".to_string(),
+        kind: 0,
+        sub_poly_index: -1,
+        union_index: 0,
+        is_shape_based: false,
+        body_projection: 0,
+        body_color_3d: 8_421_504,
+        body_opacity_3d: 1.0,
+        model_2d_rotation: 0.0,
     };
     fp.component_bodies.push(body);
 
@@ -878,6 +887,15 @@ fn test_component_body_with_rotation() {
         outline: Vec::new(),
         unique_id: None,
         model_checksum: 0,
+        name: " ".to_string(),
+        kind: 0,
+        sub_poly_index: -1,
+        union_index: 0,
+        is_shape_based: false,
+        body_projection: 0,
+        body_color_3d: 8_421_504,
+        body_opacity_3d: 1.0,
+        model_2d_rotation: 0.0,
     };
     fp.component_bodies.push(body);
 
@@ -2671,6 +2689,15 @@ fn test_component_body_external_model_reference() {
         outline: Vec::new(),
         unique_id: None,
         model_checksum: 0,
+        name: " ".to_string(),
+        kind: 0,
+        sub_poly_index: -1,
+        union_index: 0,
+        is_shape_based: false,
+        body_projection: 0,
+        body_color_3d: 8_421_504,
+        body_opacity_3d: 1.0,
+        model_2d_rotation: 0.0,
     };
     fp.component_bodies.push(body);
 

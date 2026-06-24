@@ -1174,13 +1174,18 @@ fn build_component_body_params(body: &ComponentBody) -> String {
     // between the param string and the layer byte makes Altium drop the body.
     params.push(format!("V7_LAYER={}", region_v7_layer_token(body.layer)));
 
-    // Standard parameters
-    params.push("NAME= ".to_string());
-    params.push("KIND=0".to_string());
-    params.push("SUBPOLYINDEX=-1".to_string());
-    params.push("UNIONINDEX=0".to_string());
+    // Standard parameters. Each field's default reproduces the prior hard-coded
+    // literal exactly, so a template-default body stays byte-identical (the oracle
+    // depends on this).
+    params.push(format!("NAME={}", body.name));
+    params.push(format!("KIND={}", body.kind));
+    params.push(format!("SUBPOLYINDEX={}", body.sub_poly_index));
+    params.push(format!("UNIONINDEX={}", body.union_index));
     params.push("ARCRESOLUTION=0.5mil".to_string());
-    params.push("ISSHAPEBASED=FALSE".to_string());
+    params.push(format!(
+        "ISSHAPEBASED={}",
+        if body.is_shape_based { "TRUE" } else { "FALSE" }
+    ));
     params.push("CAVITYHEIGHT=0mil".to_string());
     params.push(format!(
         "STANDOFFHEIGHT={}mil",
@@ -1190,12 +1195,15 @@ fn build_component_body_params(body: &ComponentBody) -> String {
         "OVERALLHEIGHT={}mil",
         mm_to_mil(body.overall_height)
     ));
-    params.push("BODYPROJECTION=0".to_string());
+    params.push(format!("BODYPROJECTION={}", body.body_projection));
     // Altium repeats ARCRESOLUTION after BODYPROJECTION (verbatim shape from the
     // BODY_3D golden files).
     params.push("ARCRESOLUTION=0.5mil".to_string());
-    params.push("BODYCOLOR3D=8421504".to_string());
-    params.push("BODYOPACITY3D=1.000".to_string());
+    params.push(format!("BODYCOLOR3D={}", body.body_color_3d));
+    params.push(format!("BODYOPACITY3D={:.3}", body.body_opacity_3d));
+    // IDENTIFIER is deferred: AltiumSharp stores it as a comma-separated codepoint
+    // list, so a plain-string round-trip would write a file Altium misreads. Keep
+    // the empty literal hard-coded (empty -> empty is oracle-safe).
     params.push("IDENTIFIER=".to_string());
     params.push("TEXTURE=".to_string());
     params.push("TEXTURECENTERX=0mil".to_string());
@@ -1221,7 +1229,7 @@ fn build_component_body_params(body: &ComponentBody) -> String {
     params.push(format!("MODEL.NAME={}", body.model_name));
     params.push("MODEL.2D.X=0mil".to_string());
     params.push("MODEL.2D.Y=0mil".to_string());
-    params.push("MODEL.2D.ROTATION=0.000".to_string());
+    params.push(format!("MODEL.2D.ROTATION={:.3}", body.model_2d_rotation));
     params.push(format!("MODEL.3D.ROTX={:.3}", body.rotation_x));
     params.push(format!("MODEL.3D.ROTY={:.3}", body.rotation_y));
     params.push(format!("MODEL.3D.ROTZ={:.3}", body.rotation_z));
@@ -1797,6 +1805,62 @@ mod tests {
         assert!(s.contains("MODEL.MODELTYPE=1"), "got: {s}");
         assert!(s.contains("MODEL.MODELSOURCE=Undefined"), "got: {s}");
         assert!(!s.contains("EXTRUDED"), "got: {s}");
+    }
+
+    #[test]
+    fn component_body_default_params_byte_identical() {
+        // Locks the template-default param string. If a new field's default or the
+        // key order drifts, this fails *before* the pyaltiumlib oracle would. The
+        // model-backed (STEP) path with embedded=true emits MODELID verbatim, so
+        // the literal is stable.
+        let mut model = ComponentBody::new("{G}", "part.step");
+        model.embedded = true;
+        let s = build_component_body_params(&model);
+        let expected = "V7_LAYER=MECHANICAL6|NAME= |KIND=0|SUBPOLYINDEX=-1|UNIONINDEX=0|\
+            ARCRESOLUTION=0.5mil|ISSHAPEBASED=FALSE|CAVITYHEIGHT=0mil|STANDOFFHEIGHT=0mil|\
+            OVERALLHEIGHT=0mil|BODYPROJECTION=0|ARCRESOLUTION=0.5mil|BODYCOLOR3D=8421504|\
+            BODYOPACITY3D=1.000|IDENTIFIER=|TEXTURE=|TEXTURECENTERX=0mil|TEXTURECENTERY=0mil|\
+            TEXTURESIZEX=0.0001mil|TEXTURESIZEY=0.0001mil|TEXTUREROTATION= 0.00000000000000E+0000|\
+            MODELID={G}|MODEL.CHECKSUM=0|MODEL.EMBED=TRUE|MODEL.NAME=part.step|MODEL.2D.X=0mil|\
+            MODEL.2D.Y=0mil|MODEL.2D.ROTATION=0.000|MODEL.3D.ROTX=0.000|MODEL.3D.ROTY=0.000|\
+            MODEL.3D.ROTZ=0.000|MODEL.3D.DZ=0mil|MODEL.MODELTYPE=1|MODEL.MODELSOURCE=Undefined";
+        assert_eq!(s, expected);
+        // Explicit guards for the two field-promoted literals callers most care about.
+        assert!(s.contains("|BODYCOLOR3D=8421504|"), "got: {s}");
+        assert!(s.contains("|BODYOPACITY3D=1.000|"), "got: {s}");
+    }
+
+    #[test]
+    fn component_body_additive_fields_roundtrip() {
+        use super::super::reader;
+        let mut original = Footprint::new("RT_BODY_FIELDS");
+        let mut body = ComponentBody::new("{G-1234}", "p.step");
+        body.embedded = true;
+        body.body_color_3d = 0x00FF_0000; // non-default red
+        body.body_opacity_3d = 0.5;
+        body.kind = 2;
+        body.sub_poly_index = 3;
+        body.union_index = 4;
+        body.body_projection = 1;
+        body.is_shape_based = true;
+        body.model_2d_rotation = 90.0;
+        body.name = "BODY_A".into();
+        original.add_component_body(body);
+
+        let data = encode_data_stream(&original).expect("encode");
+        let mut decoded = Footprint::new("RT_BODY_FIELDS");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        let b = &decoded.component_bodies[0];
+        assert_eq!(b.body_color_3d, 0x00FF_0000);
+        assert!((b.body_opacity_3d - 0.5).abs() < 1e-9);
+        assert_eq!(b.kind, 2);
+        assert_eq!(b.sub_poly_index, 3);
+        assert_eq!(b.union_index, 4);
+        assert_eq!(b.body_projection, 1);
+        assert!(b.is_shape_based);
+        assert!((b.model_2d_rotation - 90.0).abs() < 1e-9);
+        assert_eq!(b.name, "BODY_A");
     }
 
     #[test]

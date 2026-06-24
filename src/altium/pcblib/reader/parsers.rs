@@ -1105,6 +1105,39 @@ pub(super) fn parse_component_body(data: &[u8], offset: usize) -> ParseResult<Co
         .and_then(|v| parse_v7_layer(v))
         .unwrap_or(Layer::Top3DBody);
 
+    // Additive fields previously discarded. Each default matches the writer's
+    // hard-coded literal default so a default body round-trips byte-identically.
+    let name = params
+        .get("NAME")
+        .cloned()
+        .unwrap_or_else(|| " ".to_string());
+    let kind = params.get("KIND").and_then(|v| v.parse().ok()).unwrap_or(0);
+    let sub_poly_index = params
+        .get("SUBPOLYINDEX")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(-1);
+    let union_index = params
+        .get("UNIONINDEX")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    let is_shape_based = params.get("ISSHAPEBASED").is_some_and(|v| v == "TRUE");
+    let body_projection = params
+        .get("BODYPROJECTION")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    let body_color_3d = params
+        .get("BODYCOLOR3D")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(8_421_504);
+    let body_opacity_3d = params
+        .get("BODYOPACITY3D")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1.0);
+    let model_2d_rotation = params
+        .get("MODEL.2D.ROTATION")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0.0);
+
     let body = ComponentBody {
         model_id,
         model_name,
@@ -1119,6 +1152,15 @@ pub(super) fn parse_component_body(data: &[u8], offset: usize) -> ParseResult<Co
         outline,
         unique_id: None,
         model_checksum,
+        name,
+        kind,
+        sub_poly_index,
+        union_index,
+        is_shape_based,
+        body_projection,
+        body_color_3d,
+        body_opacity_3d,
+        model_2d_rotation,
     };
 
     Ok((body, current))
