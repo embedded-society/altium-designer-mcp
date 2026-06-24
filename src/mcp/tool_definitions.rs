@@ -185,8 +185,8 @@ impl McpServer {
                                                 "height": { "type": "number", "description": "Pad height in mm" },
                                                 "shape": {
                                                     "type": "string",
-                                                    "enum": ["rectangle", "rounded_rectangle", "round", "circle", "oval"],
-                                                    "description": "Pad shape: rectangle (pin 1), rounded_rectangle (SMD default), round/circle (equivalent, for through-hole), oval"
+                                                    "enum": ["rectangle", "rounded_rectangle", "round", "circle", "oval", "octagonal"],
+                                                    "description": "Pad shape: rectangle (pin 1), rounded_rectangle (SMD default), round/circle (equivalent, for through-hole), oval, octagonal"
                                                 },
                                                 "layer": { "type": "string", "description": "Layer name: Top Layer, Bottom Layer, Multi-Layer (default for SMD)" },
                                                 "hole_size": { "type": "number", "description": "Hole diameter for through-hole pads (mm)" }
@@ -1333,7 +1333,7 @@ impl McpServer {
                                 "y": { "type": "number", "description": "New Y position in mm" },
                                 "width": { "type": "number", "description": "New width in mm" },
                                 "height": { "type": "number", "description": "New height in mm" },
-                                "shape": { "type": "string", "description": "New shape (Rectangle, Round, Oval, RoundedRectangle)" },
+                                "shape": { "type": "string", "description": "New shape (Rectangle, Round, Oval, Octagonal, RoundedRectangle)" },
                                 "rotation": { "type": "number", "description": "New rotation in degrees" },
                                 "hole_size": { "type": "number", "description": "New hole diameter for through-hole pads" }
                             }

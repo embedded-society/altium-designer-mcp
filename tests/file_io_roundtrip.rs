@@ -202,8 +202,11 @@ fn pcblib_file_roundtrip_pad_shapes() {
     pad2.shape = PadShape::Round;
     fp.add_pad(pad2);
 
+    // Octagonal is a first-class Altium shape (id 3) and round-trips faithfully.
+    // (Oval is intentionally not tested here: Altium has no oval shape, so an oval
+    // pad serialises as Round (id 1) and reads back as Round — see pad 2 above.)
     let mut pad3 = Pad::smd("3", 1.0, 0.0, 1.0, 1.0);
-    pad3.shape = PadShape::Oval;
+    pad3.shape = PadShape::Octagonal;
     fp.add_pad(pad3);
 
     // RoundedRectangle with corner radius requires FullStack mode for shape to be preserved
@@ -223,7 +226,7 @@ fn pcblib_file_roundtrip_pad_shapes() {
     assert_eq!(read_fp.pads.len(), 4);
     assert_eq!(read_fp.pads[0].shape, PadShape::Rectangle);
     assert_eq!(read_fp.pads[1].shape, PadShape::Round);
-    assert_eq!(read_fp.pads[2].shape, PadShape::Oval);
+    assert_eq!(read_fp.pads[2].shape, PadShape::Octagonal);
     assert_eq!(read_fp.pads[3].shape, PadShape::RoundedRectangle);
 }
 

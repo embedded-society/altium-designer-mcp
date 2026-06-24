@@ -590,10 +590,11 @@ impl McpServer {
                 "rectangle" | "rect" => PadShape::Rectangle,
                 "round" | "circular" => PadShape::Round,
                 "oval" | "oblong" => PadShape::Oval,
+                "octagonal" | "octagon" => PadShape::Octagonal,
                 "roundedrectangle" | "rounded" => PadShape::RoundedRectangle,
                 _ => {
                     return ToolCallResult::error(format!(
-                    "Invalid shape '{shape_str}'. Valid: Rectangle, Round, Oval, RoundedRectangle"
+                    "Invalid shape '{shape_str}'. Valid: Rectangle, Round, Oval, Octagonal, RoundedRectangle"
                 ))
                 }
             };

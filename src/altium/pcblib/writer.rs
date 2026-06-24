@@ -202,14 +202,14 @@ const fn layer_to_id(layer: Layer) -> u8 {
 /// Converts our `PadShape` enum to the Altium pad shape ID.
 ///
 /// Altium shape ids (`PcbPad`): Round=1, Rectangular=2, Octagonal=3,
-/// RoundedRectangle=9. We keep `Oval`→3 so it round-trips through our own
-/// reader (Altium itself has no oval shape — it draws a Round pad with unequal
-/// X/Y sizes as an oblong).
+/// RoundedRectangle=9.
 const fn pad_shape_to_id(shape: PadShape) -> u8 {
     match shape {
-        PadShape::Round => 1,
+        // Altium has no oval shape: an oval pad is a Round pad with width≠height,
+        // so `Oval` also serialises as Round (id 1).
+        PadShape::Round | PadShape::Oval => 1,
         PadShape::Rectangle => 2,
-        PadShape::Oval => 3,
+        PadShape::Octagonal => 3,
         PadShape::RoundedRectangle => 9,
     }
 }

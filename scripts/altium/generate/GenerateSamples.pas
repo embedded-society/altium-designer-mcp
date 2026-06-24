@@ -64,11 +64,41 @@ begin
                                   PCBM_BoardRegisteration, Pad.I_ObjectAddress);
 end;
 
+{ Adds one through-hole pad at (X, 0) mils with the given hole shape. TH pads sit on
+  eMultiLayer with HoleSize > 0; a non-round hole (square/slot) makes Altium emit the
+  651-byte size/shape block. Slots also take a HoleWidth (the secondary dimension). }
+procedure AddThPad(Comp : IPCB_LibComponent; X : Integer; Hole : THoleType;
+                   HoleLen : Integer; HoleWid : Integer; Nm : String);
+var
+    Pad : IPCB_Pad;
+begin
+    Pad := PCBServer.PCBObjectFactory(ePadObject, eNoDimension, eCreate_Default);
+    if Pad = nil then Exit;
+    Pad.Name     := Nm;
+    Pad.X        := MilsToCoord(X);
+    Pad.Y        := MilsToCoord(0);
+    Pad.Mode     := ePadMode_Simple;   // same shape on all layers
+    Pad.Layer    := eMultiLayer;       // through-hole: spans all copper
+    Pad.TopShape := eRounded;
+    Pad.TopXSize := MilsToCoord(70);
+    Pad.TopYSize := MilsToCoord(70);
+    Pad.HoleType := Hole;              // eRoundHole / eSquareHole / eSlotHole
+    Pad.HoleSize := MilsToCoord(HoleLen);
+    if Hole = eSlotHole then
+    begin
+        Pad.HoleWidth    := MilsToCoord(HoleWid);
+        Pad.HoleRotation := 0;
+    end;
+    Comp.AddPCBObject(Pad);
+    PCBServer.SendMessageToRobots(Comp.I_ObjectAddress, c_Broadcast,
+                                  PCBM_BoardRegisteration, Pad.I_ObjectAddress);
+end;
+
 { ---- PcbLib authoring -------------------------------------------------------
 
-  Build order step 2: PAD_SHAPES — four SMD pads, one per TShape (Round, Rectangular,
-  Octagonal, RoundedRectangle), oblong (W != H). Expand to holes, stacks, vias,
-  tracks, arcs, regions, text, fills and 3D bodies over iterations. }
+  Build order: PAD_SHAPES (four SMD pads, one per TShape) + PAD_HOLES (through-hole
+  pads, one per hole shape — non-round holes exercise the 651-byte size/shape block).
+  Expand to stacks, vias, tracks, arcs, regions, text, fills and 3D bodies later. }
 procedure GeneratePcbLib;
 var
     Lib   : IPCB_Library;
@@ -95,6 +125,17 @@ begin
     AddPad(Comp, 100, eRectangular,        60, 40, '2');
     AddPad(Comp, 200, eOctagonal,          60, 40, '3');
     AddPad(Comp, 300, eRoundedRectangular, 60, 40, '4');
+    PCBServer.PostProcess;
+
+    // PAD_HOLES: through-hole pads, one per hole shape (round / square / slot).
+    Comp := PCBServer.CreatePCBLibComp;
+    Comp.Name := 'PAD_HOLES';
+    Lib.RegisterComponent(Comp);
+
+    PCBServer.PreProcess;
+    AddThPad(Comp,   0, eRoundHole,  30,  0, '1');
+    AddThPad(Comp, 100, eSquareHole, 30,  0, '2');
+    AddThPad(Comp, 200, eSlotHole,   40, 20, '3');
     PCBServer.PostProcess;
 
     Lib.CurrentComponent := Comp;

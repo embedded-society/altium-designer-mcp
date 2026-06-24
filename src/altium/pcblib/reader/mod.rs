@@ -490,7 +490,7 @@ const fn pad_shape_from_id(id: u8) -> PadShape {
     match id {
         1 => PadShape::Round,
         2 => PadShape::Rectangle,
-        3 => PadShape::Oval, // Octagon maps to Oval as closest match
+        3 => PadShape::Octagonal,
         _ => PadShape::RoundedRectangle,
     }
 }

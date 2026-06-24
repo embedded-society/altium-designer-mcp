@@ -74,11 +74,12 @@ impl McpServer {
             "rectangle" => PadShape::Rectangle,
             "round" | "circle" => PadShape::Round,
             "oval" => PadShape::Oval,
+            "octagonal" => PadShape::Octagonal,
             "rounded_rectangle" => PadShape::RoundedRectangle,
             _ => {
                 return Err(format!(
                     "Pad '{designator}' has invalid shape '{shape_str}'. \
-                     Valid shapes are: rectangle, round, circle, oval, rounded_rectangle"
+                     Valid shapes are: rectangle, round, circle, oval, octagonal, rounded_rectangle"
                 ))
             }
         };
