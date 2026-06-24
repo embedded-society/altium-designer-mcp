@@ -1,0 +1,7 @@
+[Design]
+Version=1.0
+DefaultPcbProtel=1
+DefaultPcbPcad=0
+
+[Document1]
+DocumentPath=AltiumVerify.pas
