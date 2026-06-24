@@ -384,6 +384,11 @@ fn parse_rectangle(props: &HashMap<String, String>) -> Option<Rectangle> {
         .get("areacolor")
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
+    // Rectangles store their line style in LINESTYLEEXT (Altium omits LINESTYLE).
+    let line_style = props
+        .get("linestyleext")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
     let owner_part_id = props
         .get("ownerpartid")
         .and_then(|s| s.parse().ok())
@@ -399,6 +404,7 @@ fn parse_rectangle(props: &HashMap<String, String>) -> Option<Rectangle> {
         line_width,
         line_color,
         fill_color,
+        line_style,
         filled: props.get("issolid").is_some_and(|s| s == "T"),
         transparent,
         owner_part_id,
@@ -419,6 +425,13 @@ fn parse_line(props: &HashMap<String, String>) -> Option<Line> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
     let color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
+    let line_style = props
+        .get("linestyle")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    // Altium omits IsNotAccesible when false (accessible), so absent => false — matching
+    // parse_arc and AltiumSharp. A fresh line defaults true (struct), so it still emits =T.
+    let is_not_accessible = props.get("isnotaccesible").is_some_and(|s| s == "T");
     let owner_part_id = props
         .get("ownerpartid")
         .and_then(|s| s.parse().ok())
@@ -431,6 +444,8 @@ fn parse_line(props: &HashMap<String, String>) -> Option<Line> {
         y2,
         line_width,
         color,
+        line_style,
+        is_not_accessible,
         owner_part_id,
         unique_id: props.get("uniqueid").cloned(),
     })
@@ -528,6 +543,7 @@ fn parse_polyline(props: &HashMap<String, String>) -> Option<Polyline> {
         .get("lineshapesize")
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
+    let transparent = props.get("transparent").is_some_and(|s| s == "T");
     let owner_part_id = props
         .get("ownerpartid")
         .and_then(|s| s.parse().ok())
@@ -541,6 +557,7 @@ fn parse_polyline(props: &HashMap<String, String>) -> Option<Polyline> {
         start_line_shape,
         end_line_shape,
         line_shape_size,
+        transparent,
         owner_part_id,
         unique_id: props.get("uniqueid").cloned(),
     })
@@ -615,6 +632,7 @@ fn parse_ellipse(props: &HashMap<String, String>) -> Option<Ellipse> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
     let filled = props.get("issolid").is_some_and(|s| s == "T");
+    let transparent = props.get("transparent").is_some_and(|s| s == "T");
     let owner_part_id = props
         .get("ownerpartid")
         .and_then(|s| s.parse().ok())
@@ -629,6 +647,7 @@ fn parse_ellipse(props: &HashMap<String, String>) -> Option<Ellipse> {
         line_color,
         fill_color,
         filled,
+        transparent,
         owner_part_id,
         unique_id: props.get("uniqueid").cloned(),
     })
@@ -655,6 +674,10 @@ fn parse_arc(props: &HashMap<String, String>) -> Option<Arc> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
     let color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
+    let fill_color = props
+        .get("areacolor")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
     let owner_part_id = props
         .get("ownerpartid")
         .and_then(|s| s.parse().ok())
@@ -669,6 +692,7 @@ fn parse_arc(props: &HashMap<String, String>) -> Option<Arc> {
         end_angle,
         line_width,
         color,
+        fill_color,
         owner_part_id,
         unique_id: props.get("uniqueid").cloned(),
     })
@@ -692,6 +716,9 @@ fn parse_bezier(props: &HashMap<String, String>) -> Option<Bezier> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
     let color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
+    // Altium omits IsNotAccesible when false (accessible), so absent => false — matching
+    // parse_arc and AltiumSharp. A fresh bezier defaults true (struct), so it still emits =T.
+    let is_not_accessible = props.get("isnotaccesible").is_some_and(|s| s == "T");
     let owner_part_id = props
         .get("ownerpartid")
         .and_then(|s| s.parse().ok())
@@ -708,6 +735,7 @@ fn parse_bezier(props: &HashMap<String, String>) -> Option<Bezier> {
         y4,
         line_width,
         color,
+        is_not_accessible,
         owner_part_id,
         unique_id: props.get("uniqueid").cloned(),
     })
@@ -740,7 +768,12 @@ fn parse_round_rect(props: &HashMap<String, String>) -> Option<RoundRect> {
         .get("areacolor")
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
+    let line_style = props
+        .get("linestyle")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
     let filled = props.get("issolid").is_some_and(|s| s == "T");
+    let transparent = props.get("transparent").is_some_and(|s| s == "T");
     let owner_part_id = props
         .get("ownerpartid")
         .and_then(|s| s.parse().ok())
@@ -756,7 +789,9 @@ fn parse_round_rect(props: &HashMap<String, String>) -> Option<RoundRect> {
         line_width,
         line_color,
         fill_color,
+        line_style,
         filled,
+        transparent,
         owner_part_id,
         unique_id: props.get("uniqueid").cloned(),
     })
@@ -805,6 +840,10 @@ fn parse_elliptical_arc(props: &HashMap<String, String>) -> Option<EllipticalArc
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
     let color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
+    let fill_color = props
+        .get("areacolor")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
     let owner_part_id = props
         .get("ownerpartid")
         .and_then(|s| s.parse().ok())
@@ -819,6 +858,7 @@ fn parse_elliptical_arc(props: &HashMap<String, String>) -> Option<EllipticalArc
         end_angle,
         line_width,
         color,
+        fill_color,
         owner_part_id,
         unique_id: props.get("uniqueid").cloned(),
     })

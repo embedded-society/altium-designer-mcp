@@ -472,6 +472,7 @@ impl McpServer {
             line_width,
             line_color,
             fill_color,
+            line_style: 0,
             filled,
             transparent: false,
             owner_part_id,
@@ -503,6 +504,8 @@ impl McpServer {
             y2,
             line_width,
             color,
+            line_style: 0,
+            is_not_accessible: true,
             owner_part_id,
             unique_id: None,
         })
@@ -584,6 +587,7 @@ impl McpServer {
             start_line_shape: 0,
             end_line_shape: 0,
             line_shape_size: 0,
+            transparent: false,
             owner_part_id,
             unique_id: None,
         })
@@ -621,6 +625,7 @@ impl McpServer {
             end_angle,
             line_width,
             color,
+            fill_color: 0,
             owner_part_id,
             unique_id: None,
         })
@@ -657,6 +662,7 @@ impl McpServer {
             line_color,
             fill_color,
             filled,
+            transparent: false,
             owner_part_id,
             unique_id: None,
         })

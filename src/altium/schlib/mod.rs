@@ -951,6 +951,140 @@ mod tests {
     }
 
     #[test]
+    fn roundtrip_per_record_optional_fields() {
+        // Exercises the per-record optional fields added for round-trip fidelity:
+        // AreaColor (Arc/EllipticalArc), LineStyle (Line/RoundRect), LineStyleExt
+        // (Rectangle), Transparent (Ellipse/RoundRect), and the IsNotAccesible
+        // default-true booleans on Line/Bezier.
+        let mut symbol = Symbol::new("OPTFIELDS_TEST");
+
+        // AreaColor on Arc (Arc has no ::new — build a struct literal).
+        let arc = Arc {
+            x: 0,
+            y: 0,
+            radius: 10,
+            is_not_accessible: true,
+            start_angle: 0.0,
+            end_angle: 360.0,
+            line_width: 1,
+            color: 0,
+            fill_color: 0x11_22_33,
+            owner_part_id: 1,
+            unique_id: None,
+        };
+        symbol.add_arc(arc);
+
+        // AreaColor on EllipticalArc.
+        let mut earc = EllipticalArc::new(-60, 0, 9.966_89, 9.996_68, 90.0, 270.0);
+        earc.fill_color = 0x44_55_66;
+        symbol.add_elliptical_arc(earc);
+
+        // LineStyle on Line.
+        let mut line = Line::new(0, 0, 10, 0);
+        line.line_style = 2;
+        symbol.add_line(line);
+
+        // LineStyle + Transparent on RoundRect.
+        let mut round_rect = RoundRect::new(0, 0, 30, 20, 5, 5);
+        round_rect.line_style = 1;
+        round_rect.transparent = true;
+        symbol.add_round_rect(round_rect);
+
+        // LineStyleExt on Rectangle.
+        let mut rect = Rectangle::new(0, 0, 40, 40);
+        rect.line_style = 1;
+        symbol.add_rectangle(rect);
+
+        // Transparent on Ellipse.
+        let mut ell = Ellipse::new(5, 5, 8, 8);
+        ell.transparent = true;
+        symbol.add_ellipse(ell);
+
+        // IsNotAccesible = false on Line (rare non-default case).
+        let mut line2 = Line::new(0, 0, 5, 5);
+        line2.is_not_accessible = false;
+        symbol.add_line(line2);
+
+        // IsNotAccesible = false on Bezier (rare non-default case).
+        let mut bez = Bezier::new(0, 0, 1, 1, 2, 2, 3, 3);
+        bez.is_not_accessible = false;
+        symbol.add_bezier(bez);
+
+        let mut lib = SchLib::new();
+        lib.add(symbol);
+
+        let mut buffer = Cursor::new(Vec::new());
+        lib.write(&mut buffer).expect("Failed to write SchLib");
+
+        buffer.set_position(0);
+        let read_lib = SchLib::read(buffer).expect("Failed to read SchLib");
+        let s = read_lib.get("OPTFIELDS_TEST").expect("Symbol not found");
+
+        assert_eq!(s.arcs[0].fill_color, 0x11_22_33, "Arc AreaColor preserved");
+        assert_eq!(
+            s.elliptical_arcs[0].fill_color, 0x44_55_66,
+            "EllipticalArc AreaColor preserved"
+        );
+        assert_eq!(s.lines[0].line_style, 2, "Line LineStyle preserved");
+        assert!(
+            s.lines[0].is_not_accessible,
+            "default Line IsNotAccesible stays true"
+        );
+        assert_eq!(
+            s.round_rects[0].line_style, 1,
+            "RoundRect LineStyle preserved"
+        );
+        assert!(
+            s.round_rects[0].transparent,
+            "RoundRect Transparent preserved"
+        );
+        assert_eq!(
+            s.rectangles[0].line_style, 1,
+            "Rectangle LineStyleExt preserved"
+        );
+        assert!(s.ellipses[0].transparent, "Ellipse Transparent preserved");
+
+        // With the reader matching parse_arc (Altium omits the key when false, so
+        // absent => false), a `false` IsNotAccesible now round-trips: it is omitted
+        // on write and read back as false.
+        assert!(
+            !s.lines[1].is_not_accessible,
+            "false Line IsNotAccesible round-trips as false"
+        );
+        assert!(
+            !s.beziers[0].is_not_accessible,
+            "false Bezier IsNotAccesible round-trips as false"
+        );
+
+        // Byte-identity: a `false` shape omits the token entirely, while a default
+        // (true) shape still emits `=T`, so from-scratch output is unchanged.
+        let mut false_sym = Symbol::new("INA_FALSE");
+        let mut fline = Line::new(0, 0, 5, 5);
+        fline.is_not_accessible = false;
+        false_sym.add_line(fline);
+        let mut fbez = Bezier::new(0, 0, 1, 1, 2, 2, 3, 3);
+        fbez.is_not_accessible = false;
+        false_sym.add_bezier(fbez);
+        let false_data = writer::encode_data_stream(&false_sym).expect("encode");
+        let false_text = String::from_utf8_lossy(&false_data);
+        assert!(
+            !false_text.contains("IsNotAccesible"),
+            "false Line/Bezier must omit the IsNotAccesible token: {false_text}"
+        );
+
+        let mut true_sym = Symbol::new("INA_TRUE");
+        true_sym.add_line(Line::new(0, 0, 5, 5));
+        true_sym.add_bezier(Bezier::new(0, 0, 1, 1, 2, 2, 3, 3));
+        let true_data = writer::encode_data_stream(&true_sym).expect("encode");
+        let true_text = String::from_utf8_lossy(&true_data);
+        assert_eq!(
+            true_text.matches("IsNotAccesible=T").count(),
+            2,
+            "default Line + Bezier still emit IsNotAccesible=T: {true_text}"
+        );
+    }
+
+    #[test]
     fn wrong_file_type_pcblib_as_schlib() {
         // Create a PcbLib file in memory (using SchLib format with length prefix)
         let mut buffer = Cursor::new(Vec::new());
