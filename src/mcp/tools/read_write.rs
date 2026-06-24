@@ -504,6 +504,7 @@ impl McpServer {
                     kind: TextKind::Stroke,
                     stroke_font: None,
                     stroke_width: None,
+                    italic: false,
                     justification: TextJustification::BottomCenter,
                     flags: PcbFlags::empty(),
                     unique_id: None,
