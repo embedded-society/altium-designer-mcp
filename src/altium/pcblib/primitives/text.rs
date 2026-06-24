@@ -67,6 +67,14 @@ pub struct Text {
     /// Stroke font type (only applies when `kind` is `Stroke`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stroke_font: Option<StrokeFont>,
+    /// Stroke line width in mm (Altium `StrokeWidth`, geometry offset 36). `None`
+    /// uses Altium's template default (4 mil); a read value round-trips exactly.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "crate::altium::serde_round::option::serialize"
+    )]
+    pub stroke_width: Option<f64>,
     /// Text justification (alignment).
     #[serde(default)]
     pub justification: TextJustification,

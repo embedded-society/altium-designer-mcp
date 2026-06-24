@@ -873,6 +873,11 @@ fn encode_text_geometry(text: &Text) -> Vec<u8> {
     // Rotation (offsets 27-34, f64 degrees).
     block[27..35].copy_from_slice(&text.rotation.to_le_bytes());
 
+    // Stroke line width (offset 36, i32). `None` keeps the template default (4 mil).
+    if let Some(width) = text.stroke_width {
+        block[36..40].copy_from_slice(&from_mm(width).to_le_bytes());
+    }
+
     // Authoritative text kind (offset 160).
     block[160] = text_kind_to_id(text.kind);
 

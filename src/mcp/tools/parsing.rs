@@ -300,6 +300,11 @@ impl McpServer {
             .and_then(Layer::parse)
             .unwrap_or(Layer::TopOverlay);
         let rotation = json.get("rotation").and_then(Value::as_f64).unwrap_or(0.0);
+        // Optional stroke line width in mm; `None` keeps Altium's template default.
+        let stroke_width = json
+            .get("stroke_width")
+            .and_then(Value::as_f64)
+            .filter(|&w| w > 0.0);
 
         Some(Text {
             x,
@@ -310,6 +315,7 @@ impl McpServer {
             rotation,
             kind: TextKind::Stroke,
             stroke_font: None,
+            stroke_width,
             justification: TextJustification::MiddleCenter,
             flags: PcbFlags::empty(),
             unique_id: None,
