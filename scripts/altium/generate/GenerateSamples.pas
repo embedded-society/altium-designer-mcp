@@ -50,31 +50,48 @@ var
     Pad  : IPCB_Pad;
     Doc  : IServerDocument;
 begin
-    Client.OpenNewDocumentOfKind('PCBLIB');
-    Lib := PCBServer.GetCurrentPCBLibrary;
+    // CreateNewDocumentFromDocumentKind is the global that creates + focuses a blank
+    // document and returns its IServerDocument (Client.OpenNewDocumentOfKind, used in
+    // the v0, does not exist in AD24).
+    Doc := CreateNewDocumentFromDocumentKind('PCBLIB');
+    if Doc = nil then Exit;
+
+    Lib := PCBServer.GetCurrentPCBLibrary;   // the new doc is focused
     if Lib = nil then Exit;
 
     Comp := PCBServer.CreatePCBLibComp;
     Comp.Name := 'PAD_SMD';
+    Lib.RegisterComponent(Comp);             // register before mutating
+
+    // Primitive creation runs inside a Pre/PostProcess transaction, with a board-
+    // registration broadcast so the editor registers each new object.
+    PCBServer.PreProcess;
 
     Pad := PCBServer.PCBObjectFactory(ePadObject, eNoDimension, eCreate_Default);
     Pad.X        := MMsToCoord(0.0);
     Pad.Y        := MMsToCoord(0.0);
     Pad.TopXSize := MMsToCoord(1.0);
     Pad.TopYSize := MMsToCoord(0.6);
-    Pad.Layer    := eTopLayer;
+    Pad.Layer    := eTopLayer;               // SMD pad -> top copper only
     Pad.Name     := '1';
     Comp.AddPCBObject(Pad);
+    // Altium's own constant is spelled PCBM_BoardRegisteration (the typo is real).
+    PCBServer.SendMessageToRobots(Comp.I_ObjectAddress, c_Broadcast,
+                                  PCBM_BoardRegisteration, Pad.I_ObjectAddress);
+
+    PCBServer.PostProcess;
 
     // TODO(iterate): one footprint per feature — non-round holes (slot/square),
     //   corner-radius / oblong pads (the 651-byte size/shape cases), tracks, arcs,
     //   regions (incl. holes), text, vias, fills, ComponentBody 3D models.
 
-    Lib.RegisterComponent(Comp);
+    Lib.CurrentComponent := Comp;
     Lib.Board.ViewManager_FullUpdate;
 
-    Doc := Client.GetCurrentDocument;
-    if Doc <> nil then Doc.DoFileSaveAs(OUT_DIR + 'PADS.PcbLib', True);
+    // IServerDocument has no DoFileSaveAs; DoSafeChangeFileNameAndSave is the
+    // documented "Save As to a path" (the second arg is the document kind).
+    Doc.SetModified(True);
+    Doc.DoSafeChangeFileNameAndSave(OUT_DIR + 'PADS.PcbLib', 'PCBLIB');
 end;
 
 { ---- SchLib authoring -------------------------------------------------------
@@ -89,27 +106,44 @@ var
     Pin  : ISch_Pin;
     Doc  : IServerDocument;
 begin
-    Client.OpenNewDocumentOfKind('SCHLIB');
+    // CreateNewDocumentFromDocumentKind returns the new doc's IServerDocument
+    // (Client.OpenNewDocumentOfKind, used in the v0, does not exist in AD24).
+    Doc := CreateNewDocumentFromDocumentKind('SCHLIB');
+    if Doc = nil then Exit;
+
+    // GetCurrentSchDocument returns an ISch_Document that also implements ISch_Lib;
+    // DelphiScript's loose COM typing lets us assign it straight into an ISch_Lib.
     Lib := SchServer.GetCurrentSchDocument;
     if Lib = nil then Exit;
 
     Comp := SchServer.SchObjectFactory(eSchComponent, eCreate_Default);
-    Comp.LibReference := 'SYM_BASIC';
+    if Comp = nil then Exit;
+    Comp.CurrentPartID   := 1;
+    Comp.DisplayMode     := 0;
+    Comp.LibReference    := 'SYM_BASIC';
     Comp.Designator.Text := 'U?';
 
     Pin := SchServer.SchObjectFactory(ePin, eCreate_Default);
+    if Pin = nil then Exit;
     Pin.Designator := '1';
     Pin.Name       := 'A';
-    Pin.Location    := Point(MilsToCoord(0), MilsToCoord(0));
+    Pin.Location   := Point(MilsToCoord(0), MilsToCoord(0));
     Comp.AddSchObject(Pin);
 
     // TODO(iterate): rectangles, lines, arcs, labels, parameters, multi-part
     //   symbols, footprint model references, designator placement.
 
+    // AddSchComponent is the library registration call; then broadcast a
+    // primitive-registration message and refresh, so the symbol is committed.
     Lib.AddSchComponent(Comp);
+    Lib.CurrentSchComponent := Comp;
+    SchServer.RobotManager.SendMessage(Lib.I_ObjectAddress, c_BroadCast,
+                                       SCHM_PrimitiveRegistration, Comp.I_ObjectAddress);
+    Lib.GraphicallyInvalidate;
 
-    Doc := Client.GetCurrentDocument;
-    if Doc <> nil then Doc.DoFileSaveAs(OUT_DIR + 'SYMBOLS.SchLib', True);
+    // IServerDocument has no DoFileSaveAs; use DoSafeChangeFileNameAndSave.
+    Doc.SetModified(True);
+    Doc.DoSafeChangeFileNameAndSave(OUT_DIR + 'SYMBOLS.SchLib', 'SCHLIB');
 end;
 
 procedure Run;
