@@ -588,9 +588,9 @@ fn build_pad_extended_tail(pad: &Pad) -> [u8; 141] {
         .copy_from_slice(&from_mm(pad.paste_mask_expansion.unwrap_or(0.0)).to_le_bytes());
     tail[90 - START..94 - START]
         .copy_from_slice(&from_mm(pad.solder_mask_expansion.unwrap_or(0.0)).to_le_bytes());
-    // 101 / 102: paste & solder mask manual flags
-    tail[101 - START] = u8::from(pad.paste_mask_expansion_manual);
-    tail[102 - START] = u8::from(pad.solder_mask_expansion_manual);
+    // 101 / 102: paste & solder mask expansion modes (tri-state, 0/1/2)
+    tail[101 - START] = pad.paste_mask_expansion_mode.to_id();
+    tail[102 - START] = pad.solder_mask_expansion_mode.to_id();
     // 114-117: v7 layer id (derived from the pad's layer)
     tail[114 - START..118 - START]
         .copy_from_slice(&v7_layer_id(layer_to_id(pad.layer)).to_le_bytes());

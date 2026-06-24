@@ -91,13 +91,13 @@ pub struct Pad {
     )]
     pub solder_mask_expansion: Option<f64>,
 
-    /// Whether paste mask expansion is manually set.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub paste_mask_expansion_manual: bool,
+    /// Paste-mask expansion mode (None/FromRule/Manual) — main-block tri-state byte @101.
+    #[serde(default)]
+    pub paste_mask_expansion_mode: MaskExpansionMode,
 
-    /// Whether solder mask expansion is manually set.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub solder_mask_expansion_manual: bool,
+    /// Solder-mask expansion mode (main-block tri-state byte @102).
+    #[serde(default)]
+    pub solder_mask_expansion_mode: MaskExpansionMode,
 
     /// Corner radius as percentage of smaller pad dimension (0-100).
     /// Only applies to `RoundedRectangle` shape.
@@ -169,8 +169,8 @@ impl Pad {
             rotation: 0.0,
             paste_mask_expansion: None,
             solder_mask_expansion: None,
-            paste_mask_expansion_manual: false,
-            solder_mask_expansion_manual: false,
+            paste_mask_expansion_mode: MaskExpansionMode::FromRule,
+            solder_mask_expansion_mode: MaskExpansionMode::FromRule,
             corner_radius_percent: None,
             stack_mode: PadStackMode::Simple,
             per_layer_sizes: None,
@@ -205,8 +205,8 @@ impl Pad {
             rotation: 0.0,
             paste_mask_expansion: None,
             solder_mask_expansion: None,
-            paste_mask_expansion_manual: false,
-            solder_mask_expansion_manual: false,
+            paste_mask_expansion_mode: MaskExpansionMode::FromRule,
+            solder_mask_expansion_mode: MaskExpansionMode::FromRule,
             corner_radius_percent: None,
             stack_mode: PadStackMode::Simple,
             per_layer_sizes: None,

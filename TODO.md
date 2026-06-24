@@ -24,11 +24,12 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
 
 ### A1. PcbLib primitives (code bugs + missing features)
 
-- [ ] 🔴 **Pad** *(biggest — near last)*: real **596-byte** size/shape block (non-Simple pads are
-      emitted under-length → **Altium rejects them**); octagonal id 3 ≠ Oval; `is_plated` @SR5+60;
-      tri-state mask modes @+101/+102 (reuse `MaskExpansionMode`); slot length @+263 / hole rotation
-      @+267; identity GUID @+126; middle/bottom sizes; full-stack tail (`636+count*15`); solder-mask
-      template-default leak.
+- [ ] 🟠 **Pad** — remaining (mostly golden / on-site / fidelity-gated): `is_plated` @SR5+60
+      read-back; slot length @+263 / hole rotation @+267 (596-body); identity GUIDs @+126/+142
+      read-back; middle/bottom sizes (TopMiddleBottom); **multi-entry** full-stack tail (count>1);
+      oblong/oval SMD pads should route to the 651 size/shape block (golden shows 651, we emit
+      empty). *(596 single-entry tail [#157] + tri-state mask modes [this PR] shipped; octagonal
+      id-3 byte mapping is already correct.)*
 - [ ] 🟠 **Via**: identity GUIDs @259-274/@275-290; net/comp/power-plane/paste/drill-pair fields.
 - [ ] 🟠 **Text**: `mirrored` @35 / `isComment` @40 / `isDesignator` @41; font-name fields
       @46-109/@161-224; InvertedRect template bytes @124-131. *(italic / baseFontType shipped #154;

@@ -23,7 +23,9 @@ impl McpServer {
     /// Parses a pad from JSON.
     #[allow(clippy::too_many_lines)] // Pad has many fields requiring individual parsing
     pub(crate) fn parse_pad(json: &Value) -> Result<crate::altium::pcblib::Pad, String> {
-        use crate::altium::pcblib::{Layer, Pad, PadShape, PadStackMode, PcbFlags};
+        use crate::altium::pcblib::{
+            Layer, MaskExpansionMode, Pad, PadShape, PadStackMode, PcbFlags,
+        };
 
         let designator = json
             .get("designator")
@@ -118,14 +120,24 @@ impl McpServer {
         // Parse optional mask expansion values
         let paste_mask_expansion = json.get("paste_mask_expansion").and_then(Value::as_f64);
         let solder_mask_expansion = json.get("solder_mask_expansion").and_then(Value::as_f64);
-        let paste_mask_expansion_manual = json
-            .get("paste_mask_expansion_manual")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        let solder_mask_expansion_manual = json
-            .get("solder_mask_expansion_manual")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
+        let paste_mask_expansion_mode = json
+            .get("paste_mask_expansion_mode")
+            .and_then(Value::as_str)
+            .map(|s| match s.to_lowercase().as_str() {
+                "none" => MaskExpansionMode::None,
+                "manual" => MaskExpansionMode::Manual,
+                _ => MaskExpansionMode::FromRule,
+            })
+            .unwrap_or_default();
+        let solder_mask_expansion_mode = json
+            .get("solder_mask_expansion_mode")
+            .and_then(Value::as_str)
+            .map(|s| match s.to_lowercase().as_str() {
+                "none" => MaskExpansionMode::None,
+                "manual" => MaskExpansionMode::Manual,
+                _ => MaskExpansionMode::FromRule,
+            })
+            .unwrap_or_default();
 
         // Parse optional corner radius
         let corner_radius_percent = json
@@ -147,8 +159,8 @@ impl McpServer {
             rotation,
             paste_mask_expansion,
             solder_mask_expansion,
-            paste_mask_expansion_manual,
-            solder_mask_expansion_manual,
+            paste_mask_expansion_mode,
+            solder_mask_expansion_mode,
             corner_radius_percent,
             stack_mode: PadStackMode::Simple,
             per_layer_sizes: None,
