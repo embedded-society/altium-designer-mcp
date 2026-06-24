@@ -820,8 +820,7 @@ pub(super) fn find_ascii_in_block(block: &[u8], pattern: &str) -> Option<usize> 
 /// ```
 #[allow(clippy::cast_possible_truncation)] // Altium coords fit in i32
 pub(super) fn parse_region(data: &[u8], offset: usize) -> ParseResult<Region> {
-    // Region format (observed from Altium files):
-    // Block 0: Properties block containing:
+    // Region format (observed from Altium files): a single block containing:
     //   - Common header (13 bytes): layer, flags, padding
     //   - Unknown data (5 bytes)
     //   - Parameter string length (4 bytes)
@@ -909,10 +908,10 @@ pub(super) fn parse_region(data: &[u8], offset: usize) -> ParseResult<Region> {
         vertices.push(Vertex { x, y });
     }
 
-    // A region is a single block — there is no second block. (We previously read a
-    // spurious empty "Block 1"; doing so against a real Altium region would mis-read
-    // the next record's bytes.)
-
+    // A region is a single block — there is no trailing empty "Block 1". Altium
+    // places the next record's type byte immediately after this block, so `current`
+    // already points at the next record. (We previously read a spurious second block,
+    // which against a real Altium region would mis-read the next record's bytes.)
     let region = Region {
         vertices,
         layer,

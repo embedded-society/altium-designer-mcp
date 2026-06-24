@@ -380,6 +380,52 @@ impl McpServer {
                 }
             }
 
+            // Parse generic extruded 3D bodies (no STEP model). Each body is
+            // defined by an optional 2D outline (auto-bounding-box from pads when
+            // omitted) plus standoff/overall heights, on the Top/Bottom 3D Body
+            // layer. model_id/model_name stay empty so the writer marks them as
+            // shape-based extruded bodies.
+            if let Some(bodies) = fp_json.get("component_bodies").and_then(Value::as_array) {
+                use crate::altium::pcblib::{ComponentBody, Layer};
+                for body_json in bodies {
+                    let layer = body_json
+                        .get("layer")
+                        .and_then(Value::as_str)
+                        .and_then(Layer::parse)
+                        .unwrap_or(Layer::Top3DBody);
+                    let outline = body_json
+                        .get("outline")
+                        .and_then(Value::as_array)
+                        .map(|verts| {
+                            verts
+                                .iter()
+                                .filter_map(|v| {
+                                    Some((
+                                        v.get("x").and_then(Value::as_f64)?,
+                                        v.get("y").and_then(Value::as_f64)?,
+                                    ))
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default();
+                    let f = |k: &str| body_json.get(k).and_then(Value::as_f64).unwrap_or(0.0);
+                    footprint.add_component_body(ComponentBody {
+                        model_id: String::new(),
+                        model_name: String::new(),
+                        embedded: false,
+                        rotation_x: f("rotation_x"),
+                        rotation_y: f("rotation_y"),
+                        rotation_z: f("rotation_z"),
+                        z_offset: f("z_offset"),
+                        overall_height: f("overall_height"),
+                        standoff_height: f("standoff_height"),
+                        layer,
+                        outline,
+                        unique_id: None,
+                    });
+                }
+            }
+
             // Validate coordinates before adding
             if let Err(e) = Self::validate_footprint_coordinates(&footprint) {
                 return ToolCallResult::error(e);

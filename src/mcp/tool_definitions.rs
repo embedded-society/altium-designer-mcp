@@ -276,6 +276,32 @@ impl McpServer {
                                             "rotation": { "type": "number", "description": "Z rotation in degrees" }
                                         },
                                         "required": ["filepath"]
+                                    },
+                                    "component_bodies": {
+                                        "type": "array",
+                                        "description": "Generic extruded 3D bodies (no STEP file). Each is an extruded shape defined by an outline + heights, useful for giving parts a 3D height when no STEP model is available.",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "overall_height": { "type": "number", "description": "Total body height above the board, in mm (top of extrusion)" },
+                                                "standoff_height": { "type": "number", "description": "Standoff from the board to the bottom of the body, in mm. Default: 0" },
+                                                "outline": {
+                                                    "type": "array",
+                                                    "description": "Optional 2D outline polygon as {x,y} vertices in mm. If omitted, a bounding box is auto-generated from the footprint pads.",
+                                                    "items": {
+                                                        "type": "object",
+                                                        "properties": { "x": { "type": "number" }, "y": { "type": "number" } },
+                                                        "required": ["x", "y"]
+                                                    }
+                                                },
+                                                "layer": { "type": "string", "description": "Body layer: 'Top 3D Body' (default) or 'Bottom 3D Body'" },
+                                                "z_offset": { "type": "number", "description": "Z offset in mm. Default: 0" },
+                                                "rotation_x": { "type": "number" },
+                                                "rotation_y": { "type": "number" },
+                                                "rotation_z": { "type": "number" }
+                                            },
+                                            "required": ["overall_height"]
+                                        }
                                     }
                                 },
                                 "required": ["name", "pads"]

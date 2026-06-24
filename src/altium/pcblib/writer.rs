@@ -19,7 +19,7 @@ use super::primitives::{
 };
 use super::Footprint;
 
-use super::units::{from_mm, mm_to_mil, MM_TO_INTERNAL_UNITS};
+use super::units::{from_mm, mm_to_mil};
 
 /// Writes a 4-byte little-endian unsigned integer.
 fn write_u32(data: &mut Vec<u8>, value: u32) {
@@ -885,10 +885,12 @@ fn encode_text_geometry(text: &Text) -> Vec<u8> {
 /// Encodes a Region primitive (filled polygon).
 ///
 /// Region format (matching Altium):
-/// - Single block: common header, parameter string, and the vertex outline.
+/// - A single block: common header, parameter string, and the vertex outline.
 ///
-/// Altium's `WriteRegion` emits exactly one block; an earlier guess appended a
-/// spurious empty second block, which desynchronised the record stream.
+/// Altium's `WriteRegion` emits exactly one block. A spurious empty second block
+/// leaves a stray `00 00 00 00` after the region; when another primitive follows,
+/// Altium reads it as an invalid record type and silently drops every primitive
+/// after the region (e.g. a trailing `ComponentBody` never renders).
 fn encode_region(data: &mut Vec<u8>, region: &Region) {
     let props = encode_region_properties(region);
     write_block(data, &props);
@@ -1046,12 +1048,15 @@ fn encode_component_body_block(body: &ComponentBody, outline: &[(f64, f64)]) -> 
     write_cstring_param_block(&mut block, &crate::altium::encode_windows1252(&param_str));
 
     // Outline polygon: vertex count then (f64 x, f64 y) per vertex, in Altium
-    // internal units (1 mil = 10000). Altium needs a non-empty outline to place
-    // and render the body.
+    // internal units. Coordinates MUST be whole internal units (like every other
+    // primitive — via from_mm): Altium silently drops a body whose outline has
+    // fractional internal coordinates. Real Altium-authored bodies are always
+    // integer-valued here. (Writing mm*scale directly produced fractional values
+    // for non-mil-aligned dimensions and the body never rendered.)
     write_u32(&mut block, outline.len() as u32);
     for &(x, y) in outline {
-        write_f64(&mut block, x * MM_TO_INTERNAL_UNITS);
-        write_f64(&mut block, y * MM_TO_INTERNAL_UNITS);
+        write_f64(&mut block, f64::from(from_mm(x)));
+        write_f64(&mut block, f64::from(from_mm(y)));
     }
 
     block
@@ -1097,14 +1102,22 @@ fn resolve_body_outline(body: &ComponentBody, footprint: &Footprint) -> Vec<(f64
 
 /// Builds the parameter string for a `ComponentBody`.
 fn build_component_body_params(body: &ComponentBody) -> String {
+    // A body with no STEP model (no filename, not embedded) is a generic
+    // *extruded* body: Altium defines it by its 2D outline polygon plus a Z
+    // extent (MODEL.EXTRUDED.MINZ/MAXZ) and MODELTYPE=0, with no model file.
+    // Matched against a real Altium-authored extruded body: ISSHAPEBASED stays
+    // FALSE (same as STEP bodies); the extrusion comes from the EXTRUDED.MIN/MAXZ
+    // pair, NOT from ISSHAPEBASED. Model-backed bodies use MODELTYPE=1 and a
+    // MODELSOURCE instead.
+    let extruded = body.model_name.is_empty() && !body.embedded;
+
     let mut params = Vec::new();
 
-    // V7_LAYER (Top3DBody is MECHANICAL6, Bottom3DBody is MECHANICAL7)
-    let layer_name = match body.layer {
-        Layer::Bottom3DBody => "MECHANICAL7",
-        _ => "MECHANICAL6",
-    };
-    params.push(format!("V7_LAYER={layer_name}"));
+    // V7_LAYER must match the body's actual layer byte. Use the canonical
+    // MECHANICAL{n} token for any mechanical layer (Top3DBody=MECHANICAL6,
+    // Mechanical1=MECHANICAL1, etc.) instead of hardcoding one — a mismatch
+    // between the param string and the layer byte makes Altium drop the body.
+    params.push(format!("V7_LAYER={}", region_v7_layer_token(body.layer)));
 
     // Standard parameters
     params.push("NAME= ".to_string());
@@ -1132,12 +1145,18 @@ fn build_component_body_params(body: &ComponentBody) -> String {
     params.push("TEXTURE=".to_string());
     params.push("TEXTURECENTERX=0mil".to_string());
     params.push("TEXTURECENTERY=0mil".to_string());
-    params.push("TEXTURESIZEX=0mil".to_string());
-    params.push("TEXTURESIZEY=0mil".to_string());
+    params.push("TEXTURESIZEX=0.0001mil".to_string());
+    params.push("TEXTURESIZEY=0.0001mil".to_string());
     params.push("TEXTUREROTATION= 0.00000000000000E+0000".to_string());
 
-    // Model reference
-    params.push(format!("MODELID={}", body.model_id));
+    // Model reference. Extruded bodies have no model file but still need a model
+    // GUID, so synthesize one when the caller didn't supply it.
+    let model_id = if extruded && body.model_id.is_empty() {
+        format!("{{{}}}", uuid::Uuid::new_v4().to_string().to_uppercase())
+    } else {
+        body.model_id.clone()
+    };
+    params.push(format!("MODELID={model_id}"));
     params.push("MODEL.CHECKSUM=0".to_string());
     params.push(format!(
         "MODEL.EMBED={}",
@@ -1151,8 +1170,24 @@ fn build_component_body_params(body: &ComponentBody) -> String {
     params.push(format!("MODEL.3D.ROTY={:.3}", body.rotation_y));
     params.push(format!("MODEL.3D.ROTZ={:.3}", body.rotation_z));
     params.push(format!("MODEL.3D.DZ={}mil", mm_to_mil(body.z_offset)));
-    params.push("MODEL.MODELTYPE=1".to_string());
-    params.push("MODEL.MODELSOURCE=Undefined".to_string());
+    // MODELTYPE 0 = Extruded (no model file); 1 = generic/STEP model.
+    let model_type = if extruded { "0" } else { "1" };
+    params.push(format!("MODEL.MODELTYPE={model_type}"));
+    if extruded {
+        // The extrusion itself: Z range from standoff (MINZ) to overall (MAXZ).
+        // This is what Altium actually extrudes the outline between; without it
+        // the body has no volume and is discarded on load.
+        params.push(format!(
+            "MODEL.EXTRUDED.MINZ={}mil",
+            mm_to_mil(body.standoff_height)
+        ));
+        params.push(format!(
+            "MODEL.EXTRUDED.MAXZ={}mil",
+            mm_to_mil(body.overall_height)
+        ));
+    } else {
+        params.push("MODEL.MODELSOURCE=Undefined".to_string());
+    }
 
     params.join("|")
 }
@@ -1660,6 +1695,64 @@ mod tests {
         let s = String::from_utf8_lossy(&props);
         assert!(s.contains("V7_LAYER=MECHANICAL4"), "got: {s}");
         assert!(!s.contains("TOPCOURTYARD"));
+    }
+
+    #[test]
+    fn encode_region_emits_exactly_one_block() {
+        use crate::altium::pcblib::primitives::Vertex;
+        // A Region must serialize as a single length-prefixed block. A trailing
+        // empty block (`00 00 00 00`) makes Altium treat the next primitive's
+        // record-type byte region as an invalid record and silently drop every
+        // primitive after the region (e.g. a following ComponentBody never renders).
+        let region = Region {
+            vertices: vec![
+                Vertex { x: -1.0, y: -1.0 },
+                Vertex { x: 1.0, y: -1.0 },
+                Vertex { x: 1.0, y: 1.0 },
+                Vertex { x: -1.0, y: 1.0 },
+            ],
+            layer: Layer::TopCourtyard,
+            flags: PcbFlags::default(),
+            unique_id: None,
+        };
+        let mut data = Vec::new();
+        encode_region(&mut data, &region);
+        let block_len = u32::from_le_bytes(data[0..4].try_into().unwrap()) as usize;
+        assert_eq!(
+            data.len(),
+            4 + block_len,
+            "region must be a single block (4-byte length prefix + payload); \
+             trailing bytes indicate a spurious empty block"
+        );
+    }
+
+    #[test]
+    fn test_component_body_extruded_vs_model_params() {
+        // Generic extruded body: no model name, not embedded. Matches a real
+        // Altium-authored extruded body: ISSHAPEBASED=FALSE, MODELTYPE=0, a
+        // synthesized MODELID GUID, and the extrusion Z range via EXTRUDED.MIN/MAXZ.
+        let mut extruded = ComponentBody::new("", "");
+        extruded.embedded = false;
+        extruded.overall_height = 1.0;
+        extruded.standoff_height = 0.0;
+        let s = build_component_body_params(&extruded);
+        assert!(s.contains("ISSHAPEBASED=FALSE"), "got: {s}");
+        assert!(s.contains("MODEL.MODELTYPE=0"), "got: {s}");
+        assert!(s.contains("MODEL.EXTRUDED.MAXZ="), "got: {s}");
+        assert!(
+            s.contains("MODELID={") && !s.contains("MODELID=|"),
+            "got: {s}"
+        );
+        assert!(!s.contains("MODELSOURCE"), "got: {s}");
+
+        // Model-backed body (STEP) keeps the legacy shape/type, no extrusion range.
+        let mut model = ComponentBody::new("{GUID}", "part.step");
+        model.embedded = true;
+        let s = build_component_body_params(&model);
+        assert!(s.contains("ISSHAPEBASED=FALSE"), "got: {s}");
+        assert!(s.contains("MODEL.MODELTYPE=1"), "got: {s}");
+        assert!(s.contains("MODEL.MODELSOURCE=Undefined"), "got: {s}");
+        assert!(!s.contains("EXTRUDED"), "got: {s}");
     }
 
     #[test]
