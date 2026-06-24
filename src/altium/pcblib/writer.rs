@@ -927,9 +927,16 @@ fn region_v7_layer_token(layer: Layer) -> String {
 fn encode_region_properties(region: &Region) -> Vec<u8> {
     let vertex_count = region.vertices.len();
 
-    // Build parameter string (leading pipe, matching Altium).
+    // Parameter string in Altium's canonical key order. Unlike other Altium param
+    // blocks, a region's nested block has NO leading pipe and carries the full
+    // canonical key set (matching AltiumSharp `BuildRegionParamText`); the values are
+    // the from-scratch defaults. Our reader skips this block by length, so the format
+    // only affects byte-fidelity with genuine Altium output.
     let layer_name = region_v7_layer_token(region.layer);
-    let params = format!("|V7_LAYER={layer_name}|NAME=|KIND=0");
+    let params = format!(
+        "V7_LAYER={layer_name}|NAME=|KIND=0|SUBPOLYINDEX=-1|UNIONINDEX=0\
+         |ARCRESOLUTION=0mil|ISSHAPEBASED=FALSE|CAVITYHEIGHT=0mil"
+    );
     let params_bytes = crate::altium::encode_windows1252(&params);
 
     let mut block = Vec::with_capacity(22 + params_bytes.len() + 4 + vertex_count * 16);
@@ -1875,5 +1882,39 @@ mod tests {
         let v7 = u32::from_le_bytes([block[42], block[43], block[44], block[45]]);
         assert_eq!(v7, v7_layer_id(layer_to_id(Layer::TopPaste)));
         assert_ne!(v7, 0, "a real layer must yield a non-zero v7 id");
+    }
+
+    #[test]
+    fn region_param_string_is_canonical() {
+        use crate::altium::pcblib::primitives::Vertex;
+        let region = Region {
+            vertices: vec![
+                Vertex { x: -1.0, y: -1.0 },
+                Vertex { x: 1.0, y: -1.0 },
+                Vertex { x: 1.0, y: 1.0 },
+                Vertex { x: -1.0, y: 1.0 },
+            ],
+            layer: Layer::TopCourtyard,
+            flags: PcbFlags::default(),
+            unique_id: None,
+        };
+        let block = encode_region_properties(&region);
+        let param_len = u32::from_le_bytes([block[18], block[19], block[20], block[21]]) as usize;
+        let params = String::from_utf8_lossy(&block[22..22 + param_len]);
+        let params = params.trim_end_matches('\0');
+        // No leading pipe (region blocks are special), and the full canonical key set.
+        assert!(!params.starts_with('|'), "no leading pipe: {params}");
+        for key in [
+            "V7_LAYER=MECHANICAL4",
+            "NAME=",
+            "KIND=0",
+            "SUBPOLYINDEX=-1",
+            "UNIONINDEX=0",
+            "ARCRESOLUTION=0mil",
+            "ISSHAPEBASED=FALSE",
+            "CAVITYHEIGHT=0mil",
+        ] {
+            assert!(params.contains(key), "missing '{key}' in: {params}");
+        }
     }
 }
