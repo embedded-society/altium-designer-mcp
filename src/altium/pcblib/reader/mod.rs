@@ -27,8 +27,9 @@
 use std::collections::HashMap;
 
 use super::primitives::{
-    Arc, ComponentBody, Fill, HoleShape, Layer, Pad, PadShape, PadStackMode, PcbFlags, Region,
-    StrokeFont, Text, TextJustification, TextKind, Track, Vertex, Via, ViaStackMode,
+    Arc, ComponentBody, Fill, HoleShape, Layer, MaskExpansionMode, Pad, PadShape, PadStackMode,
+    PcbFlags, Region, StrokeFont, Text, TextJustification, TextKind, Track, Vertex, Via,
+    ViaStackMode,
 };
 use super::Footprint;
 use crate::altium::bytes::{

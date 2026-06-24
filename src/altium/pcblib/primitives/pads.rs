@@ -280,6 +280,45 @@ pub enum ViaStackMode {
     FullStack,
 }
 
+/// Solder / paste mask expansion mode.
+///
+/// Altium stores this as a tri-state byte, not a boolean: the expansion can be
+/// off, taken from the design rule, or a manually-specified value. (Shared by
+/// vias and, later, pads.)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MaskExpansionMode {
+    /// No mask expansion.
+    None,
+    /// Expansion taken from the design rule (Altium's default).
+    #[default]
+    FromRule,
+    /// A manually-specified expansion value is used.
+    Manual,
+}
+
+impl MaskExpansionMode {
+    /// Creates from the Altium tri-state byte (`0` = `None`, `1` = `FromRule`, `2` = `Manual`).
+    #[must_use]
+    pub const fn from_id(id: u8) -> Self {
+        match id {
+            0 => Self::None,
+            2 => Self::Manual,
+            _ => Self::FromRule,
+        }
+    }
+
+    /// Returns the Altium tri-state byte.
+    #[must_use]
+    pub const fn to_id(self) -> u8 {
+        match self {
+            Self::None => 0,
+            Self::FromRule => 1,
+            Self::Manual => 2,
+        }
+    }
+}
+
 /// A PCB via (vertical interconnect access).
 ///
 /// Vias connect traces between different copper layers. They have a drill hole
@@ -314,9 +353,10 @@ pub struct Via {
     #[serde(default, serialize_with = "crate::altium::serde_round::serialize")]
     pub solder_mask_expansion: f64,
 
-    /// Whether solder mask expansion is manually set.
+    /// Solder mask expansion mode (`None` / `FromRule` / `Manual`). Altium stores this
+    /// as a tri-state byte; `FromRule` is the default for a fresh via.
     #[serde(default)]
-    pub solder_mask_expansion_manual: bool,
+    pub solder_mask_expansion_mode: MaskExpansionMode,
 
     // Thermal relief settings (for polygon pours)
     /// Thermal relief air gap width in mm (default: 0.254mm = 10 mils).
@@ -386,7 +426,7 @@ impl Via {
             from_layer: Layer::TopLayer,
             to_layer: Layer::BottomLayer,
             solder_mask_expansion: 0.0,
-            solder_mask_expansion_manual: false,
+            solder_mask_expansion_mode: MaskExpansionMode::FromRule,
             thermal_relief_gap: 0.254, // 10 mils
             thermal_relief_conductors: 4,
             thermal_relief_width: 0.254, // 10 mils
@@ -414,7 +454,7 @@ impl Via {
             from_layer: from,
             to_layer: to,
             solder_mask_expansion: 0.0,
-            solder_mask_expansion_manual: false,
+            solder_mask_expansion_mode: MaskExpansionMode::FromRule,
             thermal_relief_gap: 0.254, // 10 mils
             thermal_relief_conductors: 4,
             thermal_relief_width: 0.254, // 10 mils
