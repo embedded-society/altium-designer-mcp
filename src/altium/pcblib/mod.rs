@@ -1022,6 +1022,15 @@ mod tests {
             outline: vec![(-2.0, 1.0), (-2.0, -1.0), (2.0, -1.0), (2.0, 1.0)],
             unique_id: None,
             model_checksum: 7_654_321,
+            name: " ".to_string(),
+            kind: 0,
+            sub_poly_index: -1,
+            union_index: 0,
+            is_shape_based: false,
+            body_projection: 0,
+            body_color_3d: 8_421_504,
+            body_opacity_3d: 1.0,
+            model_2d_rotation: 0.0,
         };
         original.add_component_body(body);
 
@@ -1077,6 +1086,15 @@ mod tests {
                 outline: Vec::new(), // exercise the synthesised-bbox fallback
                 unique_id: None,
                 model_checksum: 0,
+                name: " ".to_string(),
+                kind: 0,
+                sub_poly_index: -1,
+                union_index: 0,
+                is_shape_based: false,
+                body_projection: 0,
+                body_color_3d: 8_421_504,
+                body_opacity_3d: 1.0,
+                model_2d_rotation: 0.0,
             });
         }
 

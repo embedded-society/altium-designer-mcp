@@ -136,6 +136,62 @@ pub struct ComponentBody {
     /// for a fresh body, so default output stays byte-identical.
     #[serde(default)]
     pub model_checksum: i64,
+
+    /// Body name (Altium `NAME`). Default is a single space `" "`, reproducing the
+    /// `NAME= ` literal that template-default bodies emit (byte-identity).
+    #[serde(default = "default_body_name")]
+    pub name: String,
+
+    /// Body kind (Altium `KIND`). Default `0`.
+    #[serde(default)]
+    pub kind: u8,
+
+    /// Sub-polygon index (Altium `SUBPOLYINDEX`). Default `-1`.
+    #[serde(default = "default_sub_poly_index")]
+    pub sub_poly_index: i32,
+
+    /// Union index (Altium `UNIONINDEX`). Default `0`.
+    #[serde(default)]
+    pub union_index: u32,
+
+    /// Whether the body is shape-based (Altium `ISSHAPEBASED`). Default `false`.
+    #[serde(default)]
+    pub is_shape_based: bool,
+
+    /// Body projection mode (Altium `BODYPROJECTION`). Default `0`.
+    #[serde(default)]
+    pub body_projection: u8,
+
+    /// 3D body colour, decimal RGB (Altium `BODYCOLOR3D`). Default `8421504`
+    /// (`0xE0E0E0`, `AltiumSharp`'s default grey).
+    #[serde(default = "default_body_color")]
+    pub body_color_3d: u32,
+
+    /// 3D body opacity, `0.0`–`1.0` (Altium `BODYOPACITY3D`). Default `1.0`,
+    /// written with `{:.3}` so the default renders as `1.000` (byte-identity).
+    #[serde(default = "default_opacity")]
+    pub body_opacity_3d: f64,
+
+    /// 2D rotation in degrees (Altium `MODEL.2D.ROTATION`). Default `0.0`,
+    /// written with `{:.3}` so the default renders as `0.000` (byte-identity).
+    #[serde(default)]
+    pub model_2d_rotation: f64,
+}
+
+const fn default_body_color() -> u32 {
+    8_421_504
+}
+
+const fn default_opacity() -> f64 {
+    1.0
+}
+
+const fn default_sub_poly_index() -> i32 {
+    -1
+}
+
+fn default_body_name() -> String {
+    " ".to_string()
 }
 
 impl ComponentBody {
@@ -156,6 +212,15 @@ impl ComponentBody {
             outline: Vec::new(),
             unique_id: None,
             model_checksum: 0,
+            name: default_body_name(),
+            kind: 0,
+            sub_poly_index: default_sub_poly_index(),
+            union_index: 0,
+            is_shape_based: false,
+            body_projection: 0,
+            body_color_3d: default_body_color(),
+            body_opacity_3d: default_opacity(),
+            model_2d_rotation: 0.0,
         }
     }
 }
