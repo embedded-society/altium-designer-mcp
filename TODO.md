@@ -56,8 +56,6 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
       IsMirrored placement.)
 - [ ] 🟠 **Implementation**: `MapDefiner` (RECORD=47) modelling; `DataFileCount` derive/loop;
       `IsCurrent` only-when-true. *(1-based index + OwnerIndex → live-Altium gaps, section B.)*
-- [ ] 🟠 **Component (RECORD=1)**: emit/read `UniqueID`; `PartCount.max(1)` flooring corrupts
-      round-trip; read more header fields.
 - [ ] 🟠 **Pin**: `FormalType` model field; `DefaultValue` tail string; `SwapId` / `PinFrac` /
       `SymbolLineWidth`.
 
@@ -98,6 +96,10 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
       every coord field is `i32` and can't hold sub-DXP precision — a faithful fix is a breaking
       `i32`→`f64` model/API change, and the per-record `_Frac` key spellings need a byte-compared
       golden. *(EllipticalArc radii already round-trip; the carry bug was fixed separately.)*
+- [ ] **SchLib Component (RECORD=1) header fields**: the `PartCount` floor is fixed; remaining is
+      the component `UniqueID` (AltiumSharp carries it, but a fresh symbol would emit a brand-new
+      random id — not byte-identical) and the dropped header fields (`DesignItemId` / `ComponentKind`
+      / `LibraryPath` / `SheetPartFileName` / `IndexInSheet` / `OwnerPartId`) — need golden fixtures.
 - [ ] Feed confirmed answers back into the fix ladder (especially the pad, A3).
 
 ## C. On-site Altium tooling

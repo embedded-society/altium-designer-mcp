@@ -955,6 +955,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn single_part_symbol_emits_partcount_one() {
+        // internal part_count 0 (single part) must re-emit PartCount=1, not the old
+        // floored PartCount=2 — the write-back half of the round-trip fix.
+        let mut symbol = Symbol::new("PC");
+        symbol.part_count = 0;
+        let header = encode_component_header(&symbol);
+        assert!(
+            header.contains("|PartCount=1|"),
+            "single-part symbol re-emits PartCount=1: {header}"
+        );
+    }
+
+    #[test]
     fn test_write_text_record() {
         let mut data = Vec::new();
         write_text_record(&mut data, "|RECORD=1|Name=Test|").unwrap();
