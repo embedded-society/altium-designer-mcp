@@ -82,7 +82,10 @@ fn write_text_record(data: &mut Vec<u8>, content: &str) -> crate::altium::error:
 /// - Pin coordinates (x, y, length) exceed the i16 range (±32767)
 /// - Pin name, designator, or description exceeds 255 bytes
 #[allow(clippy::too_many_lines)] // Complex binary format requires detailed validation and encoding
-fn write_binary_pin(data: &mut Vec<u8>, pin: &Pin) -> crate::altium::error::AltiumResult<()> {
+pub(crate) fn write_binary_pin(
+    data: &mut Vec<u8>,
+    pin: &Pin,
+) -> crate::altium::error::AltiumResult<()> {
     use crate::altium::error::AltiumError;
 
     // Validation constants
@@ -127,10 +130,16 @@ fn write_binary_pin(data: &mut Vec<u8>, pin: &Pin) -> crate::altium::error::Alti
     let name = crate::altium::encode_windows1252(&pin.name);
     let designator = crate::altium::encode_windows1252(&pin.designator);
     let description = crate::altium::encode_windows1252(&pin.description);
+    let swap_id_group = crate::altium::encode_windows1252(&pin.swap_id_group);
+    let part_and_sequence = crate::altium::encode_windows1252(&pin.part_and_sequence);
+    let default_value = crate::altium::encode_windows1252(&pin.default_value);
     for (bytes, field) in [
         (&name, "name"),
         (&designator, "designator"),
         (&description, "description"),
+        (&swap_id_group, "swap_id_group"),
+        (&part_and_sequence, "part_and_sequence"),
+        (&default_value, "default_value"),
     ] {
         if bytes.len() > MAX_STRING_LEN {
             return Err(AltiumError::InvalidParameter {
@@ -178,8 +187,8 @@ fn write_binary_pin(data: &mut Vec<u8>, pin: &Pin) -> crate::altium::error::Alti
     // Description: Pascal short string [length:1][string]
     write_pascal_string(&mut record, &description);
 
-    // Formal type (1 byte) - 0x01 for a normal pin (matches Altium's output).
-    record.push(0x01);
+    // Formal type (1 byte) - 0x01 for a normal pin; round-tripped from the pin.
+    record.push(pin.formal_type);
 
     // Electrical type (1 byte)
     record.push(pin.electrical_type.to_id());
@@ -232,12 +241,12 @@ fn write_binary_pin(data: &mut Vec<u8>, pin: &Pin) -> crate::altium::error::Alti
     // Designator: [length:1][string]
     write_pascal_string(&mut record, &designator);
 
-    // Pin swap-id tail (Pascal short strings), matching Altium's output:
-    //   SwapIdGroup = "" , PartAndSequence = "|&|" , DefaultValue = "".
-    record.push(0); // SwapIdGroup (empty)
-    record.push(3); // PartAndSequence length
-    record.extend_from_slice(b"|&|");
-    record.push(0); // DefaultValue (empty)
+    // Pin swap-id tail (Pascal short strings), round-tripped from the pin. For a
+    // from-scratch pin the defaults (`""`, `"|&|"`, `""`) reproduce Altium's
+    // output byte-for-byte.
+    write_pascal_string(&mut record, &swap_id_group);
+    write_pascal_string(&mut record, &part_and_sequence);
+    write_pascal_string(&mut record, &default_value);
 
     // Header: Altium's [u24 length LE][u8 flags=1 for pin], then the record.
     write_record_frame(data, &record, 1)
@@ -965,6 +974,19 @@ mod tests {
             header.contains("|PartCount=1|"),
             "single-part symbol re-emits PartCount=1: {header}"
         );
+    }
+
+    #[test]
+    fn pin_tail_default_is_byte_identical() {
+        use crate::altium::schlib::primitives::Pin;
+        let pin = Pin::new("VCC", "1", 0, 0, 100, PinOrientation::Right);
+        let mut data = Vec::new();
+        write_binary_pin(&mut data, &pin).unwrap();
+        // Default tail must be exactly: swap_id_group="", part_and_sequence="|&|",
+        // default_value="" — the same bytes the writer emitted before the tail
+        // fields became round-trippable. This is the load-bearing byte-identity
+        // check; formal_type=1 leaves the formal-type byte at 0x01 unchanged.
+        assert!(data.ends_with(&[0x00, 0x03, b'|', b'&', b'|', 0x00]));
     }
 
     #[test]
