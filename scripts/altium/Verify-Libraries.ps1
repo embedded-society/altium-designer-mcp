@@ -59,7 +59,8 @@ $abs = foreach ($f in $Files) {
 
 # 3. Write the request; clear any stale response
 New-Item -ItemType Directory -Force -Path $BridgeDir | Out-Null
-$abs | Set-Content -Path $RequestFile -Encoding UTF8
+# Write the paths without a BOM (a UTF-8 BOM would prefix the first path).
+[System.IO.File]::WriteAllLines($RequestFile, [string[]]$abs)
 if (Test-Path $ResponseFile) { Remove-Item $ResponseFile -Force }
 Write-Host "Verifying $($abs.Count) file(s)..."
 
@@ -82,11 +83,17 @@ if (-not (Test-Path $ResponseFile)) {
 }
 
 # 6. Report
-$results = Get-Content $ResponseFile -Raw | ConvertFrom-Json
-if ($results.error) { throw "Verify script error: $($results.error)" }
+$raw = Get-Content $ResponseFile -Raw
+$results = $raw | ConvertFrom-Json
+# An error response is a single JSON object {"error":...}; a success response is a
+# JSON array. (Testing $results.error directly mis-fires on an array, because member
+# enumeration returns one item per element.)
+if ($raw.TrimStart([char]0xFEFF, ' ', "`t", "`r", "`n").StartsWith('{')) {
+    throw "Altium verify script error: $($results.error)"
+}
 
 $allOk = $true
-foreach ($r in $results) {
+foreach ($r in @($results)) {
     if ($r.opened) {
         Write-Host ("  PASS  {0}" -f $r.file) -ForegroundColor Green
     } else {
