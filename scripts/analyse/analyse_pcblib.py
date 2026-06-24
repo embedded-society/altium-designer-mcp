@@ -543,7 +543,20 @@ def main():
             print(f"  Or place a sample file at: {default_path}")
             sys.exit(1)
     else:
-        filepath = Path(sys.argv[1])
+        script_dir = Path(__file__).parent
+        safe_root = script_dir.parent.resolve()
+        filepath = Path(sys.argv[1]).expanduser().resolve()
+
+        try:
+            filepath.relative_to(safe_root)
+        except ValueError:
+            print(f"Error: Path not allowed (must be under {safe_root}): {filepath}")
+            sys.exit(1)
+
+        if filepath.suffix.lower() != ".pcblib":
+            print(f"Error: Unsupported file type (expected .PcbLib): {filepath}")
+            sys.exit(1)
+
         if not filepath.exists():
             print(f"Error: File not found: {filepath}")
             sys.exit(1)
