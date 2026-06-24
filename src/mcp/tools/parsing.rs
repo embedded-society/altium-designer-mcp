@@ -280,6 +280,7 @@ impl McpServer {
 
         Some(Region {
             vertices,
+            holes: Vec::new(),
             layer,
             flags: PcbFlags::empty(),
             unique_id: None,
@@ -316,6 +317,7 @@ impl McpServer {
             kind: TextKind::Stroke,
             stroke_font: None,
             stroke_width,
+            italic: false,
             justification: TextJustification::MiddleCenter,
             flags: PcbFlags::empty(),
             unique_id: None,

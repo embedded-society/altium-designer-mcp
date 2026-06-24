@@ -718,6 +718,7 @@ mod tests {
             kind: TextKind::Stroke,
             stroke_font: None,
             stroke_width: None,
+            italic: false,
             justification: TextJustification::MiddleCenter,
             flags: PcbFlags::empty(),
             unique_id: None,
@@ -732,6 +733,7 @@ mod tests {
             kind: TextKind::Stroke,
             stroke_font: None,
             stroke_width: None,
+            italic: false,
             justification: TextJustification::TopLeft,
             flags: PcbFlags::empty(),
             unique_id: None,
@@ -774,6 +776,7 @@ mod tests {
             kind: TextKind::Stroke,
             stroke_font: None,
             stroke_width: Some(0.2),
+            italic: false,
             justification: TextJustification::MiddleCenter,
             flags: PcbFlags::empty(),
             unique_id: None,
@@ -791,6 +794,61 @@ mod tests {
     }
 
     #[test]
+    fn text_truetype_italic_round_trips() {
+        // A TrueType italic text must round-trip italic@45 and derive baseFontType@43=1.
+        let mut original = Footprint::new("TT_ITALIC");
+        original.add_text(Text {
+            x: 0.0,
+            y: 0.0,
+            text: "String".to_string(),
+            height: 1.0,
+            layer: Layer::TopOverlay,
+            rotation: 0.0,
+            kind: TextKind::TrueType,
+            stroke_font: None,
+            stroke_width: None,
+            italic: true,
+            justification: TextJustification::MiddleCenter,
+            flags: PcbFlags::empty(),
+            unique_id: None,
+        });
+
+        let data = writer::encode_data_stream(&original).expect("encode");
+        let mut decoded = Footprint::new("TT_ITALIC");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        assert_eq!(decoded.text.len(), 1);
+        assert_eq!(decoded.text[0].kind, TextKind::TrueType);
+        assert!(decoded.text[0].italic, "italic must survive the round-trip");
+    }
+
+    #[test]
+    fn text_default_stroke_geometry_byte_identical() {
+        // Guards the oracle: a from-scratch stroke text with default styling must emit
+        // the unmodified template at the styling offsets (43, 45 == 0).
+        let geom = writer::encode_text_geometry(&Text {
+            x: 0.0,
+            y: 0.0,
+            text: "X".into(),
+            height: 1.0,
+            layer: Layer::TopOverlay,
+            rotation: 0.0,
+            kind: TextKind::Stroke,
+            stroke_font: None,
+            stroke_width: None,
+            italic: false,
+            justification: TextJustification::MiddleCenter,
+            flags: PcbFlags::empty(),
+            unique_id: None,
+        });
+        assert_eq!(
+            geom[43], 0x00,
+            "stroke baseFontType must stay template default"
+        );
+        assert_eq!(geom[45], 0x00, "non-italic must stay template default");
+    }
+
+    #[test]
     fn binary_roundtrip_text_flags() {
         // parse_text previously discarded the flag word (read PcbFlags::empty());
         // a locked / tented text must now round-trip its flags.
@@ -805,6 +863,7 @@ mod tests {
             kind: TextKind::Stroke,
             stroke_font: None,
             stroke_width: None,
+            italic: false,
             justification: TextJustification::MiddleCenter,
             flags: PcbFlags::LOCKED | PcbFlags::TENTING_TOP,
             unique_id: None,
@@ -839,6 +898,7 @@ mod tests {
                     y: 1.016,
                 },
             ],
+            holes: Vec::new(),
             layer: Layer::TopAssembly,
             flags: PcbFlags::empty(),
             unique_id: None,
@@ -1184,6 +1244,38 @@ mod tests {
             decoded.vias[1].solder_mask_expansion_mode,
             MaskExpansionMode::Manual
         );
+    }
+
+    #[test]
+    fn via_solder_mask_back_round_trips() {
+        // A default via leaves the back mask `None` (back@242 == front@54), and an
+        // asymmetric via must round-trip a distinct back-face expansion. Tests the
+        // deterministic encode_via -> parse_via path (a full library write embeds
+        // fresh UUIDs/timestamps, so it is not byte-deterministic).
+        let mut original = Footprint::new("VIA_SMASK");
+
+        // Default via: back is None and must survive the round-trip as None.
+        original.add_via(Via::new(0.0, 0.0, 0.6, 0.3));
+
+        // Asymmetric via: distinct front/back mask expansion.
+        let mut asym = Via::new(2.54, 0.0, 0.6, 0.3);
+        asym.solder_mask_expansion = 0.1; // front 0.1 mm
+        asym.solder_mask_expansion_back = Some(0.2); // back 0.2 mm
+        original.add_via(asym);
+
+        let data = writer::encode_data_stream(&original).expect("encode");
+        let mut decoded = Footprint::new("VIA_SMASK");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        assert_eq!(decoded.vias.len(), 2);
+        assert_eq!(decoded.vias[0].solder_mask_expansion_back, None);
+        assert_eq!(decoded.vias[1].solder_mask_expansion_back, Some(0.2));
+        // Front face unaffected.
+        assert!((decoded.vias[1].solder_mask_expansion - 0.1).abs() < 1e-6);
+
+        // Idempotent re-encode proves a byte-stable round-trip for vias.
+        let data2 = writer::encode_data_stream(&decoded).expect("re-encode");
+        assert_eq!(data, data2);
     }
 
     #[test]

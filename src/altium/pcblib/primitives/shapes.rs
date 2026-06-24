@@ -182,6 +182,11 @@ impl Arc {
 pub struct Region {
     /// Vertices of the polygon.
     pub vertices: Vec<Vertex>,
+    /// Interior hole contours (multi-contour region). Empty for a simple polygon.
+    /// Each contour is appended after the outline as `[u32 count][count x 16-byte
+    /// (x, y) doubles]`, mirroring Altium's `WriteRegion`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub holes: Vec<Vec<Vertex>>,
     /// Layer the region is on.
     pub layer: Layer,
     /// Primitive flags (locked, keepout, etc.).
@@ -203,6 +208,7 @@ impl Region {
                 Vertex { x: max_x, y: max_y },
                 Vertex { x: min_x, y: max_y },
             ],
+            holes: Vec::new(),
             layer,
             flags: PcbFlags::empty(),
             unique_id: None,
