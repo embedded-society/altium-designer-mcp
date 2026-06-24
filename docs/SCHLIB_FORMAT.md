@@ -646,7 +646,7 @@ Common default values used when properties are not specified:
 | `LineWidth` | 1 | All shapes |
 | `Color` (lines) | 0x000080 | Dark red (BGR) |
 | `Color` (text) | 0x800000 | Dark blue (BGR) |
-| `AreaColor` | 0xFFFFB0 | Light yellow (BGR) |
+| `AreaColor` | 0xB0FFFF | Light yellow (BGR) |
 | `PartCount` | 1 | Minimum enforced |
 
 ## Symbol Writing Order

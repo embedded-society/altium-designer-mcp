@@ -420,7 +420,7 @@ impl Rectangle {
             y2,
             line_width: 1,
             line_color: 0x00_00_80, // Dark red (BGR)
-            fill_color: 0xFF_FF_B0, // Light yellow (BGR)
+            fill_color: 0xB0_FF_FF, // Light yellow (BGR), matches Altium's default AreaColor (11599871)
             line_style: 0,
             filled: true,
             transparent: false,
@@ -710,7 +710,7 @@ impl Ellipse {
             radius_y,
             line_width: 1,
             line_color: 0x00_00_80, // Dark red (BGR)
-            fill_color: 0xFF_FF_B0, // Light yellow (BGR)
+            fill_color: 0xB0_FF_FF, // Light yellow (BGR), matches Altium's default AreaColor (11599871)
             filled: true,
             transparent: false,
             owner_part_id: 1,
@@ -790,7 +790,7 @@ impl RoundRect {
             corner_y_radius,
             line_width: 1,
             line_color: 0x00_00_80, // Dark red (BGR)
-            fill_color: 0xFF_FF_B0, // Light yellow (BGR)
+            fill_color: 0xB0_FF_FF, // Light yellow (BGR), matches Altium's default AreaColor (11599871)
             line_style: 0,
             filled: true,
             transparent: false,
@@ -1063,6 +1063,21 @@ impl FootprintModel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn filled_shapes_default_to_altium_light_yellow() {
+        // Altium's default schematic fill is light yellow = 0xB0FFFF (BGR) = 11599871,
+        // the same value emitted as the component header's AreaColor. The earlier
+        // default 0xFFFFB0 was that value byte-swapped and rendered as cyan in Altium.
+        const ALTIUM_LIGHT_YELLOW: u32 = 0xB0_FF_FF;
+        assert_eq!(ALTIUM_LIGHT_YELLOW, 11_599_871);
+        assert_eq!(Rectangle::new(0, 0, 10, 10).fill_color, ALTIUM_LIGHT_YELLOW);
+        assert_eq!(Ellipse::new(0, 0, 5, 5).fill_color, ALTIUM_LIGHT_YELLOW);
+        assert_eq!(
+            RoundRect::new(0, 0, 10, 10, 2, 2).fill_color,
+            ALTIUM_LIGHT_YELLOW
+        );
+    }
 
     #[test]
     fn pin_orientation_flags() {
