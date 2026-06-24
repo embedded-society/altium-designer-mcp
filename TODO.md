@@ -40,19 +40,19 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
       emitted under-length → **Altium rejects them**); octagonal id 3 ≠ Oval; `is_plated` @SR5+60;
       tri-state mask modes @+101/+102; slot length @+263 / hole rotation @+267; identity GUID @+126;
       middle/bottom sizes; full-stack tail (`636+count*15`); solder-mask template-default leak.
-- [ ] 🟠 **Via**: `solder_mask_expansion_mode` bool → tri-state enum (byte 66, default FromRule);
+- [ ] 🟠 **Via**: mask-mode tri-state enum [DONE #140 — shared `MaskExpansionMode`, reused by the pad];
       identity GUIDs @259-274/@275-290; `solder_mask_expansion_back` @242-245; net/comp/power-plane/
-      paste/drill-pair fields. *(Share the mask-mode enum with the pad.)*
-- [ ] 🟠 **Text**: flag word read [DONE #132]; `strokeWidth` @36; raw `fontId` @25 (don't collapse);
-      PCB justification @132 (column-major); mirrored @35 / italic @45 / baseFontType @43; font-name
-      fields @46-109/@161-224; zero/round-trip the InvertedRect stale template bytes @124-131.
-- [ ] 🟠 **Region**: param string (drop leading pipe; 8 canonical keys; `NAME` = single space);
-      `hole_count` @14 + hole contours; KIND/SUBPOLYINDEX/UNIONINDEX/ARCRESOLUTION/ISSHAPEBASED/
-      CAVITYHEIGHT params. *(Empty-block + V7_LAYER token already [DONE #124/#132/#133].)*
+      paste/drill-pair fields.
+- [ ] 🟠 **Text**: flag word [DONE #132], `strokeWidth` @36 [DONE #141]; `mirrored` @35 / `isComment`
+      @40 / `isDesignator` @41; italic @45 / baseFontType @43; font-name fields @46-109/@161-224;
+      InvertedRect template bytes @124-131. *(raw `fontId` @25 + justification @132 are custom-font /
+      inverted-rect only — verified deferred in #141.)*
+- [ ] 🟠 **Region**: param string (no leading pipe + 8 canonical keys) [DONE #139]; `hole_count` @14 +
+      hole contours (multi-contour regions). *(Empty-block + V7_LAYER token [DONE #124/#132/#133].)*
 - [ ] 🟠 **ComponentBody**: MODELTYPE/EXTRUDED/MODELSOURCE/V7_LAYER [DONE #133]; `MODEL.CHECKSUM`
       round-trip; broad field coverage (colour/opacity/texture/2D-placement/identifier).
-- [ ] ⚪ **Fill**: `v7_layer_id` @42-45 (port AltiumSharp `V7LayerId`); `solder_mask_expansion`
-      @37-40 + `keepout_restrictions` @46.
+- [ ] ⚪ **Fill**: `v7_layer_id` @42-45 [DONE #139]; `solder_mask_expansion` @37-40 +
+      `keepout_restrictions` @46.
 
 ### A2. PcbLib stream / container layer
 
@@ -113,8 +113,6 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
 
 ## C. On-site Altium tooling
 
-- [ ] Merge **#136** (verify-harness fixes — `REPLACEALL`, BOM, wrapper error-detection,
-      leave-open).
 - [ ] *(Optional)* extend `Verify-Libraries.ps1` to assert primitive counts / specific properties,
       not just "opened".
 
@@ -146,5 +144,9 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
   wire bits) + SchLib semantics (IsSolid, end-marker, implementation record labels).
 - **#132** PcbLib: read the text flag word + emit regions as a single block.
 - **#133** *(contributor @ande2407)* generic extruded ComponentBody + `component_bodies` MCP input.
-- **#135** `scripts/altium/` on-site verify harness + README "Prior Art & Acknowledgements".
-- **#136** *(open)* verify-harness fixes.
+- **#135–#136** `scripts/altium/` on-site verify harness + README "Prior Art & Acknowledgements";
+  harness fixes (`REPLACEALL`, BOM, wrapper error-detection, leave-open).
+- **#137** TODO.md rewrite after the comprehensive RE.
+- **#139** PcbLib: fill `v7_layer_id` + canonical region parameter string (byte-fidelity).
+- **#140** PcbLib: via solder-mask expansion as tri-state `MaskExpansionMode` (fixes wrong default).
+- **#141** *(open)* PcbLib: text `stroke_width` @36 round-trip.
