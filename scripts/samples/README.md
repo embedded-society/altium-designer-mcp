@@ -1,4 +1,4 @@
-# Golden sample libraries
+# Sample libraries
 
 Altium-authored reference libraries — the ground truth for the reader and round-trip
 tests. **Generated on-site, never hand-edited:** run `scripts\Generate-Samples.ps1`,
@@ -9,4 +9,4 @@ Committed as binaries (like [AltiumSharp](https://github.com/issus/AltiumSharp)'
 so CI can read them without Altium. Regenerate and re-commit whenever the authoring script's coverage grows.
 
 > Building these is iterative — generate, read back with the Rust tests, extend the
-> primitive set, regenerate. This folder is empty until the first golden set lands.
+> primitive set, regenerate. This folder is empty until the first sample set lands.
