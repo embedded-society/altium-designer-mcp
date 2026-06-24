@@ -43,9 +43,9 @@ mod writer;
 use serde::{Deserialize, Serialize};
 
 pub use primitives::{
-    Arc, ComponentBody, EmbeddedModel, Fill, HoleShape, Layer, Model3D, Pad, PadShape,
-    PadStackMode, PcbFlags, Region, StrokeFont, Text, TextJustification, TextKind, Track, Vertex,
-    Via,
+    Arc, ComponentBody, EmbeddedModel, Fill, HoleShape, Layer, MaskExpansionMode, Model3D, Pad,
+    PadShape, PadStackMode, PcbFlags, Region, StrokeFont, Text, TextJustification, TextKind, Track,
+    Vertex, Via,
 };
 
 use crate::altium::error::{AltiumError, AltiumResult};
@@ -1296,6 +1296,49 @@ mod tests {
     }
 
     #[test]
+    fn pad_mask_expansion_mode_round_trips() {
+        use super::primitives::MaskExpansionMode;
+
+        // A fresh pad defaults to FromRule (Altium's default, bytes 101/102 = 1) — not
+        // the old `manual=false` which wrote 0 (None). A Manual pad must round-trip.
+        let fresh = Pad::smd("1", 0.0, 0.0, 1.0, 1.0);
+        assert_eq!(fresh.paste_mask_expansion_mode, MaskExpansionMode::FromRule);
+        assert_eq!(
+            fresh.solder_mask_expansion_mode,
+            MaskExpansionMode::FromRule
+        );
+
+        let mut original = Footprint::new("PAD_MASK_MODE");
+        original.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+        let mut manual = Pad::smd("2", 1.0, 1.0, 1.0, 1.0);
+        manual.paste_mask_expansion_mode = MaskExpansionMode::Manual;
+        manual.solder_mask_expansion_mode = MaskExpansionMode::Manual;
+        original.add_pad(manual);
+
+        let data = writer::encode_data_stream(&original).expect("encode");
+        let mut decoded = Footprint::new("PAD_MASK_MODE");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        assert_eq!(decoded.pads.len(), 2);
+        assert_eq!(
+            decoded.pads[0].paste_mask_expansion_mode,
+            MaskExpansionMode::FromRule
+        );
+        assert_eq!(
+            decoded.pads[0].solder_mask_expansion_mode,
+            MaskExpansionMode::FromRule
+        );
+        assert_eq!(
+            decoded.pads[1].paste_mask_expansion_mode,
+            MaskExpansionMode::Manual
+        );
+        assert_eq!(
+            decoded.pads[1].solder_mask_expansion_mode,
+            MaskExpansionMode::Manual
+        );
+    }
+
+    #[test]
     fn via_solder_mask_back_round_trips() {
         // A default via leaves the back mask `None` (back@242 == front@54), and an
         // asymmetric via must round-trip a distinct back-face expansion. Tests the
@@ -1353,20 +1396,22 @@ mod tests {
 
     #[test]
     fn binary_roundtrip_pad_advanced_features() {
+        use super::primitives::MaskExpansionMode;
+
         let mut original = Footprint::new("ROUNDTRIP_PAD_ADVANCED");
 
         // Create a pad with hole shape and mask expansion
         let mut pad_with_square_hole = Pad::through_hole("1", -2.54, 0.0, 1.8, 1.8, 1.0);
         pad_with_square_hole.hole_shape = HoleShape::Square;
         pad_with_square_hole.solder_mask_expansion = Some(0.1);
-        pad_with_square_hole.solder_mask_expansion_manual = true;
+        pad_with_square_hole.solder_mask_expansion_mode = MaskExpansionMode::Manual;
         original.add_pad(pad_with_square_hole);
 
         // Create a pad with slot hole
         let mut pad_with_slot = Pad::through_hole("2", 0.0, 0.0, 2.0, 1.5, 0.8);
         pad_with_slot.hole_shape = HoleShape::Slot;
         pad_with_slot.paste_mask_expansion = Some(-0.05);
-        pad_with_slot.paste_mask_expansion_manual = true;
+        pad_with_slot.paste_mask_expansion_mode = MaskExpansionMode::Manual;
         original.add_pad(pad_with_slot);
 
         // Create a simple pad with round hole (default)
@@ -1391,7 +1436,10 @@ mod tests {
             0.1,
             0.001
         ));
-        assert!(decoded.pads[0].solder_mask_expansion_manual);
+        assert_eq!(
+            decoded.pads[0].solder_mask_expansion_mode,
+            MaskExpansionMode::Manual
+        );
 
         // Pad 2: Slot hole + paste mask expansion
         assert_eq!(decoded.pads[1].designator, "2");
@@ -1402,7 +1450,10 @@ mod tests {
             -0.05,
             0.001
         ));
-        assert!(decoded.pads[1].paste_mask_expansion_manual);
+        assert_eq!(
+            decoded.pads[1].paste_mask_expansion_mode,
+            MaskExpansionMode::Manual
+        );
 
         // Pad 3: Default round hole (empty Block 5)
         assert_eq!(decoded.pads[2].designator, "3");

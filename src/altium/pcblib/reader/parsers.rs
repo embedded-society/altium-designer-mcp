@@ -166,11 +166,13 @@ pub(super) fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
         None
     };
 
-    // Paste mask expansion manual flag - offset 101
-    let paste_mask_expansion_manual = geometry.len() > 101 && geometry[101] != 0;
-
-    // Solder mask expansion manual flag - offset 102
-    let solder_mask_expansion_manual = geometry.len() > 102 && geometry[102] != 0;
+    // Paste/solder mask expansion modes - offsets 101/102 (tri-state byte).
+    let paste_mask_expansion_mode = geometry.get(101).map_or(MaskExpansionMode::FromRule, |&b| {
+        MaskExpansionMode::from_id(b)
+    });
+    let solder_mask_expansion_mode = geometry.get(102).map_or(MaskExpansionMode::FromRule, |&b| {
+        MaskExpansionMode::from_id(b)
+    });
 
     // Parse per-layer data when stack mode is not Simple
     // Per-layer data format:
@@ -225,8 +227,8 @@ pub(super) fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
         rotation,
         paste_mask_expansion,
         solder_mask_expansion,
-        paste_mask_expansion_manual,
-        solder_mask_expansion_manual,
+        paste_mask_expansion_mode,
+        solder_mask_expansion_mode,
         corner_radius_percent,
         stack_mode,
         per_layer_sizes,
