@@ -1342,78 +1342,34 @@ pub fn encode_unique_id_stream(footprint: &Footprint) -> Option<Vec<u8>> {
     let mut data = Vec::new();
     let mut has_any_id = false;
 
-    // Encode each primitive type with its unique IDs
-    // Index is 0-based (AltiumSharp convention)
-
-    // Pads
-    for (i, pad) in footprint.pads.iter().enumerate() {
-        if let Some(ref uid) = pad.unique_id {
-            encode_unique_id_record(&mut data, i, "Pad", uid);
-            has_any_id = true;
-        }
+    // `PRIMITIVEINDEX` is a single global 0-based ordinal over ALL primitives in
+    // `Data`-stream emit order (see `encode_data_stream`): Arc, Pad, Via, Track,
+    // Text, Region, Fill, ComponentBody. Every primitive consumes an ordinal whether
+    // or not it carries a unique id (a record is emitted only when it does) — so e.g.
+    // the first pad behind two silkscreen arcs is `PRIMITIVEINDEX=2`, matching Altium.
+    // `apply_unique_ids` MUST walk this exact order to round-trip.
+    let mut ordinal: usize = 0;
+    macro_rules! emit {
+        ($iter:expr, $ty:literal) => {
+            for prim in $iter {
+                if let Some(ref uid) = prim.unique_id {
+                    encode_unique_id_record(&mut data, ordinal, $ty, uid);
+                    has_any_id = true;
+                }
+                ordinal += 1;
+            }
+        };
     }
+    emit!(&footprint.arcs, "Arc");
+    emit!(&footprint.pads, "Pad");
+    emit!(&footprint.vias, "Via");
+    emit!(&footprint.tracks, "Track");
+    emit!(&footprint.text, "Text");
+    emit!(&footprint.regions, "Region");
+    emit!(&footprint.fills, "Fill");
+    emit!(&footprint.component_bodies, "ComponentBody");
 
-    // Vias
-    for (i, via) in footprint.vias.iter().enumerate() {
-        if let Some(ref uid) = via.unique_id {
-            encode_unique_id_record(&mut data, i, "Via", uid);
-            has_any_id = true;
-        }
-    }
-
-    // Tracks
-    for (i, track) in footprint.tracks.iter().enumerate() {
-        if let Some(ref uid) = track.unique_id {
-            encode_unique_id_record(&mut data, i, "Track", uid);
-            has_any_id = true;
-        }
-    }
-
-    // Arcs
-    for (i, arc) in footprint.arcs.iter().enumerate() {
-        if let Some(ref uid) = arc.unique_id {
-            encode_unique_id_record(&mut data, i, "Arc", uid);
-            has_any_id = true;
-        }
-    }
-
-    // Regions
-    for (i, region) in footprint.regions.iter().enumerate() {
-        if let Some(ref uid) = region.unique_id {
-            encode_unique_id_record(&mut data, i, "Region", uid);
-            has_any_id = true;
-        }
-    }
-
-    // Text
-    for (i, text) in footprint.text.iter().enumerate() {
-        if let Some(ref uid) = text.unique_id {
-            encode_unique_id_record(&mut data, i, "Text", uid);
-            has_any_id = true;
-        }
-    }
-
-    // Fills
-    for (i, fill) in footprint.fills.iter().enumerate() {
-        if let Some(ref uid) = fill.unique_id {
-            encode_unique_id_record(&mut data, i, "Fill", uid);
-            has_any_id = true;
-        }
-    }
-
-    // ComponentBodies
-    for (i, body) in footprint.component_bodies.iter().enumerate() {
-        if let Some(ref uid) = body.unique_id {
-            encode_unique_id_record(&mut data, i, "ComponentBody", uid);
-            has_any_id = true;
-        }
-    }
-
-    if has_any_id {
-        Some(data)
-    } else {
-        None
-    }
+    has_any_id.then_some(data)
 }
 
 /// Encodes a single unique ID record.
