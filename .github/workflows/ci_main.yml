@@ -50,7 +50,7 @@ jobs:
 
             - name: Restore npm cache
               id: npm-cache-restore
-              uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+              uses: actions/cache/restore@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
               with:
                 path: ~/.npm
                 key: npm-markdownlint-${{ runner.os }}-node-${{ steps.setup-node.outputs.node-version }}-mdlint-${{ steps.mdlint-version.outputs.version }}
@@ -66,7 +66,7 @@ jobs:
 
             - name: Save npm cache
               if: steps.npm-cache-restore.outputs.cache-hit != 'true'
-              uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+              uses: actions/cache/save@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
               with:
                 path: ~/.npm
                 key: npm-markdownlint-${{ runner.os }}-node-${{ steps.setup-node.outputs.node-version }}-mdlint-${{ steps.mdlint-version.outputs.version }}
@@ -111,7 +111,7 @@ jobs:
 
             - name: Restore Rust cache
               id: cache-restore
-              uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+              uses: actions/cache/restore@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
               with:
                 path: |
                     ~/.cargo/bin/
@@ -168,7 +168,7 @@ jobs:
             - name: Save Rust cache
               if: steps.cache-restore.outputs.cache-hit != 'true'
               continue-on-error: true
-              uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+              uses: actions/cache/save@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
               with:
                 path: |
                     ~/.cargo/bin/
@@ -214,7 +214,7 @@ jobs:
 
             - name: Restore Rust cache
               id: cache-restore
-              uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+              uses: actions/cache/restore@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
               with:
                 path: |
                     ~/.cargo/registry/index/
@@ -234,7 +234,7 @@ jobs:
             - name: Save Rust cache
               if: steps.cache-restore.outputs.cache-hit != 'true'
               continue-on-error: true
-              uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+              uses: actions/cache/save@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
               with:
                 path: |
                     ~/.cargo/registry/index/
