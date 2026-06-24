@@ -1512,20 +1512,21 @@ mod tests {
         footprint.add_pad(Pad::smd("2", 0.5, 0.0, 0.6, 0.5));
         footprint.add_track(Track::new(-1.0, 0.0, 1.0, 0.0, 0.15, Layer::TopOverlay));
 
-        // Create unique ID entries
+        // Global Data-stream ordinals: no arcs, so the two pads are 0 and 1, and the
+        // track (after the pads/vias slot) is 2.
         let entries = vec![
             reader::UniqueIdEntry {
-                primitive_index: 1,
+                primitive_index: 0,
                 primitive_type: "Pad".to_string(),
                 unique_id: "PADUID01".to_string(),
             },
             reader::UniqueIdEntry {
-                primitive_index: 2,
+                primitive_index: 1,
                 primitive_type: "Pad".to_string(),
                 unique_id: "PADUID02".to_string(),
             },
             reader::UniqueIdEntry {
-                primitive_index: 1,
+                primitive_index: 2,
                 primitive_type: "Track".to_string(),
                 unique_id: "TRKUID01".to_string(),
             },
@@ -1538,6 +1539,47 @@ mod tests {
         assert_eq!(footprint.pads[0].unique_id, Some("PADUID01".to_string()));
         assert_eq!(footprint.pads[1].unique_id, Some("PADUID02".to_string()));
         assert_eq!(footprint.tracks[0].unique_id, Some("TRKUID01".to_string()));
+    }
+
+    #[test]
+    fn unique_id_global_ordinal_round_trip() {
+        // A real footprint often has a silkscreen arc before the pads, so the first
+        // pad is PRIMITIVEINDEX=1 (a single global, 0-based, Data-stream ordinal),
+        // never 0 — the arc occupies ordinal 0. This locks the writer/reader contract.
+        let mut fp = Footprint::new("RT_UID");
+        let mut arc = Arc::circle(0.0, 0.0, 0.5, 0.1, Layer::TopOverlay);
+        arc.unique_id = Some("ARCUID01".to_string());
+        fp.add_arc(arc);
+        let mut p1 = Pad::smd("1", -0.5, 0.0, 0.6, 0.5);
+        p1.unique_id = Some("PADUID01".to_string());
+        fp.add_pad(p1);
+        let mut p2 = Pad::smd("2", 0.5, 0.0, 0.6, 0.5);
+        p2.unique_id = Some("PADUID02".to_string());
+        fp.add_pad(p2);
+
+        let entries =
+            reader::parse_unique_id_stream(&writer::encode_unique_id_stream(&fp).unwrap());
+
+        // Arc=0, then the two pads at 1 and 2 (never 0).
+        let arc_e = entries.iter().find(|e| e.primitive_type == "Arc").unwrap();
+        assert_eq!(arc_e.primitive_index, 0);
+        let mut pad_idx: Vec<usize> = entries
+            .iter()
+            .filter(|e| e.primitive_type == "Pad")
+            .map(|e| e.primitive_index)
+            .collect();
+        pad_idx.sort_unstable();
+        assert_eq!(pad_idx, vec![1, 2]);
+
+        // Round-trip onto a fresh, id-less footprint of identical shape.
+        let mut fresh = Footprint::new("RT_UID");
+        fresh.add_arc(Arc::circle(0.0, 0.0, 0.5, 0.1, Layer::TopOverlay));
+        fresh.add_pad(Pad::smd("1", -0.5, 0.0, 0.6, 0.5));
+        fresh.add_pad(Pad::smd("2", 0.5, 0.0, 0.6, 0.5));
+        reader::apply_unique_ids(&mut fresh, &entries);
+        assert_eq!(fresh.arcs[0].unique_id.as_deref(), Some("ARCUID01"));
+        assert_eq!(fresh.pads[0].unique_id.as_deref(), Some("PADUID01"));
+        assert_eq!(fresh.pads[1].unique_id.as_deref(), Some("PADUID02"));
     }
 
     #[test]

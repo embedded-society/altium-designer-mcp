@@ -63,7 +63,8 @@ pub type WideStrings = HashMap<usize, String>;
 /// Each entry maps a primitive (by index and type) to its unique ID.
 #[derive(Debug, Clone)]
 pub struct UniqueIdEntry {
-    /// Primitive index (1-indexed, as stored in Altium files).
+    /// `PRIMITIVEINDEX`: a single global 0-based ordinal over all primitives in
+    /// `Data`-stream emit order (not a per-type index).
     pub primitive_index: usize,
     /// Primitive object type (e.g., "Pad", "Track", "Arc").
     pub primitive_type: String,
@@ -247,84 +248,47 @@ fn parse_unique_id_record(record: &str) -> Option<UniqueIdEntry> {
 
 /// Applies unique IDs from the `UniqueIDPrimitiveInformation` stream to footprint primitives.
 ///
-/// This function assigns unique IDs to primitives based on their type and index.
-/// The index is 1-based in the Altium format, and represents the order of primitives
-/// within each type (e.g., the 3rd Pad is index 3, regardless of Tracks in between).
+/// `PRIMITIVEINDEX` is a single global 0-based ordinal over all primitives in
+/// `Data`-stream emit order (Arc, Pad, Via, Track, Text, Region, Fill,
+/// `ComponentBody`) — NOT a per-type index. This walks that exact order, mirroring
+/// `encode_unique_id_stream`, so a written-then-read footprint round-trips.
 ///
 /// # Arguments
 ///
 /// * `footprint` - The footprint to update with unique IDs
 /// * `unique_ids` - The parsed unique ID map from `parse_unique_id_stream`
 pub fn apply_unique_ids(footprint: &mut Footprint, unique_ids: &UniqueIdMap) {
-    // Build lookup by (type, index) for efficient assignment
-    let mut lookup: HashMap<(&str, usize), &str> = HashMap::new();
+    // Map global ordinal -> (type, uid). Type is kept only to disambiguate a foreign
+    // file whose ordinal base doesn't line up: we skip rather than mis-attach.
+    let mut by_ordinal: HashMap<usize, (&str, &str)> = HashMap::new();
     for entry in unique_ids {
-        lookup.insert(
-            (entry.primitive_type.as_str(), entry.primitive_index),
-            entry.unique_id.as_str(),
+        by_ordinal.insert(
+            entry.primitive_index,
+            (entry.primitive_type.as_str(), entry.unique_id.as_str()),
         );
     }
 
-    // Detect indexing mode: if any entry has index 0, use 0-based;
-    // otherwise assume 1-based (for backward compatibility with older Altium files).
-    let has_zero_index = unique_ids.iter().any(|e| e.primitive_index == 0);
-    let offset: usize = usize::from(!has_zero_index);
-
-    // Pads
-    for (i, pad) in footprint.pads.iter_mut().enumerate() {
-        if let Some(&uid) = lookup.get(&("Pad", i + offset)) {
-            pad.unique_id = Some(uid.to_string());
-        }
+    let mut ordinal = 0usize;
+    macro_rules! apply {
+        ($iter:expr, $ty:literal) => {
+            for prim in $iter {
+                if let Some(&(ty, uid)) = by_ordinal.get(&ordinal) {
+                    if ty == $ty {
+                        prim.unique_id = Some(uid.to_string());
+                    }
+                }
+                ordinal += 1;
+            }
+        };
     }
-
-    // Vias
-    for (i, via) in footprint.vias.iter_mut().enumerate() {
-        if let Some(&uid) = lookup.get(&("Via", i + offset)) {
-            via.unique_id = Some(uid.to_string());
-        }
-    }
-
-    // Tracks
-    for (i, track) in footprint.tracks.iter_mut().enumerate() {
-        if let Some(&uid) = lookup.get(&("Track", i + offset)) {
-            track.unique_id = Some(uid.to_string());
-        }
-    }
-
-    // Arcs
-    for (i, arc) in footprint.arcs.iter_mut().enumerate() {
-        if let Some(&uid) = lookup.get(&("Arc", i + offset)) {
-            arc.unique_id = Some(uid.to_string());
-        }
-    }
-
-    // Regions
-    for (i, region) in footprint.regions.iter_mut().enumerate() {
-        if let Some(&uid) = lookup.get(&("Region", i + offset)) {
-            region.unique_id = Some(uid.to_string());
-        }
-    }
-
-    // Text
-    for (i, text) in footprint.text.iter_mut().enumerate() {
-        if let Some(&uid) = lookup.get(&("Text", i + offset)) {
-            text.unique_id = Some(uid.to_string());
-        }
-    }
-
-    // Fills
-    for (i, fill) in footprint.fills.iter_mut().enumerate() {
-        if let Some(&uid) = lookup.get(&("Fill", i + offset)) {
-            fill.unique_id = Some(uid.to_string());
-        }
-    }
-
-    // ComponentBodies
-    for (i, body) in footprint.component_bodies.iter_mut().enumerate() {
-        if let Some(&uid) = lookup.get(&("ComponentBody", i + offset)) {
-            body.unique_id = Some(uid.to_string());
-        }
-    }
+    apply!(footprint.arcs.iter_mut(), "Arc");
+    apply!(footprint.pads.iter_mut(), "Pad");
+    apply!(footprint.vias.iter_mut(), "Via");
+    apply!(footprint.tracks.iter_mut(), "Track");
+    apply!(footprint.text.iter_mut(), "Text");
+    apply!(footprint.regions.iter_mut(), "Region");
+    apply!(footprint.fills.iter_mut(), "Fill");
+    apply!(footprint.component_bodies.iter_mut(), "ComponentBody");
 
     tracing::trace!(
         footprint = %footprint.name,
