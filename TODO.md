@@ -6,18 +6,6 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
 > `docs/format-re-findings` branch (and at `C:\tmp\re-out`); cross-session resume context is in the
 > `format-re-effort` memory. This file is the actionable to-do list, not the findings dump.
 
-## Ground rules
-
-- British English, 4-space indent, Conventional Commits, trailer
-  `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
-- **NEVER** push to `main` — branch + PR. One PR per coherent batch; admin-merge own green PRs.
-- **DO NOT modify** `CHANGELOG.md` or `CODE_OF_CONDUCT.md` (off limits).
-- Every change must keep green: `cargo fmt --all --check`,
-  `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`, the `pyaltiumlib`
-  readability oracle (**13/13**), and `markdownlint-cli2 "**/*.md"`.
-- Verify each finding against the actual code before fixing (the adversarial pass already filtered
-  false positives, but spot-check). **Do NOT guess the live-Altium gaps** — settle them on-site.
-
 ## Status snapshot
 
 - Comprehensive byte-level RE complete: **48 PcbLib + 121 SchLib** verifier-confirmed discrepancies
@@ -38,22 +26,17 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
 
 - [ ] 🔴 **Pad** *(biggest — near last)*: real **596-byte** size/shape block (non-Simple pads are
       emitted under-length → **Altium rejects them**); octagonal id 3 ≠ Oval; `is_plated` @SR5+60;
-      tri-state mask modes @+101/+102; slot length @+263 / hole rotation @+267; identity GUID @+126;
-      middle/bottom sizes; full-stack tail (`636+count*15`); solder-mask template-default leak.
-- [ ] 🟠 **Via**: mask-mode tri-state enum [DONE #140 — shared `MaskExpansionMode`, reused by the pad];
-      identity GUIDs @259-274/@275-290; `solder_mask_expansion_back` @242-245; net/comp/power-plane/
-      paste/drill-pair fields.
-- [ ] 🟠 **Text**: flag word [DONE #132], `strokeWidth` @36 [DONE #141]; `mirrored` @35 / `isComment`
-      @40 / `isDesignator` @41; italic @45 / baseFontType @43; font-name fields @46-109/@161-224;
-      InvertedRect template bytes @124-131. *(raw `fontId` @25 + justification @132 are custom-font /
-      inverted-rect only — verified deferred in #141.)*
-- [ ] 🟠 **Region**: param string (no leading pipe + 8 canonical keys) [DONE #139]; `hole_count` @14 +
-      hole contours (multi-contour regions). *(Empty-block + V7_LAYER token [DONE #124/#132/#133].)*
-- [ ] 🟠 **ComponentBody**: MODELTYPE/EXTRUDED/MODELSOURCE/V7_LAYER [DONE #133]; `MODEL.CHECKSUM`
-      round-trip (verbatim, never recomputed) [DONE #142]; broad field coverage
-      (colour/opacity/texture/2D-placement/identifier).
-- [ ] ⚪ **Fill**: `v7_layer_id` @42-45 [DONE #139]; `solder_mask_expansion` @37-40 +
-      `keepout_restrictions` @46.
+      tri-state mask modes @+101/+102 (reuse `MaskExpansionMode`); slot length @+263 / hole rotation
+      @+267; identity GUID @+126; middle/bottom sizes; full-stack tail (`636+count*15`); solder-mask
+      template-default leak.
+- [ ] 🟠 **Via**: identity GUIDs @259-274/@275-290; `solder_mask_expansion_back` @242-245;
+      net/comp/power-plane/paste/drill-pair fields.
+- [ ] 🟠 **Text**: `mirrored` @35 / `isComment` @40 / `isDesignator` @41; italic @45 / baseFontType
+      @43; font-name fields @46-109/@161-224; InvertedRect template bytes @124-131. *(raw `fontId`
+      @25 + justification @132 are custom-font / inverted-rect only — verified deferred.)*
+- [ ] 🟠 **Region**: `hole_count` @14 + hole contours (multi-contour regions).
+- [ ] 🟠 **ComponentBody**: broad field coverage (colour/opacity/texture/2D-placement/identifier).
+- [ ] ⚪ **Fill**: `solder_mask_expansion` @37-40 + `keepout_restrictions` @46.
 
 ### A2. PcbLib stream / container layer
 
@@ -65,9 +48,6 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
       EmbeddedFonts / LayerKindMap) in the File-Structure tree.
 
 ### A3. SchLib records (code bugs + missing features)
-
-> Reader early-returns, `IsSolid` round-trip, canonical booleans, colour read+omit, arc
-> `IsNotAccesible`, Parameter `UniqueID`, text booleans = **[DONE #126-129]**. Remaining:
 
 - [ ] 🟠 **Designator**: model `Location.X/Y` (Altium `X=-5, Y=5`; we hardcode `Y=-6`, omit `X`).
 - [ ] 🟠 **`IndexInSheet`** from a stored model field (default `-1`), not the write counter —
@@ -134,21 +114,3 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
 
 - [ ] Enrich `docs/AI_WORKFLOW.md` with symbol pin-placement guidance (idea from coffeenmusic's
       `symbol_placement_rules.txt`).
-
----
-
-## Recently shipped (this campaign — for reference, not to redo)
-
-- **#126–#129** SchLib: stop dropping shapes on zero coords, `IsSolid` round-trip, canonical
-  booleans + `unique_id`/`is_not_accessible` fields, correct colour reads + omit-when-zero.
-- **#130–#131** doc corrections: PcbLib structural (FileHeader 53 B, common-header fields, PcbFlags
-  wire bits) + SchLib semantics (IsSolid, end-marker, implementation record labels).
-- **#132** PcbLib: read the text flag word + emit regions as a single block.
-- **#133** *(contributor @ande2407)* generic extruded ComponentBody + `component_bodies` MCP input.
-- **#135–#136** `scripts/altium/` on-site verify harness + README "Prior Art & Acknowledgements";
-  harness fixes (`REPLACEALL`, BOM, wrapper error-detection, leave-open).
-- **#137** TODO.md rewrite after the comprehensive RE.
-- **#139** PcbLib: fill `v7_layer_id` + canonical region parameter string (byte-fidelity).
-- **#140** PcbLib: via solder-mask expansion as tri-state `MaskExpansionMode` (fixes wrong default).
-- **#141** PcbLib: text `stroke_width` @36 round-trip.
-- **#142** *(open)* PcbLib: ComponentBody `MODEL.CHECKSUM` round-trip (verbatim, never recomputed).
