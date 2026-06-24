@@ -50,7 +50,8 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
 - [ ] 🟠 **Region**: param string (no leading pipe + 8 canonical keys) [DONE #139]; `hole_count` @14 +
       hole contours (multi-contour regions). *(Empty-block + V7_LAYER token [DONE #124/#132/#133].)*
 - [ ] 🟠 **ComponentBody**: MODELTYPE/EXTRUDED/MODELSOURCE/V7_LAYER [DONE #133]; `MODEL.CHECKSUM`
-      round-trip; broad field coverage (colour/opacity/texture/2D-placement/identifier).
+      round-trip (verbatim, never recomputed) [DONE #142]; broad field coverage
+      (colour/opacity/texture/2D-placement/identifier).
 - [ ] ⚪ **Fill**: `v7_layer_id` @42-45 [DONE #139]; `solder_mask_expansion` @37-40 +
       `keepout_restrictions` @46.
 
@@ -149,4 +150,5 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
 - **#137** TODO.md rewrite after the comprehensive RE.
 - **#139** PcbLib: fill `v7_layer_id` + canonical region parameter string (byte-fidelity).
 - **#140** PcbLib: via solder-mask expansion as tri-state `MaskExpansionMode` (fixes wrong default).
-- **#141** *(open)* PcbLib: text `stroke_width` @36 round-trip.
+- **#141** PcbLib: text `stroke_width` @36 round-trip.
+- **#142** *(open)* PcbLib: ComponentBody `MODEL.CHECKSUM` round-trip (verbatim, never recomputed).

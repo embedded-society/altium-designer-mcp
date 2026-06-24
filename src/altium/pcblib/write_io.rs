@@ -160,6 +160,7 @@ impl PcbLib {
                 layer: Layer::Top3DBody,
                 outline: Vec::new(), // Synthesised from the footprint extent on write
                 unique_id: None,
+                model_checksum: 0, // Fresh embed; Altium computes the real checksum on save.
             });
 
             tracing::debug!(

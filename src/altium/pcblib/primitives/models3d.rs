@@ -129,6 +129,13 @@ pub struct ComponentBody {
     /// Unique ID assigned by Altium (8-character alphanumeric string).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unique_id: Option<String>,
+
+    /// Model integrity checksum (Altium `MODEL.CHECKSUM`). Round-tripped verbatim —
+    /// never recomputed, because the checksum is over the raw (uncompressed) model
+    /// bytes, which the parameter writer does not have. `0` is valid and the default
+    /// for a fresh body, so default output stays byte-identical.
+    #[serde(default)]
+    pub model_checksum: i64,
 }
 
 impl ComponentBody {
@@ -148,6 +155,7 @@ impl ComponentBody {
             layer: Layer::Top3DBody,
             outline: Vec::new(),
             unique_id: None,
+            model_checksum: 0,
         }
     }
 }

@@ -1173,7 +1173,8 @@ fn build_component_body_params(body: &ComponentBody) -> String {
         body.model_id.clone()
     };
     params.push(format!("MODELID={model_id}"));
-    params.push("MODEL.CHECKSUM=0".to_string());
+    // Round-trip the stored checksum verbatim (default 0 keeps fresh output identical).
+    params.push(format!("MODEL.CHECKSUM={}", body.model_checksum));
     params.push(format!(
         "MODEL.EMBED={}",
         if body.embedded { "TRUE" } else { "FALSE" }
