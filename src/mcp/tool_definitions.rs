@@ -299,7 +299,8 @@ impl McpServer {
                                                 "z_offset": { "type": "number", "description": "Z offset in mm. Default: 0" },
                                                 "rotation_x": { "type": "number" },
                                                 "rotation_y": { "type": "number" },
-                                                "rotation_z": { "type": "number" }
+                                                "rotation_z": { "type": "number" },
+                                                "model_checksum": { "type": "integer", "description": "Altium MODEL.CHECKSUM; normally omitted (defaults to 0). Preserved verbatim on a read-modify-write round-trip." }
                                             },
                                             "required": ["overall_height"]
                                         }

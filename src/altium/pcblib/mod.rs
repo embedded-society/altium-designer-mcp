@@ -930,6 +930,7 @@ mod tests {
             layer: Layer::Top3DBody,
             outline: vec![(-2.0, 1.0), (-2.0, -1.0), (2.0, -1.0), (2.0, 1.0)],
             unique_id: None,
+            model_checksum: 7_654_321,
         };
         original.add_component_body(body);
 
@@ -951,6 +952,8 @@ mod tests {
         assert!(approx_eq(body.overall_height, 1.0, 0.01));
         assert!(approx_eq(body.standoff_height, 0.1, 0.01));
         assert_eq!(body.layer, Layer::Top3DBody);
+        // MODEL.CHECKSUM round-trips verbatim (previously dropped + hard-coded to 0).
+        assert_eq!(body.model_checksum, 7_654_321);
 
         // The explicit outline round-trips (4 vertices, in mm).
         assert_eq!(body.outline.len(), 4);
@@ -982,6 +985,7 @@ mod tests {
                 layer: Layer::Top3DBody,
                 outline: Vec::new(), // exercise the synthesised-bbox fallback
                 unique_id: None,
+                model_checksum: 0,
             });
         }
 

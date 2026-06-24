@@ -1047,6 +1047,13 @@ pub(super) fn parse_component_body(data: &[u8], offset: usize) -> ParseResult<Co
     let standoff_height = parse_mil_value(params.get("STANDOFFHEIGHT").map(String::as_str));
     let overall_height = parse_mil_value(params.get("OVERALLHEIGHT").map(String::as_str));
 
+    // MODEL.CHECKSUM is a plain integer; previously dropped. Round-trip it verbatim
+    // (0 = default/valid) — it is not recomputed from the model bytes here.
+    let model_checksum = params
+        .get("MODEL.CHECKSUM")
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(0);
+
     // Parse layer from V7_LAYER (e.g., "MECHANICAL6")
     let layer = params
         .get("V7_LAYER")
@@ -1066,6 +1073,7 @@ pub(super) fn parse_component_body(data: &[u8], offset: usize) -> ParseResult<Co
         layer,
         outline,
         unique_id: None,
+        model_checksum,
     };
 
     Ok((body, current))

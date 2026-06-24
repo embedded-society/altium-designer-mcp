@@ -784,6 +784,7 @@ fn test_component_body_roundtrip() {
         layer: Layer::TopLayer,
         outline: Vec::new(),
         unique_id: None,
+        model_checksum: 0,
     };
     fp.component_bodies.push(body);
 
@@ -829,6 +830,7 @@ fn test_component_body_with_rotation() {
         layer: Layer::TopLayer,
         outline: Vec::new(),
         unique_id: None,
+        model_checksum: 0,
     };
     fp.component_bodies.push(body);
 
@@ -2593,6 +2595,7 @@ fn test_component_body_external_model_reference() {
         layer: Layer::Top3DBody,
         outline: Vec::new(),
         unique_id: None,
+        model_checksum: 0,
     };
     fp.component_bodies.push(body);
 

@@ -375,6 +375,7 @@ impl McpServer {
                             layer: Layer::Top3DBody,
                             outline: Vec::new(),
                             unique_id: None,
+                            model_checksum: 0, // External reference: no embedded model.
                         });
                     }
                 }
@@ -422,6 +423,12 @@ impl McpServer {
                         layer,
                         outline,
                         unique_id: None,
+                        // Preserve a checksum carried through from a read (read -> write
+                        // round-trip); 0 for genuinely fresh extruded bodies.
+                        model_checksum: body_json
+                            .get("model_checksum")
+                            .and_then(Value::as_i64)
+                            .unwrap_or(0),
                     });
                 }
             }
