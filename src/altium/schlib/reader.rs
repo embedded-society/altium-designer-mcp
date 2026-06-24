@@ -121,9 +121,12 @@ fn parse_text_record_from_string(symbol: &mut Symbol, text: &str) {
                 symbol.description.clone_from(desc);
             }
             if let Some(part_count) = props.get("partcount") {
-                // Altium stores part_count + 1, so we subtract 1 when reading
+                // Altium stores part_count + 1 (part 0 is the common part), so we
+                // subtract 1 when reading. No floor at 1: a single-part symbol stores
+                // PartCount=1 => internal 0; flooring it to 1 round-tripped as
+                // PartCount=2 (corruption). Matches AltiumSharp's Math.Max(0, dto - 1).
                 let raw_count: u32 = part_count.trim().parse().unwrap_or(2);
-                symbol.part_count = raw_count.saturating_sub(1).max(1);
+                symbol.part_count = raw_count.saturating_sub(1);
             }
             if let Some(display_mode_count) = props.get("displaymodecount") {
                 symbol.display_mode_count = display_mode_count.parse().unwrap_or(1);
@@ -971,6 +974,19 @@ const fn justification_from_id(id: u8) -> TextJustification {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn partcount_one_decodes_to_zero_no_floor() {
+        // Altium stores count+1, so a single-part symbol stores PartCount=1 => internal
+        // 0. The old `.max(1)` floor mutated that to 1, which the writer re-emitted as
+        // PartCount=2 — corrupting the round-trip. Decode must now yield exactly 0.
+        let mut symbol = Symbol::new("PARTCOUNT_TEST");
+        parse_text_record_from_string(&mut symbol, "|RECORD=1|LibReference=R1|PartCount=1");
+        assert_eq!(
+            symbol.part_count, 0,
+            "raw PartCount=1 must decode to 0, not be floored to 1"
+        );
+    }
 
     #[test]
     fn test_parse_properties() {
