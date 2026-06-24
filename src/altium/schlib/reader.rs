@@ -178,6 +178,8 @@ fn parse_text_record_from_string(symbol: &mut Symbol, text: &str) {
                         fp.library_path = Some(path.clone());
                     }
                 }
+                // Preserve the current/default-model flag (Altium omits it when false).
+                fp.is_current = props.get("iscurrent").is_some_and(|v| v == "T");
                 symbol.add_footprint(fp);
             }
         }
