@@ -6,7 +6,7 @@
 
   It reads a request file (one absolute library path per line) from the bridge
   directory, opens each library in Altium, and writes a JSON array of results to the
-  response file. The PowerShell wrapper (..\Verify-Libraries.ps1) writes the request,
+  response file. The PowerShell wrapper (..\..\Verify-Libraries.ps1) writes the request,
   launches this via Altium's RunScript CLI, and polls for the response.
 
   The RunScript launch mechanism and the file-based request/response bridge are

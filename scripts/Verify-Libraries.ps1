@@ -17,7 +17,7 @@
     One or more .PcbLib / .SchLib paths to verify.
 
 .PARAMETER AltiumExe
-    Path to X2.EXE. Auto-detected under C:\Program Files\Altium\AD*\ when omitted.
+    Path to X2.EXE. Read from scripts\.env.local (ALTIUM_EXE) when omitted.
 
 .PARAMETER TimeoutSeconds
     How long to wait for Altium to write the response (default 180).
@@ -37,18 +37,14 @@ $BridgeDir    = 'C:\Users\Public\altium_designer_mcp'
 $RequestFile  = Join-Path $BridgeDir 'verify_request.txt'
 $ResponseFile = Join-Path $BridgeDir 'verify_response.json'
 $ScriptDir    = Split-Path -Parent $MyInvocation.MyCommand.Path
-$PrjScr       = Join-Path $ScriptDir 'verify\AltiumVerify.PrjScr'
+$PrjScr       = Join-Path $ScriptDir 'altium\verify\AltiumVerify.PrjScr'
 
 if (-not (Test-Path $PrjScr)) { throw "Verify project not found: $PrjScr" }
 
-# 1. Locate X2.EXE
-if (-not $AltiumExe) {
-    $AltiumExe = Get-ChildItem 'C:\Program Files\Altium\AD*\X2.EXE' -ErrorAction SilentlyContinue |
-        Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
-    if (-not $AltiumExe) {
-        throw "X2.EXE not found under C:\Program Files\Altium\AD*. Pass -AltiumExe <path>."
-    }
-}
+# 1. Resolve X2.EXE from .env.local at the repo root (no auto-discovery — multiple
+#    Altium versions may be installed).
+. (Join-Path $ScriptDir 'Resolve-AltiumExe.ps1')
+$AltiumExe = Resolve-AltiumExe -Override $AltiumExe -EnvFile (Join-Path (Split-Path -Parent $ScriptDir) '.env.local')
 Write-Host "Altium : $AltiumExe"
 
 # 2. Resolve the library paths to absolute
