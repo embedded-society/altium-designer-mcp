@@ -495,6 +495,27 @@ fn encode_pad_size_shape_block(pad: &Pad) -> Vec<u8> {
         b.push(radius); // 564-595: per-layer corner radii (%)
     }
     debug_assert_eq!(b.len(), 596);
+
+    // Full-stack tail. Altium NEVER emits a bare 596-byte size/shape block — every
+    // non-empty block in a golden .PcbLib is 651 (one entry) or 696 (four). It is
+    // `[32 reserved][i32 count][i32 stride=15]` then `count × 15`-byte entries; a
+    // 596-byte block is under-length and Altium rejects the pad (issue #68/#113
+    // class). We emit the single-entry (count=1) form; the multi-entry full-stack
+    // form (PadStackMode::FullStack) is deferred. The entry's corner byte is a fixed
+    // `50` in every golden (not the body radius), and layer code 4 = top signal.
+    b.extend_from_slice(&[0u8; 32]); // 596-627: reserved
+    write_i32(&mut b, 1); // 628-631: entry count
+    write_i32(&mut b, 15); // 632-635: entry stride
+    b.push(4); // 636: layer code (top signal)
+    b.push(0); // 637: flag1
+    b.push(0x80); // 638: flag2
+    b.push(1); // 639: flag3
+    b.push(shape_id); // 640: flag4 = pad shape id
+    write_i32(&mut b, w); // 641-644: entry size X
+    write_i32(&mut b, h); // 645-648: entry size Y
+    b.push(50); // 649: corner radius % (fixed 50 across all goldens)
+    b.push(0); // 650: trailing
+    debug_assert_eq!(b.len(), 651);
     b
 }
 
@@ -1586,6 +1607,23 @@ fn count_unique_ids(footprint: &Footprint) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn size_shape_block_carries_fullstack_tail() {
+        // A non-Simple pad's size/shape block must be 651 bytes (596 body + the
+        // 40-byte tail), never a bare 596 — Altium rejects the under-length form.
+        let mut pad = Pad::smd("1", 0.0, 0.0, 1.0, 0.6);
+        pad.corner_radius_percent = Some(25); // routes to encode_pad_size_shape_block
+        let b = encode_pad_size_shape_block(&pad);
+        assert_eq!(
+            b.len(),
+            651,
+            "block must carry the single-entry full-stack tail"
+        );
+        assert_eq!(&b[628..632], &1i32.to_le_bytes(), "tail entry count = 1");
+        assert_eq!(&b[632..636], &15i32.to_le_bytes(), "tail entry stride = 15");
+        assert_eq!(b[649], 50, "tail entry corner is a fixed 50");
+    }
 
     #[test]
     fn test_from_mm() {
