@@ -8,10 +8,10 @@ CI**. (CI verifies Altium-readability through the independent `pyaltiumlib` orac
 | Path | What it is | Needs Altium? |
 |------|------------|---------------|
 | [`Verify-Libraries.ps1`](Verify-Libraries.ps1) | Launch Altium to confirm a `.PcbLib`/`.SchLib` opens cleanly | **Yes** |
-| [`Generate-Samples.ps1`](Generate-Samples.ps1) | Launch Altium to author the golden sample libraries | **Yes** |
+| [`Generate-Samples.ps1`](Generate-Samples.ps1) | Launch Altium to author the sample libraries | **Yes** |
 | [`Resolve-AltiumExe.ps1`](Resolve-AltiumExe.ps1) | Shared helper: read `ALTIUM_EXE` from the repo-root `.env.local` | — |
 | [`altium/`](altium/) | The DelphiScript automation the launchers run | **Yes** |
-| [`samples/`](samples/) | Altium-authored golden libraries (ground truth for the tests) | No |
+| [`samples/`](samples/) | Altium-authored sample libraries (ground truth for the tests) | No |
 
 ## Configuration — `.env.local`
 
@@ -34,19 +34,19 @@ through Altium's `RunScript` CLI. Because it needs the GUI application and a lic
 | Path | Role |
 |------|------|
 | [`altium/verify/`](altium/verify/) | `AltiumVerify.pas` — opens each library and reports PASS/FAIL (run by `Verify-Libraries.ps1`) |
-| [`altium/generate/`](altium/generate/) | `GenerateSamples.pas` — authors the golden libraries (run by `Generate-Samples.ps1`) |
+| [`altium/generate/`](altium/generate/) | `GenerateSamples.pas` — authors the sample libraries (run by `Generate-Samples.ps1`) |
 
 The `RunScript` launch and the file-based request/response bridge are adapted from
 [coffeenmusic/altium-mcp](https://github.com/coffeenmusic/altium-mcp) (MIT).
 
-## `samples/` — golden libraries
+## `samples/` — sample libraries
 
 Altium-authored reference libraries, generated on-site by `Generate-Samples.ps1` and committed
 as binaries (like [AltiumSharp](https://github.com/issus/AltiumSharp)'s `TestData`) so CI can read them without Altium. They are the
 ground truth the reader and round-trip tests validate against. See
 [`samples/README.md`](samples/README.md).
 
-> Building the golden set is **iterative**: generate → read back with the Rust tests → extend
+> Building the sample set is **iterative**: generate → read back with the Rust tests → extend
 > the authoring script's primitive coverage → regenerate. The `samples/` folder is empty until
 > the first set lands.
 

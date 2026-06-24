@@ -1,11 +1,11 @@
 <#
 .SYNOPSIS
-    On-site: author the golden .PcbLib / .SchLib sample libraries with a real Altium.
+    On-site: author the .PcbLib / .SchLib sample libraries with a real Altium.
 
 .DESCRIPTION
     Launches Altium with the GenerateSamples DelphiScript via the RunScript CLI, which
     authors reference libraries into the bridge directory; this wrapper then copies the
-    saved libraries into scripts\samples\ for committing. These goldens are the ground
+    saved libraries into scripts\samples\ for committing. These samples are the ground
     truth for the Rust reader / round-trip tests.
 
     The RunScript launch + file-based bridge are adapted from coffeenmusic/altium-mcp
@@ -19,12 +19,16 @@
 .PARAMETER TimeoutSeconds
     How long to wait for Altium to finish authoring (default 300).
 
+.PARAMETER KeepAltiumOpen
+    By default Altium is closed once authoring completes; pass this to leave it running.
+
 .EXAMPLE
     .\Generate-Samples.ps1
 #>
 param(
     [string]$AltiumExe,
-    [int]$TimeoutSeconds = 300
+    [int]$TimeoutSeconds = 300,
+    [switch]$KeepAltiumOpen
 )
 
 $ErrorActionPreference = 'Stop'
@@ -46,7 +50,12 @@ Write-Host "Altium : $AltiumExe"
 # Fresh bridge dir; clear any stale response.
 New-Item -ItemType Directory -Force -Path $BridgeDir | Out-Null
 if (Test-Path $ResponseFile) { Remove-Item $ResponseFile -Force }
-Write-Host "Authoring golden libraries..."
+# Clear stale libraries first: Windows is case-insensitive, so saving 'symbols.SchLib'
+# over an existing 'SYMBOLS.SchLib' keeps the OLD casing. Removing them lets the
+# DelphiScript's lowercase filenames take effect.
+Get-ChildItem -Path $BridgeDir -File -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match '\.(PcbLib|SchLib)$' } | Remove-Item -Force
+Write-Host "Authoring sample libraries..."
 
 # Launch Altium with the generate script. The `^|` separator is what RunScript expects;
 # routed through a .bat for reliable pipe/quote passing (matches coffeenmusic/altium-mcp).
@@ -76,4 +85,19 @@ foreach ($lib in $libs) {
     Copy-Item $lib.FullName -Destination (Join-Path $SamplesDir $lib.Name) -Force
     Write-Host ("  -> samples\{0}" -f $lib.Name) -ForegroundColor Green
 }
-Write-Host "`nGolden libraries written to $SamplesDir." -ForegroundColor Green
+Write-Host "`nSample libraries written to $SamplesDir." -ForegroundColor Green
+
+# Close Altium unless asked otherwise (the documents are already saved above).
+# Loop-kill: Altium can take a moment to exit / spawn helper X2 processes.
+if (-not $KeepAltiumOpen) {
+    $deadline = (Get-Date).AddSeconds(15)
+    while ((Get-Process X2 -ErrorAction SilentlyContinue) -and (Get-Date) -lt $deadline) {
+        Get-Process X2 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 500
+    }
+    if (Get-Process X2 -ErrorAction SilentlyContinue) {
+        Write-Host "Altium still running (could not fully close)." -ForegroundColor Yellow
+    } else {
+        Write-Host "Closed Altium." -ForegroundColor Green
+    }
+}
