@@ -1479,9 +1479,10 @@ fn generate_guid() -> [u8; 16] {
 /// [length:4 LE u32][content with null terminator]
 /// ```
 ///
-/// Format: `[block_len:4]["|ENCODEDTEXT0=...|..." + \x00]`
+/// Format: `[block_len:4]["|ENCODEDTEXT0=...|ENCODEDTEXT1=..." + \x00]` — a leading
+/// pipe per entry and NO trailing pipe, matching `AltiumSharp`'s `ParametersToString`.
 ///
-/// Empty: `[block_len:4]["|" + \x00]` (`block_len` = 2)
+/// Empty (no wide-text entries): `[block_len:4][\x00]` (`block_len` = 1).
 pub fn encode_component_wide_strings(footprint: &Footprint) -> Vec<u8> {
     use std::fmt::Write;
 
@@ -1494,15 +1495,18 @@ pub fn encode_component_wide_strings(footprint: &Footprint) -> Vec<u8> {
         }
     }
 
-    // Build encoded text parameter string (always starts with "|")
-    let mut content = String::from("|");
+    // Build the parameter string: `|ENCODEDTEXT0=...|ENCODEDTEXT1=...` — a leading
+    // pipe per entry and NO trailing pipe (matching AltiumSharp). With no entries the
+    // string is empty, so the stream is just `[01 00 00 00][00]` — AltiumSharp's empty
+    // form — rather than the spurious `[02 00 00 00][7C 00]` (leading-pipe) we emitted.
+    let mut content = String::new();
     for (index, text) in texts.iter().enumerate() {
         let encoded: String = text
             .bytes()
             .map(|b| b.to_string())
             .collect::<Vec<_>>()
             .join(",");
-        let _ = write!(content, "ENCODEDTEXT{index}={encoded}|");
+        let _ = write!(content, "|ENCODEDTEXT{index}={encoded}");
     }
 
     // Block format: [block_len:4][content + \x00] (length includes the null).
@@ -1922,5 +1926,53 @@ mod tests {
         ] {
             assert!(params.contains(key), "missing '{key}' in: {params}");
         }
+    }
+
+    #[test]
+    fn wide_strings_empty_matches_altiumsharp_5_bytes() {
+        // A footprint with no qualifying wide text emits AltiumSharp's empty form
+        // `[01 00 00 00][00]`, not the spurious `[02 00 00 00][7C 00]` we used to write.
+        let fp = Footprint::new("WS_EMPTY");
+        assert_eq!(
+            encode_component_wide_strings(&fp),
+            vec![0x01, 0x00, 0x00, 0x00, 0x00]
+        );
+    }
+
+    #[test]
+    fn wide_strings_nonempty_has_no_trailing_pipe() {
+        use crate::altium::TextJustification;
+        let mk = |s: &str| Text {
+            x: 0.0,
+            y: 0.0,
+            text: s.to_string(),
+            height: 1.0,
+            layer: Layer::TopOverlay,
+            rotation: 0.0,
+            kind: TextKind::Stroke,
+            stroke_font: None,
+            stroke_width: None,
+            justification: TextJustification::MiddleCenter,
+            flags: PcbFlags::empty(),
+            unique_id: None,
+        };
+        let mut fp = Footprint::new("WS");
+        fp.add_text(mk("AB")); // bytes 65, 66
+        fp.add_text(mk("C")); //  byte 67
+        let bytes = encode_component_wide_strings(&fp);
+
+        // Leading pipe per entry, NO trailing pipe, null-terminated; len includes null.
+        let payload = b"|ENCODEDTEXT0=65,66|ENCODEDTEXT1=67";
+        let mut expected = u32::try_from(payload.len() + 1)
+            .unwrap()
+            .to_le_bytes()
+            .to_vec();
+        expected.extend_from_slice(payload);
+        expected.push(0x00);
+        assert_eq!(bytes, expected);
+        assert!(
+            !bytes.ends_with(&[b'|', 0x00]),
+            "must not have a trailing pipe before the null"
+        );
     }
 }
