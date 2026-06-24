@@ -114,6 +114,17 @@ pub struct Fill {
     /// Primitive flags (locked, keepout, etc.).
     #[serde(default, skip_serializing_if = "PcbFlags::is_empty")]
     pub flags: PcbFlags,
+    /// Solder-mask expansion override in mm (geometry offset 37). `None` uses the
+    /// rule default; round-trips like the Track/Arc extended tail.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::altium::serde_round::option"
+    )]
+    pub solder_mask_expansion: Option<f64>,
+    /// Keepout restriction bitmask (geometry offset 46). `None` = zero on disk.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keepout_restrictions: Option<u8>,
     /// Unique ID assigned by Altium (8-character alphanumeric string).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unique_id: Option<String>,
@@ -131,6 +142,8 @@ impl Fill {
             layer,
             rotation: 0.0,
             flags: PcbFlags::empty(),
+            solder_mask_expansion: None,
+            keepout_restrictions: None,
             unique_id: None,
         }
     }
@@ -148,6 +161,8 @@ impl Fill {
             layer,
             rotation: 0.0,
             flags: PcbFlags::empty(),
+            solder_mask_expansion: None,
+            keepout_restrictions: None,
             unique_id: None,
         }
     }

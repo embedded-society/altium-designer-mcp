@@ -1043,11 +1043,14 @@ fn encode_fill_block(fill: &Fill) -> Vec<u8> {
     // Rotation (8 bytes)
     write_f64(&mut block, fill.rotation);
 
-    // Tail (13 bytes, offsets 37-49). Altium carries a layer-derived v7 layer id
-    // at offsets 42-45; the solder-mask (37-40), paste-mask (41) and keepout (46)
-    // sub-fields are not yet modelled and stay zero.
+    // Tail (13 bytes, offsets 37-49), ported from AltiumSharp `WriteFill`:
+    // solder-mask expansion i32 @37-40, paste-mask byte @41 (0), v7 layer id @42-45,
+    // keepout byte @46, reserved @47-49. Both modelled fields default to 0, so a
+    // from-scratch fill emits the same bytes as before (byte-identical).
     let mut tail = [0x00u8; 13];
+    tail[0..4].copy_from_slice(&from_mm(fill.solder_mask_expansion.unwrap_or(0.0)).to_le_bytes());
     tail[5..9].copy_from_slice(&v7_layer_id(layer_to_id(fill.layer)).to_le_bytes());
+    tail[9] = fill.keepout_restrictions.unwrap_or(0);
     block.extend_from_slice(&tail);
 
     block

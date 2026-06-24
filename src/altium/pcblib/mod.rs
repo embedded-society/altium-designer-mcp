@@ -944,6 +944,8 @@ mod tests {
             layer: Layer::BottomPaste,
             rotation: 45.0,
             flags: PcbFlags::empty(),
+            solder_mask_expansion: None,
+            keepout_restrictions: None,
             unique_id: None,
         });
 
@@ -968,6 +970,35 @@ mod tests {
         assert!(approx_eq(decoded.fills[1].y2, 0.5, 0.001));
         assert_eq!(decoded.fills[1].layer, Layer::BottomPaste);
         assert!(approx_eq(decoded.fills[1].rotation, 45.0, 0.001));
+    }
+
+    #[test]
+    fn fill_extended_tail_round_trips() {
+        use super::primitives::Fill;
+
+        // Solder-mask expansion @37-40 and keepout @46 round-trip; a default fill
+        // stays None (additive — byte-identical to the old zero-tail output).
+        let mut fp = Footprint::new("FILL_TAIL");
+        let mut fill = Fill::new(0.0, 0.0, 2.0, 1.0, Layer::TopLayer);
+        fill.solder_mask_expansion = Some(0.1);
+        fill.keepout_restrictions = Some(0x05);
+        fp.add_fill(fill);
+        fp.add_fill(Fill::new(5.0, 0.0, 6.0, 1.0, Layer::TopOverlay));
+
+        let data = writer::encode_data_stream(&fp).expect("encode");
+        let mut decoded = Footprint::new("FILL_TAIL");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        assert_eq!(decoded.fills.len(), 2);
+        assert!(approx_eq(
+            decoded.fills[0].solder_mask_expansion.unwrap(),
+            0.1,
+            0.001
+        ));
+        assert_eq!(decoded.fills[0].keepout_restrictions, Some(0x05));
+        // Additive: the default fill did not gain these fields.
+        assert_eq!(decoded.fills[1].solder_mask_expansion, None);
+        assert_eq!(decoded.fills[1].keepout_restrictions, None);
     }
 
     #[test]

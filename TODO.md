@@ -29,14 +29,11 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
       tri-state mask modes @+101/+102 (reuse `MaskExpansionMode`); slot length @+263 / hole rotation
       @+267; identity GUID @+126; middle/bottom sizes; full-stack tail (`636+count*15`); solder-mask
       template-default leak.
-- [ ] 🟠 **Via**: identity GUIDs @259-274/@275-290; `solder_mask_expansion_back` @242-245;
-      net/comp/power-plane/paste/drill-pair fields.
-- [ ] 🟠 **Text**: `mirrored` @35 / `isComment` @40 / `isDesignator` @41; italic @45 / baseFontType
-      @43; font-name fields @46-109/@161-224; InvertedRect template bytes @124-131. *(raw `fontId`
-      @25 + justification @132 are custom-font / inverted-rect only — verified deferred.)*
-- [ ] 🟠 **Region**: `hole_count` @14 + hole contours (multi-contour regions).
+- [ ] 🟠 **Via**: identity GUIDs @259-274/@275-290; net/comp/power-plane/paste/drill-pair fields.
+- [ ] 🟠 **Text**: `mirrored` @35 / `isComment` @40 / `isDesignator` @41; font-name fields
+      @46-109/@161-224; InvertedRect template bytes @124-131. *(italic / baseFontType shipped #154;
+      raw `fontId` @25 + justification @132 are custom-font / inverted-rect only — deferred.)*
 - [ ] 🟠 **ComponentBody**: broad field coverage (colour/opacity/texture/2D-placement/identifier).
-- [ ] ⚪ **Fill**: `solder_mask_expansion` @37-40 + `keepout_restrictions` @46.
 
 ### A2. PcbLib stream / container layer
 
