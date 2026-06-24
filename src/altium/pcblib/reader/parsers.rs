@@ -1023,6 +1023,11 @@ pub(super) fn parse_fill(data: &[u8], offset: usize) -> ParseResult<Fill> {
     let rotation = read_f64(block, 29)
         .ok_or_else(|| AltiumError::parse_error(offset + 29, "failed to read Fill rotation"))?;
 
+    // Extended tail (round-trip fidelity): solder-mask expansion @37-40, keepout @46.
+    // Kept `None` when absent/zero so a from-scratch fill round-trips unchanged.
+    let solder_mask_expansion = read_i32(block, 37).map(to_mm).filter(|v| v.abs() > 1e-4);
+    let keepout_restrictions = block.get(46).copied().filter(|&b| b != 0);
+
     let fill = Fill {
         x1,
         y1,
@@ -1031,6 +1036,8 @@ pub(super) fn parse_fill(data: &[u8], offset: usize) -> ParseResult<Fill> {
         layer,
         rotation,
         flags,
+        solder_mask_expansion,
+        keepout_restrictions,
         unique_id: None,
     };
 
