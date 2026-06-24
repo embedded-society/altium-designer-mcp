@@ -4,6 +4,11 @@ Cargo.lock
 .claude/settings.local.json
 nul
 .venv/
+# Reserve the oracle's venv location (the .gitkeep placeholder) while still
+# ignoring the venv's own contents.
+!tests/integration/.venv/
+tests/integration/.venv/*
+!tests/integration/.venv/.gitkeep
 node_modules/
 .tmp/
 __pycache__/
