@@ -4,6 +4,51 @@ use serde_json::{json, Value};
 
 use crate::mcp::server::{ErrorContext, McpServer, ToolCallResult};
 
+/// Maps a free-text component type to its reference-designator class letter,
+/// following the conventions of IEEE 315 / ASME Y14.44 (commercial usage).
+///
+/// Used as the fallback when a symbol is written without an explicit
+/// `designator_prefix`. Unknown or unspecified types resolve to `"U"`
+/// (integrated circuit / inseparable assembly), the most common case.
+// The explicit IC/regulator arm shares the `"U"` body with the wildcard
+// fallback; it is kept to document the recognised IC synonyms rather than
+// silently folding them into `_`.
+#[allow(clippy::match_same_arms)]
+fn ieee_designator_prefix(component_type: &str) -> &'static str {
+    match component_type.trim().to_ascii_lowercase().as_str() {
+        "resistor" | "res" | "potentiometer" | "pot" | "trimmer" | "rheostat" => "R",
+        "resistor_network" | "resistor_array" | "network" => "RN",
+        "thermistor" | "ntc" | "ptc" => "RT",
+        "varistor" | "mov" => "RV",
+        "capacitor" | "cap" => "C",
+        "inductor" | "coil" | "choke" | "ferrite" | "ferrite_bead" | "bead" => "L",
+        "diode" | "rectifier" | "schottky" | "zener" | "tvs" | "led" => "D",
+        "display" | "lamp" | "indicator" | "lightbulb" => "DS",
+        "transistor" | "mosfet" | "fet" | "bjt" | "igbt" | "jfet" => "Q",
+        "ic" | "integrated_circuit" | "microcircuit" | "opamp" | "mcu" | "regulator"
+        | "voltage_regulator" => "U",
+        "connector" | "header" | "jack" | "receptacle" => "J",
+        "plug" => "P",
+        "socket" => "X",
+        "crystal" | "oscillator" | "resonator" | "xtal" => "Y",
+        "switch" | "button" | "pushbutton" | "dip_switch" | "dipswitch" => "S",
+        "relay" | "contactor" => "K",
+        "transformer" => "T",
+        "fuse" => "F",
+        "filter" => "FL",
+        "battery" | "cell" => "BT",
+        "test_point" | "testpoint" => "TP",
+        "terminal_block" | "terminal" => "TB",
+        "speaker" | "loudspeaker" | "buzzer" => "LS",
+        "microphone" => "MK",
+        "motor" | "fan" | "blower" => "B",
+        "module" | "assembly" | "subassembly" => "A",
+        "mechanical" | "standoff" | "screw" | "mounting" => "MP",
+        "jumper" | "wire" | "cable" => "W",
+        _ => "U",
+    }
+}
+
 impl McpServer {
     // ==================== Tool Handlers ====================
 
@@ -433,6 +478,38 @@ impl McpServer {
                 }
             }
 
+            // Auto-inject the `.Designator` special string on the Top Overlay if the
+            // caller did not provide one, so every placed footprint renders its
+            // reference designator. Placed just above the topmost pad (or at the
+            // origin when there are no pads); the user can reposition in Altium.
+            let has_designator = footprint
+                .text
+                .iter()
+                .any(|t| t.text.trim().eq_ignore_ascii_case(".designator"));
+            if !has_designator {
+                use crate::altium::pcblib::{Layer, PcbFlags, Text, TextJustification, TextKind};
+                let top = footprint
+                    .pads
+                    .iter()
+                    .map(|p| p.y + p.height / 2.0)
+                    .fold(f64::NEG_INFINITY, f64::max);
+                let y = if top.is_finite() { top + 0.6 } else { 0.0 };
+                footprint.add_text(Text {
+                    x: 0.0,
+                    y,
+                    text: ".Designator".to_string(),
+                    height: 1.0,
+                    layer: Layer::TopOverlay,
+                    rotation: 0.0,
+                    kind: TextKind::Stroke,
+                    stroke_font: None,
+                    stroke_width: None,
+                    justification: TextJustification::BottomCenter,
+                    flags: PcbFlags::empty(),
+                    unique_id: None,
+                });
+            }
+
             // Validate coordinates before adding
             if let Err(e) = Self::validate_footprint_coordinates(&footprint) {
                 return ToolCallResult::error(e);
@@ -669,9 +746,23 @@ impl McpServer {
                 symbol.description = desc.to_string();
             }
 
-            if let Some(desig) = sym_json.get("designator_prefix").and_then(Value::as_str) {
-                symbol.designator = format!("{desig}?");
-            }
+            // Always assign a reference designator. Precedence:
+            //   1. explicit `designator_prefix`
+            //   2. `component_type` mapped via IEEE 315 / ASME Y14.44 table
+            //   3. fallback "U" (integrated circuit)
+            // so every symbol carries a `<prefix>?` designator in the SchLib.
+            let prefix = sym_json
+                .get("designator_prefix")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .or_else(|| {
+                    sym_json
+                        .get("component_type")
+                        .and_then(Value::as_str)
+                        .map(|t| ieee_designator_prefix(t).to_string())
+                })
+                .unwrap_or_else(|| "U".to_string());
+            symbol.designator = format!("{prefix}?");
 
             // Parse part_count for multi-part symbols (e.g., dual op-amp)
             if let Some(part_count) = sym_json.get("part_count").and_then(Value::as_u64) {
@@ -1328,5 +1419,37 @@ impl McpServer {
             .into_iter()
             .max_by_key(|(_, count)| *count)
             .map_or(0.0, |(key, _)| key as f64 / 100.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ieee_designator_prefix;
+
+    #[test]
+    fn ieee_map_known_types() {
+        assert_eq!(ieee_designator_prefix("resistor"), "R");
+        assert_eq!(ieee_designator_prefix("capacitor"), "C");
+        assert_eq!(ieee_designator_prefix("inductor"), "L");
+        assert_eq!(ieee_designator_prefix("diode"), "D");
+        assert_eq!(ieee_designator_prefix("led"), "D");
+        assert_eq!(ieee_designator_prefix("transistor"), "Q");
+        assert_eq!(ieee_designator_prefix("mosfet"), "Q");
+        assert_eq!(ieee_designator_prefix("connector"), "J");
+        assert_eq!(ieee_designator_prefix("crystal"), "Y");
+        assert_eq!(ieee_designator_prefix("ic"), "U");
+        assert_eq!(ieee_designator_prefix("regulator"), "U");
+    }
+
+    #[test]
+    fn ieee_map_is_case_and_whitespace_insensitive() {
+        assert_eq!(ieee_designator_prefix("  Resistor "), "R");
+        assert_eq!(ieee_designator_prefix("CAPACITOR"), "C");
+    }
+
+    #[test]
+    fn ieee_map_unknown_falls_back_to_u() {
+        assert_eq!(ieee_designator_prefix("flux_capacitor"), "U");
+        assert_eq!(ieee_designator_prefix(""), "U");
     }
 }
