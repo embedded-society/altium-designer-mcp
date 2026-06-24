@@ -406,7 +406,10 @@ pub(super) fn parse_via(data: &[u8], offset: usize) -> ParseResult<Via> {
     let thermal_relief_conductors = block.get(36).copied().unwrap_or(4);
     let thermal_relief_width = read_i32(block, 38).map_or(0.254, to_mm);
     let solder_mask_expansion = read_i32(block, 54).map_or(0.0, to_mm);
-    let solder_mask_expansion_manual = block.get(66).is_some_and(|&b| b != 0);
+    // Offset 66 is a tri-state mode byte (0=None, 1=FromRule, 2=Manual), not a bool.
+    let solder_mask_expansion_mode = block.get(66).map_or(MaskExpansionMode::FromRule, |&b| {
+        MaskExpansionMode::from_id(b)
+    });
     let diameter_stack_mode = block
         .get(74)
         .map_or(ViaStackMode::Simple, |&b| via_stack_mode_from_id(b));
@@ -431,7 +434,7 @@ pub(super) fn parse_via(data: &[u8], offset: usize) -> ParseResult<Via> {
         from_layer,
         to_layer,
         solder_mask_expansion,
-        solder_mask_expansion_manual,
+        solder_mask_expansion_mode,
         thermal_relief_gap,
         thermal_relief_conductors,
         thermal_relief_width,
