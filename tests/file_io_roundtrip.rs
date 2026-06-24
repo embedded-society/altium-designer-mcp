@@ -154,6 +154,7 @@ fn pcblib_file_roundtrip_all_primitives() {
         kind: TextKind::Stroke,
         rotation: 0.0,
         stroke_font: None,
+        stroke_width: None,
         justification: TextJustification::default(),
         flags: PcbFlags::default(),
         unique_id: None,

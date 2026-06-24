@@ -717,6 +717,7 @@ mod tests {
             rotation: 0.0,
             kind: TextKind::Stroke,
             stroke_font: None,
+            stroke_width: None,
             justification: TextJustification::MiddleCenter,
             flags: PcbFlags::empty(),
             unique_id: None,
@@ -730,6 +731,7 @@ mod tests {
             rotation: 90.0,
             kind: TextKind::Stroke,
             stroke_font: None,
+            stroke_width: None,
             justification: TextJustification::TopLeft,
             flags: PcbFlags::empty(),
             unique_id: None,
@@ -758,6 +760,37 @@ mod tests {
     }
 
     #[test]
+    fn text_stroke_width_round_trips() {
+        // Previously every text inherited the 252-byte template's 4-mil stroke; an
+        // explicit StrokeWidth (geometry offset 36) must now survive the round-trip.
+        let mut original = Footprint::new("TEXT_STROKE");
+        original.add_text(Text {
+            x: 0.0,
+            y: 0.0,
+            text: "W".to_string(),
+            height: 1.0,
+            layer: Layer::TopOverlay,
+            rotation: 0.0,
+            kind: TextKind::Stroke,
+            stroke_font: None,
+            stroke_width: Some(0.2),
+            justification: TextJustification::MiddleCenter,
+            flags: PcbFlags::empty(),
+            unique_id: None,
+        });
+
+        let data = writer::encode_data_stream(&original).expect("encode");
+        let mut decoded = Footprint::new("TEXT_STROKE");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        assert_eq!(decoded.text.len(), 1);
+        let w = decoded.text[0]
+            .stroke_width
+            .expect("explicit stroke width should round-trip");
+        assert!(approx_eq(w, 0.2, 0.001), "expected 0.2 mm, got {w}");
+    }
+
+    #[test]
     fn binary_roundtrip_text_flags() {
         // parse_text previously discarded the flag word (read PcbFlags::empty());
         // a locked / tented text must now round-trip its flags.
@@ -771,6 +804,7 @@ mod tests {
             rotation: 0.0,
             kind: TextKind::Stroke,
             stroke_font: None,
+            stroke_width: None,
             justification: TextJustification::MiddleCenter,
             flags: PcbFlags::LOCKED | PcbFlags::TENTING_TOP,
             unique_id: None,

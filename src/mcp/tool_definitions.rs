@@ -259,7 +259,8 @@ impl McpServer {
                                                 "text": { "type": "string" },
                                                 "height": { "type": "number", "description": "Text height in mm" },
                                                 "layer": { "type": "string", "description": "Layer name: Top Overlay, Top Assembly, Mechanical 1, etc." },
-                                                "rotation": { "type": "number", "description": "Rotation in degrees" }
+                                                "rotation": { "type": "number", "description": "Rotation in degrees" },
+                                                "stroke_width": { "type": "number", "description": "Stroke line width in mm (optional; defaults to Altium's ~4 mil)" }
                                             },
                                             "required": ["x", "y", "text", "height", "layer"]
                                         }

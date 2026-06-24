@@ -680,6 +680,10 @@ pub(super) fn parse_text(
         0.0
     };
 
+    // Stroke line width - offset 36 (i32, internal units; Altium reads I32(36)).
+    // A positive value is surfaced explicitly; 0/absent leaves it as the default.
+    let stroke_width = read_i32(geometry_block, 36).filter(|&w| w > 0).map(to_mm);
+
     // Normal (non-inverted) text does not carry a justification field in this
     // record — it only exists inside the inverted-rectangle sub-block — so
     // default it rather than mis-read a byte inside the font-name field.
@@ -711,6 +715,7 @@ pub(super) fn parse_text(
         rotation,
         kind,
         stroke_font,
+        stroke_width,
         justification,
         flags,
         unique_id: None,
