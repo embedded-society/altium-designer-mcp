@@ -499,10 +499,21 @@ See [scripts/README.md](scripts/README.md) for details on available sample files
 
 ---
 
-## Prior Art
+## Prior Art & Acknowledgements
 
-This project builds on the work of:
+This project stands on the shoulders of several excellent open-source efforts, and we're grateful
+for each:
 
-- [AltiumSharp](https://github.com/issus/AltiumSharp) — C# Altium file parser (MIT)
-- [pyAltiumLib](https://github.com/ChrisHoyer/pyAltiumLib) — Python Altium library
-- [python-altium](https://github.com/vadmium/python-altium) — Altium format documentation
+- **[AltiumSharp](https://github.com/issus/AltiumSharp)** (MIT) — the most complete open Altium
+  reader/writer. Used as the authoritative reference (its DTOs, binary serializers, and golden
+  `TestData`) for verifying our binary format against ground truth.
+- **[pyAltiumLib](https://github.com/ChrisHoyer/pyAltiumLib)** — an independent Python reader, used
+  as our CI **readability oracle** (`tests/integration/`) to check that generated files actually
+  parse.
+- **[python-altium](https://github.com/vadmium/python-altium)** — early Altium format
+  documentation.
+- **[coffeenmusic/altium-mcp](https://github.com/coffeenmusic/altium-mcp)** (MIT) — an MCP server
+  that drives the **live** Altium application. It's the complement to this project (we generate and
+  edit library files *offline*; it controls a running session). We adapted its RunScript launch +
+  file-based bridge pattern for our on-site Altium automation
+  ([`scripts/altium/`](scripts/altium/)).
