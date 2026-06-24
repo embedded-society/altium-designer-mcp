@@ -22,6 +22,7 @@
 
 const
     BRIDGE_DIR = 'C:\Users\Public\altium_designer_mcp\';
+    REPLACEALL = 1; // StringReplace flags value for rfReplaceAll (DelphiScript)
 
 // Escapes a string for embedding in JSON (paths contain backslashes).
 function JsonEscape(const S : String) : String;
@@ -82,7 +83,8 @@ begin
                         Client.ShowDocument(Doc);
                         Opened := True;
                         Detail := 'opened';
-                        Client.CloseDocument(Doc);
+                        // Leave the document open so it stays visible for inspection
+                        // (e.g. to check a footprint's 3D body).
                     end
                     else
                         Detail := 'Altium OpenDocument returned nil (could not parse)';
