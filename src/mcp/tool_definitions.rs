@@ -340,7 +340,8 @@ impl McpServer {
                                 "properties": {
                                     "name": { "type": "string" },
                                     "description": { "type": "string" },
-                                    "designator_prefix": { "type": "string", "description": "e.g., 'R' for resistors, 'U' for ICs" },
+                                    "designator_prefix": { "type": "string", "description": "Reference-designator class letter, e.g. 'R' for resistors, 'U' for ICs. Written as '<prefix>?'. If omitted, falls back to 'component_type' (IEEE 315 / ASME Y14.44 mapping), then to 'U'." },
+                                    "component_type": { "type": "string", "description": "Optional component category (e.g. 'resistor', 'capacitor', 'inductor', 'diode', 'transistor', 'connector', 'crystal', 'ic') used to derive the IEEE designator letter when 'designator_prefix' is not given. Unknown values default to 'U'." },
                                     "part_count": { "type": "integer", "description": "Number of parts for multi-part symbols (e.g., 2 for dual op-amp). Default: 1" },
                                     "pins": {
                                         "type": "array",
