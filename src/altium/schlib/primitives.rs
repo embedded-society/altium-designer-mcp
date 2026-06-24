@@ -506,6 +506,10 @@ pub struct Arc {
     pub y: i32,
     /// Radius.
     pub radius: i32,
+    /// Whether the arc is marked not-accessible. Altium tags every arc
+    /// `IsNotAccesible` (its own single-'s' spelling), so this defaults to true.
+    #[serde(default = "default_true")]
+    pub is_not_accessible: bool,
     /// Start angle in degrees (0 = right, counter-clockwise).
     #[serde(default, serialize_with = "crate::altium::serde_round::serialize")]
     pub start_angle: f64,
@@ -923,6 +927,10 @@ pub struct Parameter {
     /// Owner part ID.
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,
+    /// Altium unique ID (8-char). Preserved on read so a round-trip keeps the
+    /// parameter identity; a from-scratch parameter generates a fresh one on write.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unique_id: Option<String>,
 }
 
 impl Parameter {
@@ -940,6 +948,7 @@ impl Parameter {
             read_only_state: 0,
             param_type: 0,
             owner_part_id: 1,
+            unique_id: None,
         }
     }
 }

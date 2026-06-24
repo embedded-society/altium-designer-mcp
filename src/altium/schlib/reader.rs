@@ -6,15 +6,19 @@
 //! # Data Stream Format
 //!
 //! ```text
-//! [RecordLength:2 LE][RecordType:2 BE][data:RecordLength]
+//! [length:3 LE][flags:1][data:length]
 //! ...
-//! [0x00 0x00]  // End marker (length = 0)
 //! ```
 //!
-//! # Record Types
+//! The 4-byte header is one 32-bit little-endian size word: low 24 bits = payload
+//! length, high byte = flag. There is NO end-of-stream marker — records run until
+//! the stream is exhausted (a trailing `0x0000` would be mis-read as a zero-length
+//! record; see issue #68). The reader stops on a zero length defensively.
 //!
-//! - `0x0000`: Text record (pipe-delimited key=value)
-//! - `0x0001`: Binary pin record
+//! # Record Types (flag byte)
+//!
+//! - `0x00`: Text record (pipe-delimited key=value)
+//! - `0x01`: Binary pin record
 
 use super::primitives::{
     Arc, Bezier, Ellipse, EllipticalArc, FootprintModel, Label, Line, Parameter, Pin,
@@ -345,25 +349,41 @@ fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
     })
 }
 
+/// Parses a numeric coordinate property, defaulting to zero when the key is
+/// absent or unparseable.
+///
+/// Altium omits zero-valued coordinates from a record's pipe-delimited text
+/// (`AddCoordParam` skips zeros), so a missing `Location.X` / `Corner.Y` /
+/// `Radius` / `X{n}` key means the value is zero — **not** a malformed record.
+/// Treating a missing key as fatal (the old `?` behaviour) silently dropped any
+/// shape that happened to sit on a zero coordinate.
+fn coord<T>(props: &HashMap<String, String>, key: &str) -> T
+where
+    T: std::str::FromStr + Default,
+{
+    props
+        .get(key)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_default()
+}
+
 /// Parses a rectangle from properties.
+#[allow(clippy::unnecessary_wraps)] // infallible (all coords default); Option kept for uniform parser dispatch
 fn parse_rectangle(props: &HashMap<String, String>) -> Option<Rectangle> {
-    let x1 = props.get("location.x")?.parse().ok()?;
-    let y1 = props.get("location.y")?.parse().ok()?;
-    let x2 = props.get("corner.x")?.parse().ok()?;
-    let y2 = props.get("corner.y")?.parse().ok()?;
+    let x1 = coord(props, "location.x");
+    let y1 = coord(props, "location.y");
+    let x2 = coord(props, "corner.x");
+    let y2 = coord(props, "corner.y");
 
     let line_width = props
         .get("linewidth")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
-    let line_color = props
-        .get("color")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0x00_00_80);
+    let line_color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
     let fill_color = props
         .get("areacolor")
         .and_then(|s| s.parse().ok())
-        .unwrap_or(0xFF_FF_B0);
+        .unwrap_or(0);
     let owner_part_id = props
         .get("ownerpartid")
         .and_then(|s| s.parse().ok())
@@ -379,7 +399,7 @@ fn parse_rectangle(props: &HashMap<String, String>) -> Option<Rectangle> {
         line_width,
         line_color,
         fill_color,
-        filled: true,
+        filled: props.get("issolid").is_some_and(|s| s == "T"),
         transparent,
         owner_part_id,
         unique_id: props.get("uniqueid").cloned(),
@@ -387,20 +407,18 @@ fn parse_rectangle(props: &HashMap<String, String>) -> Option<Rectangle> {
 }
 
 /// Parses a line from properties.
+#[allow(clippy::unnecessary_wraps)] // infallible (all coords default); Option kept for uniform parser dispatch
 fn parse_line(props: &HashMap<String, String>) -> Option<Line> {
-    let x1 = props.get("location.x")?.parse().ok()?;
-    let y1 = props.get("location.y")?.parse().ok()?;
-    let x2 = props.get("corner.x")?.parse().ok()?;
-    let y2 = props.get("corner.y")?.parse().ok()?;
+    let x1 = coord(props, "location.x");
+    let y1 = coord(props, "location.y");
+    let x2 = coord(props, "corner.x");
+    let y2 = coord(props, "corner.y");
 
     let line_width = props
         .get("linewidth")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
-    let color = props
-        .get("color")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0x00_00_80);
+    let color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
     let owner_part_id = props
         .get("ownerpartid")
         .and_then(|s| s.parse().ok())
@@ -464,12 +482,13 @@ fn parse_parameter(props: &HashMap<String, String>) -> Option<Parameter> {
         read_only_state,
         param_type,
         owner_part_id,
+        unique_id: props.get("uniqueid").cloned(),
     })
 }
 
 /// Parses a polyline from properties.
 fn parse_polyline(props: &HashMap<String, String>) -> Option<Polyline> {
-    // Polylines have LocationCount and Location{n}.X/Location{n}.Y properties
+    // Polylines have LocationCount and X{n}/Y{n} vertex properties
     let location_count: usize = props
         .get("locationcount")
         .and_then(|s| s.parse().ok())
@@ -483,8 +502,8 @@ fn parse_polyline(props: &HashMap<String, String>) -> Option<Polyline> {
     for i in 1..=location_count {
         let x_key = format!("x{i}");
         let y_key = format!("y{i}");
-        let x = props.get(&x_key).and_then(|s| s.parse().ok())?;
-        let y = props.get(&y_key).and_then(|s| s.parse().ok())?;
+        let x = coord(props, &x_key);
+        let y = coord(props, &y_key);
         points.push((x, y));
     }
 
@@ -492,10 +511,7 @@ fn parse_polyline(props: &HashMap<String, String>) -> Option<Polyline> {
         .get("linewidth")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
-    let color = props
-        .get("color")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0x00_00_80);
+    let color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
     let line_style = props
         .get("linestyle")
         .and_then(|s| s.parse().ok())
@@ -546,8 +562,8 @@ fn parse_polygon(props: &HashMap<String, String>) -> Option<Polygon> {
     for i in 1..=location_count {
         let x_key = format!("x{i}");
         let y_key = format!("y{i}");
-        let x = props.get(&x_key).and_then(|s| s.parse().ok())?;
-        let y = props.get(&y_key).and_then(|s| s.parse().ok())?;
+        let x = coord(props, &x_key);
+        let y = coord(props, &y_key);
         points.push((x, y));
     }
 
@@ -555,15 +571,12 @@ fn parse_polygon(props: &HashMap<String, String>) -> Option<Polygon> {
         .get("linewidth")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
-    let line_color = props
-        .get("color")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0x00_00_80);
+    let line_color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
     let fill_color = props
         .get("areacolor")
         .and_then(|s| s.parse().ok())
-        .unwrap_or(0xFF_FF_B0);
-    let filled = !props.get("issolid").is_some_and(|s| s == "F");
+        .unwrap_or(0);
+    let filled = props.get("issolid").is_some_and(|s| s == "T");
     let owner_part_id = props
         .get("ownerpartid")
         .and_then(|s| s.parse().ok())
@@ -581,10 +594,11 @@ fn parse_polygon(props: &HashMap<String, String>) -> Option<Polygon> {
 }
 
 /// Parses an ellipse from properties.
+#[allow(clippy::unnecessary_wraps)] // infallible (all coords default); Option kept for uniform parser dispatch
 fn parse_ellipse(props: &HashMap<String, String>) -> Option<Ellipse> {
-    let x = props.get("location.x")?.parse().ok()?;
-    let y = props.get("location.y")?.parse().ok()?;
-    let radius_x = props.get("radius")?.parse().ok()?;
+    let x = coord(props, "location.x");
+    let y = coord(props, "location.y");
+    let radius_x = coord(props, "radius");
     // Secondary radius, defaults to radius for circles
     let radius_y = props
         .get("secondaryradius")
@@ -595,15 +609,12 @@ fn parse_ellipse(props: &HashMap<String, String>) -> Option<Ellipse> {
         .get("linewidth")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
-    let line_color = props
-        .get("color")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0x00_00_80);
+    let line_color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
     let fill_color = props
         .get("areacolor")
         .and_then(|s| s.parse().ok())
-        .unwrap_or(0xFF_FF_B0);
-    let filled = !props.get("issolid").is_some_and(|s| s == "F");
+        .unwrap_or(0);
+    let filled = props.get("issolid").is_some_and(|s| s == "T");
     let owner_part_id = props
         .get("ownerpartid")
         .and_then(|s| s.parse().ok())
@@ -624,10 +635,11 @@ fn parse_ellipse(props: &HashMap<String, String>) -> Option<Ellipse> {
 }
 
 /// Parses an arc from properties.
+#[allow(clippy::unnecessary_wraps)] // infallible (all coords default); Option kept for uniform parser dispatch
 fn parse_arc(props: &HashMap<String, String>) -> Option<Arc> {
-    let x = props.get("location.x")?.parse().ok()?;
-    let y = props.get("location.y")?.parse().ok()?;
-    let radius = props.get("radius")?.parse().ok()?;
+    let x = coord(props, "location.x");
+    let y = coord(props, "location.y");
+    let radius = coord(props, "radius");
 
     let start_angle = props
         .get("startangle")
@@ -642,10 +654,7 @@ fn parse_arc(props: &HashMap<String, String>) -> Option<Arc> {
         .get("linewidth")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
-    let color = props
-        .get("color")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0x00_00_80);
+    let color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
     let owner_part_id = props
         .get("ownerpartid")
         .and_then(|s| s.parse().ok())
@@ -655,6 +664,7 @@ fn parse_arc(props: &HashMap<String, String>) -> Option<Arc> {
         x,
         y,
         radius,
+        is_not_accessible: props.get("isnotaccesible").is_some_and(|s| s == "T"),
         start_angle,
         end_angle,
         line_width,
@@ -665,25 +675,23 @@ fn parse_arc(props: &HashMap<String, String>) -> Option<Arc> {
 }
 
 /// Parses a Bezier curve from properties.
+#[allow(clippy::unnecessary_wraps)] // infallible (all coords default); Option kept for uniform parser dispatch
 fn parse_bezier(props: &HashMap<String, String>) -> Option<Bezier> {
     // Bezier curves have 4 control points: X1,Y1 through X4,Y4
-    let x1 = props.get("x1")?.parse().ok()?;
-    let y1 = props.get("y1")?.parse().ok()?;
-    let x2 = props.get("x2")?.parse().ok()?;
-    let y2 = props.get("y2")?.parse().ok()?;
-    let x3 = props.get("x3")?.parse().ok()?;
-    let y3 = props.get("y3")?.parse().ok()?;
-    let x4 = props.get("x4")?.parse().ok()?;
-    let y4 = props.get("y4")?.parse().ok()?;
+    let x1 = coord(props, "x1");
+    let y1 = coord(props, "y1");
+    let x2 = coord(props, "x2");
+    let y2 = coord(props, "y2");
+    let x3 = coord(props, "x3");
+    let y3 = coord(props, "y3");
+    let x4 = coord(props, "x4");
+    let y4 = coord(props, "y4");
 
     let line_width = props
         .get("linewidth")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
-    let color = props
-        .get("color")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0x00_00_80);
+    let color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
     let owner_part_id = props
         .get("ownerpartid")
         .and_then(|s| s.parse().ok())
@@ -707,11 +715,12 @@ fn parse_bezier(props: &HashMap<String, String>) -> Option<Bezier> {
 
 /// Parses a rounded rectangle from properties.
 #[allow(clippy::similar_names)]
+#[allow(clippy::unnecessary_wraps)] // infallible (all coords default); Option kept for uniform parser dispatch
 fn parse_round_rect(props: &HashMap<String, String>) -> Option<RoundRect> {
-    let x1 = props.get("location.x")?.parse().ok()?;
-    let y1 = props.get("location.y")?.parse().ok()?;
-    let x2 = props.get("corner.x")?.parse().ok()?;
-    let y2 = props.get("corner.y")?.parse().ok()?;
+    let x1 = coord(props, "location.x");
+    let y1 = coord(props, "location.y");
+    let x2 = coord(props, "corner.x");
+    let y2 = coord(props, "corner.y");
 
     let corner_x_radius = props
         .get("cornerxradius")
@@ -726,15 +735,12 @@ fn parse_round_rect(props: &HashMap<String, String>) -> Option<RoundRect> {
         .get("linewidth")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
-    let line_color = props
-        .get("color")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0x00_00_80);
+    let line_color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
     let fill_color = props
         .get("areacolor")
         .and_then(|s| s.parse().ok())
-        .unwrap_or(0xFF_FF_B0);
-    let filled = !props.get("issolid").is_some_and(|s| s == "F");
+        .unwrap_or(0);
+    let filled = props.get("issolid").is_some_and(|s| s == "T");
     let owner_part_id = props
         .get("ownerpartid")
         .and_then(|s| s.parse().ok())
@@ -757,8 +763,9 @@ fn parse_round_rect(props: &HashMap<String, String>) -> Option<RoundRect> {
 }
 
 /// Parses an elliptical arc from properties.
+#[allow(clippy::unnecessary_wraps)] // infallible (all coords default); Option kept for uniform parser dispatch
 fn parse_elliptical_arc(props: &HashMap<String, String>) -> Option<EllipticalArc> {
-    let x = props.get("location.x")?.parse().ok()?;
+    let x = coord(props, "location.x");
     // Location.Y may be omitted if it's 0
     let y = props
         .get("location.y")
@@ -766,7 +773,7 @@ fn parse_elliptical_arc(props: &HashMap<String, String>) -> Option<EllipticalArc
         .unwrap_or(0);
 
     // Primary radius with optional fractional part
-    let radius_int: f64 = props.get("radius")?.parse().ok()?;
+    let radius_int: f64 = coord(props, "radius");
     let radius_frac: f64 = props
         .get("radius_frac")
         .and_then(|s| s.parse::<u32>().ok())
@@ -797,10 +804,7 @@ fn parse_elliptical_arc(props: &HashMap<String, String>) -> Option<EllipticalArc
         .get("linewidth")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
-    let color = props
-        .get("color")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0x00_00_80);
+    let color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
     let owner_part_id = props
         .get("ownerpartid")
         .and_then(|s| s.parse().ok())
@@ -821,19 +825,17 @@ fn parse_elliptical_arc(props: &HashMap<String, String>) -> Option<EllipticalArc
 }
 
 /// Parses a label from properties.
+#[allow(clippy::unnecessary_wraps)] // infallible (all coords default); Option kept for uniform parser dispatch
 fn parse_label(props: &HashMap<String, String>) -> Option<Label> {
-    let x = props.get("location.x")?.parse().ok()?;
-    let y = props.get("location.y")?.parse().ok()?;
+    let x = coord(props, "location.x");
+    let y = coord(props, "location.y");
     let text = props.get("text").cloned().unwrap_or_default();
 
     let font_id = props
         .get("fontid")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
-    let color = props
-        .get("color")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0x80_00_00); // Dark blue
+    let color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
     let rotation = props
         .get("orientation")
         .and_then(|s| s.parse::<i32>().ok())
@@ -865,19 +867,17 @@ fn parse_label(props: &HashMap<String, String>) -> Option<Label> {
 }
 
 /// Parses a text annotation from properties.
+#[allow(clippy::unnecessary_wraps)] // infallible (all coords default); Option kept for uniform parser dispatch
 fn parse_text(props: &HashMap<String, String>) -> Option<Text> {
-    let x = props.get("location.x")?.parse().ok()?;
-    let y = props.get("location.y")?.parse().ok()?;
+    let x = coord(props, "location.x");
+    let y = coord(props, "location.y");
     let text = props.get("text").cloned().unwrap_or_default();
 
     let font_id = props
         .get("fontid")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
-    let color = props
-        .get("color")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0x80_00_00); // Dark blue
+    let color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
     let rotation = props
         .get("orientation")
         .and_then(|s| s.parse::<i32>().ok())
@@ -947,5 +947,102 @@ mod tests {
         assert_eq!(rect.y1, -4);
         assert_eq!(rect.x2, 10);
         assert_eq!(rect.y2, 4);
+    }
+
+    #[test]
+    fn test_parse_shapes_with_omitted_zero_coords_not_dropped() {
+        // Altium omits zero-valued coordinates, so a shape sitting on a zero
+        // axis arrives with the key missing. The old `?` reader dropped it; we
+        // must instead default the missing coordinate to 0.
+        let rect = parse_rectangle(&parse_properties(
+            "|RECORD=14|Corner.X=10|Corner.Y=4|", // Location.X / Location.Y omitted (== 0)
+        ))
+        .expect("rectangle with omitted zero Location must not be dropped");
+        assert_eq!((rect.x1, rect.y1, rect.x2, rect.y2), (0, 0, 10, 4));
+
+        let arc = parse_arc(&parse_properties(
+            "|RECORD=12|Radius=20|StartAngle=0|EndAngle=90|", // Location.X / Location.Y omitted
+        ))
+        .expect("arc with omitted zero Location must not be dropped");
+        assert_eq!((arc.x, arc.y, arc.radius), (0, 0, 20));
+    }
+
+    #[test]
+    fn test_parse_fill_polarity_matches_altium() {
+        // Altium emits IsSolid only when filled; absent means unfilled.
+        let unfilled = parse_rectangle(&parse_properties(
+            "|RECORD=14|Location.X=-1|Location.Y=-1|Corner.X=1|Corner.Y=1|",
+        ))
+        .unwrap();
+        assert!(!unfilled.filled, "absent IsSolid must read as unfilled");
+
+        let filled = parse_rectangle(&parse_properties(
+            "|RECORD=14|Location.X=-1|Location.Y=-1|Corner.X=1|Corner.Y=1|IsSolid=T|",
+        ))
+        .unwrap();
+        assert!(filled.filled, "IsSolid=T must read as filled");
+    }
+
+    #[test]
+    fn test_parameter_uniqueid_preserved() {
+        let p = parse_parameter(&parse_properties(
+            "|RECORD=41|Name=Value|Text=10k|UniqueID=ABCD1234|",
+        ))
+        .unwrap();
+        assert_eq!(p.unique_id.as_deref(), Some("ABCD1234"));
+        assert_eq!(p.name, "Value");
+        assert_eq!(p.value, "10k");
+    }
+
+    #[test]
+    fn test_arc_is_not_accessible_parsed() {
+        let tagged = parse_arc(&parse_properties(
+            "|RECORD=12|Location.X=5|Location.Y=5|Radius=10|IsNotAccesible=T|",
+        ))
+        .unwrap();
+        assert!(
+            tagged.is_not_accessible,
+            "IsNotAccesible=T must parse as true"
+        );
+
+        let untagged = parse_arc(&parse_properties(
+            "|RECORD=12|Location.X=5|Location.Y=5|Radius=10|",
+        ))
+        .unwrap();
+        assert!(
+            !untagged.is_not_accessible,
+            "absent IsNotAccesible defaults false on read"
+        );
+    }
+
+    #[test]
+    fn test_absent_colour_reads_black() {
+        // Altium omits Color/AreaColor when 0; AltiumSharp defaults absent to 0
+        // (black). We previously fabricated navy / pale-yellow defaults, so reading
+        // an Altium shape that omits these surfaced the wrong colour.
+        let arc = parse_arc(&parse_properties(
+            "|RECORD=12|Location.X=5|Location.Y=5|Radius=10|",
+        ))
+        .unwrap();
+        assert_eq!(arc.color, 0, "absent arc Color must read as black");
+
+        let poly = parse_polygon(&parse_properties(
+            "|RECORD=7|LocationCount=3|X1=0|Y1=0|X2=10|Y2=0|X3=5|Y3=10|",
+        ))
+        .unwrap();
+        assert_eq!(
+            poly.line_color, 0,
+            "absent polygon Color must read as black"
+        );
+        assert_eq!(
+            poly.fill_color, 0,
+            "absent polygon AreaColor must read as 0"
+        );
+
+        let label = parse_label(&parse_properties(
+            "|RECORD=4|Location.X=5|Location.Y=5|Text=R|",
+        ))
+        .unwrap();
+        assert_eq!(label.color, 0, "absent label Color must read as black");
     }
 }

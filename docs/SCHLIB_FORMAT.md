@@ -81,20 +81,26 @@ Key fields:
 Each component's Data stream contains the symbol primitives:
 
 ```text
-[RecordLength:2 LE][RecordType:2 BE][data:RecordLength]
-[RecordLength:2 LE][RecordType:2 BE][data:RecordLength]
+[length:3 LE][flags:1][data:length]
+[length:3 LE][flags:1][data:length]
 ...
-[0x00 0x00]  # End marker (length = 0)
 ```
 
-### Record Types (Header)
+The 4-byte header is a single 32-bit little-endian size word: the low 24 bits are the payload
+length and the high byte is a flag (`0x00` = text record, `0x01` = binary pin). For payloads under
+16 MiB (always, in practice) this is byte-identical to a `[u16 length LE][u16 BE type]` reading,
+which is why earlier notes described it that way.
 
-The 2-byte record type in the header determines how to parse the record data:
+There is **no end-of-stream marker** — records simply run until the stream is exhausted. A trailing
+`0x0000` would be mis-read as a zero-length record (this was part of issue #68; the writer must not
+emit one).
 
-| Type | Format | Description |
+### Record Types (Header flag byte)
+
+| Flag | Format | Description |
 |------|--------|-------------|
-| `0x0000` | Text | Pipe-delimited key=value pairs (most primitives) |
-| `0x0001` | Binary | Binary pin record (more compact than text) |
+| `0x00` | Text | Pipe-delimited key=value pairs (most primitives) |
+| `0x01` | Binary | Binary pin record (more compact than text) |
 
 > **Note:** Most primitives use text format (type 0). Binary format (type 1) is used for pins to reduce file size.
 
@@ -125,11 +131,11 @@ Text records contain pipe-delimited key=value pairs:
 | 14 | Rectangle | Rectangle shape |
 | 34 | Designator | Component designator (R?, U?, etc.) |
 | 41 | Parameter | Component parameter (Value, Part Number, etc.) |
-| 44 | ImplementationList | Start of model/footprint list |
-| 45 | Model | Footprint model reference |
-| 46 | ModelDatafileLink | Model data file reference |
-| 47 | ModelDatafileEntity | Model data file entity |
-| 48 | Implementation | Implementation details |
+| 44 | ImplementationList | Container for a component's implementations |
+| 45 | Implementation | One implementation (footprint model link) |
+| 46 | MapDefinerList | Container for the implementation's map definers |
+| 47 | MapDefiner | Pin-to-pad mapping |
+| 48 | ImplementationParameters | Per-implementation parameters |
 
 ## Binary Pin Records (Type 1)
 
@@ -377,10 +383,12 @@ The component header contains symbol-level metadata:
 | `LineWidth` | int | Border line width |
 | `Color` | int | Border colour (BGR) |
 | `AreaColor` | int | Fill colour (BGR) |
-| `IsSolid` | bool | Whether filled |
+| `IsSolid` | bool | Whether the rectangle is **filled** (emitted only when `T`; absent ⇒ unfilled) |
 | `Transparent` | bool | Whether transparent |
 
-> **Note:** Rectangle `IsSolid` is always written as `T` (filled).
+> **Note:** Altium omits `IsSolid` when the shape is unfilled and writes `IsSolid=T` only when
+> filled (it is never written as `F`). `Color` / `AreaColor` are likewise omitted when 0, and an
+> absent colour reads back as 0 (black).
 
 ### Polyline (RECORD=6)
 
@@ -406,9 +414,11 @@ The component header contains symbol-level metadata:
 | `LineWidth` | int | Border line width |
 | `Color` | int | Border colour (BGR) |
 | `AreaColor` | int | Fill colour (BGR) |
-| `IsSolid` | bool | Whether border is solid |
+| `IsSolid` | bool | Whether the polygon is **filled** (emitted only when `T`; absent ⇒ unfilled) |
 
-> **Note:** When `IsSolid=T`, the polygon is filled. When `IsSolid=F`, only the outline is drawn. Default is filled.
+> **Note:** `IsSolid` is the **fill** flag, not a border style. Altium omits it when unfilled
+> (the default) and writes `IsSolid=T` only when filled. Zero-valued `Color` / `AreaColor` and
+> zero vertex coordinates are likewise omitted; an absent colour reads back as 0.
 >
 > Polygons require a minimum of 3 vertices.
 
@@ -660,7 +670,9 @@ When writing symbol data, records are encoded in this specific order:
 15. Designator (RECORD=34)
 16. Implementation list (RECORD=44)
 17. Footprint models (RECORD=45)
-18. End marker (0x0000)
+
+The stream ends with the last record's payload — there is **no** trailing end marker (see the Data
+Stream Format section and issue #68).
 
 > **Note:** The `IndexInSheet` counter is incremented for each shape record but NOT for pins.
 
@@ -675,10 +687,11 @@ Some symbols have multiple parts (e.g., quad op-amp):
 
 ## Notes
 
-- **ImplementationList (RECORD=44)**: Container for model list
-- **ModelDatafileLink (RECORD=46)**: Simulation model reference
-- **ModelDatafileEntity (RECORD=47)**: Simulation model entity
-- **Implementation (RECORD=48)**: Additional implementation details
+- **ImplementationList (RECORD=44)**: Container for a component's implementations
+- **Implementation (RECORD=45)**: One implementation (footprint model link)
+- **MapDefinerList (RECORD=46)**: Container for the implementation's map definers
+- **MapDefiner (RECORD=47)**: Pin-to-pad mapping
+- **ImplementationParameters (RECORD=48)**: Per-implementation parameters
 - **Pin text format (RECORD=2)**: Rarely used, binary format preferred
 - **Pin symbol decorations**: Supported (22 symbol types)
 - **Pin colour**: Stored in binary format (BGR)
@@ -692,4 +705,4 @@ Some symbols have multiple parts (e.g., quad op-amp):
 - [AltiumSharp](https://github.com/issus/AltiumSharp) - C# library for Altium files (MIT)
 - [pyAltiumLib](https://github.com/ChrisHoyer/pyAltiumLib) - Python library for reading Altium files
 - [python-altium](https://github.com/vadmium/python-altium) - Altium format documentation
-- Sample analysis: `scripts/analyze_schlib.py`
+- Sample analysis: `scripts/analyse/analyse_schlib.py`

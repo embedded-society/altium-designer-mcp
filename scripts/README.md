@@ -1,36 +1,33 @@
-# Scripts and Sample Files
+# Scripts
 
-This folder contains analysis scripts and sample Altium library files for **manual debugging only**.
-These are NOT used by automated tests.
+On-site developer tooling for working with the Altium binary formats. Everything here is for
+**manual, local use only** — none of it is part of the automated test suite, and **none of it
+runs in CI**. (CI verifies Altium-readability through the independent `pyaltiumlib` oracle in
+[`tests/integration/`](../tests/integration/).)
 
----
+The folder is organised into three parts:
 
-## Sample Files
-
-| File | Description |
-|------|-------------|
-| `sample.PcbLib` | Sample PCB footprint library with generic chip resistor footprints |
-| `sample.SchLib` | Corresponding schematic symbol library |
-
-These files are useful for:
-
-- Manual debugging of binary format issues
-- Reverse engineering Altium file formats
-- Testing with real Altium-created libraries
+| Folder | What it is | Needs Altium? |
+|--------|------------|---------------|
+| [`analyse/`](analyse/) | Passive binary-format dumpers (pure Python + `olefile`) | No |
+| [`altium/`](altium/) | On-site automation driven by a real Altium install | **Yes** |
+| [`samples/`](samples/) | Altium-authored reference libraries (ground truth for RE) | No |
 
 ---
 
-## Python Analysis Scripts
+## `analyse/` — binary-format analysis
 
-Analyses the binary format of Altium files using olefile.
+Dump the OLE structure and decoded primitive data of any `.PcbLib` / `.SchLib`, to help
+reverse-engineer the format. Pure Python; the only dependency is `olefile`.
 
 ### Prerequisites
 
+Run these from the `scripts/` folder:
+
 ```bash
-# Create virtual environment (one-time setup)
 python -m venv .venv
-source .venv/bin/activate  # Linux/macOS
-# or: .venv\Scripts\activate  # Windows
+.venv\Scripts\activate          # Windows
+# or: source .venv/bin/activate  # Linux/macOS
 
 pip install olefile
 ```
@@ -38,29 +35,45 @@ pip install olefile
 ### Usage
 
 ```bash
-# Analyse the sample PcbLib
-python analyze_pcblib.py
+# Default to the bundled Altium-authored sample in samples/
+python analyse/analyse_pcblib.py
+python analyse/analyse_schlib.py
 
-# Analyse a specific PcbLib file
-python analyze_pcblib.py /path/to/library.PcbLib
-
-# Analyse the sample SchLib
-python analyze_schlib.py
-
-# Analyse a specific SchLib file
-python analyze_schlib.py /path/to/library.SchLib
+# Or point at a specific file
+python analyse/analyse_pcblib.py path/to/library.PcbLib
+python analyse/analyse_schlib.py path/to/library.SchLib
 ```
 
-### Output
+Output: OLE streams and storages, component names and parameters, and decoded primitive data
+(pads, tracks, arcs, pins, rectangles, …) with the byte-level detail needed for reverse
+engineering.
 
-- OLE structure (streams and storages)
-- Component names and parameters
-- Primitive data (pads, tracks, pins, rectangles, etc.)
-- Binary format details for reverse engineering
+---
+
+## `altium/` — on-site Altium automation
+
+Automation that drives a **real, locally-installed Altium Designer** to verify our output and to
+author golden reference libraries. Because it needs the GUI application and a licence, it
+**cannot run in CI** — it is strictly an on-site developer aid.
+
+See [`altium/README.md`](altium/README.md) for the planned tooling and prerequisites.
+
+---
+
+## `samples/` — reference libraries
+
+| File | Description |
+|------|-------------|
+| `sample.PcbLib` | Altium-authored PCB footprint library (generic chip resistor footprints) |
+| `sample.SchLib` | Altium-authored schematic symbol library |
+
+These were created by Altium itself, so they are authoritative ground truth for reverse
+engineering and for byte-diffing against our own writer's output. The `analyse/` scripts default
+to them when run with no argument.
 
 ---
 
 ## Note
 
-Automated tests in `tests/` generate their own test data programmatically and do not depend
-on these sample files. This ensures tests work in CI environments without external dependencies.
+The automated tests in [`tests/`](../tests/) generate their own data programmatically and do
+**not** depend on anything in this folder, so CI runs without Altium or these samples.

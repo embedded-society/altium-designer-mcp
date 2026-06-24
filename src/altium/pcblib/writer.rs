@@ -885,14 +885,13 @@ fn encode_text_geometry(text: &Text) -> Vec<u8> {
 /// Encodes a Region primitive (filled polygon).
 ///
 /// Region format (matching Altium):
-/// - A single block: properties (common header, parameter string, and vertices)
+/// - A single block: common header, parameter string, and the vertex outline.
+///
+/// Altium's `WriteRegion` emits exactly one block. A spurious empty second block
+/// leaves a stray `00 00 00 00` after the region; when another primitive follows,
+/// Altium reads it as an invalid record type and silently drops every primitive
+/// after the region (e.g. a trailing `ComponentBody` never renders).
 fn encode_region(data: &mut Vec<u8>, region: &Region) {
-    // A Region is a single length-prefixed block: the properties block with
-    // embedded vertices. Altium-authored files emit exactly one block here (verified
-    // against Altium-resaved libraries). Emitting a second (empty) block leaves a
-    // stray `00 00 00 00` after the region; when another primitive follows, Altium
-    // reads that as an invalid record type and silently drops every primitive after
-    // the region (e.g. a trailing ComponentBody never renders).
     let props = encode_region_properties(region);
     write_block(data, &props);
 }
@@ -1178,8 +1177,14 @@ fn build_component_body_params(body: &ComponentBody) -> String {
         // The extrusion itself: Z range from standoff (MINZ) to overall (MAXZ).
         // This is what Altium actually extrudes the outline between; without it
         // the body has no volume and is discarded on load.
-        params.push(format!("MODEL.EXTRUDED.MINZ={}mil", mm_to_mil(body.standoff_height)));
-        params.push(format!("MODEL.EXTRUDED.MAXZ={}mil", mm_to_mil(body.overall_height)));
+        params.push(format!(
+            "MODEL.EXTRUDED.MINZ={}mil",
+            mm_to_mil(body.standoff_height)
+        ));
+        params.push(format!(
+            "MODEL.EXTRUDED.MAXZ={}mil",
+            mm_to_mil(body.overall_height)
+        ));
     } else {
         params.push("MODEL.MODELSOURCE=Undefined".to_string());
     }
@@ -1734,7 +1739,10 @@ mod tests {
         assert!(s.contains("ISSHAPEBASED=FALSE"), "got: {s}");
         assert!(s.contains("MODEL.MODELTYPE=0"), "got: {s}");
         assert!(s.contains("MODEL.EXTRUDED.MAXZ="), "got: {s}");
-        assert!(s.contains("MODELID={") && !s.contains("MODELID=|"), "got: {s}");
+        assert!(
+            s.contains("MODELID={") && !s.contains("MODELID=|"),
+            "got: {s}"
+        );
         assert!(!s.contains("MODELSOURCE"), "got: {s}");
 
         // Model-backed body (STEP) keeps the legacy shape/type, no extrusion range.

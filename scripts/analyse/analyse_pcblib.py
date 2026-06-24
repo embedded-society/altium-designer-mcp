@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Analyze Altium PcbLib binary format.
+Analyse Altium PcbLib binary format.
 
 This script reads a .PcbLib file and dumps its structure to help
 reverse-engineer the binary format for primitives (pads, tracks, arcs, etc.).
 
 Usage:
-    python analyze_pcblib.py <path_to_pcblib>
+    python analyse_pcblib.py <path_to_pcblib>
 
 Requirements:
     pip install olefile
@@ -315,7 +315,7 @@ def parse_arc_blocks(data: bytes, offset: int) -> int:
         layer = block[0]
         print(f"      Layer: {layer}")
 
-        # Center coordinates
+        # Centre coordinates
         cx = struct.unpack_from("<i", block, 13)[0]
         cy = struct.unpack_from("<i", block, 17)[0]
         radius = struct.unpack_from("<i", block, 21)[0]
@@ -323,7 +323,7 @@ def parse_arc_blocks(data: bytes, offset: int) -> int:
         def to_mm(val):
             return val / 10000.0 * 0.0254
 
-        print(f"      Center: ({to_mm(cx):.4f}, {to_mm(cy):.4f}) mm")
+        print(f"      Centre: ({to_mm(cx):.4f}, {to_mm(cy):.4f}) mm")
         print(f"      Radius: {to_mm(radius):.4f} mm")
 
         # Angles as doubles
@@ -476,10 +476,10 @@ def parse_component_body_blocks(data: bytes, offset: int) -> int:
     return offset
 
 
-def analyze_pcblib(filepath: Path):
-    """Analyze a PcbLib file."""
+def analyse_pcblib(filepath: Path):
+    """Analyse a PcbLib file."""
     print(f"\n{'#'*70}")
-    print(f"# Analyzing: {filepath}")
+    print(f"# Analysing: {filepath}")
     print(f"{'#'*70}")
 
     ole = olefile.OleFileIO(str(filepath))
@@ -497,7 +497,7 @@ def analyze_pcblib(filepath: Path):
         print(f"\nFileHeader ({len(data)} bytes):")
         print(f"  {data[:100]}")
 
-    # Find and analyze footprint storages
+    # Find and analyse footprint storages
     footprint_count = 0
     for entry in ole.listdir():
         # Look for entries with Data and Parameters
@@ -523,7 +523,7 @@ def analyze_pcblib(filepath: Path):
 
                 footprint_count += 1
 
-                # Only analyze first few footprints
+                # Only analyse first few footprints
                 if footprint_count >= 5:
                     print("\n... (more footprints exist)")
                     break
@@ -533,11 +533,11 @@ def analyze_pcblib(filepath: Path):
 
 def main():
     if len(sys.argv) < 2:
-        # Default to sample file in scripts folder
+        # Default to the Altium-authored sample in scripts/samples/
         script_dir = Path(__file__).parent
-        default_path = script_dir / "sample.PcbLib"
+        default_path = script_dir.parent / "samples" / "sample.PcbLib"
         if default_path.exists():
-            analyze_pcblib(default_path)
+            analyse_pcblib(default_path)
         else:
             print(f"Usage: {sys.argv[0]} <path_to_pcblib>")
             print(f"  Or place a sample file at: {default_path}")
@@ -547,7 +547,7 @@ def main():
         if not filepath.exists():
             print(f"Error: File not found: {filepath}")
             sys.exit(1)
-        analyze_pcblib(filepath)
+        analyse_pcblib(filepath)
 
 
 if __name__ == "__main__":

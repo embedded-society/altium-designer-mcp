@@ -53,15 +53,22 @@ All Altium streams use these common encoding patterns:
 
 ## `FileHeader` Stream
 
-The `FileHeader` contains a binary-encoded version string (**NOT** pipe-delimited key=value pairs):
+The `FileHeader` is a **53-byte** binary record with **three** fields (matching AltiumSharp's
+`PcbLibWriter.WriteFileHeader`). It is **NOT** pipe-delimited key=value pairs. Altium Designer
+rejects the library if the version double or the `UniqueId` block are missing.
 
 ```text
-[string_length:4 LE u32]   = 27
-[string_length:1 byte]     = 27
-[string_data:27 bytes]     = "PCB 6.0 Binary Library File"
+[string_length:4 LE u32]  = 27
+[string_length:1 byte]    = 27
+[string_data:27 bytes]    = "PCB 6.0 Binary Library File"   # version-string block (32 bytes)
+[version_double:8 LE f64] = 5.01                            # raw 8 bytes, NO length prefix
+[uid_length:4 LE u32]     = 8
+[uid_length:1 byte]       = 8
+[uid_data:8 bytes]        = "XXXXXXXX"                      # 8-char UniqueId block (13 bytes)
 ```
 
-The 4-byte and 1-byte lengths are the SAME value (redundant). Total: 32 bytes.
+Within each string block the 4-byte and 1-byte lengths are the SAME value (redundant).
+**Total: 32 + 8 + 13 = 53 bytes.**
 
 > **Note:** Component metadata (names, descriptions) is stored in `/Library/Data`, not in `FileHeader`.
 
@@ -264,7 +271,9 @@ These mechanical layers are typically configured as component layer pairs:
 | 83 | Top Pad Master |
 | 84 | Bottom Pad Master |
 | 85 | DRC Detail Layer |
-| 255 | Unknown |
+
+> The layer field is a plain `u8`. There is no `255 = Unknown` layer — any out-of-range id is
+> simply unrecognised (an unknown layer *name* maps to `0 = NoLayer`).
 
 ## Primitive Formats
 
@@ -403,20 +412,29 @@ All primitives start with a common header:
 | Offset | Size | Field |
 |--------|------|-------|
 | 0 | 1 | Layer ID |
-| 1 | 2 | Flags (uint16, see PcbFlags below) |
-| 3-12 | 10 | Padding (typically 0xFF) |
+| 1-2 | 2 | Flags word (uint16, see below) |
+| 3-4 | 2 | NetIndex (uint16; `0xFFFF` when unconnected) |
+| 5-6 | 2 | PolygonIndex (uint16; `0xFFFF`) |
+| 7-8 | 2 | ComponentIndex (uint16; `0xFFFF`) |
+| 9-12 | 4 | Reserved (uint32) |
 
-**PcbFlags (uint16):**
+For a footprint-library primitive the index fields are unused (all `0xFF`), which is why bytes
+3–12 look like padding — but in a board file they carry the net / polygon / component links.
 
-| Bit | Flag | Description |
-|-----|------|-------------|
-| 0x0001 | Locked | Primitive is locked |
-| 0x0002 | Polygon | Part of polygon pour |
-| 0x0004 | KeepOut | Keep-out region |
-| 0x0008 | TentingTop | Tented on top |
-| 0x0010 | TentingBottom | Tented on bottom |
+**Flags word (bytes 1–2, uint16) — on-wire bits** (`src/altium/pcblib/flags.rs`):
 
-> **Note:** Most flags are typically 0x00 for library components. Net-related flags are used in board files.
+| Bit | Flag | Meaning |
+|-----|------|---------|
+| `0x0004` | Unlocked | **Inverted** — set = unlocked, clear = locked |
+| `0x0008` | Saved | Set on a saved primitive |
+| `0x0020` | TentingTop | Solder-mask tented on top |
+| `0x0040` | TentingBottom | Solder-mask tented on bottom |
+| `0x0200` | Keepout | Keep-out primitive |
+
+> **Note:** These are the literal bits on disk. The crate also exposes an internal abstract
+> `PcbFlags` enum (`LOCKED` / `KEEPOUT` / `TENTING_TOP` / `TENTING_BOTTOM`, with its own distinct
+> values) for the public API; the reader/writer translate between the two. Do not confuse the
+> abstract enum's values with the on-wire bits above.
 
 ### Text (0x05)
 
@@ -740,4 +758,4 @@ When writing footprint data, primitives are encoded in this specific order:
 - [AltiumSharp](https://github.com/issus/AltiumSharp) - C# library for Altium files (MIT)
 - [pyAltiumLib](https://github.com/ChrisHoyer/pyAltiumLib) - Python library for reading Altium files
 - [python-altium](https://github.com/vadmium/python-altium) - Altium format documentation
-- Sample analysis: `scripts/analyze_pcblib.py`
+- Sample analysis: `scripts/analyse/analyse_pcblib.py`

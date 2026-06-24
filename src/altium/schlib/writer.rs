@@ -269,13 +269,27 @@ fn encode_component_header(symbol: &Symbol) -> String {
     format!("|{}", parts.join("|"))
 }
 
+/// Returns `"|Key=value"` when `value` is non-zero, or an empty string when it
+/// is zero. Altium omits zero-valued integer parameters such as `Color` and
+/// `AreaColor` from a record's text (its `AddNonZero` helper); our reader
+/// defaults the absent key back to 0, so this round-trips.
+fn nonzero(key: &str, value: u32) -> String {
+    if value == 0 {
+        String::new()
+    } else {
+        format!("|{key}={value}")
+    }
+}
+
 /// Encodes a rectangle record.
 fn encode_rectangle(rect: &Rectangle, index: usize) -> String {
     let transparent = if rect.transparent { "T" } else { "F" };
+    // Altium emits IsSolid only when the shape is filled, and omits it otherwise.
+    let is_solid = if rect.filled { "|IsSolid=T" } else { "" };
     format!(
         "|RECORD=14|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T\
          |Location.X={}|Location.Y={}|Corner.X={}|Corner.Y={}\
-         |LineWidth={}|Color={}|AreaColor={}|IsSolid=T|Transparent={}|UniqueID={}",
+         |LineWidth={}{}{}{}|Transparent={}|UniqueID={}",
         index,
         rect.owner_part_id,
         rect.x1,
@@ -283,8 +297,9 @@ fn encode_rectangle(rect: &Rectangle, index: usize) -> String {
         rect.x2,
         rect.y2,
         rect.line_width,
-        rect.line_color,
-        rect.fill_color,
+        nonzero("Color", rect.line_color),
+        nonzero("AreaColor", rect.fill_color),
+        is_solid,
         transparent,
         rect.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
@@ -293,7 +308,7 @@ fn encode_rectangle(rect: &Rectangle, index: usize) -> String {
 /// Encodes a line record.
 fn encode_line(line: &Line, index: usize) -> String {
     format!(
-        "|RECORD=13|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T|Location.X={}|Location.Y={}|Corner.X={}|Corner.Y={}|LineWidth={}|Color={}|UniqueID={}",
+        "|RECORD=13|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T|Location.X={}|Location.Y={}|Corner.X={}|Corner.Y={}|LineWidth={}{}|UniqueID={}",
         index,
         line.owner_part_id,
         line.x1,
@@ -301,29 +316,44 @@ fn encode_line(line: &Line, index: usize) -> String {
         line.x2,
         line.y2,
         line.line_width,
-        line.color,
+        nonzero("Color", line.color),
         line.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
 }
 
 /// Encodes a parameter record.
+///
+/// Follows Altium's conventions: `IsHidden` is emitted only when hidden (never
+/// `=F`), `ReadOnlyState` / `ParamType` only when non-zero, `Text` only when
+/// non-empty, and the read `UniqueID` is preserved.
 fn encode_parameter(param: &Parameter, index: usize) -> String {
-    let hidden = if param.hidden { "T" } else { "F" };
-    format!(
-        "|RECORD=41|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Color={}|FontID={}|IsHidden={}|ReadOnlyState={}|ParamType={}|Text={}|Name={}|UniqueID={}",
-        index,
-        param.owner_part_id,
-        param.x,
-        param.y,
-        param.color,
-        param.font_id,
-        hidden,
-        param.read_only_state,
-        param.param_type,
-        param.value,
-        param.name,
-        generate_unique_id()
-    )
+    let mut parts = vec![
+        "RECORD=41".to_string(),
+        format!("IndexInSheet={index}"),
+        format!("OwnerPartId={}", param.owner_part_id),
+        format!("Location.X={}", param.x),
+        format!("Location.Y={}", param.y),
+        format!("Color={}", param.color),
+        format!("FontID={}", param.font_id),
+    ];
+    if param.hidden {
+        parts.push("IsHidden=T".to_string());
+    }
+    if param.read_only_state != 0 {
+        parts.push(format!("ReadOnlyState={}", param.read_only_state));
+    }
+    if param.param_type != 0 {
+        parts.push(format!("ParamType={}", param.param_type));
+    }
+    if !param.value.is_empty() {
+        parts.push(format!("Text={}", param.value));
+    }
+    parts.push(format!("Name={}", param.name));
+    parts.push(format!(
+        "UniqueID={}",
+        param.unique_id.clone().unwrap_or_else(generate_unique_id)
+    ));
+    format!("|{}", parts.join("|"))
 }
 
 /// Encodes a designator record.
@@ -342,13 +372,17 @@ fn encode_polyline(polyline: &Polyline, index: usize) -> String {
         format!("IndexInSheet={index}"),
         format!("OwnerPartId={}", polyline.owner_part_id),
         format!("LineWidth={}", polyline.line_width),
-        format!("Color={}", polyline.color),
+    ];
+    if polyline.color != 0 {
+        parts.push(format!("Color={}", polyline.color));
+    }
+    parts.extend([
         format!("LineStyle={}", polyline.line_style),
         format!("StartLineShape={}", polyline.start_line_shape),
         format!("EndLineShape={}", polyline.end_line_shape),
         format!("LineShapeSize={}", polyline.line_shape_size),
         format!("LocationCount={}", polyline.points.len()),
-    ];
+    ]);
 
     for (i, (x, y)) in polyline.points.iter().enumerate() {
         parts.push(format!("X{}={}", i + 1, x));
@@ -368,18 +402,25 @@ fn encode_polyline(polyline: &Polyline, index: usize) -> String {
 
 /// Encodes a polygon record.
 fn encode_polygon(polygon: &Polygon, index: usize) -> String {
-    let is_solid = if polygon.filled { "T" } else { "F" };
     let mut parts = vec![
         "RECORD=7".to_string(),
         format!("IndexInSheet={index}"),
         format!("OwnerPartId={}", polygon.owner_part_id),
         "IsNotAccesible=T".to_string(),
         format!("LineWidth={}", polygon.line_width),
-        format!("Color={}", polygon.line_color),
-        format!("AreaColor={}", polygon.fill_color),
-        format!("IsSolid={is_solid}"),
-        format!("LocationCount={}", polygon.points.len()),
     ];
+    // Altium omits Color / AreaColor when zero (AddNonZero).
+    if polygon.line_color != 0 {
+        parts.push(format!("Color={}", polygon.line_color));
+    }
+    if polygon.fill_color != 0 {
+        parts.push(format!("AreaColor={}", polygon.fill_color));
+    }
+    // Altium emits IsSolid only when filled, and omits it otherwise.
+    if polygon.filled {
+        parts.push("IsSolid=T".to_string());
+    }
+    parts.push(format!("LocationCount={}", polygon.points.len()));
 
     for (i, (x, y)) in polygon.points.iter().enumerate() {
         parts.push(format!("X{}={}", i + 1, x));
@@ -396,17 +437,24 @@ fn encode_polygon(polygon: &Polygon, index: usize) -> String {
 
 /// Encodes an arc record.
 fn encode_arc(arc: &Arc, index: usize) -> String {
+    // Altium tags arcs IsNotAccesible (its own single-'s' spelling); emit only when set.
+    let not_accessible = if arc.is_not_accessible {
+        "|IsNotAccesible=T"
+    } else {
+        ""
+    };
     format!(
-        "|RECORD=12|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Radius={}|StartAngle={}|EndAngle={}|LineWidth={}|Color={}|UniqueID={}",
+        "|RECORD=12|IndexInSheet={}|OwnerPartId={}{}|Location.X={}|Location.Y={}|Radius={}|StartAngle={}|EndAngle={}|LineWidth={}{}|UniqueID={}",
         index,
         arc.owner_part_id,
+        not_accessible,
         arc.x,
         arc.y,
         arc.radius,
         arc.start_angle,
         arc.end_angle,
         arc.line_width,
-        arc.color,
+        nonzero("Color", arc.color),
         arc.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
 }
@@ -414,11 +462,11 @@ fn encode_arc(arc: &Arc, index: usize) -> String {
 /// Encodes a Bezier curve record.
 fn encode_bezier(bezier: &Bezier, index: usize) -> String {
     format!(
-        "|RECORD=5|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T|LineWidth={}|Color={}|LocationCount=4|X1={}|Y1={}|X2={}|Y2={}|X3={}|Y3={}|X4={}|Y4={}|UniqueID={}",
+        "|RECORD=5|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T|LineWidth={}{}|LocationCount=4|X1={}|Y1={}|X2={}|Y2={}|X3={}|Y3={}|X4={}|Y4={}|UniqueID={}",
         index,
         bezier.owner_part_id,
         bezier.line_width,
-        bezier.color,
+        nonzero("Color", bezier.color),
         bezier.x1,
         bezier.y1,
         bezier.x2,
@@ -433,9 +481,10 @@ fn encode_bezier(bezier: &Bezier, index: usize) -> String {
 
 /// Encodes an ellipse record.
 fn encode_ellipse(ellipse: &Ellipse, index: usize) -> String {
-    let is_solid = if ellipse.filled { "T" } else { "F" };
+    // Altium emits IsSolid only when filled, and omits it otherwise.
+    let is_solid = if ellipse.filled { "|IsSolid=T" } else { "" };
     format!(
-        "|RECORD=8|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Radius={}|SecondaryRadius={}|LineWidth={}|Color={}|AreaColor={}|IsSolid={}|UniqueID={}",
+        "|RECORD=8|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Radius={}|SecondaryRadius={}|LineWidth={}{}{}{}|UniqueID={}",
         index,
         ellipse.owner_part_id,
         ellipse.x,
@@ -443,8 +492,8 @@ fn encode_ellipse(ellipse: &Ellipse, index: usize) -> String {
         ellipse.radius_x,
         ellipse.radius_y,
         ellipse.line_width,
-        ellipse.line_color,
-        ellipse.fill_color,
+        nonzero("Color", ellipse.line_color),
+        nonzero("AreaColor", ellipse.fill_color),
         is_solid,
         ellipse.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
@@ -452,12 +501,13 @@ fn encode_ellipse(ellipse: &Ellipse, index: usize) -> String {
 
 /// Encodes a rounded rectangle record.
 fn encode_round_rect(round_rect: &RoundRect, index: usize) -> String {
-    let is_solid = if round_rect.filled { "T" } else { "F" };
+    // Altium emits IsSolid only when filled, and omits it otherwise.
+    let is_solid = if round_rect.filled { "|IsSolid=T" } else { "" };
     format!(
         "|RECORD=10|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T\
          |Location.X={}|Location.Y={}|Corner.X={}|Corner.Y={}\
          |CornerXRadius={}|CornerYRadius={}\
-         |LineWidth={}|Color={}|AreaColor={}|IsSolid={}|UniqueID={}",
+         |LineWidth={}{}{}{}|UniqueID={}",
         index,
         round_rect.owner_part_id,
         round_rect.x1,
@@ -467,8 +517,8 @@ fn encode_round_rect(round_rect: &RoundRect, index: usize) -> String {
         round_rect.corner_x_radius,
         round_rect.corner_y_radius,
         round_rect.line_width,
-        round_rect.line_color,
-        round_rect.fill_color,
+        nonzero("Color", round_rect.line_color),
+        nonzero("AreaColor", round_rect.fill_color),
         is_solid,
         round_rect
             .unique_id
@@ -491,22 +541,22 @@ fn encode_elliptical_arc(arc: &EllipticalArc, index: usize) -> String {
     format!(
         "|RECORD=11|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T\
          |Location.X={}|Location.Y={}\
-         |Radius={}|Radius_Frac={}\
-         |SecondaryRadius={}|SecondaryRadius_Frac={}\
+         |Radius={}{}\
+         |SecondaryRadius={}{}\
          |StartAngle={}|EndAngle={}\
-         |LineWidth={}|Color={}|UniqueID={}",
+         |LineWidth={}{}|UniqueID={}",
         index,
         arc.owner_part_id,
         arc.x,
         arc.y,
         radius_int,
-        radius_frac,
+        nonzero("Radius_Frac", radius_frac),
         secondary_radius_int,
-        secondary_radius_frac,
+        nonzero("SecondaryRadius_Frac", secondary_radius_frac),
         arc.start_angle,
         arc.end_angle,
         arc.line_width,
-        arc.color,
+        nonzero("Color", arc.color),
         arc.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
 }
@@ -516,15 +566,20 @@ fn encode_label(label: &Label, index: usize) -> String {
     #[allow(clippy::cast_possible_truncation)]
     let orientation = (label.rotation / 90.0).round() as i32 % 4;
     let justification = justification_to_id(label.justification);
-    let is_mirrored = if label.is_mirrored { "T" } else { "F" };
-    let is_hidden = if label.is_hidden { "T" } else { "F" };
+    // Altium emits IsMirrored / IsHidden only when true — never `=F`.
+    let is_mirrored = if label.is_mirrored {
+        "|IsMirrored=T"
+    } else {
+        ""
+    };
+    let is_hidden = if label.is_hidden { "|IsHidden=T" } else { "" };
     format!(
-        "|RECORD=4|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T|Location.X={}|Location.Y={}|Color={}|FontID={}|Orientation={}|Justification={}|IsMirrored={}|IsHidden={}|Text={}|UniqueID={}",
+        "|RECORD=4|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T|Location.X={}|Location.Y={}{}|FontID={}|Orientation={}|Justification={}{}{}|Text={}|UniqueID={}",
         index,
         label.owner_part_id,
         label.x,
         label.y,
-        label.color,
+        nonzero("Color", label.color),
         label.font_id,
         orientation,
         justification,
@@ -540,15 +595,20 @@ fn encode_text(text: &Text, index: usize) -> String {
     #[allow(clippy::cast_possible_truncation)]
     let orientation = (text.rotation / 90.0).round() as i32 % 4;
     let justification = justification_to_id(text.justification);
-    let is_mirrored = if text.is_mirrored { "T" } else { "F" };
-    let is_hidden = if text.is_hidden { "T" } else { "F" };
+    // Altium emits IsMirrored / IsHidden only when true — never `=F`.
+    let is_mirrored = if text.is_mirrored {
+        "|IsMirrored=T"
+    } else {
+        ""
+    };
+    let is_hidden = if text.is_hidden { "|IsHidden=T" } else { "" };
     format!(
-        "|RECORD=4|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T|Location.X={}|Location.Y={}|Color={}|FontID={}|Orientation={}|Justification={}|IsMirrored={}|IsHidden={}|Text={}|UniqueID={}",
+        "|RECORD=4|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T|Location.X={}|Location.Y={}{}|FontID={}|Orientation={}|Justification={}{}{}|Text={}|UniqueID={}",
         index,
         text.owner_part_id,
         text.x,
         text.y,
-        text.color,
+        nonzero("Color", text.color),
         text.font_id,
         orientation,
         justification,
@@ -881,6 +941,28 @@ mod tests {
     }
 
     #[test]
+    fn test_rectangle_issolid_emitted_only_when_filled() {
+        // Altium omits IsSolid for unfilled shapes and emits IsSolid=T only when
+        // filled — never IsSolid=F.
+        let mut unfilled = Rectangle::new(-5, -5, 5, 5);
+        unfilled.filled = false;
+        let s = encode_rectangle(&unfilled, 1);
+        assert!(
+            !s.contains("IsSolid"),
+            "unfilled rectangle must omit IsSolid: {s}"
+        );
+
+        let mut filled = Rectangle::new(-5, -5, 5, 5);
+        filled.filled = true;
+        let s = encode_rectangle(&filled, 1);
+        assert!(
+            s.contains("|IsSolid=T"),
+            "filled rectangle must emit IsSolid=T: {s}"
+        );
+        assert!(!s.contains("IsSolid=F"), "never emit IsSolid=F: {s}");
+    }
+
+    #[test]
     fn footprint_models_owned_by_implementation_list() {
         let mut symbol = Symbol::new("R");
         symbol.add_pin(Pin::new("1", "1", -10, 0, 10, PinOrientation::Left));
@@ -1025,5 +1107,134 @@ mod tests {
         // LibRef should use the OLE-safe name
         let text = String::from_utf8_lossy(&data[4..]);
         assert!(text.contains("LibRef0=AAAAAAAAAAAAAAAAAAAAAAAAAAA~001"));
+    }
+
+    #[test]
+    fn test_parameter_canonical_emission() {
+        // Not hidden, empty value, zero read-only/param-type: Altium omits those keys.
+        let mut p = Parameter::new("Comment", "");
+        let s = encode_parameter(&p, 1);
+        assert!(
+            !s.contains("IsHidden"),
+            "omit IsHidden when not hidden: {s}"
+        );
+        assert!(!s.contains("Text="), "omit Text when empty: {s}");
+        assert!(
+            !s.contains("ReadOnlyState"),
+            "omit ReadOnlyState when 0: {s}"
+        );
+        assert!(!s.contains("ParamType"), "omit ParamType when 0: {s}");
+
+        // Hidden + value + a preserved UniqueID.
+        p.hidden = true;
+        p.value = "10k".to_string();
+        p.unique_id = Some("ABCD1234".to_string());
+        let s = encode_parameter(&p, 1);
+        assert!(
+            s.contains("|IsHidden=T"),
+            "emit IsHidden=T when hidden: {s}"
+        );
+        assert!(!s.contains("IsHidden=F"), "never IsHidden=F: {s}");
+        assert!(s.contains("|Text=10k"), "emit Text when set: {s}");
+        assert!(
+            s.contains("|UniqueID=ABCD1234"),
+            "preserve read UniqueID: {s}"
+        );
+    }
+
+    #[test]
+    fn test_label_booleans_only_when_true() {
+        let mut label = Label {
+            x: 0,
+            y: 0,
+            text: "R".to_string(),
+            font_id: 1,
+            color: 0,
+            justification: TextJustification::BottomLeft,
+            rotation: 0.0,
+            is_mirrored: false,
+            is_hidden: false,
+            owner_part_id: 1,
+            unique_id: Some("ABCD1234".to_string()),
+        };
+        let s = encode_label(&label, 1);
+        assert!(!s.contains("IsMirrored"), "omit IsMirrored when false: {s}");
+        assert!(!s.contains("IsHidden"), "omit IsHidden when false: {s}");
+
+        label.is_mirrored = true;
+        label.is_hidden = true;
+        let s = encode_label(&label, 1);
+        assert!(s.contains("|IsMirrored=T"), "emit IsMirrored=T: {s}");
+        assert!(s.contains("|IsHidden=T"), "emit IsHidden=T: {s}");
+        assert!(
+            !s.contains("IsMirrored=F") && !s.contains("IsHidden=F"),
+            "never =F: {s}"
+        );
+    }
+
+    #[test]
+    fn test_arc_tags_is_not_accessible() {
+        let arc = Arc {
+            x: 0,
+            y: 0,
+            radius: 10,
+            is_not_accessible: true,
+            start_angle: 0.0,
+            end_angle: 360.0,
+            line_width: 1,
+            color: 0,
+            owner_part_id: 1,
+            unique_id: Some("ABCD1234".to_string()),
+        };
+        let s = encode_arc(&arc, 1);
+        assert!(
+            s.contains("|IsNotAccesible=T"),
+            "arc must tag IsNotAccesible: {s}"
+        );
+    }
+
+    #[test]
+    fn test_colour_omitted_when_zero() {
+        // Altium omits Color / AreaColor when 0 (AddNonZero); emits them otherwise.
+        let mut arc = Arc {
+            x: 0,
+            y: 0,
+            radius: 10,
+            is_not_accessible: true,
+            start_angle: 0.0,
+            end_angle: 360.0,
+            line_width: 1,
+            color: 0,
+            owner_part_id: 1,
+            unique_id: Some("ABCD1234".to_string()),
+        };
+        assert!(
+            !encode_arc(&arc, 1).contains("Color="),
+            "zero arc Color must be omitted"
+        );
+        arc.color = 255;
+        assert!(
+            encode_arc(&arc, 1).contains("|Color=255"),
+            "non-zero arc Color must be emitted"
+        );
+
+        let s = encode_text(
+            &Text {
+                x: 0,
+                y: 0,
+                text: "hi".to_string(),
+                font_id: 1,
+                color: 0,
+                justification: TextJustification::BottomLeft,
+                rotation: 0.0,
+                is_mirrored: false,
+                is_hidden: false,
+                owner_part_id: 1,
+                unique_id: Some("ABCD1234".to_string()),
+            },
+            1,
+        );
+        assert!(!s.contains("Color="), "zero text Color omitted: {s}");
+        assert!(!s.contains("=F"), "text never emits a boolean =F: {s}");
     }
 }
