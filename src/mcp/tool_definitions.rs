@@ -350,10 +350,10 @@ impl McpServer {
                                             "properties": {
                                                 "designator": { "type": "string" },
                                                 "name": { "type": "string" },
-                                                "x": { "type": "number" },
-                                                "y": { "type": "number" },
-                                                "length": { "type": "number" },
-                                                "orientation": { "type": "string", "enum": ["left", "right", "up", "down"] },
+                                                "x": { "type": "number", "description": "Pin's body-attach (INNER) end, in schematic units (10 units = 1 grid square). This is the end that touches the symbol body, NOT the connection tip. The pin is drawn from (x,y) extending 'length' units in the 'orientation' direction; the connection tip is at the far end." },
+                                                "y": { "type": "number", "description": "Y of the pin's body-attach (inner) end, in schematic units. See 'x'." },
+                                                "length": { "type": "number", "description": "Pin length in schematic units (10 = 1 grid). Drawn from (x,y) outward in the 'orientation' direction." },
+                                                "orientation": { "type": "string", "enum": ["left", "right", "up", "down"], "description": "Direction the pin POINTS, away from the body — NOT which side it sits on. A pin on the LEFT side uses 'left' (tip at x-length); a RIGHT-side pin uses 'right' (tip at x+length); 'up'/'down' for top/bottom pins. Put each pin's (x,y) on the matching body-rectangle edge so it attaches flush, e.g. left pin {x:-50,y:20,length:30,orientation:'left'} with rectangle x1=-50, and the matching right pin {x:50,y:20,length:30,orientation:'right'} with x2=50." },
                                                 "electrical_type": { "type": "string", "enum": ["input", "output", "bidirectional", "passive", "power"] },
                                                 "owner_part_id": { "type": "integer", "description": "Part number this pin belongs to (1-based). Default: 1" }
                                             },
