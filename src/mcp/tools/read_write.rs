@@ -107,6 +107,98 @@ fn symbol_geometry(symbol: &crate::altium::schlib::Symbol) -> Value {
     json!({ "name": symbol.name, "pins": pins, "bounding_box": bounding_box })
 }
 
+/// True if the segment `(x1,y1)-(x2,y2)` intersects the axis-aligned rectangle
+/// `[xmin,xmax] x [ymin,ymax]` (Liang-Barsky clip; an endpoint inside counts).
+#[allow(clippy::too_many_arguments)]
+fn segment_intersects_rect(
+    x1: f64,
+    y1: f64,
+    x2: f64,
+    y2: f64,
+    xmin: f64,
+    ymin: f64,
+    xmax: f64,
+    ymax: f64,
+) -> bool {
+    let dx = x2 - x1;
+    let dy = y2 - y1;
+    let p = [-dx, dx, -dy, dy];
+    let q = [x1 - xmin, xmax - x1, y1 - ymin, ymax - y1];
+    let mut u1 = 0.0_f64;
+    let mut u2 = 1.0_f64;
+    for (&pi, &qi) in p.iter().zip(q.iter()) {
+        if pi.abs() <= f64::EPSILON {
+            if qi < 0.0 {
+                return false; // parallel to this edge and outside the slab
+            }
+        } else {
+            let t = qi / pi;
+            if pi < 0.0 {
+                if t > u2 {
+                    return false;
+                }
+                u1 = u1.max(t);
+            } else {
+                if t < u1 {
+                    return false;
+                }
+                u2 = u2.min(t);
+            }
+        }
+    }
+    u1 <= u2
+}
+
+/// Warns about silkscreen (overlay) tracks that overlap a pad's copper. Silk on a
+/// pad is almost always a defect — it prints on the land and trips silk-to-mask
+/// DRC. Only overlay TRACKS are checked (the common offender); text and arcs are
+/// not. The pad rectangle is inflated by the track half-width so a grazing track
+/// is caught. This is topology-agnostic, so it is safe for any footprint.
+fn silk_over_pad_warnings(fp: &crate::altium::pcblib::Footprint) -> Vec<Value> {
+    use crate::altium::pcblib::Layer;
+    let mut warnings = Vec::new();
+    for track in &fp.tracks {
+        let (top, bottom) = match track.layer {
+            Layer::TopOverlay => (true, false),
+            Layer::BottomOverlay => (false, true),
+            _ => continue,
+        };
+        let half = track.width / 2.0;
+        for pad in &fp.pads {
+            let pad_top = matches!(pad.layer, Layer::TopLayer | Layer::MultiLayer);
+            let pad_bottom = matches!(pad.layer, Layer::BottomLayer | Layer::MultiLayer);
+            if !((top && pad_top) || (bottom && pad_bottom)) {
+                continue;
+            }
+            let hw = pad.width / 2.0 + half;
+            let hh = pad.height / 2.0 + half;
+            if segment_intersects_rect(
+                track.x1,
+                track.y1,
+                track.x2,
+                track.y2,
+                pad.x - hw,
+                pad.y - hh,
+                pad.x + hw,
+                pad.y + hh,
+            ) {
+                warnings.push(json!({
+                    "footprint": fp.name,
+                    "type": "silk_over_pad",
+                    "layer": track.layer.as_str(),
+                    "pad": pad.designator,
+                    "message": format!(
+                        "{} track overlaps pad '{}' — move silkscreen clear of the pad",
+                        track.layer.as_str(),
+                        pad.designator
+                    ),
+                }));
+            }
+        }
+    }
+    warnings
+}
+
 impl McpServer {
     // ==================== Tool Handlers ====================
 
@@ -337,6 +429,10 @@ impl McpServer {
                 }
             }
         }
+
+        // Silkscreen-over-pad warnings, echoed back so the caller can fix silk that
+        // prints on a pad (a DRC defect) without opening Altium.
+        let mut silk_warnings: Vec<Value> = Vec::new();
 
         for fp_json in footprints_json {
             let name = fp_json
@@ -594,6 +690,8 @@ impl McpServer {
                 return ToolCallResult::error(e);
             }
 
+            silk_warnings.extend(silk_over_pad_warnings(&footprint));
+
             library.add(footprint);
         }
 
@@ -610,6 +708,11 @@ impl McpServer {
                     "footprint_count": library.len(),
                     "footprint_names": library.names(),
                 });
+
+                // Silkscreen-over-pad warnings (non-blocking): silk printed on a pad
+                // is almost always a defect. Always present so the caller knows the
+                // check ran; empty array when clean.
+                result["warnings"] = Value::Array(silk_warnings);
 
                 // Run post-write validation
                 if let Some(validation) = Self::post_write_validation_pcblib(filepath) {
@@ -1513,6 +1616,31 @@ mod tests {
     use super::ieee_designator_prefix;
     use super::{pin_tip, symbol_geometry};
     use crate::altium::schlib::{Pin, PinOrientation, Rectangle, Symbol};
+
+    #[test]
+    fn segment_rect_intersection_detects_silk_over_pad_geometry() {
+        use super::segment_intersects_rect;
+        // Horizontal segment straight through the rect.
+        assert!(segment_intersects_rect(
+            -5.0, 0.0, 5.0, 0.0, -1.0, -1.0, 1.0, 1.0
+        ));
+        // Vertical stripe through the rect (the reported silk-on-pad case).
+        assert!(segment_intersects_rect(
+            0.0, -5.0, 0.0, 5.0, -1.0, -1.0, 1.0, 1.0
+        ));
+        // Endpoint inside the rect.
+        assert!(segment_intersects_rect(
+            0.0, 0.0, 5.0, 5.0, -1.0, -1.0, 1.0, 1.0
+        ));
+        // Clear of the rect (no overlap).
+        assert!(!segment_intersects_rect(
+            2.0, 2.0, 3.0, 3.0, -1.0, -1.0, 1.0, 1.0
+        ));
+        // Parallel and outside the slab.
+        assert!(!segment_intersects_rect(
+            -5.0, 2.0, 5.0, 2.0, -1.0, -1.0, 1.0, 1.0
+        ));
+    }
 
     #[test]
     fn pin_tip_points_outward_per_orientation() {
