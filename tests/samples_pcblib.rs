@@ -37,8 +37,8 @@ fn samples_exist() {
 fn samples_pcblib_pad_shapes() {
     let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
 
-    // The library contains six footprints, one per primitive family.
-    assert_eq!(lib.len(), 6, "expected exactly six footprints");
+    // The library contains nine footprints, one per primitive family.
+    assert_eq!(lib.len(), 9, "expected exactly nine footprints");
     let names = lib.names();
     for expected in [
         "PAD_SHAPES",
@@ -47,6 +47,9 @@ fn samples_pcblib_pad_shapes() {
         "ARCS",
         "REGIONS",
         "TEXT_STROKE",
+        "VIAS",
+        "FILLS",
+        "TEXT_WIN1252",
     ] {
         assert!(
             names.iter().any(|n| n == expected),
@@ -334,5 +337,127 @@ fn samples_pcblib_text_stroke() {
             "text {content:?} rotation: expected ~{rotation}, got {}",
             text.rotation,
         );
+    }
+}
+
+#[test]
+fn samples_pcblib_vias() {
+    let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
+
+    let footprint = lib.get("VIAS").expect("footprint VIAS not found");
+    assert_eq!(footprint.name, "VIAS");
+    assert_eq!(footprint.vias.len(), 2, "VIAS has 2 vias");
+
+    // Two through-hole vias (Top -> Bottom). We identify each by its diameter
+    // (24 mil vs 40 mil); the on-disk order is not guaranteed.
+    let small = footprint
+        .vias
+        .iter()
+        .find(|v| approx_eq(v.diameter, 0.6096, 1e-2))
+        .expect("via with diameter ~0.6096 mm not found");
+    assert!(
+        approx_eq(small.x, 0.0, 1e-2) && approx_eq(small.y, 0.0, 1e-2),
+        "small via position: got ({},{})",
+        small.x,
+        small.y,
+    );
+    assert!(
+        approx_eq(small.hole_size, 0.3048, 1e-2),
+        "small via hole_size: expected ~0.3048 mm, got {}",
+        small.hole_size,
+    );
+    assert_eq!(small.from_layer, Layer::TopLayer, "small via from_layer");
+    assert_eq!(small.to_layer, Layer::BottomLayer, "small via to_layer");
+
+    let large = footprint
+        .vias
+        .iter()
+        .find(|v| approx_eq(v.diameter, 1.016, 1e-2))
+        .expect("via with diameter ~1.016 mm not found");
+    assert!(
+        approx_eq(large.x, 2.032, 1e-2) && approx_eq(large.y, 0.0, 1e-2),
+        "large via position: got ({},{})",
+        large.x,
+        large.y,
+    );
+    assert!(
+        approx_eq(large.hole_size, 0.508, 1e-2),
+        "large via hole_size: expected ~0.508 mm, got {}",
+        large.hole_size,
+    );
+    assert_eq!(large.from_layer, Layer::TopLayer, "large via from_layer");
+    assert_eq!(large.to_layer, Layer::BottomLayer, "large via to_layer");
+}
+
+#[test]
+fn samples_pcblib_fills() {
+    let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
+
+    let footprint = lib.get("FILLS").expect("footprint FILLS not found");
+    assert_eq!(footprint.name, "FILLS");
+    assert_eq!(footprint.fills.len(), 2, "FILLS has 2 fills");
+
+    // Two filled rectangles on the Top Layer; one upright, one rotated 45°. We
+    // identify each by rotation (the on-disk order is not guaranteed).
+    let upright = footprint
+        .fills
+        .iter()
+        .find(|f| approx_eq(f.rotation, 0.0, 1e-2))
+        .expect("fill with rotation ~0 not found");
+    assert_eq!(upright.layer, Layer::TopLayer, "upright fill layer");
+    assert!(
+        approx_eq(upright.x1, 0.0, 1e-2)
+            && approx_eq(upright.y1, 0.0, 1e-2)
+            && approx_eq(upright.x2, 1.016, 1e-2)
+            && approx_eq(upright.y2, 0.508, 1e-2),
+        "upright fill corners: got ({},{})->({},{})",
+        upright.x1,
+        upright.y1,
+        upright.x2,
+        upright.y2,
+    );
+
+    let rotated = footprint
+        .fills
+        .iter()
+        .find(|f| approx_eq(f.rotation, 45.0, 1e-2))
+        .expect("fill with rotation ~45 not found");
+    assert_eq!(rotated.layer, Layer::TopLayer, "rotated fill layer");
+    assert!(
+        approx_eq(rotated.x1, 1.524, 1e-2)
+            && approx_eq(rotated.y1, 0.0, 1e-2)
+            && approx_eq(rotated.x2, 2.54, 1e-2)
+            && approx_eq(rotated.y2, 0.508, 1e-2),
+        "rotated fill corners: got ({},{})->({},{})",
+        rotated.x1,
+        rotated.y1,
+        rotated.x2,
+        rotated.y2,
+    );
+}
+
+#[test]
+fn samples_pcblib_text_win1252() {
+    let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
+
+    let footprint = lib
+        .get("TEXT_WIN1252")
+        .expect("footprint TEXT_WIN1252 not found");
+    assert_eq!(footprint.name, "TEXT_WIN1252");
+    assert_eq!(footprint.text.len(), 2, "TEXT_WIN1252 has 2 strings");
+
+    // Two stroke-font strings whose content uses non-ASCII characters authored in
+    // Windows-1252 (micro sign 0xB5 and plus-minus 0xB1). This asserts they survive
+    // the cp1252 -> UTF-8 decode into correct Rust `String`s. We avoid pasting raw
+    // non-ASCII into the source by matching on explicit Unicode escapes.
+    for content in ["10\u{B5}F", "\u{B1}5%"] {
+        let text = footprint
+            .text
+            .iter()
+            .find(|t| t.text == content)
+            .unwrap_or_else(|| panic!("text {content:?} not found"));
+
+        assert_eq!(text.kind, TextKind::Stroke, "text {content:?} kind");
+        assert_eq!(text.layer, Layer::TopOverlay, "text {content:?} layer");
     }
 }

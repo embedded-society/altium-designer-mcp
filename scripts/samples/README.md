@@ -21,10 +21,13 @@ and [`tests/samples_schlib.rs`](../../tests/samples_schlib.rs).
 |---------|-----------|-----------|
 | `pads.PcbLib` | `PAD_SHAPES` | Four SMD pads, one per pad shape: Round, Rectangle, Octagonal, RoundedRectangle |
 | `pads.PcbLib` | `PAD_HOLES` | Three through-hole pads, one per hole shape: round, square, slot (square/slot exercise the 651-byte size/shape block) |
+| `pads.PcbLib` | `VIAS` | Two simple through-vias (Top to Bottom), different pad/hole sizes |
 | `pads.PcbLib` | `TRACKS` | Five tracks: a 4-segment silk box + a wider copper track |
 | `pads.PcbLib` | `ARCS` | A full circle and a quarter arc |
 | `pads.PcbLib` | `REGIONS` | A copper box and a mechanical box (filled regions) |
+| `pads.PcbLib` | `FILLS` | Two top-layer copper fills, one axis-aligned and one rotated 45 degrees |
 | `pads.PcbLib` | `TEXT_STROKE` | Stroke-font strings, including a 90° rotation |
+| `pads.PcbLib` | `TEXT_WIN1252` | Stroke text with non-ASCII Windows-1252 glyphs (micro sign, plus-minus) that round-trip to UTF-8 |
 | `symbols.SchLib` | `PINS_ETYPE` | Eight pins, one per electrical type: input, bidirectional, output, open-collector, passive, hi-z, open-emitter, power |
 | `symbols.SchLib` | `PINS_ORIENT` | Four pins, one per orientation: right, up, left, down |
 | `symbols.SchLib` | `PINS_VIS` | Pins covering show-name/show-designator combinations plus a hidden pin |
