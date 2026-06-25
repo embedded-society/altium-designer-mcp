@@ -5,7 +5,7 @@
 
 **Let an AI build your Altium libraries — it does the engineering, this tool writes the files.**
 
-An MCP server that gives AI assistants (Claude Code, Claude Desktop, VSCode Copilot) file I/O
+An MCP server that gives AI assistants (Claude Code, Claude Desktop, Google Antigravity, VSCode Copilot) file I/O
 and primitive-placement tools for Altium Designer `.PcbLib` (footprint) and `.SchLib` (symbol)
 libraries — so the AI can create and maintain *any* component, not just pre-programmed packages.
 
@@ -64,6 +64,13 @@ read and write the actual `.PcbLib` / `.SchLib` files.
 
 > **[Claude Code Setup Guide](docs/CLAUDE_CODE_GUIDE.md)** — Complete step-by-step instructions
 > for using this MCP server with Claude Code CLI on **Windows**, **Linux**, and **macOS**.
+
+---
+
+## Quick Start with Google Antigravity
+
+> **[Google Antigravity Setup Guide](docs/ANTIGRAVITY_GUIDE.md)** — Step-by-step instructions
+> for using this MCP server with Google Antigravity (IDE and CLI) on **Windows**, **Linux**, and **macOS**.
 
 ---
 
