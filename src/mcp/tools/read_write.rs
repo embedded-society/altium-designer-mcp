@@ -234,7 +234,12 @@ fn body_3d_summary(fp: &crate::altium::pcblib::Footprint, assumed_height: bool) 
         }
         return summary;
     }
-    json!({ "name": fp.name, "source": "none" })
+    json!({
+        "name": fp.name,
+        "source": "none",
+        "note": "No 3D body written. Set component_bodies[].overall_height to the real \
+                 part height, or pass auto_3d_body:true for a flagged 1.0 mm placeholder.",
+    })
 }
 
 impl McpServer {
@@ -431,6 +436,15 @@ impl McpServer {
 
         let append = arguments
             .get("append")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+        // Opt-in: synthesise a placeholder extruded 3D body for footprints that have
+        // pads but no body/STEP. Off by default so the tool never adds geometry the
+        // caller didn't request (a body is wrong for fiducials / test points / mounting
+        // holes); the always-on `bodies` echo still reports `source: "none"` to nudge.
+        let auto_3d_body = arguments
+            .get("auto_3d_body")
             .and_then(Value::as_bool)
             .unwrap_or(false);
 
@@ -727,12 +741,13 @@ impl McpServer {
                 });
             }
 
-            // Auto-include an extruded 3D body when the footprint has no STEP model
-            // and no component body, so it has a 3D presence in Altium. Height can't
-            // be inferred from a 2D footprint, so it defaults to 1.0 mm and is flagged
-            // `assumed_height` in the response for the caller to confirm/override.
+            // Opt-in (`auto_3d_body`): synthesise an extruded 3D body for a footprint
+            // with pads but no STEP model and no component body, so it has a 3D presence
+            // in Altium. Height can't be inferred from a 2D footprint, so it defaults to
+            // 1.0 mm and is flagged `assumed_height` for the caller to confirm/override.
             // The empty outline makes the writer synthesise a bounding box from pads.
-            let assumed_height = if footprint.model_3d.is_none()
+            let assumed_height = if auto_3d_body
+                && footprint.model_3d.is_none()
                 && footprint.component_bodies.is_empty()
                 && !footprint.pads.is_empty()
             {

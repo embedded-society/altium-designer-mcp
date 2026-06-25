@@ -229,6 +229,42 @@ def test_read_schlib_exposes_round_rects_polygons(client, runner, schlib_sample_
     runner.check("polygons" in pins, "PINS_ETYPE symbol has 'polygons' field")
 
 
+def test_write_pcblib_auto_3d_body_opt_in(client, runner, lib_path):
+    print("\n=== Test: write_pcblib auto_3d_body is opt-in ===")
+    # A footprint with a pad but no 3D body. By default the tool must NOT synthesise
+    # a body (geometry the caller didn't request); the `bodies` echo reports 'none'.
+    # Passing auto_3d_body:true opts into a flagged 1.0mm placeholder.
+    fp = {
+        "name": "NOBODY",
+        "pads": [{"designator": "1", "x": 0, "y": 0, "width": 1.0, "height": 1.0}],
+    }
+
+    default = client.call_tool("write_pcblib", {"filepath": lib_path, "footprints": [fp], "append": False})
+    runner.check(not default.get("_isError"), "write_pcblib (default) succeeded", actual=default)
+    d_bodies = {b.get("name"): b for b in default.get("bodies", [])}
+    runner.check(
+        d_bodies.get("NOBODY", {}).get("source") == "none",
+        "default: no auto 3D body (source 'none')",
+        actual=d_bodies.get("NOBODY"),
+    )
+
+    optin = client.call_tool(
+        "write_pcblib",
+        {"filepath": lib_path, "footprints": [fp], "append": False, "auto_3d_body": True},
+    )
+    runner.check(not optin.get("_isError"), "write_pcblib (auto_3d_body) succeeded", actual=optin)
+    o_bodies = {b.get("name"): b for b in optin.get("bodies", [])}
+    runner.check(
+        o_bodies.get("NOBODY", {}).get("source") == "auto-extruded",
+        "auto_3d_body:true adds an extruded body",
+        actual=o_bodies.get("NOBODY"),
+    )
+    runner.check(
+        o_bodies.get("NOBODY", {}).get("assumed_height") is True,
+        "auto body is flagged assumed_height",
+    )
+
+
 def main():
     binary = find_binary()
     print(f"Using binary: {binary}")
@@ -260,6 +296,7 @@ def main():
         test_initialise(client, runner)
         test_tools_list(client, runner)
         test_write_read_roundtrip(client, runner, lib_path)
+        test_write_pcblib_auto_3d_body_opt_in(client, runner, lib_path)
         test_read_pcblib_exposes_vias_fills(client, runner, sample_path)
         test_read_schlib_exposes_round_rects_polygons(client, runner, schlib_sample_path)
         test_unknown_tool(client, runner)
