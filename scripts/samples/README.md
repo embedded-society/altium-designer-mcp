@@ -27,6 +27,7 @@ and [`tests/samples_schlib.rs`](../../tests/samples_schlib.rs).
 | `pads.PcbLib` | `ARCS` | A full circle and a quarter arc |
 | `pads.PcbLib` | `REGIONS` | A copper box and a mechanical box (filled regions) |
 | `pads.PcbLib` | `FILLS` | Two top-layer copper fills, one axis-aligned and one rotated 45 degrees |
+| `pads.PcbLib` | `BODY3D` | A simple extruded 3D component body (rectangular outline + height) |
 | `pads.PcbLib` | `TEXT_STROKE` | Stroke-font strings, including a 90° rotation |
 | `pads.PcbLib` | `TEXT_WIN1252` | Stroke text with non-ASCII Windows-1252 glyphs (micro sign, plus-minus) that round-trip to UTF-8 |
 | `symbols.SchLib` | `PINS_ETYPE` | Eight pins, one per electrical type: input, bidirectional, output, open-collector, passive, hi-z, open-emitter, power |

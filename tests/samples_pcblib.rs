@@ -39,8 +39,8 @@ fn samples_exist() {
 fn samples_pcblib_pad_shapes() {
     let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
 
-    // The library contains ten footprints, one per primitive family.
-    assert_eq!(lib.len(), 10, "expected exactly ten footprints");
+    // The library contains eleven footprints, one per primitive family.
+    assert_eq!(lib.len(), 11, "expected exactly eleven footprints");
     let names = lib.names();
     for expected in [
         "PAD_SHAPES",
@@ -53,6 +53,7 @@ fn samples_pcblib_pad_shapes() {
         "VIAS",
         "FILLS",
         "TEXT_WIN1252",
+        "BODY3D",
     ] {
         assert!(
             names.iter().any(|n| n == expected),
@@ -505,4 +506,74 @@ fn samples_pcblib_text_win1252() {
         assert_eq!(text.kind, TextKind::Stroke, "text {content:?} kind");
         assert_eq!(text.layer, Layer::TopOverlay, "text {content:?} layer");
     }
+}
+
+#[test]
+fn samples_pcblib_body3d() {
+    let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
+
+    let footprint = lib.get("BODY3D").expect("footprint BODY3D not found");
+    assert_eq!(footprint.name, "BODY3D");
+    assert_eq!(
+        footprint.component_bodies.len(),
+        1,
+        "BODY3D has 1 component body",
+    );
+
+    // A simple extruded 3D component body: a 100x60 mil rectangle authored on the
+    // top 3D-body layer, ~1 mm (40 mil) tall, sitting flush on the board (standoff 0).
+    let body = &footprint.component_bodies[0];
+    assert!(
+        approx_eq(body.overall_height, 1.016, 1e-2),
+        "overall_height: expected ~1.016 mm (40 mil), got {}",
+        body.overall_height,
+    );
+    assert!(
+        approx_eq(body.standoff_height, 0.0, 1e-2),
+        "standoff_height: expected ~0, got {}",
+        body.standoff_height,
+    );
+    assert_eq!(body.layer, Layer::Top3DBody, "body layer");
+
+    // Altium reorders the contour vertices on save, so we assert the vertex count
+    // and the axis-aligned bounding box rather than an exact vertex order.
+    assert_eq!(body.outline.len(), 4, "body outline is a 4-vertex box");
+
+    let min_x = body
+        .outline
+        .iter()
+        .map(|&(x, _)| x)
+        .fold(f64::INFINITY, f64::min);
+    let max_x = body
+        .outline
+        .iter()
+        .map(|&(x, _)| x)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let min_y = body
+        .outline
+        .iter()
+        .map(|&(_, y)| y)
+        .fold(f64::INFINITY, f64::min);
+    let max_y = body
+        .outline
+        .iter()
+        .map(|&(_, y)| y)
+        .fold(f64::NEG_INFINITY, f64::max);
+
+    assert!(
+        approx_eq(min_x, -1.27, 1e-2),
+        "outline min x: expected ~-1.27 mm, got {min_x}",
+    );
+    assert!(
+        approx_eq(max_x, 1.27, 1e-2),
+        "outline max x: expected ~1.27 mm, got {max_x}",
+    );
+    assert!(
+        approx_eq(min_y, -0.762, 1e-2),
+        "outline min y: expected ~-0.762 mm, got {min_y}",
+    );
+    assert!(
+        approx_eq(max_y, 0.762, 1e-2),
+        "outline max y: expected ~0.762 mm, got {max_y}",
+    );
 }
