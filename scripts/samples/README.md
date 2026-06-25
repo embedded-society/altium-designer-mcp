@@ -34,3 +34,6 @@ and [`tests/samples_schlib.rs`](../../tests/samples_schlib.rs).
 | `symbols.SchLib` | `LABELS` | Free-text labels with different justifications and a rotation |
 | `symbols.SchLib` | `PARAMS` | A visible and a hidden component parameter |
 | `symbols.SchLib` | `DUALPART` | A two-part symbol; pins split across part 1 and part 2 |
+| `symbols.SchLib` | `RECTS` | A filled and an unfilled rectangle |
+| `symbols.SchLib` | `ELLIPSES` | A circle and an ellipse |
+| `symbols.SchLib` | `POLYLINES` | A three-point open polyline |
