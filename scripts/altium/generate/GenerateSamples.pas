@@ -180,12 +180,56 @@ begin
                                   PCBM_BoardRegisteration, Txt.I_ObjectAddress);
 end;
 
+{ Adds one simple through-via at (X,Y) mils: PadDia is the outer pad diameter, HoleDia the
+  drill, both mils. LowLayer/HighLayer span Top->Bottom (a plain through-via). Verified
+  against the COM type library: factory eViaObject; X/Y/Size/HoleSize/LowLayer/HighLayer/
+  Mode; ePadMode_Simple is the same proven constant AddPad uses. }
+procedure AddVia(Comp : IPCB_LibComponent; X : Integer; Y : Integer; PadDia : Integer; HoleDia : Integer);
+var
+    Via : IPCB_Via;
+begin
+    Via := PCBServer.PCBObjectFactory(eViaObject, eNoDimension, eCreate_Default);
+    if Via = nil then Exit;
+    Via.X         := MilsToCoord(X);
+    Via.Y         := MilsToCoord(Y);
+    Via.Size      := MilsToCoord(PadDia);
+    Via.HoleSize  := MilsToCoord(HoleDia);
+    Via.LowLayer  := eTopLayer;
+    Via.HighLayer := eBottomLayer;
+    Via.Mode      := ePadMode_Simple;
+    Comp.AddPCBObject(Via);
+    PCBServer.SendMessageToRobots(Comp.I_ObjectAddress, c_Broadcast,
+                                  PCBM_BoardRegisteration, Via.I_ObjectAddress);
+end;
+
+{ Adds one solid copper fill (filled rectangle) with corners (X1,Y1)-(X2,Y2) mils on ALayer,
+  rotated Rot degrees about its centre. Verified against the COM type library: factory
+  eFillObject; the corner props are X1Location/Y1Location/X2Location/Y2Location (NOT
+  X1/Y1/X2/Y2); Layer; Rotation is a number in degrees. }
+procedure AddFill(Comp : IPCB_LibComponent; X1 : Integer; Y1 : Integer; X2 : Integer; Y2 : Integer;
+                  ALayer : TLayer; Rot : Integer);
+var
+    Fill : IPCB_Fill;
+begin
+    Fill := PCBServer.PCBObjectFactory(eFillObject, eNoDimension, eCreate_Default);
+    if Fill = nil then Exit;
+    Fill.X1Location := MilsToCoord(X1);
+    Fill.Y1Location := MilsToCoord(Y1);
+    Fill.X2Location := MilsToCoord(X2);
+    Fill.Y2Location := MilsToCoord(Y2);
+    Fill.Layer      := ALayer;
+    Fill.Rotation   := Rot;
+    Comp.AddPCBObject(Fill);
+    PCBServer.SendMessageToRobots(Comp.I_ObjectAddress, c_Broadcast,
+                                  PCBM_BoardRegisteration, Fill.I_ObjectAddress);
+end;
+
 { ---- PcbLib authoring -------------------------------------------------------
 
-  Footprints: PAD_SHAPES, PAD_HOLES, VIAS, TRACKS, ARCS, REGIONS, TEXT_STROKE. Each new
-  footprint is wrapped in try/except so one failing primitive doesn't abort the whole
-  script (a missing footprint then shows up as a failed read test). FILLS, blind/buried
-  vias, stacks and 3D bodies follow in later batches. }
+  Footprints: PAD_SHAPES, PAD_HOLES, VIAS, TRACKS, ARCS, REGIONS, FILLS, TEXT_STROKE,
+  TEXT_WIN1252. Each new footprint is wrapped in try/except so one failing primitive
+  doesn't abort the whole script (a missing footprint then shows up as a failed read
+  test). Blind/buried vias, stacks and 3D bodies follow in later batches. }
 procedure GeneratePcbLib;
 var
     Lib   : IPCB_Library;
@@ -224,6 +268,18 @@ begin
     AddThPad(Comp, 100, eSquareHole, 30,  0, '2');
     AddThPad(Comp, 200, eSlotHole,   40, 20, '3');
     PCBServer.PostProcess;
+
+    // VIAS: two simple through-vias (Top->Bottom), different pad/hole sizes.
+    try
+        Comp := PCBServer.CreatePCBLibComp;
+        Comp.Name := 'VIAS';
+        Lib.RegisterComponent(Comp);
+        PCBServer.PreProcess;
+        AddVia(Comp,  0, 0, 24, 12);
+        AddVia(Comp, 80, 0, 40, 20);
+        PCBServer.PostProcess;
+    except
+    end;
 
     // TRACKS: a 4-segment silk box (10 mil) + one wider copper track (20 mil).
     try
@@ -264,6 +320,18 @@ begin
     except
     end;
 
+    // FILLS: two copper fills on the top layer — one axis-aligned, one rotated 45 deg.
+    try
+        Comp := PCBServer.CreatePCBLibComp;
+        Comp.Name := 'FILLS';
+        Lib.RegisterComponent(Comp);
+        PCBServer.PreProcess;
+        AddFill(Comp,  0, 0,  40, 20, eTopLayer,  0);
+        AddFill(Comp, 60, 0, 100, 20, eTopLayer, 45);
+        PCBServer.PostProcess;
+    except
+    end;
+
     // TEXT_STROKE: stroke text incl. a 90-deg rotation. (Win-1252 high chars deferred —
     // DelphiScript did not interpret the #$B5 char literal; needs a Chr()-based approach.)
     try
@@ -275,6 +343,20 @@ begin
         AddText(Comp,   0, 100, '10uF', 50,  0, eTopOverlay);
         AddText(Comp, 200,   0, 'VERT', 60, 90, eTopOverlay);
         AddText(Comp, 200, 100, '4u7',  50,  0, eTopOverlay);
+        PCBServer.PostProcess;
+    except
+    end;
+
+    // TEXT_WIN1252: high Windows-1252 chars built with Chr() so the raw byte survives (a
+    // literal #$B5 was NOT interpreted). Chr(181)=0xB5=micro (renders 10uF as 10<micro>F),
+    // Chr(177)=0xB1=plus-minus (renders +/-5%). Same size/layer as the TEXT_STROKE values.
+    try
+        Comp := PCBServer.CreatePCBLibComp;
+        Comp.Name := 'TEXT_WIN1252';
+        Lib.RegisterComponent(Comp);
+        PCBServer.PreProcess;
+        AddText(Comp, 0,   0, '10' + Chr(181) + 'F', 50, 0, eTopOverlay);
+        AddText(Comp, 0, 100, Chr(177) + '5%',       50, 0, eTopOverlay);
         PCBServer.PostProcess;
     except
     end;
