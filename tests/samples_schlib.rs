@@ -7,8 +7,8 @@
 //! reference pattern for the rest of the `samples_*` test files.
 
 use altium_designer_mcp::altium::schlib::{
-    Label, Parameter, Pin, PinElectricalType, PinOrientation, PinSymbol, SchLib, Symbol,
-    TextJustification,
+    Ellipse, Label, Parameter, Pin, PinElectricalType, PinOrientation, PinSymbol, Rectangle,
+    SchLib, Symbol, TextJustification,
 };
 use std::path::PathBuf;
 
@@ -51,8 +51,8 @@ fn pin_by_designator<'a>(symbol: &'a Symbol, designator: &str) -> &'a Pin {
 fn samples_schlib_structure() {
     let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
 
-    // The library now contains nine Altium-authored symbols.
-    assert_eq!(lib.len(), 9, "expected exactly nine symbols");
+    // The library now contains twelve Altium-authored symbols.
+    assert_eq!(lib.len(), 12, "expected exactly twelve symbols");
 
     let names = lib.names();
     for expected in [
@@ -65,6 +65,9 @@ fn samples_schlib_structure() {
         "LABELS",
         "PARAMS",
         "DUALPART",
+        "RECTS",
+        "ELLIPSES",
+        "POLYLINES",
     ] {
         assert!(
             names.iter().any(|n| n == expected),
@@ -323,4 +326,78 @@ fn samples_schlib_dualpart() {
             "pin {designator} owner_part_id",
         );
     }
+}
+
+#[test]
+fn samples_schlib_rects() {
+    let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
+    let symbol = lib.get("RECTS").expect("symbol RECTS not found");
+    assert_eq!(symbol.rectangles.len(), 2, "RECTS has 2 rectangles");
+
+    // Match by left edge (x1); both share line_color 0 / fill_color 65535.
+    let by_x1 = |x1: i32| -> &Rectangle {
+        symbol
+            .rectangles
+            .iter()
+            .find(|r| r.x1 == x1)
+            .unwrap_or_else(|| panic!("rectangle with x1 = {x1} not found"))
+    };
+
+    let filled = by_x1(-10);
+    assert_eq!(filled.y1, 0, "filled rect y1");
+    assert_eq!(filled.x2, 10, "filled rect x2");
+    assert_eq!(filled.y2, 10, "filled rect y2");
+    assert!(filled.filled, "filled rect is filled");
+    assert_eq!(filled.fill_color, 65535, "filled rect fill_color");
+    assert_eq!(filled.line_color, 0, "filled rect line_color");
+
+    let unfilled = by_x1(15);
+    assert_eq!(unfilled.y1, 0, "unfilled rect y1");
+    assert_eq!(unfilled.x2, 35, "unfilled rect x2");
+    assert_eq!(unfilled.y2, 10, "unfilled rect y2");
+    assert!(!unfilled.filled, "unfilled rect is not filled");
+    assert_eq!(unfilled.fill_color, 65535, "unfilled rect fill_color");
+    assert_eq!(unfilled.line_color, 0, "unfilled rect line_color");
+}
+
+#[test]
+fn samples_schlib_ellipses() {
+    let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
+    let symbol = lib.get("ELLIPSES").expect("symbol ELLIPSES not found");
+    assert_eq!(symbol.ellipses.len(), 2, "ELLIPSES has 2 ellipses");
+
+    // Match by horizontal radius (radius_x), which is unique here.
+    let by_radius_x = |radius_x: i32| -> &Ellipse {
+        symbol
+            .ellipses
+            .iter()
+            .find(|e| e.radius_x == radius_x)
+            .unwrap_or_else(|| panic!("ellipse with radius_x = {radius_x} not found"))
+    };
+
+    let circle = by_radius_x(5);
+    assert_eq!(circle.x, 0, "circle x");
+    assert_eq!(circle.y, 0, "circle y");
+    assert_eq!(circle.radius_y, 5, "circle radius_y");
+    assert!(circle.filled, "circle is filled");
+
+    let ellipse = by_radius_x(8);
+    assert_eq!(ellipse.x, 20, "ellipse x");
+    assert_eq!(ellipse.y, 0, "ellipse y");
+    assert_eq!(ellipse.radius_y, 4, "ellipse radius_y");
+    assert!(!ellipse.filled, "ellipse is not filled");
+}
+
+#[test]
+fn samples_schlib_polylines() {
+    let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
+    let symbol = lib.get("POLYLINES").expect("symbol POLYLINES not found");
+    assert_eq!(symbol.polylines.len(), 1, "POLYLINES has 1 polyline");
+
+    let polyline = &symbol.polylines[0];
+    assert_eq!(
+        polyline.points,
+        vec![(0, 0), (10, 5), (0, 10)],
+        "polyline points",
+    );
 }

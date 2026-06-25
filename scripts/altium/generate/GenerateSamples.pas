@@ -401,11 +401,12 @@ var
 begin
     Pol := SchServer.SchObjectFactory(ePolygon, eCreate_Default);
     if Pol = nil then Exit;
-    Pol.VerticesCount := 4;                          { verified count property name }
-    Pol.Vertex[1] := Point(MilsToCoord(X1), MilsToCoord(Y1));   { 1-based, verified }
-    Pol.Vertex[2] := Point(MilsToCoord(X2), MilsToCoord(Y1));
-    Pol.Vertex[3] := Point(MilsToCoord(X2), MilsToCoord(Y2));
-    Pol.Vertex[4] := Point(MilsToCoord(X1), MilsToCoord(Y2));
+    Pol.ClearAllVertices;
+    Pol.VerticesCount := 4;
+    Pol.InsertVertex(1);  Pol.Vertex[1] := Point(MilsToCoord(X1), MilsToCoord(Y1));
+    Pol.InsertVertex(2);  Pol.Vertex[2] := Point(MilsToCoord(X2), MilsToCoord(Y1));
+    Pol.InsertVertex(3);  Pol.Vertex[3] := Point(MilsToCoord(X2), MilsToCoord(Y2));
+    Pol.InsertVertex(4);  Pol.Vertex[4] := Point(MilsToCoord(X1), MilsToCoord(Y2));
     Pol.LineWidth            := eSmall;
     Pol.Color                := $000000;
     Pol.AreaColor            := FillCol;
@@ -415,6 +416,91 @@ begin
     Comp.AddSchObject(Pol);
     SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast,
                                        SCHM_PrimitiveRegistration, Pol.I_ObjectAddress);
+end;
+
+{ Rectangle (X1,Y1)-(X2,Y2) mils. eRectangle verified; IsSolid/Transparent/AreaColor verified. }
+procedure AddRect(Comp : ISch_Component; X1 : Integer; Y1 : Integer; X2 : Integer; Y2 : Integer;
+                  Solid : Boolean; FillCol : TColor);
+var R : ISch_Rectangle;
+begin
+    R := SchServer.SchObjectFactory(eRectangle, eCreate_Default);
+    if R = nil then Exit;
+    R.Location    := Point(MilsToCoord(X1), MilsToCoord(Y1));
+    R.Corner      := Point(MilsToCoord(X2), MilsToCoord(Y2));
+    R.LineWidth   := eSmall;
+    R.Color       := $000000;
+    R.AreaColor   := FillCol;
+    R.IsSolid     := Solid;
+    R.Transparent := False;
+    R.OwnerPartId := 1;
+    R.OwnerPartDisplayMode := Comp.DisplayMode;
+    Comp.AddSchObject(R);
+    SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast, SCHM_PrimitiveRegistration, R.I_ObjectAddress);
+end;
+
+{ Rounded rectangle. eRoundRectangle + CornerXRadius/CornerYRadius verified. }
+procedure AddRoundRect(Comp : ISch_Component; X1 : Integer; Y1 : Integer; X2 : Integer; Y2 : Integer;
+                       Rx : Integer; Ry : Integer; Solid : Boolean; FillCol : TColor);
+var RR : ISch_RoundRectangle;
+begin
+    RR := SchServer.SchObjectFactory(eRoundRectangle, eCreate_Default);
+    if RR = nil then Exit;
+    RR.Location      := Point(MilsToCoord(X1), MilsToCoord(Y1));
+    RR.Corner        := Point(MilsToCoord(X2), MilsToCoord(Y2));
+    RR.CornerXRadius := MilsToCoord(Rx);
+    RR.CornerYRadius := MilsToCoord(Ry);
+    RR.LineWidth     := eSmall;
+    RR.Color         := $000000;
+    RR.AreaColor     := FillCol;
+    RR.IsSolid       := Solid;
+    RR.Transparent   := False;
+    RR.OwnerPartId   := 1;
+    RR.OwnerPartDisplayMode := Comp.DisplayMode;
+    Comp.AddSchObject(RR);
+    SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast, SCHM_PrimitiveRegistration, RR.I_ObjectAddress);
+end;
+
+{ Ellipse centred (CX,CY), X-radius RX, Y-radius RY (mils). eEllipse + Radius/SecondaryRadius
+  verified (NOT RadiusX/RadiusY). A circle => RX=RY. No LineStyle on ellipse. }
+procedure AddEllipse(Comp : ISch_Component; CX : Integer; CY : Integer; RX : Integer; RY : Integer;
+                     Solid : Boolean; FillCol : TColor);
+var E : ISch_Ellipse;
+begin
+    E := SchServer.SchObjectFactory(eEllipse, eCreate_Default);
+    if E = nil then Exit;
+    E.Location        := Point(MilsToCoord(CX), MilsToCoord(CY));
+    E.Radius          := MilsToCoord(RX);
+    E.SecondaryRadius := MilsToCoord(RY);
+    E.LineWidth       := eSmall;
+    E.Color           := $000000;
+    E.AreaColor       := FillCol;
+    E.IsSolid         := Solid;
+    E.Transparent     := False;
+    E.OwnerPartId     := 1;
+    E.OwnerPartDisplayMode := Comp.DisplayMode;
+    Comp.AddSchObject(E);
+    SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast, SCHM_PrimitiveRegistration, E.I_ObjectAddress);
+end;
+
+{ 3-point polyline (open). ePolyline + the verified InsertVertex-before-assign, 1-based sequence
+  (VerticesCount alone yields an empty object). Explicit points avoid array literals. }
+procedure AddPolyline3(Comp : ISch_Component; X1 : Integer; Y1 : Integer; X2 : Integer; Y2 : Integer;
+                       X3 : Integer; Y3 : Integer);
+var PL : ISch_Polyline;
+begin
+    PL := SchServer.SchObjectFactory(ePolyline, eCreate_Default);
+    if PL = nil then Exit;
+    PL.LineWidth := eSmall;
+    PL.Color     := $000000;
+    PL.ClearAllVertices;
+    // InsertVertex grows the array; do NOT also set VerticesCount (that double-counts).
+    PL.InsertVertex(1);  PL.Vertex[1] := Point(MilsToCoord(X1), MilsToCoord(Y1));
+    PL.InsertVertex(2);  PL.Vertex[2] := Point(MilsToCoord(X2), MilsToCoord(Y2));
+    PL.InsertVertex(3);  PL.Vertex[3] := Point(MilsToCoord(X3), MilsToCoord(Y3));
+    PL.OwnerPartId := 1;
+    PL.OwnerPartDisplayMode := Comp.DisplayMode;
+    Comp.AddSchObject(PL);
+    SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast, SCHM_PrimitiveRegistration, PL.I_ObjectAddress);
 end;
 
 { Free-text label. eLabel + Orientation(TRotationBy90) + Justification(TTextJustification)
@@ -635,8 +721,43 @@ begin
     except
     end;
 
-    // POLYGONS deferred: AddPolygonBox compiled but the ISch_Polygon vertex API failed
-    // at runtime (empty symbol) — needs a focused look at VerticesCount/Vertex[] usage.
+    // POLYGONS deferred: AddPolygonBox compiled but the ePolygon vertex sequence still
+    // produced an empty object at runtime (the identical ePolyline sequence works) — TBD.
+
+    { ---- RECTS — filled + unfilled rectangle (Tier A AddRect) ---- }
+    try
+        Comp := NewSymbol(Lib, 'RECTS', 'Rectangles: filled + unfilled', 1);
+        if Comp <> nil then
+        begin
+            AddRect(Comp, -100, 0, 100, 100, True,  $0000FFFF);
+            AddRect(Comp,  150, 0, 350, 100, False, $0000FFFF);
+        end;
+    except
+    end;
+
+    // ROUNDRECTS deferred: AddRoundRect compiled but produced an empty object at runtime
+    // (the eRoundRectangle factory or a corner-radius setter is rejected at run time) — TBD.
+
+    { ---- ELLIPSES — a circle + an ellipse (Tier A AddEllipse) ---- }
+    try
+        Comp := NewSymbol(Lib, 'ELLIPSES', 'Ellipses: circle + ellipse', 1);
+        if Comp <> nil then
+        begin
+            AddEllipse(Comp,   0, 0, 50, 50, True,  $0000FFFF);
+            AddEllipse(Comp, 200, 0, 80, 40, False, $0000FFFF);
+        end;
+    except
+    end;
+
+    { ---- POLYLINES — an open 3-point polyline (Tier A AddPolyline3) ---- }
+    try
+        Comp := NewSymbol(Lib, 'POLYLINES', 'Open 3-point polyline', 1);
+        if Comp <> nil then
+        begin
+            AddPolyline3(Comp, 0, 0, 100, 50, 0, 100);
+        end;
+    except
+    end;
 
     { ---- LABELS — justifications + a rotation (Tier A) ---- }
     try
