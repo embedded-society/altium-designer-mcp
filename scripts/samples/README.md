@@ -40,3 +40,5 @@ and [`tests/samples_schlib.rs`](../../tests/samples_schlib.rs).
 | `symbols.SchLib` | `RECTS` | A filled and an unfilled rectangle |
 | `symbols.SchLib` | `ELLIPSES` | A circle and an ellipse |
 | `symbols.SchLib` | `POLYLINES` | A three-point open polyline |
+| `symbols.SchLib` | `ROUNDRECTS` | A filled rounded rectangle |
+| `symbols.SchLib` | `POLYGONS` | Two filled four-vertex polygon boxes |
