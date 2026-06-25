@@ -49,6 +49,64 @@ fn ieee_designator_prefix(component_type: &str) -> &'static str {
     }
 }
 
+/// Computes a pin's connection-tip coordinate from its body-attach end `(x,y)`,
+/// `length`, and `orientation`, mirroring how the pin is drawn: the tip is
+/// `length` units from `(x,y)` in the `orientation` direction.
+const fn pin_tip(pin: &crate::altium::schlib::Pin) -> (i32, i32) {
+    use crate::altium::schlib::PinOrientation::{Down, Left, Right, Up};
+    match pin.orientation {
+        Right => (pin.x + pin.length, pin.y),
+        Left => (pin.x - pin.length, pin.y),
+        Up => (pin.x, pin.y + pin.length),
+        Down => (pin.x, pin.y - pin.length),
+    }
+}
+
+/// Builds a geometry summary for a written symbol so the caller can self-check
+/// pin placement (catching flipped or misaligned pins without opening Altium).
+/// For each pin it reports the body-attach end, the computed connection tip, and
+/// the orientation; plus the symbol's bounding box. All values are in schematic
+/// units (10 = 1 grid square).
+fn symbol_geometry(symbol: &crate::altium::schlib::Symbol) -> Value {
+    let mut xs: Vec<i32> = Vec::new();
+    let mut ys: Vec<i32> = Vec::new();
+    let pins: Vec<Value> = symbol
+        .pins
+        .iter()
+        .map(|p| {
+            let (tx, ty) = pin_tip(p);
+            xs.push(p.x);
+            xs.push(tx);
+            ys.push(p.y);
+            ys.push(ty);
+            json!({
+                "designator": p.designator,
+                "name": p.name,
+                "orientation": p.orientation,
+                "body_end": { "x": p.x, "y": p.y },
+                "tip": { "x": tx, "y": ty },
+            })
+        })
+        .collect();
+    for r in &symbol.rectangles {
+        xs.push(r.x1);
+        xs.push(r.x2);
+        ys.push(r.y1);
+        ys.push(r.y2);
+    }
+    let bounding_box = if xs.is_empty() {
+        Value::Null
+    } else {
+        json!({
+            "min_x": xs.iter().min(),
+            "max_x": xs.iter().max(),
+            "min_y": ys.iter().min(),
+            "max_y": ys.iter().max(),
+        })
+    };
+    json!({ "name": symbol.name, "pins": pins, "bounding_box": bounding_box })
+}
+
 impl McpServer {
     // ==================== Tool Handlers ====================
 
@@ -914,6 +972,11 @@ impl McpServer {
                     "symbol_names": symbol_names,
                 });
 
+                // Echo computed pin geometry (body-attach end, connection tip,
+                // orientation, bounding box) so the caller can verify pin placement
+                // and catch flipped/misaligned pins without opening Altium.
+                result["geometry"] = Value::Array(library.iter().map(symbol_geometry).collect());
+
                 // Run post-write validation
                 if let Some(validation) = Self::post_write_validation_schlib(filepath) {
                     result["validation"] = validation;
@@ -1444,6 +1507,43 @@ impl McpServer {
 #[cfg(test)]
 mod tests {
     use super::ieee_designator_prefix;
+    use super::{pin_tip, symbol_geometry};
+    use crate::altium::schlib::{Pin, PinOrientation, Rectangle, Symbol};
+
+    #[test]
+    fn pin_tip_points_outward_per_orientation() {
+        assert_eq!(
+            pin_tip(&Pin::new("N", "1", -40, 20, 30, PinOrientation::Left)),
+            (-70, 20)
+        );
+        assert_eq!(
+            pin_tip(&Pin::new("N", "1", 40, 20, 30, PinOrientation::Right)),
+            (70, 20)
+        );
+        assert_eq!(
+            pin_tip(&Pin::new("N", "1", 0, 0, 30, PinOrientation::Up)),
+            (0, 30)
+        );
+        assert_eq!(
+            pin_tip(&Pin::new("N", "1", 0, 0, 30, PinOrientation::Down)),
+            (0, -30)
+        );
+    }
+
+    #[test]
+    fn symbol_geometry_reports_tip_orientation_and_bbox() {
+        let mut s = Symbol::new("U1");
+        s.add_pin(Pin::new("VIN", "1", -50, 20, 30, PinOrientation::Left));
+        s.add_pin(Pin::new("OUT", "2", 50, 20, 30, PinOrientation::Right));
+        s.add_rectangle(Rectangle::new(-50, 40, 50, -40));
+        let g = symbol_geometry(&s);
+        assert_eq!(g["pins"][0]["orientation"], "left");
+        assert_eq!(g["pins"][0]["body_end"]["x"], -50);
+        assert_eq!(g["pins"][0]["tip"]["x"], -80);
+        assert_eq!(g["pins"][1]["tip"]["x"], 80);
+        assert_eq!(g["bounding_box"]["min_x"], -80);
+        assert_eq!(g["bounding_box"]["max_x"], 80);
+    }
 
     #[test]
     fn ieee_map_known_types() {
