@@ -145,8 +145,8 @@ impl McpServer {
                 name: "write_pcblib".to_string(),
                 description: Some(
                     "Write footprints to an Altium .PcbLib file. Each footprint is defined by \
-                     its primitives: pads (with position, size, shape, layer), tracks, arcs, \
-                     regions, and text. The AI is responsible for calculating correct positions \
+                     its primitives: pads (with position, size, shape, layer), tracks, vias, \
+                     fills, arcs, regions, and text. The AI is responsible for calculating correct positions \
                      and sizes based on IPC-7351B or other standards. \
                      All coordinates and dimensions must be in millimetres (mm). \
                      The response 'bodies' array echoes each footprint's 3D body height and source; \
@@ -215,6 +215,49 @@ impl McpServer {
                                                 "layer": { "type": "string", "description": "Layer name: Top Overlay, Top Assembly, Top Courtyard, Mechanical 1, etc." }
                                             },
                                             "required": ["x1", "y1", "x2", "y2", "width", "layer"]
+                                        }
+                                    },
+                                    "vias": {
+                                        "type": "array",
+                                        "description": "Via definitions (vertical interconnects between copper layers, with a drill hole and annular ring).",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "x": { "type": "number", "description": "X position in mm" },
+                                                "y": { "type": "number", "description": "Y position in mm" },
+                                                "diameter": { "type": "number", "description": "Annular ring outer diameter in mm" },
+                                                "hole_size": { "type": "number", "description": "Drill hole diameter in mm (must be smaller than diameter)" },
+                                                "from_layer": { "type": "string", "description": "Starting layer (default Top Layer): Top Layer, Bottom Layer, Mid-Layer 1, etc." },
+                                                "to_layer": { "type": "string", "description": "Ending layer (default Bottom Layer): Top Layer, Bottom Layer, Mid-Layer 1, etc." },
+                                                "solder_mask_expansion": { "type": "number", "description": "Solder mask expansion in mm (negative = tented). Default: 0" },
+                                                "solder_mask_expansion_mode": {
+                                                    "type": "string",
+                                                    "enum": ["none", "from_rule", "manual"],
+                                                    "description": "Solder mask expansion mode. Default: from_rule"
+                                                },
+                                                "thermal_relief_gap": { "type": "number", "description": "Thermal relief air-gap width in mm. Default: 0.254 (10 mil)" },
+                                                "thermal_relief_conductors": { "type": "integer", "description": "Number of thermal relief conductors. Default: 4" },
+                                                "thermal_relief_width": { "type": "number", "description": "Thermal relief conductor width in mm. Default: 0.254 (10 mil)" }
+                                            },
+                                            "required": ["x", "y", "diameter", "hole_size"]
+                                        }
+                                    },
+                                    "fills": {
+                                        "type": "array",
+                                        "description": "Filled rectangle definitions (solid copper/keepout fill defined by two opposite corners).",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "x1": { "type": "number", "description": "First corner X in mm" },
+                                                "y1": { "type": "number", "description": "First corner Y in mm" },
+                                                "x2": { "type": "number", "description": "Second corner X in mm" },
+                                                "y2": { "type": "number", "description": "Second corner Y in mm" },
+                                                "layer": { "type": "string", "description": "Layer name (default Top Layer): Top Layer, Bottom Layer, Top Overlay, Mechanical 1, etc." },
+                                                "rotation": { "type": "number", "description": "Rotation in degrees. Default: 0" },
+                                                "solder_mask_expansion": { "type": "number", "description": "Solder mask expansion override in mm (optional; omit to use the rule default)" },
+                                                "keepout_restrictions": { "type": "integer", "description": "Keepout restriction bitmask (optional; defaults to 0)" }
+                                            },
+                                            "required": ["x1", "y1", "x2", "y2"]
                                         }
                                     },
                                     "arcs": {

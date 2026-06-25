@@ -363,6 +363,91 @@ def test_write_pcblib_auto_3d_body_opt_in(client, runner, lib_path):
     )
 
 
+def test_write_pcblib_via_fill(client, runner, lib_path):
+    print("\n=== Test: write_pcblib via + fill round trip ===")
+    # Coverage PR-2/PR-3: vias and fills the read tool round-trips must be
+    # authorable via write_pcblib. Write a footprint with one via and one fill,
+    # read it back, and assert each survived with its key field values.
+    footprint = {
+        "name": "VIAFILL",
+        "pads": [
+            {"designator": "1", "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0},
+        ],
+        "vias": [
+            {
+                "x": 1.5,
+                "y": 2.5,
+                "diameter": 0.6,
+                "hole_size": 0.3,
+                "from_layer": "Top Layer",
+                "to_layer": "Bottom Layer",
+            }
+        ],
+        "fills": [
+            {
+                "x1": -1.0,
+                "y1": -2.0,
+                "x2": 3.0,
+                "y2": 4.0,
+                "layer": "Top Layer",
+                "rotation": 45.0,
+            }
+        ],
+    }
+    write = client.call_tool(
+        "write_pcblib",
+        {"filepath": lib_path, "footprints": [footprint], "append": False},
+    )
+    runner.check(not write.get("_isError"), "write_pcblib (via+fill) succeeded", actual=write)
+
+    read = client.call_tool("read_pcblib", {"filepath": lib_path})
+    runner.check(not read.get("_isError"), "read_pcblib succeeded", actual=read)
+    footprints = {fp.get("name"): fp for fp in read.get("footprints", [])}
+    fp = footprints.get("VIAFILL", {})
+
+    # Tolerance: Altium stores coordinates as fixed-point internal units, so a
+    # round-trip carries sub-micron quantisation error (~1e-6 mm). 1e-4 mm
+    # (0.1 micron) is well below any meaningful PCB tolerance.
+    tol = 1e-4
+
+    vias = fp.get("vias", [])
+    runner.check(len(vias) == 1, "1 via survived", actual=len(vias))
+    if vias:
+        v = vias[0]
+        runner.check(
+            abs(v.get("diameter", 0) - 0.6) < tol,
+            "via diameter",
+            actual=v.get("diameter"),
+            expected=0.6,
+        )
+        runner.check(
+            abs(v.get("hole_size", 0) - 0.3) < tol,
+            "via hole_size",
+            actual=v.get("hole_size"),
+            expected=0.3,
+        )
+
+    fills = fp.get("fills", [])
+    runner.check(len(fills) == 1, "1 fill survived", actual=len(fills))
+    if fills:
+        fl = fills[0]
+        runner.check(
+            abs(fl.get("x1", 0) - (-1.0)) < tol
+            and abs(fl.get("y1", 0) - (-2.0)) < tol
+            and abs(fl.get("x2", 0) - 3.0) < tol
+            and abs(fl.get("y2", 0) - 4.0) < tol,
+            "fill corners",
+            actual=(fl.get("x1"), fl.get("y1"), fl.get("x2"), fl.get("y2")),
+            expected=(-1.0, -2.0, 3.0, 4.0),
+        )
+        runner.check(
+            abs(fl.get("rotation", 0) - 45.0) < tol,
+            "fill rotation",
+            actual=fl.get("rotation"),
+            expected=45.0,
+        )
+
+
 def main():
     binary = find_binary()
     print(f"Using binary: {binary}")
@@ -396,6 +481,7 @@ def main():
         test_tools_list(client, runner)
         test_write_read_roundtrip(client, runner, lib_path)
         test_write_pcblib_auto_3d_body_opt_in(client, runner, lib_path)
+        test_write_pcblib_via_fill(client, runner, lib_path)
         test_write_schlib_shapes(client, runner, schlib_path)
         test_read_pcblib_exposes_vias_fills(client, runner, sample_path)
         test_read_schlib_exposes_round_rects_polygons(client, runner, schlib_sample_path)

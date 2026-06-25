@@ -535,6 +535,40 @@ impl McpServer {
                 }
             }
 
+            // Parse vias
+            if let Some(vias) = fp_json.get("vias").and_then(Value::as_array) {
+                for (i, via_json) in vias.iter().enumerate() {
+                    match Self::parse_via(via_json) {
+                        Ok(via) => footprint.add_via(via),
+                        Err(e) => {
+                            return ToolCallResult::error_with_context(
+                                ErrorContext::new("write_pcblib", e)
+                                    .with_filepath(filepath)
+                                    .with_component(name)
+                                    .with_details(format!("Failed to parse via at index {i}")),
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Parse fills
+            if let Some(fills) = fp_json.get("fills").and_then(Value::as_array) {
+                for (i, fill_json) in fills.iter().enumerate() {
+                    match Self::parse_fill(fill_json) {
+                        Ok(fill) => footprint.add_fill(fill),
+                        Err(e) => {
+                            return ToolCallResult::error_with_context(
+                                ErrorContext::new("write_pcblib", e)
+                                    .with_filepath(filepath)
+                                    .with_component(name)
+                                    .with_details(format!("Failed to parse fill at index {i}")),
+                            )
+                        }
+                    }
+                }
+            }
+
             // Parse arcs
             if let Some(arcs) = fp_json.get("arcs").and_then(Value::as_array) {
                 for (i, arc_json) in arcs.iter().enumerate() {

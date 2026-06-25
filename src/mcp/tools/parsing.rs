@@ -337,6 +337,152 @@ impl McpServer {
         })
     }
 
+    /// Parses a via from JSON.
+    ///
+    /// Mirrors [`Self::parse_pad`]'s layer-name parsing for the `from_layer` /
+    /// `to_layer` fields and reuses [`crate::altium::pcblib::MaskExpansionMode`]
+    /// string parsing for the mask mode. Optionals default exactly as
+    /// [`crate::altium::pcblib::Via::new`] does when absent.
+    pub(crate) fn parse_via(json: &Value) -> Result<crate::altium::pcblib::Via, String> {
+        use crate::altium::pcblib::{Layer, MaskExpansionMode, Via};
+
+        let x = json
+            .get("x")
+            .and_then(Value::as_f64)
+            .ok_or("Via missing required field 'x'")?;
+        let y = json
+            .get("y")
+            .and_then(Value::as_f64)
+            .ok_or("Via missing required field 'y'")?;
+        let diameter = json
+            .get("diameter")
+            .and_then(Value::as_f64)
+            .ok_or("Via missing required field 'diameter'")?;
+        let hole_size = json
+            .get("hole_size")
+            .and_then(Value::as_f64)
+            .ok_or("Via missing required field 'hole_size'")?;
+
+        // Validate via dimensions are sensible: the hole must fit inside the
+        // annular ring, both positive.
+        if diameter <= 0.0 {
+            return Err(format!(
+                "Via has invalid diameter {diameter}. Diameter must be greater than 0."
+            ));
+        }
+        if hole_size <= 0.0 {
+            return Err(format!(
+                "Via has invalid hole_size {hole_size}. Hole size must be greater than 0."
+            ));
+        }
+        if hole_size >= diameter {
+            return Err(format!(
+                "Via hole_size {hole_size} must be smaller than diameter {diameter}."
+            ));
+        }
+
+        // Start from the struct's defaults (top->bottom layers, standard thermal
+        // relief), then override with any supplied fields.
+        let mut via = Via::new(x, y, diameter, hole_size);
+
+        if let Some(s) = json.get("from_layer").and_then(Value::as_str) {
+            via.from_layer = Layer::parse(s).ok_or_else(|| {
+                format!(
+                    "Via has invalid from_layer '{s}'. \
+                     Valid layers include: Top Layer, Bottom Layer, Mid-Layer 1, etc."
+                )
+            })?;
+        }
+        if let Some(s) = json.get("to_layer").and_then(Value::as_str) {
+            via.to_layer = Layer::parse(s).ok_or_else(|| {
+                format!(
+                    "Via has invalid to_layer '{s}'. \
+                     Valid layers include: Top Layer, Bottom Layer, Mid-Layer 1, etc."
+                )
+            })?;
+        }
+
+        if let Some(v) = json.get("solder_mask_expansion").and_then(Value::as_f64) {
+            via.solder_mask_expansion = v;
+        }
+        if let Some(s) = json
+            .get("solder_mask_expansion_mode")
+            .and_then(Value::as_str)
+        {
+            via.solder_mask_expansion_mode = match s.to_lowercase().as_str() {
+                "none" => MaskExpansionMode::None,
+                "manual" => MaskExpansionMode::Manual,
+                _ => MaskExpansionMode::FromRule,
+            };
+        }
+        if let Some(v) = json.get("thermal_relief_gap").and_then(Value::as_f64) {
+            via.thermal_relief_gap = v;
+        }
+        if let Some(v) = json
+            .get("thermal_relief_conductors")
+            .and_then(Value::as_u64)
+            .and_then(|v| u8::try_from(v).ok())
+        {
+            via.thermal_relief_conductors = v;
+        }
+        if let Some(v) = json.get("thermal_relief_width").and_then(Value::as_f64) {
+            via.thermal_relief_width = v;
+        }
+
+        Ok(via)
+    }
+
+    /// Parses a fill from JSON.
+    ///
+    /// Reuses [`Self::parse_pad`]'s layer-name parsing for `layer`. Geometry
+    /// (`x1`/`y1`/`x2`/`y2`) is required; `rotation` and the mask/keepout
+    /// optionals default as [`crate::altium::pcblib::Fill::new`] does when absent.
+    pub(crate) fn parse_fill(json: &Value) -> Result<crate::altium::pcblib::Fill, String> {
+        use crate::altium::pcblib::{Fill, Layer};
+
+        let x1 = json
+            .get("x1")
+            .and_then(Value::as_f64)
+            .ok_or("Fill missing required field 'x1'")?;
+        let y1 = json
+            .get("y1")
+            .and_then(Value::as_f64)
+            .ok_or("Fill missing required field 'y1'")?;
+        let x2 = json
+            .get("x2")
+            .and_then(Value::as_f64)
+            .ok_or("Fill missing required field 'x2'")?;
+        let y2 = json
+            .get("y2")
+            .and_then(Value::as_f64)
+            .ok_or("Fill missing required field 'y2'")?;
+
+        let layer_str = json.get("layer").and_then(Value::as_str);
+        let layer = match layer_str {
+            Some(s) => Layer::parse(s).ok_or_else(|| {
+                format!(
+                    "Fill has invalid layer '{s}'. \
+                     Valid layers include: Top Layer, Bottom Layer, Top Overlay, Mechanical 1, etc."
+                )
+            })?,
+            None => Layer::TopLayer, // Default for fills is Top Layer
+        };
+
+        let mut fill = Fill::new(x1, y1, x2, y2, layer);
+
+        if let Some(r) = json.get("rotation").and_then(Value::as_f64) {
+            fill.rotation = r;
+        }
+        // Optional mask/keepout tail (mirrors the modelled optionals).
+        fill.solder_mask_expansion = json.get("solder_mask_expansion").and_then(Value::as_f64);
+        fill.keepout_restrictions = json
+            .get("keepout_restrictions")
+            .and_then(Value::as_u64)
+            .and_then(|v| u8::try_from(v).ok());
+
+        Ok(fill)
+    }
+
     // ==================== SchLib Primitive Parsing Helpers ====================
 
     /// Parses a schematic pin from JSON.
