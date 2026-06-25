@@ -64,6 +64,31 @@ begin
                                   PCBM_BoardRegisteration, Pad.I_ObjectAddress);
 end;
 
+{ Like AddPad but with explicit X, Y, rotation and shape — for boundary-case fixtures the
+  clean MAIN samples don't reach (rotated pad, negative/large coords). Pad.Rotation is in
+  DEGREES (a plain number, NO MilsToCoord — same as the arc angles in AddArc). }
+procedure AddPadFull(Comp : IPCB_LibComponent; X : Integer; Y : Integer; Rot : Integer;
+                     PadShape : TShape; W : Integer; H : Integer; Nm : String);
+var
+    Pad : IPCB_Pad;
+begin
+    Pad := PCBServer.PCBObjectFactory(ePadObject, eNoDimension, eCreate_Default);
+    if Pad = nil then Exit;
+    Pad.Name     := Nm;
+    Pad.X        := MilsToCoord(X);
+    Pad.Y        := MilsToCoord(Y);
+    Pad.Rotation := Rot;
+    Pad.Mode     := ePadMode_Simple;
+    Pad.Layer    := eTopLayer;
+    Pad.HoleSize := 0;
+    Pad.TopShape := PadShape;
+    Pad.TopXSize := MilsToCoord(W);
+    Pad.TopYSize := MilsToCoord(H);
+    Comp.AddPCBObject(Pad);
+    PCBServer.SendMessageToRobots(Comp.I_ObjectAddress, c_Broadcast,
+                                  PCBM_BoardRegisteration, Pad.I_ObjectAddress);
+end;
+
 { Adds one through-hole pad at (X, 0) mils with the given hole shape. TH pads sit on
   eMultiLayer with HoleSize > 0; a non-round hole (square/slot) makes Altium emit the
   651-byte size/shape block. Slots also take a HoleWidth (the secondary dimension). }
@@ -436,6 +461,19 @@ begin
         PCBServer.PreProcess;
         AddText(Comp, 0,   0, '10' + Chr(181) + 'F', 50, 0, eTopOverlay);
         AddText(Comp, 0, 100, Chr(177) + '5%',       50, 0, eTopOverlay);
+        PCBServer.PostProcess;
+    except
+    end;
+
+    // EDGE: boundary-case pads — a 45-deg rotated rectangle, a negative-coord pad, a far-out pad.
+    try
+        Comp := PCBServer.CreatePCBLibComp;
+        Comp.Name := 'EDGE';
+        Lib.RegisterComponent(Comp);
+        PCBServer.PreProcess;
+        AddPadFull(Comp,   0,   0, 45, eRectangular, 80, 40, '1');
+        AddPadFull(Comp, -50, -30,  0, eRounded,     60, 60, '2');
+        AddPadFull(Comp, 200, 150,  0, eRounded,     60, 60, '3');
         PCBServer.PostProcess;
     except
     end;
@@ -975,6 +1013,19 @@ begin
                         eNoSymbol, eNoSymbol, eNoSymbol, eNoSymbol);
             AddPinDecor(Comp,  300,    0, 150, eRotate180, eElectricOutput, '4', 'OUTB', 2,
                         eNoSymbol, eNoSymbol, eNoSymbol, eNoSymbol);
+        end;
+    except
+    end;
+
+    { ---- EDGE — boundary-case pins: large coords, negative coords, a long name ---- }
+    try
+        Comp := NewSymbol(Lib, 'EDGE', 'Boundary-case pins', 1);
+        if Comp <> nil then
+        begin
+            AddPinEx(Comp,  500,  300, 200, eRotate180, eElectricPassive, '1', 'BIG', True, True, False);
+            AddPinEx(Comp, -500, -300, 200, eRotate180, eElectricPassive, '2', 'NEG', True, True, False);
+            AddPinEx(Comp,    0,  200, 200, eRotate180, eElectricPassive, '3',
+                     'VERY_LONG_PIN_NAME_0123456789ABCDEF', True, True, False);
         end;
     except
     end;
