@@ -484,7 +484,7 @@ begin
     Pol := SchServer.SchObjectFactory(ePolygon, eCreate_Default);
     if Pol = nil then Exit;
     Pol.ClearAllVertices;
-    Pol.VerticesCount := 4;
+    // InsertVertex grows the array; do NOT also set VerticesCount (that double-counts).
     Pol.InsertVertex(1);  Pol.Vertex[1] := Point(MilsToCoord(X1), MilsToCoord(Y1));
     Pol.InsertVertex(2);  Pol.Vertex[2] := Point(MilsToCoord(X2), MilsToCoord(Y1));
     Pol.InsertVertex(3);  Pol.Vertex[3] := Point(MilsToCoord(X2), MilsToCoord(Y2));
@@ -807,8 +807,16 @@ begin
     except
     end;
 
-    // POLYGONS deferred: AddPolygonBox compiled but the ePolygon vertex sequence still
-    // produced an empty object at runtime (the identical ePolyline sequence works) — TBD.
+    { ---- POLYGONS — two filled polygon boxes (AddPolygonBox) ---- }
+    try
+        Comp := NewSymbol(Lib, 'POLYGONS', 'Filled polygon boxes', 1);
+        if Comp <> nil then
+        begin
+            AddPolygonBox(Comp, -100, 0, 100, 100, $00B0FFFF);
+            AddPolygonBox(Comp,  150, 0, 350, 100, $0000FF00);
+        end;
+    except
+    end;
 
     { ---- RECTS — filled + unfilled rectangle (Tier A AddRect) ---- }
     try
@@ -821,8 +829,15 @@ begin
     except
     end;
 
-    // ROUNDRECTS deferred: AddRoundRect compiled but produced an empty object at runtime
-    // (the eRoundRectangle factory or a corner-radius setter is rejected at run time) — TBD.
+    { ---- ROUNDRECTS — a filled rounded rectangle (AddRoundRect) ---- }
+    try
+        Comp := NewSymbol(Lib, 'ROUNDRECTS', 'Rounded rectangle', 1);
+        if Comp <> nil then
+        begin
+            AddRoundRect(Comp, -100, 0, 100, 100, 20, 20, True, $0000FFFF);
+        end;
+    except
+    end;
 
     { ---- ELLIPSES — a circle + an ellipse (Tier A AddEllipse) ---- }
     try

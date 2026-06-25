@@ -7,8 +7,8 @@
 //! reference pattern for the rest of the `samples_*` test files.
 
 use altium_designer_mcp::altium::schlib::{
-    Ellipse, Label, Parameter, Pin, PinElectricalType, PinOrientation, PinSymbol, Rectangle,
-    SchLib, Symbol, TextJustification,
+    Ellipse, Label, Parameter, Pin, PinElectricalType, PinOrientation, PinSymbol, Polygon,
+    Rectangle, RoundRect, SchLib, Symbol, TextJustification,
 };
 use std::path::PathBuf;
 
@@ -51,8 +51,8 @@ fn pin_by_designator<'a>(symbol: &'a Symbol, designator: &str) -> &'a Pin {
 fn samples_schlib_structure() {
     let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
 
-    // The library now contains twelve Altium-authored symbols.
-    assert_eq!(lib.len(), 12, "expected exactly twelve symbols");
+    // The library now contains fourteen Altium-authored symbols.
+    assert_eq!(lib.len(), 14, "expected exactly fourteen symbols");
 
     let names = lib.names();
     for expected in [
@@ -68,6 +68,8 @@ fn samples_schlib_structure() {
         "RECTS",
         "ELLIPSES",
         "POLYLINES",
+        "ROUNDRECTS",
+        "POLYGONS",
     ] {
         assert!(
             names.iter().any(|n| n == expected),
@@ -434,4 +436,52 @@ fn samples_schlib_polylines() {
         vec![(0, 0), (10, 5), (0, 10)],
         "polyline points",
     );
+}
+
+#[test]
+fn samples_schlib_roundrects() {
+    let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
+    let symbol = lib.get("ROUNDRECTS").expect("symbol ROUNDRECTS not found");
+    assert_eq!(symbol.round_rects.len(), 1, "ROUNDRECTS has 1 rounded rect");
+
+    let rr: &RoundRect = &symbol.round_rects[0];
+    assert_eq!(rr.x1, -10, "round rect x1");
+    assert_eq!(rr.y1, 0, "round rect y1");
+    assert_eq!(rr.x2, 10, "round rect x2");
+    assert_eq!(rr.y2, 10, "round rect y2");
+    assert_eq!(rr.corner_x_radius, 2, "round rect corner_x_radius");
+    assert_eq!(rr.corner_y_radius, 2, "round rect corner_y_radius");
+    assert!(rr.filled, "round rect is filled");
+}
+
+#[test]
+fn samples_schlib_polygons() {
+    let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
+    let symbol = lib.get("POLYGONS").expect("symbol POLYGONS not found");
+    assert_eq!(symbol.polygons.len(), 2, "POLYGONS has 2 polygons");
+
+    // Both are 4-vertex boxes; match each by its first vertex x (unique here).
+    let by_first_x = |x: i32| -> &Polygon {
+        symbol
+            .polygons
+            .iter()
+            .find(|p| p.points.first().is_some_and(|&(px, _)| px == x))
+            .unwrap_or_else(|| panic!("polygon with first vertex x = {x} not found"))
+    };
+
+    let left = by_first_x(-10);
+    assert_eq!(
+        left.points,
+        vec![(-10, 0), (10, 0), (10, 10), (-10, 10)],
+        "left polygon points",
+    );
+    assert!(left.filled, "left polygon is filled");
+
+    let right = by_first_x(15);
+    assert_eq!(
+        right.points,
+        vec![(15, 0), (35, 0), (35, 10), (15, 10)],
+        "right polygon points",
+    );
+    assert!(right.filled, "right polygon is filled");
 }
