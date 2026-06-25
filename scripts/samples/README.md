@@ -28,7 +28,7 @@ and [`tests/samples_schlib.rs`](../../tests/samples_schlib.rs).
 | `symbols.SchLib` | `PINS_ETYPE` | Eight pins, one per electrical type: input, bidirectional, output, open-collector, passive, hi-z, open-emitter, power |
 | `symbols.SchLib` | `PINS_ORIENT` | Four pins, one per orientation: right, up, left, down |
 | `symbols.SchLib` | `PINS_VIS` | Pins covering show-name/show-designator combinations plus a hidden pin |
-| `symbols.SchLib` | `PINS_DECOR` | Pins with the active-low dot decoration (outer-edge symbol) |
+| `symbols.SchLib` | `PINS_DECOR` | A clock or dot on each of the four IEEE decoration slots (inner/outer edge, inside, outside) |
 | `symbols.SchLib` | `LINES` | Horizontal, vertical and diagonal lines |
 | `symbols.SchLib` | `ARCS` | A full circle and a quarter arc |
 | `symbols.SchLib` | `LABELS` | Free-text labels with different justifications and a rotation |

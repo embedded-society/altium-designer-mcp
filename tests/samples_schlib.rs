@@ -175,26 +175,60 @@ fn samples_schlib_pins_vis() {
 fn samples_schlib_pins_decor() {
     let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
     let symbol = lib.get("PINS_DECOR").expect("symbol PINS_DECOR not found");
-    assert_eq!(symbol.pins.len(), 3, "PINS_DECOR has 3 pins");
+    assert_eq!(symbol.pins.len(), 4, "PINS_DECOR has 4 pins");
 
-    // The clock/inside decoration was deferred, so CLK reads back with no outer
-    // edge; DOT and NCLK carry an inversion dot. Inner edge is None for all.
-    let expected: [(&str, &str, PinSymbol); 3] = [
-        ("1", "DOT", PinSymbol::Dot),
-        ("2", "CLK", PinSymbol::None),
-        ("3", "NCLK", PinSymbol::Dot),
+    // One pin per IEEE decoration slot: each sets exactly one slot, the other
+    // three stay None. Confirms all four DelphiScript slot properties round-trip
+    // (Symbol_InnerEdge / Symbol_OuterEdge / Symbol_Inner / Symbol_Outer).
+    let expected: [(&str, &str, PinSymbol, PinSymbol, PinSymbol, PinSymbol); 4] = [
+        (
+            "1",
+            "IECLK",
+            PinSymbol::Clock,
+            PinSymbol::None,
+            PinSymbol::None,
+            PinSymbol::None,
+        ),
+        (
+            "2",
+            "OEDOT",
+            PinSymbol::None,
+            PinSymbol::Dot,
+            PinSymbol::None,
+            PinSymbol::None,
+        ),
+        (
+            "3",
+            "INCLK",
+            PinSymbol::None,
+            PinSymbol::None,
+            PinSymbol::Clock,
+            PinSymbol::None,
+        ),
+        (
+            "4",
+            "OUTDOT",
+            PinSymbol::None,
+            PinSymbol::None,
+            PinSymbol::None,
+            PinSymbol::Dot,
+        ),
     ];
-    for (designator, name, outer_edge) in expected {
+    for (designator, name, inner_edge, outer_edge, inside, outside) in expected {
         let pin = pin_by_designator(symbol, designator);
         assert_eq!(pin.name, name, "pin {designator} name");
         assert_eq!(
-            pin.symbol_outer_edge, outer_edge,
-            "pin {designator} symbol_outer_edge",
+            pin.symbol_inner_edge, inner_edge,
+            "pin {designator} symbol_inner_edge"
         );
         assert_eq!(
-            pin.symbol_inner_edge,
-            PinSymbol::None,
-            "pin {designator} symbol_inner_edge",
+            pin.symbol_outer_edge, outer_edge,
+            "pin {designator} symbol_outer_edge"
+        );
+        assert_eq!(pin.symbol_inside, inside, "pin {designator} symbol_inside");
+        assert_eq!(
+            pin.symbol_outside, outside,
+            "pin {designator} symbol_outside"
         );
     }
 }
