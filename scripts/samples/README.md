@@ -21,4 +21,16 @@ and [`tests/samples_schlib.rs`](../../tests/samples_schlib.rs).
 |---------|-----------|-----------|
 | `pads.PcbLib` | `PAD_SHAPES` | Four SMD pads, one per pad shape: Round, Rectangle, Octagonal, RoundedRectangle |
 | `pads.PcbLib` | `PAD_HOLES` | Three through-hole pads, one per hole shape: round, square, slot (square/slot exercise the 651-byte size/shape block) |
+| `pads.PcbLib` | `TRACKS` | Five tracks: a 4-segment silk box + a wider copper track |
+| `pads.PcbLib` | `ARCS` | A full circle and a quarter arc |
+| `pads.PcbLib` | `REGIONS` | A copper box and a mechanical box (filled regions) |
+| `pads.PcbLib` | `TEXT_STROKE` | Stroke-font strings, including a 90° rotation |
 | `symbols.SchLib` | `PINS_ETYPE` | Eight pins, one per electrical type: input, bidirectional, output, open-collector, passive, hi-z, open-emitter, power |
+| `symbols.SchLib` | `PINS_ORIENT` | Four pins, one per orientation: right, up, left, down |
+| `symbols.SchLib` | `PINS_VIS` | Pins covering show-name/show-designator combinations plus a hidden pin |
+| `symbols.SchLib` | `PINS_DECOR` | Pins with the active-low dot decoration (outer-edge symbol) |
+| `symbols.SchLib` | `LINES` | Horizontal, vertical and diagonal lines |
+| `symbols.SchLib` | `ARCS` | A full circle and a quarter arc |
+| `symbols.SchLib` | `LABELS` | Free-text labels with different justifications and a rotation |
+| `symbols.SchLib` | `PARAMS` | A visible and a hidden component parameter |
+| `symbols.SchLib` | `DUALPART` | A two-part symbol; pins split across part 1 and part 2 |

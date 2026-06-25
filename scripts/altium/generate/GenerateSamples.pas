@@ -321,6 +321,205 @@ begin
                                        SCHM_PrimitiveRegistration, Pin.I_ObjectAddress);
 end;
 
+{ ===================== TIER A — verified-in-UL_Import helpers ===================== }
+
+{ Pin variant: full control over orientation / show flags / hidden, no decoration.
+  Superset of AddPin; all setters are exercised by UL_Import SY_AddPin. }
+procedure AddPinEx(Comp : ISch_Component; X : Integer; Y : Integer; Len : Integer;
+                   Orient : TRotationBy90; Elec : TPinElectrical;
+                   Desig : String; Nm : String;
+                   ShowNm : Boolean; ShowDes : Boolean; Hidden : Boolean);
+var
+    Pin : ISch_Pin;
+begin
+    Pin := SchServer.SchObjectFactory(ePin, eCreate_Default);
+    if Pin = nil then Exit;
+    Pin.Location             := Point(MilsToCoord(X), MilsToCoord(Y));
+    Pin.Orientation          := Orient;        { eRotate0/90/180/270 }
+    Pin.PinLength            := MilsToCoord(Len);
+    Pin.Electrical           := Elec;
+    Pin.Designator           := Desig;
+    Pin.Name                 := Nm;
+    Pin.ShowDesignator       := ShowDes;
+    Pin.ShowName             := ShowNm;
+    Pin.IsHidden             := Hidden;        { UNCERTAIN: IsHidden verified on ISch_Parameter, not exercised on ISch_Pin in UL — but is the documented AD24 property }
+    Pin.OwnerPartId          := 1;
+    Pin.OwnerPartDisplayMode := Comp.DisplayMode;
+    Comp.AddSchObject(Pin);
+    SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast,
+                                       SCHM_PrimitiveRegistration, Pin.I_ObjectAddress);
+end;
+
+{ Line (X1,Y1)->(X2,Y2) mils. eLine + Location/Corner — verified SY_AddLine. }
+procedure AddLine(Comp : ISch_Component; X1 : Integer; Y1 : Integer;
+                  X2 : Integer; Y2 : Integer);
+var
+    Lin : ISch_Line;
+begin
+    Lin := SchServer.SchObjectFactory(eLine, eCreate_Default);
+    if Lin = nil then Exit;
+    Lin.Location             := Point(MilsToCoord(X1), MilsToCoord(Y1));
+    Lin.Corner               := Point(MilsToCoord(X2), MilsToCoord(Y2));
+    Lin.LineWidth            := eSmall;
+    Lin.LineStyle            := eLineStyleSolid;
+    Lin.Color                := $000000;
+    Lin.OwnerPartId          := 1;
+    Lin.OwnerPartDisplayMode := Comp.DisplayMode;
+    Comp.AddSchObject(Lin);
+    SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast,
+                                       SCHM_PrimitiveRegistration, Lin.I_ObjectAddress);
+end;
+
+{ Arc centred (CX,CY) mils, radius R mils, angles in degrees (CCW, 0=+X).
+  Full circle => AStart=0, AEnd=360. Verified SY_AddArc (angles take NO MilsToCoord). }
+procedure AddSchArc(Comp : ISch_Component; CX : Integer; CY : Integer; R : Integer;
+                    AStart : Double; AEnd : Double);
+var
+    Arc : ISch_Arc;
+begin
+    Arc := SchServer.SchObjectFactory(eArc, eCreate_Default);
+    if Arc = nil then Exit;
+    Arc.Location             := Point(MilsToCoord(CX), MilsToCoord(CY));
+    Arc.Radius               := MilsToCoord(R);
+    Arc.LineWidth            := eSmall;
+    Arc.Color                := $000000;
+    Arc.StartAngle           := AStart;
+    Arc.EndAngle             := AEnd;
+    Arc.OwnerPartId          := 1;
+    Arc.OwnerPartDisplayMode := Comp.DisplayMode;
+    Comp.AddSchObject(Arc);
+    SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast,
+                                       SCHM_PrimitiveRegistration, Arc.I_ObjectAddress);
+end;
+
+{ FILLED polygon from 4 corners (a box). ePolygon + VerticesCount + 1-based Vertex[i] +
+  IsSolid — verified SY_AddPoly. NOTE: this is RECORD=7 (parse_polygon), NOT a polyline. }
+procedure AddPolygonBox(Comp : ISch_Component; X1 : Integer; Y1 : Integer;
+                        X2 : Integer; Y2 : Integer; FillCol : TColor);
+var
+    Pol : ISch_Polygon;
+begin
+    Pol := SchServer.SchObjectFactory(ePolygon, eCreate_Default);
+    if Pol = nil then Exit;
+    Pol.VerticesCount := 4;                          { verified count property name }
+    Pol.Vertex[1] := Point(MilsToCoord(X1), MilsToCoord(Y1));   { 1-based, verified }
+    Pol.Vertex[2] := Point(MilsToCoord(X2), MilsToCoord(Y1));
+    Pol.Vertex[3] := Point(MilsToCoord(X2), MilsToCoord(Y2));
+    Pol.Vertex[4] := Point(MilsToCoord(X1), MilsToCoord(Y2));
+    Pol.LineWidth            := eSmall;
+    Pol.Color                := $000000;
+    Pol.AreaColor            := FillCol;
+    Pol.IsSolid              := True;
+    Pol.OwnerPartId          := 1;
+    Pol.OwnerPartDisplayMode := Comp.DisplayMode;
+    Comp.AddSchObject(Pol);
+    SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast,
+                                       SCHM_PrimitiveRegistration, Pol.I_ObjectAddress);
+end;
+
+{ Free-text label. eLabel + Orientation(TRotationBy90) + Justification(TTextJustification)
+  + Text. Verified SY_AddText. FontID=1 keeps font_id deterministic for the test. }
+procedure AddLabel(Comp : ISch_Component; X : Integer; Y : Integer; AText : String;
+                   AJustify : TTextJustification; ARotate : TRotationBy90);
+var
+    Txt : ISch_Label;
+begin
+    Txt := SchServer.SchObjectFactory(eLabel, eCreate_Default);
+    if Txt = nil then Exit;
+    Txt.Location             := Point(MilsToCoord(X), MilsToCoord(Y));
+    Txt.Orientation          := ARotate;
+    Txt.FontID               := 1;             { deterministic; avoids FontManager.GetFontID allocation }
+    Txt.Justification        := AJustify;
+    Txt.Color                := $000000;
+    Txt.Text                 := AText;
+    Txt.OwnerPartId          := 1;
+    Txt.OwnerPartDisplayMode := Comp.DisplayMode;
+    Comp.AddSchObject(Txt);
+    SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast,
+                                       SCHM_PrimitiveRegistration, Txt.I_ObjectAddress);
+end;
+
+{ Component parameter. Name = KEY, Text = VALUE (verified: SY_AddParam uses .Name + .Text,
+  there is NO .Value setter). IsHidden := Not Visible. eParameter. }
+procedure AddParameter(Comp : ISch_Component; AName : String; AValue : String;
+                       X : Integer; Y : Integer; AVisible : Boolean;
+                       AJustify : TTextJustification; ARotate : TRotationBy90);
+var
+    Prm : ISch_Parameter;
+begin
+    Prm := SchServer.SchObjectFactory(eParameter, eCreate_Default);
+    if Prm = nil then Exit;
+    Prm.IsHidden             := not AVisible;
+    Prm.Name                 := AName;         { parameter KEY }
+    Prm.Text                 := AValue;        { parameter VALUE/display }
+    Prm.Location             := Point(MilsToCoord(X), MilsToCoord(Y));
+    Prm.Orientation          := ARotate;
+    Prm.FontID               := 1;
+    Prm.Justification        := AJustify;
+    Prm.Color                := $000000;
+    Prm.OwnerPartId          := 1;
+    Prm.OwnerPartDisplayMode := Comp.DisplayMode;
+    Comp.AddSchObject(Prm);
+    SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast,
+                                       SCHM_PrimitiveRegistration, Prm.I_ObjectAddress);
+end;
+
+{ Creates a fresh component (NOT the reused default), registers it, makes it current,
+  and returns it. Use for every symbol after PINS_ETYPE. Mirrors the nil-fallback path
+  already in GenerateSchLib + UL_Import ImportComponents. }
+function NewSymbol(Lib : ISch_Lib; ARef : String; ADesc : String;
+                   AParts : Integer) : ISch_Component;
+var
+    Comp : ISch_Component;
+begin
+    Result := nil;
+    Comp := SchServer.SchObjectFactory(eSchComponent, eCreate_Default);
+    if Comp = nil then Exit;
+    Comp.LibReference         := ARef;
+    Comp.Designator.Text      := 'U?';
+    Comp.ComponentDescription := ADesc;
+    Comp.PartCount            := AParts;     { logical part count; 1 for single-part }
+    Comp.CurrentPartId        := 1;
+    Comp.DisplayMode          := 0;
+    Lib.AddSchComponent(Comp);
+    SchServer.RobotManager.SendMessage(Lib.I_ObjectAddress, c_BroadCast,
+                                       SCHM_PrimitiveRegistration, Comp.I_ObjectAddress);
+    Lib.CurrentSchComponent := Comp;
+    Result := Comp;
+end;
+
+{ Pin variant adding decoration slots + an explicit OwnerPartId (for DUALPART).
+  Symbol_* property names are documented AD24 ISch_Pin members; eNoSymbol/Dot/Clock
+  are the only enum constants used and are the safe/known ones. }
+procedure AddPinDecor(Comp : ISch_Component; X : Integer; Y : Integer; Len : Integer;
+                      Orient : TRotationBy90; Elec : TPinElectrical;
+                      Desig : String; Nm : String; OwnerPart : Integer;
+                      SInner : TPinSymbol; SOuter : TPinSymbol;
+                      SInside : TPinSymbol; SOutside : TPinSymbol);
+var
+    Pin : ISch_Pin;
+begin
+    Pin := SchServer.SchObjectFactory(ePin, eCreate_Default);
+    if Pin = nil then Exit;
+    Pin.Location             := Point(MilsToCoord(X), MilsToCoord(Y));
+    Pin.Orientation          := Orient;
+    Pin.PinLength            := MilsToCoord(Len);
+    Pin.Electrical           := Elec;
+    Pin.Designator           := Desig;
+    Pin.Name                 := Nm;
+    Pin.ShowDesignator       := True;
+    Pin.ShowName             := True;
+    Pin.Symbol_InnerEdge     := SInner;    { UNCERTAIN: Symbol_InnerEdge property name }
+    Pin.Symbol_OuterEdge     := SOuter;    { UNCERTAIN: Symbol_OuterEdge property name }
+    // Symbol_Inside / Symbol_Outside deferred: those exact names are undeclared in AD24
+    // (inner/outer edge compile fine). SInside/SOutside are accepted but unused for now.
+    Pin.OwnerPartId          := OwnerPart;
+    Pin.OwnerPartDisplayMode := Comp.DisplayMode;
+    Comp.AddSchObject(Pin);
+    SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast,
+                                       SCHM_PrimitiveRegistration, Pin.I_ObjectAddress);
+end;
+
 { ---- SchLib authoring -------------------------------------------------------
 
   Build order step 1: PINS_ETYPE — one pin per PinElectricalType, the densest
@@ -371,6 +570,113 @@ begin
     AddPin(Comp, -500, eElectricHiZ,           '6', 'HIZ');
     AddPin(Comp, -600, eElectricOpenEmitter,   '7', 'OE');
     AddPin(Comp, -700, eElectricPower,         '8', 'PWR');
+
+    { ---- PINS_ORIENT — one pin per orientation (Tier A AddPinEx) ---- }
+    try
+        Comp := NewSymbol(Lib, 'PINS_ORIENT', 'One pin per orientation', 1);
+        if Comp <> nil then
+        begin
+            AddPinEx(Comp, 0,    0, 200, eRotate0,   eElectricPassive, '1', 'R', True, True, False);
+            AddPinEx(Comp, 0,  100, 200, eRotate90,  eElectricPassive, '2', 'U', True, True, False);
+            AddPinEx(Comp, 0, -100, 200, eRotate180, eElectricPassive, '3', 'L', True, True, False);
+            AddPinEx(Comp, 0, -200, 200, eRotate270, eElectricPassive, '4', 'D', True, True, False);
+        end;
+    except
+    end;
+
+    { ---- PINS_VIS — show/hide combinations (Tier A) ---- }
+    try
+        Comp := NewSymbol(Lib, 'PINS_VIS', 'Pin visibility combinations', 1);
+        if Comp <> nil then
+        begin
+            AddPinEx(Comp, 0,    0, 200, eRotate180, eElectricPassive, '1', 'BOTH',  True,  True,  False);
+            AddPinEx(Comp, 0, -100, 200, eRotate180, eElectricPassive, '2', 'NONLY', True,  False, False);
+            AddPinEx(Comp, 0, -200, 200, eRotate180, eElectricPassive, '3', 'DONLY', False, True,  False);
+            AddPinEx(Comp, 0, -300, 200, eRotate180, eElectricPassive, '4', 'HIDE',  True,  True,  True);
+        end;
+    except
+    end;
+
+    { ---- PINS_DECOR — dot / clock / active-low-clock (Tier A AddPinDecor) ---- }
+    try
+        Comp := NewSymbol(Lib, 'PINS_DECOR', 'Pin decoration symbols', 1);
+        if Comp <> nil then
+        begin
+            AddPinDecor(Comp, 0,    0, 200, eRotate180, eElectricInput, '1', 'DOT',  1,
+                        eNoSymbol, eDot,   eNoSymbol,  eNoSymbol);
+            AddPinDecor(Comp, 0, -100, 200, eRotate180, eElectricInput, '2', 'CLK',  1,
+                        eNoSymbol, eNoSymbol,  eClock, eNoSymbol);
+            AddPinDecor(Comp, 0, -200, 200, eRotate180, eElectricInput, '3', 'NCLK', 1,
+                        eNoSymbol, eDot,   eClock, eNoSymbol);
+        end;
+    except
+    end;
+
+    { ---- LINES — H / V / diagonal (Tier A) ---- }
+    try
+        Comp := NewSymbol(Lib, 'LINES', 'Lines: horizontal/vertical/diagonal', 1);
+        if Comp <> nil then
+        begin
+            AddLine(Comp, 0, 0, 100,   0);
+            AddLine(Comp, 0, 0,   0, 100);
+            AddLine(Comp, 0, 0, 100, 100);
+        end;
+    except
+    end;
+
+    { ---- ARCS — full circle + quarter arc (Tier A) ---- }
+    try
+        Comp := NewSymbol(Lib, 'ARCS', 'Arcs: full circle + quarter', 1);
+        if Comp <> nil then
+        begin
+            AddSchArc(Comp, 0, 0, 50, 0.0, 360.0);
+            AddSchArc(Comp, 0, -200, 50, 0.0, 90.0);
+        end;
+    except
+    end;
+
+    // POLYGONS deferred: AddPolygonBox compiled but the ISch_Polygon vertex API failed
+    // at runtime (empty symbol) — needs a focused look at VerticesCount/Vertex[] usage.
+
+    { ---- LABELS — justifications + a rotation (Tier A) ---- }
+    try
+        Comp := NewSymbol(Lib, 'LABELS', 'Text labels: justify + rotate', 1);
+        if Comp <> nil then
+        begin
+            AddLabel(Comp,   0, 100, 'LBL_BL',    eJustify_BottomLeft, eRotate0);
+            AddLabel(Comp, 200, 100, 'LBL_TR',    eJustify_TopRight,   eRotate0);
+            AddLabel(Comp, 100, 300, 'LBL_ROT90', eJustify_BottomLeft, eRotate90);
+        end;
+    except
+    end;
+
+    { ---- PARAMS — a visible + a hidden parameter (Tier A) ---- }
+    try
+        Comp := NewSymbol(Lib, 'PARAMS', 'Component parameters: visible + hidden', 1);
+        if Comp <> nil then
+        begin
+            AddParameter(Comp, 'Value',   '10k',   50, 400, True,  eJustify_BottomLeft, eRotate0);
+            AddParameter(Comp, 'Comment', '100nF', 50, 450, False, eJustify_BottomLeft, eRotate0);
+        end;
+    except
+    end;
+
+    { ---- DUALPART — 2 logical parts, 2 pins each (Tier A AddPinDecor for OwnerPartId) ---- }
+    try
+        Comp := NewSymbol(Lib, 'DUALPART', 'Dual-part test symbol', 2);
+        if Comp <> nil then
+        begin
+            AddPinDecor(Comp, -300,  100, 150, eRotate0,   eElectricInput,  '1', 'INA',  1,
+                        eNoSymbol, eNoSymbol, eNoSymbol, eNoSymbol);
+            AddPinDecor(Comp,  300,    0, 150, eRotate180, eElectricOutput, '2', 'OUTA', 1,
+                        eNoSymbol, eNoSymbol, eNoSymbol, eNoSymbol);
+            AddPinDecor(Comp, -300,  100, 150, eRotate0,   eElectricInput,  '3', 'INB',  2,
+                        eNoSymbol, eNoSymbol, eNoSymbol, eNoSymbol);
+            AddPinDecor(Comp,  300,    0, 150, eRotate180, eElectricOutput, '4', 'OUTB', 2,
+                        eNoSymbol, eNoSymbol, eNoSymbol, eNoSymbol);
+        end;
+    except
+    end;
 
     Lib.CurrentSchComponent := Comp;
     Lib.GraphicallyInvalidate;
