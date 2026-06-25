@@ -499,6 +499,54 @@ impl McpServer {
         })
     }
 
+    /// Parses a schematic rounded rectangle from JSON.
+    ///
+    /// Mirrors [`Self::parse_schlib_rectangle`] (geometry + fill/border colours +
+    /// `filled`), adding the `corner_x_radius` / `corner_y_radius` rounding fields.
+    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::similar_names)] // corner_x_radius / corner_y_radius mirror the struct fields
+    pub(crate) fn parse_schlib_round_rect(
+        json: &Value,
+    ) -> Option<crate::altium::schlib::RoundRect> {
+        use crate::altium::schlib::RoundRect;
+
+        let x1 = json_i32(json, "x1")?;
+        let y1 = json_i32(json, "y1")?;
+        let x2 = json_i32(json, "x2")?;
+        let y2 = json_i32(json, "y2")?;
+        let corner_x_radius = json_i32(json, "corner_x_radius").unwrap_or(0);
+        let corner_y_radius = json_i32(json, "corner_y_radius").unwrap_or(0);
+
+        let line_width = json.get("line_width").and_then(Value::as_u64).unwrap_or(1) as u8;
+        let line_color = json
+            .get("line_color")
+            .and_then(Value::as_u64)
+            .unwrap_or(0x00_00_80) as u32;
+        let fill_color = json
+            .get("fill_color")
+            .and_then(Value::as_u64)
+            .unwrap_or(0xB0_FF_FF) as u32;
+        let filled = json.get("filled").and_then(Value::as_bool).unwrap_or(true);
+        let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
+
+        Some(RoundRect {
+            x1,
+            y1,
+            x2,
+            y2,
+            corner_x_radius,
+            corner_y_radius,
+            line_width,
+            line_color,
+            fill_color,
+            line_style: 0,
+            filled,
+            transparent: false,
+            owner_part_id,
+            unique_id: None,
+        })
+    }
+
     /// Parses a schematic line from JSON.
     #[allow(clippy::cast_possible_truncation)]
     pub(crate) fn parse_schlib_line(json: &Value) -> Option<crate::altium::schlib::Line> {
@@ -607,6 +655,56 @@ impl McpServer {
             end_line_shape: 0,
             line_shape_size: 0,
             transparent: false,
+            owner_part_id,
+            unique_id: None,
+        })
+    }
+
+    /// Parses a schematic filled polygon from JSON.
+    ///
+    /// Mirrors [`Self::parse_schlib_polyline`] (reads the `points`/`vertices`
+    /// array of `[x, y]` pairs), adding the polygon's `filled` / `fill_color`
+    /// fields.
+    #[allow(clippy::cast_possible_truncation)]
+    pub(crate) fn parse_schlib_polygon(json: &Value) -> Option<crate::altium::schlib::Polygon> {
+        use crate::altium::schlib::Polygon;
+
+        // Accept both "points" and "vertices" for flexibility (matches polyline).
+        let points_json = json
+            .get("points")
+            .or_else(|| json.get("vertices"))
+            .and_then(Value::as_array)?;
+        let points: Vec<(i32, i32)> = points_json
+            .iter()
+            .filter_map(|p| {
+                let x = json_i32(p, "x")?;
+                let y = json_i32(p, "y")?;
+                Some((x, y))
+            })
+            .collect();
+
+        if points.len() < 3 {
+            return None; // Need at least 3 vertices for a polygon
+        }
+
+        let line_width = json.get("line_width").and_then(Value::as_u64).unwrap_or(1) as u8;
+        let line_color = json
+            .get("line_color")
+            .and_then(Value::as_u64)
+            .unwrap_or(0x00_00_80) as u32;
+        let fill_color = json
+            .get("fill_color")
+            .and_then(Value::as_u64)
+            .unwrap_or(0xB0_FF_FF) as u32;
+        let filled = json.get("filled").and_then(Value::as_bool).unwrap_or(true);
+        let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
+
+        Some(Polygon {
+            points,
+            line_width,
+            line_color,
+            fill_color,
+            filled,
             owner_part_id,
             unique_id: None,
         })
