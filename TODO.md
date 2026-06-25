@@ -45,9 +45,7 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
 
 ### A3. SchLib records (code bugs + missing features)
 
-The without-Altium field fidelity is **shipped** (#126–#129, #147–#151: per-record fields,
-elliptical-arc frac carry, PartCount floor, footprint `IsCurrent`, pin tail fields). Everything
-still outstanding needs an Altium-authored golden to settle — relocated to §B.
+Outstanding SchLib field fidelity all needs an Altium-authored golden to settle — see §B.
 
 ### A4. Doc rewrites (high correctness value, doc-only)
 
@@ -67,11 +65,11 @@ still outstanding needs an Altium-authored golden to settle — relocated to §B
 
 ## B. Live-Altium gaps (~50) — now UNBLOCKED by the on-site harness
 
-- [ ] Build `scripts/altium/New-GoldenLibraries.ps1` (+ DelphiScript) that drives Altium to
-      **author** reference libraries (place a known primitive set, then save).
-- [ ] Use those golden files to settle the ~50 gaps the RE could not confirm: pad cache/marker
-      bytes, implementation datafile index base (0 vs 1), `OwnerIndex` on RECORD=45/46/48, pin
-      `FormalType` / SwapId aux-stream layouts, etc. (see `{pcb,sch}_live_altium_gaps.json`).
+- [ ] Use the committed `scripts/samples` goldens (`footprints.PcbLib` + `symbols.SchLib`, authored
+      on-site by `GenerateSamples.pas`) to settle the ~50 gaps the RE could not confirm: pad
+      cache/marker bytes, implementation datafile index base (0 vs 1), `OwnerIndex` on
+      RECORD=45/46/48, pin `FormalType` / SwapId aux-stream layouts, etc. (see
+      `{pcb,sch}_live_altium_gaps.json`).
 - [ ] 🔴 **SectionKeys** (long component names): format known (root stream, full-name→storage-key),
       but the faithful fix is a coupled `Library/Data` full-name flip + reader-reorder lockstep with
       an undecided `~NNN` collision rule — confirm the need against a real long-name `.PcbLib` first.
