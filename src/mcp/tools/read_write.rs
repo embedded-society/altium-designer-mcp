@@ -214,13 +214,25 @@ fn body_3d_summary(fp: &crate::altium::pcblib::Footprint, assumed_height: bool) 
         return json!({ "name": fp.name, "source": "step-external", "model": ext.model_name });
     }
     if let Some(b) = fp.component_bodies.iter().find(|b| b.model_name.is_empty()) {
-        return json!({
+        let mut summary = json!({
             "name": fp.name,
             "source": if assumed_height { "auto-extruded" } else { "extruded" },
             "overall_height": b.overall_height,
             "standoff_height": b.standoff_height,
             "assumed_height": assumed_height,
         });
+        if assumed_height {
+            // Make the placeholder actionable: tell the caller to replace it rather
+            // than leaving the guessed 1.0 mm height in the part.
+            summary["action_required"] = json!(format!(
+                "No 3D body height was given for '{}', so a {} mm placeholder was used. \
+                 This is almost certainly wrong — look up the component's real height from \
+                 its datasheet and call write_pcblib again with component_bodies[].overall_height \
+                 set to the correct value.",
+                fp.name, b.overall_height
+            ));
+        }
+        return summary;
     }
     json!({ "name": fp.name, "source": "none" })
 }
@@ -1754,6 +1766,10 @@ mod tests {
         // Same body, auto-created path: flagged assumed.
         assert_eq!(body_3d_summary(&ext, true)["source"], "auto-extruded");
         assert_eq!(body_3d_summary(&ext, true)["assumed_height"], true);
+        // The assumed case carries an actionable message prompting a real height.
+        assert!(body_3d_summary(&ext, true)["action_required"].is_string());
+        // The explicit case does not.
+        assert!(body_3d_summary(&ext, false)["action_required"].is_null());
 
         // No body at all: source none.
         let none = Footprint::new("NONE");
