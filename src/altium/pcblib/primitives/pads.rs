@@ -108,9 +108,12 @@ pub struct Pad {
     #[serde(default)]
     pub stack_mode: PadStackMode,
 
-    /// Per-layer pad sizes in mm (width, height) for 32 layers.
+    /// Per-layer pad sizes in mm (width, height).
     /// Only used when `stack_mode` != `Simple`.
-    /// Index 0 = Top Layer, Index 1 = Bottom Layer, Index 2-31 = Mid Layers.
+    ///
+    /// - For `FullStack`: 32 entries, Index 0 = Top Layer, Index 1 = Bottom
+    ///   Layer, Index 2-31 = Mid Layers.
+    /// - For `TopMiddleBottom`: 3 entries, `[top, mid, bottom]`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -118,8 +121,11 @@ pub struct Pad {
     )]
     pub per_layer_sizes: Option<Vec<(f64, f64)>>,
 
-    /// Per-layer pad shapes for 32 layers.
+    /// Per-layer pad shapes.
     /// Only used when `stack_mode` != `Simple`.
+    ///
+    /// - For `FullStack`: 32 entries (one per layer).
+    /// - For `TopMiddleBottom`: 3 entries, `[top, mid, bottom]`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub per_layer_shapes: Option<Vec<PadShape>>,
 
