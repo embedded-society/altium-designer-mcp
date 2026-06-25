@@ -30,6 +30,7 @@ and [`tests/samples_schlib.rs`](../../tests/samples_schlib.rs).
 | `pads.PcbLib` | `BODY3D` | A simple extruded 3D component body (rectangular outline + height) |
 | `pads.PcbLib` | `TEXT_STROKE` | Stroke-font strings, including a 90° rotation |
 | `pads.PcbLib` | `TEXT_WIN1252` | Stroke text with non-ASCII Windows-1252 glyphs (micro sign, plus-minus) that round-trip to UTF-8 |
+| `pads.PcbLib` | `EDGE` | Boundary-case pads: a 45° rotated rectangle, plus negative and large coordinates |
 | `symbols.SchLib` | `PINS_ETYPE` | Eight pins, one per electrical type: input, bidirectional, output, open-collector, passive, hi-z, open-emitter, power |
 | `symbols.SchLib` | `PINS_ORIENT` | Four pins, one per orientation: right, up, left, down |
 | `symbols.SchLib` | `PINS_VIS` | Pins covering show-name/show-designator combinations plus a hidden pin |
@@ -44,3 +45,4 @@ and [`tests/samples_schlib.rs`](../../tests/samples_schlib.rs).
 | `symbols.SchLib` | `POLYLINES` | A three-point open polyline |
 | `symbols.SchLib` | `ROUNDRECTS` | A filled rounded rectangle |
 | `symbols.SchLib` | `POLYGONS` | Two filled four-vertex polygon boxes |
+| `symbols.SchLib` | `EDGE` | Boundary-case pins: large and negative coordinates, and a 35-character pin name |

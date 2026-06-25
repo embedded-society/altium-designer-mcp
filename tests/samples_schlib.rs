@@ -51,8 +51,9 @@ fn pin_by_designator<'a>(symbol: &'a Symbol, designator: &str) -> &'a Pin {
 fn samples_schlib_structure() {
     let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
 
-    // The library now contains fourteen Altium-authored symbols.
-    assert_eq!(lib.len(), 14, "expected exactly fourteen symbols");
+    // The library now contains fifteen Altium-authored symbols (one per
+    // primitive family plus a boundary-case `EDGE` symbol).
+    assert_eq!(lib.len(), 15, "expected exactly fifteen symbols");
 
     let names = lib.names();
     for expected in [
@@ -70,12 +71,43 @@ fn samples_schlib_structure() {
         "POLYLINES",
         "ROUNDRECTS",
         "POLYGONS",
+        "EDGE",
     ] {
         assert!(
             names.iter().any(|n| n == expected),
             "missing symbol {expected:?}; got {names:?}",
         );
     }
+}
+
+#[test]
+fn samples_schlib_edge() {
+    let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
+
+    let symbol = lib.get("EDGE").expect("symbol EDGE not found");
+    assert_eq!(symbol.name, "EDGE");
+    assert_eq!(symbol.pins.len(), 3, "EDGE has 3 pins");
+
+    // Boundary-case pins, matched by designator. Pins 1 and 2 push the
+    // coordinate extremes (large and negative positions); pin 3 is the headline
+    // case — a 35-character name that must survive the round-trip intact.
+    let pin1 = pin_by_designator(symbol, "1");
+    assert_eq!(pin1.name, "BIG", "pin 1 name");
+    assert_eq!(pin1.x, 50, "pin 1 x");
+    assert_eq!(pin1.y, 30, "pin 1 y");
+
+    let pin2 = pin_by_designator(symbol, "2");
+    assert_eq!(pin2.name, "NEG", "pin 2 name");
+    assert_eq!(pin2.x, -50, "pin 2 x");
+    assert_eq!(pin2.y, -30, "pin 2 y");
+
+    let pin3 = pin_by_designator(symbol, "3");
+    assert_eq!(
+        pin3.name, "VERY_LONG_PIN_NAME_0123456789ABCDEF",
+        "pin 3 long name survives intact",
+    );
+    assert_eq!(pin3.x, 0, "pin 3 x");
+    assert_eq!(pin3.y, 20, "pin 3 y");
 }
 
 #[test]

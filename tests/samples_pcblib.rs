@@ -39,8 +39,9 @@ fn samples_exist() {
 fn samples_pcblib_pad_shapes() {
     let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
 
-    // The library contains eleven footprints, one per primitive family.
-    assert_eq!(lib.len(), 11, "expected exactly eleven footprints");
+    // The library contains twelve footprints, one per primitive family plus a
+    // boundary-case `EDGE` footprint.
+    assert_eq!(lib.len(), 12, "expected exactly twelve footprints");
     let names = lib.names();
     for expected in [
         "PAD_SHAPES",
@@ -54,6 +55,7 @@ fn samples_pcblib_pad_shapes() {
         "FILLS",
         "TEXT_WIN1252",
         "BODY3D",
+        "EDGE",
     ] {
         assert!(
             names.iter().any(|n| n == expected),
@@ -102,6 +104,75 @@ fn samples_pcblib_pad_shapes() {
             pad.height,
         );
     }
+}
+
+#[test]
+fn samples_pcblib_edge() {
+    let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
+
+    let footprint = lib.get("EDGE").expect("footprint EDGE not found");
+    assert_eq!(footprint.name, "EDGE");
+    assert_eq!(footprint.pads.len(), 3, "EDGE has 3 pads");
+
+    // Boundary-case pads, matched by designator (the on-disk order is not
+    // guaranteed). Pad 1 is the headline case: a rotated rectangular pad — no
+    // MAIN sample exercises a non-zero pad rotation. Pads 2 and 3 push the
+    // coordinate extremes (negative and large positions).
+    let pad1 = footprint
+        .pads
+        .iter()
+        .find(|p| p.designator == "1")
+        .expect("pad 1 not found");
+    assert!(
+        approx_eq(pad1.rotation, 45.0, 1e-2),
+        "pad 1 rotation: expected ~45 degrees, got {}",
+        pad1.rotation,
+    );
+    assert_eq!(pad1.shape, PadShape::Rectangle, "pad 1 shape");
+    assert!(
+        approx_eq(pad1.width, 2.032, 1e-2),
+        "pad 1 width: expected ~2.032 mm, got {}",
+        pad1.width,
+    );
+    assert!(
+        approx_eq(pad1.height, 1.016, 1e-2),
+        "pad 1 height: expected ~1.016 mm, got {}",
+        pad1.height,
+    );
+    assert!(
+        approx_eq(pad1.x, 0.0, 1e-2) && approx_eq(pad1.y, 0.0, 1e-2),
+        "pad 1 position: expected ~(0, 0), got ({}, {})",
+        pad1.x,
+        pad1.y,
+    );
+
+    // Pad 2 sits at negative coordinates.
+    let pad2 = footprint
+        .pads
+        .iter()
+        .find(|p| p.designator == "2")
+        .expect("pad 2 not found");
+    assert!(
+        approx_eq(pad2.x, -1.27, 1e-2) && approx_eq(pad2.y, -0.762, 1e-2),
+        "pad 2 position: expected ~(-1.27, -0.762), got ({}, {})",
+        pad2.x,
+        pad2.y,
+    );
+    assert_eq!(pad2.shape, PadShape::Round, "pad 2 shape");
+
+    // Pad 3 sits at large coordinates.
+    let pad3 = footprint
+        .pads
+        .iter()
+        .find(|p| p.designator == "3")
+        .expect("pad 3 not found");
+    assert!(
+        approx_eq(pad3.x, 5.08, 1e-2) && approx_eq(pad3.y, 3.81, 1e-2),
+        "pad 3 position: expected ~(5.08, 3.81), got ({}, {})",
+        pad3.x,
+        pad3.y,
+    );
+    assert_eq!(pad3.shape, PadShape::Round, "pad 3 shape");
 }
 
 #[test]
