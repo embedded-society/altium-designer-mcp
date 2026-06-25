@@ -148,7 +148,9 @@ impl McpServer {
                      its primitives: pads (with position, size, shape, layer), tracks, arcs, \
                      regions, and text. The AI is responsible for calculating correct positions \
                      and sizes based on IPC-7351B or other standards. \
-                     All coordinates and dimensions must be in millimetres (mm)."
+                     All coordinates and dimensions must be in millimetres (mm). \
+                     The response includes a 'warnings' array flagging silkscreen (overlay) \
+                     tracks that overlap a pad (silk-on-pad) so you can move them clear."
                         .to_string(),
                 ),
                 input_schema: json!({
