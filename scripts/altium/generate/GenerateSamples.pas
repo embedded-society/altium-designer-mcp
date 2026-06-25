@@ -492,7 +492,7 @@ begin
     // IServerDocument has no DoFileSaveAs; DoSafeChangeFileNameAndSave is the
     // documented "Save As to a path" (the second arg is the document kind).
     Doc.SetModified(True);
-    Doc.DoSafeChangeFileNameAndSave(OUT_DIR + 'pads.PcbLib', 'PCBLIB');
+    Doc.DoSafeChangeFileNameAndSave(OUT_DIR + 'footprints.PcbLib', 'PCBLIB');
 end;
 
 { Adds one pin to a symbol at (0, Y) mils, pointing left (body to the right), with the

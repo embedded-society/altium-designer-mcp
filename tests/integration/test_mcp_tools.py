@@ -286,7 +286,7 @@ def main():
 
     lib_path = os.path.join(allowed, "RoundTrip.PcbLib")
     outside_path = os.path.join(work, "outside.PcbLib")  # in `work`, not `allowed`
-    sample_path = os.path.join(samples_dir, "pads.PcbLib")
+    sample_path = os.path.join(samples_dir, "footprints.PcbLib")
     schlib_sample_path = os.path.join(samples_dir, "symbols.SchLib")
 
     client = McpTestClient(binary, config_path)

@@ -26,7 +26,7 @@ fn approx_eq(a: f64, b: f64, tolerance: f64) -> bool {
 
 #[test]
 fn samples_exist() {
-    let path = sample("pads.PcbLib");
+    let path = sample("footprints.PcbLib");
     assert!(
         path.exists(),
         "missing sample fixture: {} — the samples_pcblib tests read a real \
@@ -37,7 +37,7 @@ fn samples_exist() {
 
 #[test]
 fn samples_pcblib_pad_shapes() {
-    let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
+    let lib = PcbLib::open(sample("footprints.PcbLib")).expect("failed to open footprints.PcbLib");
 
     // The library contains twelve footprints, one per primitive family plus a
     // boundary-case `EDGE` footprint.
@@ -108,7 +108,7 @@ fn samples_pcblib_pad_shapes() {
 
 #[test]
 fn samples_pcblib_edge() {
-    let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
+    let lib = PcbLib::open(sample("footprints.PcbLib")).expect("failed to open footprints.PcbLib");
 
     let footprint = lib.get("EDGE").expect("footprint EDGE not found");
     assert_eq!(footprint.name, "EDGE");
@@ -177,7 +177,7 @@ fn samples_pcblib_edge() {
 
 #[test]
 fn samples_pcblib_pad_stack() {
-    let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
+    let lib = PcbLib::open(sample("footprints.PcbLib")).expect("failed to open footprints.PcbLib");
     let footprint = lib.get("PAD_STACK").expect("footprint PAD_STACK not found");
     assert_eq!(footprint.pads.len(), 1, "PAD_STACK has 1 pad");
     let pad = &footprint.pads[0];
@@ -240,7 +240,7 @@ fn samples_pcblib_pad_stack() {
 
 #[test]
 fn samples_pcblib_pad_holes() {
-    let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
+    let lib = PcbLib::open(sample("footprints.PcbLib")).expect("failed to open footprints.PcbLib");
 
     let footprint = lib.get("PAD_HOLES").expect("footprint PAD_HOLES not found");
     assert_eq!(footprint.name, "PAD_HOLES");
@@ -281,7 +281,7 @@ fn samples_pcblib_pad_holes() {
 
 #[test]
 fn samples_pcblib_tracks() {
-    let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
+    let lib = PcbLib::open(sample("footprints.PcbLib")).expect("failed to open footprints.PcbLib");
 
     let footprint = lib.get("TRACKS").expect("footprint TRACKS not found");
     assert_eq!(footprint.name, "TRACKS");
@@ -339,7 +339,7 @@ fn samples_pcblib_tracks() {
 
 #[test]
 fn samples_pcblib_arcs() {
-    let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
+    let lib = PcbLib::open(sample("footprints.PcbLib")).expect("failed to open footprints.PcbLib");
 
     let footprint = lib.get("ARCS").expect("footprint ARCS not found");
     assert_eq!(footprint.name, "ARCS");
@@ -396,7 +396,7 @@ fn samples_pcblib_arcs() {
 
 #[test]
 fn samples_pcblib_regions() {
-    let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
+    let lib = PcbLib::open(sample("footprints.PcbLib")).expect("failed to open footprints.PcbLib");
 
     let footprint = lib.get("REGIONS").expect("footprint REGIONS not found");
     assert_eq!(footprint.name, "REGIONS");
@@ -439,7 +439,7 @@ fn samples_pcblib_regions() {
 
 #[test]
 fn samples_pcblib_text_stroke() {
-    let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
+    let lib = PcbLib::open(sample("footprints.PcbLib")).expect("failed to open footprints.PcbLib");
 
     let footprint = lib
         .get("TEXT_STROKE")
@@ -480,7 +480,7 @@ fn samples_pcblib_text_stroke() {
 
 #[test]
 fn samples_pcblib_vias() {
-    let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
+    let lib = PcbLib::open(sample("footprints.PcbLib")).expect("failed to open footprints.PcbLib");
 
     let footprint = lib.get("VIAS").expect("footprint VIAS not found");
     assert_eq!(footprint.name, "VIAS");
@@ -529,7 +529,7 @@ fn samples_pcblib_vias() {
 
 #[test]
 fn samples_pcblib_fills() {
-    let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
+    let lib = PcbLib::open(sample("footprints.PcbLib")).expect("failed to open footprints.PcbLib");
 
     let footprint = lib.get("FILLS").expect("footprint FILLS not found");
     assert_eq!(footprint.name, "FILLS");
@@ -576,7 +576,7 @@ fn samples_pcblib_fills() {
 
 #[test]
 fn samples_pcblib_text_win1252() {
-    let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
+    let lib = PcbLib::open(sample("footprints.PcbLib")).expect("failed to open footprints.PcbLib");
 
     let footprint = lib
         .get("TEXT_WIN1252")
@@ -602,7 +602,7 @@ fn samples_pcblib_text_win1252() {
 
 #[test]
 fn samples_pcblib_body3d() {
-    let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
+    let lib = PcbLib::open(sample("footprints.PcbLib")).expect("failed to open footprints.PcbLib");
 
     let footprint = lib.get("BODY3D").expect("footprint BODY3D not found");
     assert_eq!(footprint.name, "BODY3D");
