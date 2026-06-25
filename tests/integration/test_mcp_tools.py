@@ -229,6 +229,104 @@ def test_read_schlib_exposes_round_rects_polygons(client, runner, schlib_sample_
     runner.check("polygons" in pins, "PINS_ETYPE symbol has 'polygons' field")
 
 
+def test_write_schlib_shapes(client, runner, schlib_path):
+    print("\n=== Test: write_schlib shapes round trip ===")
+    # Coverage PR-1: every SHAPE primitive the read tool round-trips must be
+    # authorable via write_schlib. Write a symbol with a round_rect, polygon,
+    # ellipse, arc and label, then read it back and assert each survived.
+    symbol = {
+        "name": "SHAPES",
+        "pins": [
+            {
+                "designator": "1",
+                "name": "P1",
+                "x": -50,
+                "y": 0,
+                "length": 30,
+                "orientation": "left",
+            }
+        ],
+        "round_rects": [
+            {
+                "x1": 0,
+                "y1": 0,
+                "x2": 40,
+                "y2": 30,
+                "corner_x_radius": 5,
+                "corner_y_radius": 7,
+                "fill_color": 0x112233,
+            }
+        ],
+        "polygons": [
+            {
+                "points": [
+                    {"x": 0, "y": 0},
+                    {"x": 20, "y": 0},
+                    {"x": 10, "y": 20},
+                ],
+                "fill_color": 0x445566,
+            }
+        ],
+        "ellipses": [
+            {"x": 60, "y": 60, "radius_x": 15, "radius_y": 10, "fill_color": 0x778899}
+        ],
+        "arcs": [
+            {"x": 80, "y": 80, "radius": 25, "start_angle": 30, "end_angle": 270}
+        ],
+        "labels": [{"x": 5, "y": 45, "text": "HELLO"}],
+    }
+
+    write = client.call_tool(
+        "write_schlib",
+        {"filepath": schlib_path, "symbols": [symbol], "append": False},
+    )
+    runner.check(not write.get("_isError"), "write_schlib succeeded", actual=write)
+
+    read = client.call_tool("read_schlib", {"filepath": schlib_path})
+    runner.check(not read.get("_isError"), "read_schlib succeeded", actual=read)
+
+    symbols = {s.get("name"): s for s in read.get("symbols", [])}
+    sym = symbols.get("SHAPES", {})
+    runner.check(bool(sym), "SHAPES symbol present", actual=list(symbols))
+
+    # round_rect: count + corner radii + geometry survived
+    round_rects = sym.get("round_rects", [])
+    runner.check(len(round_rects) == 1, "1 round_rect survived", actual=len(round_rects))
+    if round_rects:
+        rr = round_rects[0]
+        runner.check(rr.get("corner_x_radius") == 5, "round_rect corner_x_radius", actual=rr.get("corner_x_radius"), expected=5)
+        runner.check(rr.get("corner_y_radius") == 7, "round_rect corner_y_radius", actual=rr.get("corner_y_radius"), expected=7)
+        runner.check(rr.get("x2") == 40 and rr.get("y2") == 30, "round_rect geometry", actual=rr)
+
+    # polygon: count + vertex count
+    polygons = sym.get("polygons", [])
+    runner.check(len(polygons) == 1, "1 polygon survived", actual=len(polygons))
+    if polygons:
+        pts = polygons[0].get("points", [])
+        runner.check(len(pts) == 3, "polygon has 3 vertices", actual=len(pts))
+
+    # ellipse: count + radii
+    ellipses = sym.get("ellipses", [])
+    runner.check(len(ellipses) == 1, "1 ellipse survived", actual=len(ellipses))
+    if ellipses:
+        el = ellipses[0]
+        runner.check(el.get("radius_x") == 15 and el.get("radius_y") == 10, "ellipse radii", actual=el)
+
+    # arc: count + angle range
+    arcs = sym.get("arcs", [])
+    runner.check(len(arcs) == 1, "1 arc survived", actual=len(arcs))
+    if arcs:
+        ar = arcs[0]
+        runner.check(ar.get("radius") == 25, "arc radius", actual=ar.get("radius"), expected=25)
+        runner.check(ar.get("start_angle") == 30 and ar.get("end_angle") == 270, "arc angles", actual=ar)
+
+    # label: count + text
+    labels = sym.get("labels", [])
+    runner.check(len(labels) == 1, "1 label survived", actual=len(labels))
+    if labels:
+        runner.check(labels[0].get("text") == "HELLO", "label text", actual=labels[0].get("text"), expected="HELLO")
+
+
 def test_write_pcblib_auto_3d_body_opt_in(client, runner, lib_path):
     print("\n=== Test: write_pcblib auto_3d_body is opt-in ===")
     # A footprint with a pad but no 3D body. By default the tool must NOT synthesise
@@ -285,6 +383,7 @@ def main():
         )
 
     lib_path = os.path.join(allowed, "RoundTrip.PcbLib")
+    schlib_path = os.path.join(allowed, "RoundTrip.SchLib")
     outside_path = os.path.join(work, "outside.PcbLib")  # in `work`, not `allowed`
     sample_path = os.path.join(samples_dir, "footprints.PcbLib")
     schlib_sample_path = os.path.join(samples_dir, "symbols.SchLib")
@@ -297,6 +396,7 @@ def main():
         test_tools_list(client, runner)
         test_write_read_roundtrip(client, runner, lib_path)
         test_write_pcblib_auto_3d_body_opt_in(client, runner, lib_path)
+        test_write_schlib_shapes(client, runner, schlib_path)
         test_read_pcblib_exposes_vias_fills(client, runner, sample_path)
         test_read_schlib_exposes_round_rects_polygons(client, runner, schlib_sample_path)
         test_unknown_tool(client, runner)

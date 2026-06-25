@@ -1075,6 +1075,15 @@ impl McpServer {
                 }
             }
 
+            // Parse rounded rectangles
+            if let Some(round_rects) = sym_json.get("round_rects").and_then(Value::as_array) {
+                for round_rect_json in round_rects {
+                    if let Some(round_rect) = Self::parse_schlib_round_rect(round_rect_json) {
+                        symbol.add_round_rect(round_rect);
+                    }
+                }
+            }
+
             // Parse lines
             if let Some(lines) = sym_json.get("lines").and_then(Value::as_array) {
                 for line_json in lines {
@@ -1089,6 +1098,15 @@ impl McpServer {
                 for polyline_json in polylines {
                     if let Some(polyline) = Self::parse_schlib_polyline(polyline_json) {
                         symbol.add_polyline(polyline);
+                    }
+                }
+            }
+
+            // Parse polygons
+            if let Some(polygons) = sym_json.get("polygons").and_then(Value::as_array) {
+                for polygon_json in polygons {
+                    if let Some(polygon) = Self::parse_schlib_polygon(polygon_json) {
+                        symbol.add_polygon(polygon);
                     }
                 }
             }

@@ -24,6 +24,10 @@
 //! - [`altium`] — Altium file format handling
 //! - [`security`] — Rate limiting and other safety controls
 
+// The `write_schlib` tool schema is a single large `json!` literal whose
+// expansion exceeds the default macro recursion limit of 128.
+#![recursion_limit = "256"]
+
 pub mod altium;
 pub mod config;
 pub mod error;

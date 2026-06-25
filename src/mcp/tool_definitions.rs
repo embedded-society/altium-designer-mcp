@@ -332,7 +332,8 @@ impl McpServer {
                 name: "write_schlib".to_string(),
                 description: Some(
                     "Write schematic symbols to an Altium .SchLib file. Each symbol is defined by \
-                     its primitives: pins, rectangles, lines, polylines, arcs, ellipses, and labels. \
+                     its primitives: pins, rectangles, round_rects, lines, polylines, polygons, \
+                     arcs, ellipses, labels, and text. \
                      Coordinates must be in schematic units (10 units = 1 grid square, not mm)."
                         .to_string(),
                 ),
@@ -390,6 +391,27 @@ impl McpServer {
                                             "required": ["x1", "y1", "x2", "y2"]
                                         }
                                     },
+                                    "round_rects": {
+                                        "type": "array",
+                                        "description": "Rounded-rectangle definitions",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "x1": { "type": "integer", "description": "Left X coordinate" },
+                                                "y1": { "type": "integer", "description": "Bottom Y coordinate" },
+                                                "x2": { "type": "integer", "description": "Right X coordinate" },
+                                                "y2": { "type": "integer", "description": "Top Y coordinate" },
+                                                "corner_x_radius": { "type": "integer", "description": "Horizontal corner radius. Default: 0" },
+                                                "corner_y_radius": { "type": "integer", "description": "Vertical corner radius. Default: 0" },
+                                                "line_width": { "type": "integer", "description": "Border width. Default: 1" },
+                                                "line_color": { "type": "integer", "description": "Border BGR colour. Default: 0x000080" },
+                                                "fill_color": { "type": "integer", "description": "Fill BGR colour. Default: 0xB0FFFF (Altium light yellow)" },
+                                                "filled": { "type": "boolean", "description": "Whether filled. Default: true" },
+                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" }
+                                            },
+                                            "required": ["x1", "y1", "x2", "y2", "corner_x_radius", "corner_y_radius"]
+                                        }
+                                    },
                                     "lines": {
                                         "type": "array",
                                         "description": "Line definitions",
@@ -405,6 +427,90 @@ impl McpServer {
                                                 "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" }
                                             },
                                             "required": ["x1", "y1", "x2", "y2"]
+                                        }
+                                    },
+                                    "polygons": {
+                                        "type": "array",
+                                        "description": "Filled polygon definitions (>= 3 vertices)",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "points": {
+                                                    "type": "array",
+                                                    "description": "Vertices (>= 3) as objects with x/y in schematic units",
+                                                    "items": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "x": { "type": "integer" },
+                                                            "y": { "type": "integer" }
+                                                        },
+                                                        "required": ["x", "y"]
+                                                    }
+                                                },
+                                                "line_width": { "type": "integer", "description": "Border width. Default: 1" },
+                                                "line_color": { "type": "integer", "description": "Border BGR colour. Default: 0x000080" },
+                                                "fill_color": { "type": "integer", "description": "Fill BGR colour. Default: 0xB0FFFF (Altium light yellow)" },
+                                                "filled": { "type": "boolean", "description": "Whether filled. Default: true" },
+                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" }
+                                            },
+                                            "required": ["points"]
+                                        }
+                                    },
+                                    "arcs": {
+                                        "type": "array",
+                                        "description": "Arc/circle definitions",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "x": { "type": "integer", "description": "Centre X coordinate" },
+                                                "y": { "type": "integer", "description": "Centre Y coordinate" },
+                                                "radius": { "type": "integer", "description": "Radius in schematic units" },
+                                                "start_angle": { "type": "number", "description": "Start angle in degrees (0 = right, CCW). Default: 0" },
+                                                "end_angle": { "type": "number", "description": "End angle in degrees. Default: 360 (full circle)" },
+                                                "line_width": { "type": "integer", "description": "Line width. Default: 1" },
+                                                "color": { "type": "integer", "description": "Line BGR colour. Default: 0x000080" },
+                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" }
+                                            },
+                                            "required": ["x", "y", "radius"]
+                                        }
+                                    },
+                                    "ellipses": {
+                                        "type": "array",
+                                        "description": "Ellipse definitions",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "x": { "type": "integer", "description": "Centre X coordinate" },
+                                                "y": { "type": "integer", "description": "Centre Y coordinate" },
+                                                "radius_x": { "type": "integer", "description": "Horizontal radius" },
+                                                "radius_y": { "type": "integer", "description": "Vertical radius" },
+                                                "line_width": { "type": "integer", "description": "Border width. Default: 1" },
+                                                "line_color": { "type": "integer", "description": "Border BGR colour. Default: 0x000080" },
+                                                "fill_color": { "type": "integer", "description": "Fill BGR colour. Default: 0xB0FFFF (Altium light yellow)" },
+                                                "filled": { "type": "boolean", "description": "Whether filled. Default: true" },
+                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" }
+                                            },
+                                            "required": ["x", "y", "radius_x", "radius_y"]
+                                        }
+                                    },
+                                    "labels": {
+                                        "type": "array",
+                                        "description": "Text label definitions (RECORD=4). For RECORD=3 annotations use 'text'.",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "x": { "type": "integer", "description": "X position" },
+                                                "y": { "type": "integer", "description": "Y position" },
+                                                "text": { "type": "string", "description": "Text content" },
+                                                "font_id": { "type": "integer", "description": "Font ID. Default: 1" },
+                                                "color": { "type": "integer", "description": "BGR colour. Default: 0x000080" },
+                                                "justification": { "type": "string", "enum": ["bottom_left", "bottom_center", "bottom_right", "middle_left", "middle_center", "middle_right", "top_left", "top_center", "top_right"], "description": "Alignment. Default: bottom_left" },
+                                                "rotation": { "type": "number", "description": "Rotation in degrees. Default: 0" },
+                                                "is_mirrored": { "type": "boolean", "description": "Mirrored. Default: false" },
+                                                "is_hidden": { "type": "boolean", "description": "Hidden. Default: false" },
+                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" }
+                                            },
+                                            "required": ["x", "y", "text"]
                                         }
                                     },
                                     "text": {
