@@ -113,10 +113,9 @@ fn samples_pcblib_pad_stack() {
 
     // A multi-layer (LocalStack) through-hole pad authored with a 70-mil round top,
     // 60-mil round mid and 50-mil square bottom over a 30-mil round hole. The reader
-    // recognises the stack MODE and surfaces the top layer + hole. The mid/bottom
-    // per-layer sizes are a known reader gap (TODO.md A1, "middle/bottom sizes
-    // (TopMiddleBottom)") — `per_layer_sizes` is still None; this sample is the golden
-    // that unblocks that fix.
+    // recognises the stack MODE, surfaces the top layer + hole, and now also
+    // round-trips the mid/bottom per-layer sizes and shapes (closing TODO.md A1,
+    // "middle/bottom sizes (TopMiddleBottom)") from the main geometry block.
     assert_eq!(
         pad.stack_mode,
         PadStackMode::TopMiddleBottom,
@@ -143,6 +142,28 @@ fn samples_pcblib_pad_stack() {
         pad.hole_size.is_some_and(|h| approx_eq(h, 0.762, 1e-2)),
         "hole ~30 mil, got {:?}",
         pad.hole_size,
+    );
+
+    // Per-layer [top, mid, bottom]: 70 / 60 / 50 mil sizes.
+    let sizes = pad
+        .per_layer_sizes
+        .as_ref()
+        .expect("TopMiddleBottom pad now surfaces per_layer_sizes");
+    let expected_sizes = [(1.778, 1.778), (1.524, 1.524), (1.27, 1.27)];
+    assert_eq!(sizes.len(), 3, "TMB per_layer_sizes is [top, mid, bottom]");
+    for (i, &(ew, eh)) in expected_sizes.iter().enumerate() {
+        assert!(
+            approx_eq(sizes[i].0, ew, 1e-2) && approx_eq(sizes[i].1, eh, 1e-2),
+            "per-layer size {i}: expected ~({ew},{eh}), got {:?}",
+            sizes[i],
+        );
+    }
+
+    // Per-layer [top, mid, bottom] shapes: round top, round mid, square bottom.
+    assert_eq!(
+        pad.per_layer_shapes.as_deref(),
+        Some([PadShape::Round, PadShape::Round, PadShape::Rectangle].as_slice()),
+        "TMB per_layer_shapes is [top, mid, bottom]",
     );
 }
 

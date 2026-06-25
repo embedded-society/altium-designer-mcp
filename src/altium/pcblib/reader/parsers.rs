@@ -201,6 +201,24 @@ pub(super) fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
             (radius > 0 && radius <= 100).then_some(radius)
         });
         (corner_radius, None, None, None, None)
+    } else if stack_mode == PadStackMode::TopMiddleBottom {
+        // For a TopMiddleBottom (LocalStack) pad the top/mid/bottom sizes and
+        // shapes live in the MAIN geometry block (Block 5 is empty); they are
+        // NOT in the 32-entry per-layer block. Surface them as a 3-entry
+        // [top, mid, bottom] vector (mirrors AltiumSharp's Size/Shape Top/Mid/Bottom).
+        // Top X/Y @21/25 are already decoded as width/height; mid @29/33, bot @37/41.
+        let mid_x = read_i32(geometry, 29).map_or(width, to_mm);
+        let mid_y = read_i32(geometry, 33).map_or(height, to_mm);
+        let bot_x = read_i32(geometry, 37).map_or(width, to_mm);
+        let bot_y = read_i32(geometry, 41).map_or(height, to_mm);
+        let sizes = vec![(width, height), (mid_x, mid_y), (bot_x, bot_y)];
+
+        // Shapes: top @49 (already decoded as `shape`), mid @50, bottom @51.
+        let mid_shape = geometry.get(50).map_or(shape, |&b| pad_shape_from_id(b));
+        let bot_shape = geometry.get(51).map_or(shape, |&b| pad_shape_from_id(b));
+        let shapes = vec![shape, mid_shape, bot_shape];
+
+        (None, Some(sizes), Some(shapes), None, None)
     } else {
         parse_per_layer_data(per_layer_data)
     };

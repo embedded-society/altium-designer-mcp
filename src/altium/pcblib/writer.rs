@@ -422,12 +422,12 @@ fn encode_pad(data: &mut Vec<u8>, pad: &Pad) -> crate::altium::error::AltiumResu
     //  - a non-round hole or an explicit corner radius on a simple pad
     //    -> the canonical 596-byte size/shape block (carries hole type @262 and
     //       the rounded-rect corner radius @564, which the main block cannot);
-    //  - otherwise (plain simple pad) -> EMPTY block (matches Altium).
-    let needs_per_layer_data = pad.stack_mode != PadStackMode::Simple
-        || pad.per_layer_sizes.is_some()
-        || pad.per_layer_shapes.is_some()
-        || pad.per_layer_corner_radii.is_some()
-        || pad.per_layer_offsets.is_some();
+    //  - otherwise (plain simple/TopMiddleBottom pad) -> EMPTY block (matches Altium).
+    //
+    // Only FullStack emits the 32-entry per-layer block. A TopMiddleBottom pad
+    // carries its top/mid/bottom sizes+shapes in the MAIN geometry block (see
+    // `encode_pad_geometry`) and keeps Block 5 empty, matching the golden.
+    let needs_per_layer_data = pad.stack_mode == PadStackMode::FullStack;
     let needs_size_shape =
         pad.hole_shape != HoleShape::Round || pad.corner_radius_percent.is_some();
 
@@ -618,20 +618,50 @@ fn encode_pad_geometry(pad: &Pad) -> Vec<u8> {
     write_i32(&mut block, from_mm(pad.x));
     write_i32(&mut block, from_mm(pad.y));
 
-    // Size top/middle/bottom (X, Y) - offsets 21-44 (identical for simple pads)
-    for _ in 0..3 {
-        write_i32(&mut block, from_mm(pad.width));
-        write_i32(&mut block, from_mm(pad.height));
+    // Size top/middle/bottom (X, Y) - offsets 21-44.
+    //
+    // For a TopMiddleBottom (LocalStack) pad the mid/bottom sizes and shapes
+    // live in THIS main block (Block 5 stays empty), so we pull the distinct
+    // mid/bottom values from `per_layer_sizes`/`per_layer_shapes` ([top, mid,
+    // bottom]). For Simple/FullStack pads all three slots are the top size and
+    // shape (FullStack carries its per-layer data in Block 5 instead).
+    let is_tmb = pad.stack_mode == PadStackMode::TopMiddleBottom;
+    let shape_id = pad_shape_to_id(pad.shape);
+    let tmb_size = |index: usize| -> (f64, f64) {
+        if is_tmb {
+            pad.per_layer_sizes
+                .as_ref()
+                .and_then(|sizes| sizes.get(index).copied())
+                .unwrap_or((pad.width, pad.height))
+        } else {
+            (pad.width, pad.height)
+        }
+    };
+    let tmb_shape_id = |index: usize| -> u8 {
+        if is_tmb {
+            pad.per_layer_shapes
+                .as_ref()
+                .and_then(|shapes| shapes.get(index).copied())
+                .map_or(shape_id, pad_shape_to_id)
+        } else {
+            shape_id
+        }
+    };
+
+    // Top @21/25, mid @29/33, bottom @37/41.
+    for index in 0..3 {
+        let (w, h) = tmb_size(index);
+        write_i32(&mut block, from_mm(w));
+        write_i32(&mut block, from_mm(h));
     }
 
     // Hole size - offsets 45-48
     write_i32(&mut block, from_mm(pad.hole_size.unwrap_or(0.0)));
 
-    // Shapes (top, middle, bottom) - offsets 49-51
-    let shape_id = pad_shape_to_id(pad.shape);
-    block.push(shape_id);
-    block.push(shape_id);
-    block.push(shape_id);
+    // Shapes (top @49, middle @50, bottom @51)
+    block.push(tmb_shape_id(0));
+    block.push(tmb_shape_id(1));
+    block.push(tmb_shape_id(2));
 
     // Rotation - offsets 52-59 (8-byte double)
     write_f64(&mut block, pad.rotation);
