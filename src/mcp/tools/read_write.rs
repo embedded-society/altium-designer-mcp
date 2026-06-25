@@ -199,6 +199,32 @@ fn silk_over_pad_warnings(fp: &crate::altium::pcblib::Footprint) -> Vec<Value> {
     warnings
 }
 
+/// Summarises a footprint's 3D body for the `write_pcblib` response so the caller
+/// knows the body height that was written and whether one was auto-created (with
+/// a default, `assumed` height it should confirm). All heights are in mm.
+fn body_3d_summary(fp: &crate::altium::pcblib::Footprint, assumed_height: bool) -> Value {
+    if fp.model_3d.is_some() {
+        return json!({ "name": fp.name, "source": "step-embedded" });
+    }
+    if let Some(ext) = fp
+        .component_bodies
+        .iter()
+        .find(|b| !b.model_name.is_empty())
+    {
+        return json!({ "name": fp.name, "source": "step-external", "model": ext.model_name });
+    }
+    if let Some(b) = fp.component_bodies.iter().find(|b| b.model_name.is_empty()) {
+        return json!({
+            "name": fp.name,
+            "source": if assumed_height { "auto-extruded" } else { "extruded" },
+            "overall_height": b.overall_height,
+            "standoff_height": b.standoff_height,
+            "assumed_height": assumed_height,
+        });
+    }
+    json!({ "name": fp.name, "source": "none" })
+}
+
 impl McpServer {
     // ==================== Tool Handlers ====================
 
@@ -433,6 +459,10 @@ impl McpServer {
         // Silkscreen-over-pad warnings, echoed back so the caller can fix silk that
         // prints on a pad (a DRC defect) without opening Altium.
         let mut silk_warnings: Vec<Value> = Vec::new();
+
+        // Per-footprint 3D-body summary echoed back so the caller sees the body
+        // height that was written and whether one was auto-created.
+        let mut bodies_echo: Vec<Value> = Vec::new();
 
         for fp_json in footprints_json {
             let name = fp_json
@@ -685,6 +715,46 @@ impl McpServer {
                 });
             }
 
+            // Auto-include an extruded 3D body when the footprint has no STEP model
+            // and no component body, so it has a 3D presence in Altium. Height can't
+            // be inferred from a 2D footprint, so it defaults to 1.0 mm and is flagged
+            // `assumed_height` in the response for the caller to confirm/override.
+            // The empty outline makes the writer synthesise a bounding box from pads.
+            let assumed_height = if footprint.model_3d.is_none()
+                && footprint.component_bodies.is_empty()
+                && !footprint.pads.is_empty()
+            {
+                use crate::altium::pcblib::{ComponentBody, Layer};
+                footprint.add_component_body(ComponentBody {
+                    model_id: String::new(),
+                    model_name: String::new(),
+                    embedded: false,
+                    rotation_x: 0.0,
+                    rotation_y: 0.0,
+                    rotation_z: 0.0,
+                    z_offset: 0.0,
+                    overall_height: 1.0,
+                    standoff_height: 0.0,
+                    layer: Layer::Top3DBody,
+                    outline: Vec::new(),
+                    unique_id: None,
+                    model_checksum: 0,
+                    name: " ".to_string(),
+                    kind: 0,
+                    sub_poly_index: -1,
+                    union_index: 0,
+                    is_shape_based: false,
+                    body_projection: 0,
+                    body_color_3d: 8_421_504,
+                    body_opacity_3d: 1.0,
+                    model_2d_rotation: 0.0,
+                });
+                true
+            } else {
+                false
+            };
+            bodies_echo.push(body_3d_summary(&footprint, assumed_height));
+
             // Validate coordinates before adding
             if let Err(e) = Self::validate_footprint_coordinates(&footprint) {
                 return ToolCallResult::error(e);
@@ -713,6 +783,10 @@ impl McpServer {
                 // is almost always a defect. Always present so the caller knows the
                 // check ran; empty array when clean.
                 result["warnings"] = Value::Array(silk_warnings);
+
+                // Echo each footprint's 3D body (height + source), so the caller can
+                // confirm an auto-created body's assumed height or correct it.
+                result["bodies"] = Value::Array(bodies_echo);
 
                 // Run post-write validation
                 if let Some(validation) = Self::post_write_validation_pcblib(filepath) {
@@ -1614,7 +1688,7 @@ impl McpServer {
 #[cfg(test)]
 mod tests {
     use super::ieee_designator_prefix;
-    use super::{pin_tip, symbol_geometry};
+    use super::{body_3d_summary, pin_tip, symbol_geometry};
     use crate::altium::schlib::{Pin, PinOrientation, Rectangle, Symbol};
 
     #[test]
@@ -1640,6 +1714,50 @@ mod tests {
         assert!(!segment_intersects_rect(
             -5.0, 2.0, 5.0, 2.0, -1.0, -1.0, 1.0, 1.0
         ));
+    }
+
+    #[test]
+    fn body_3d_summary_reports_source_and_height() {
+        use crate::altium::pcblib::{ComponentBody, Footprint, Layer};
+        let body = |h: f64, name: &str| ComponentBody {
+            model_id: String::new(),
+            model_name: name.to_string(),
+            embedded: false,
+            rotation_x: 0.0,
+            rotation_y: 0.0,
+            rotation_z: 0.0,
+            z_offset: 0.0,
+            overall_height: h,
+            standoff_height: 0.0,
+            layer: Layer::Top3DBody,
+            outline: Vec::new(),
+            unique_id: None,
+            model_checksum: 0,
+            name: " ".to_string(),
+            kind: 0,
+            sub_poly_index: -1,
+            union_index: 0,
+            is_shape_based: false,
+            body_projection: 0,
+            body_color_3d: 8_421_504,
+            body_opacity_3d: 1.0,
+            model_2d_rotation: 0.0,
+        };
+
+        // Explicit extruded body: reports its height, not assumed.
+        let mut ext = Footprint::new("EXT");
+        ext.add_component_body(body(2.5, ""));
+        assert_eq!(body_3d_summary(&ext, false)["source"], "extruded");
+        assert_eq!(body_3d_summary(&ext, false)["overall_height"], 2.5);
+        assert_eq!(body_3d_summary(&ext, false)["assumed_height"], false);
+
+        // Same body, auto-created path: flagged assumed.
+        assert_eq!(body_3d_summary(&ext, true)["source"], "auto-extruded");
+        assert_eq!(body_3d_summary(&ext, true)["assumed_height"], true);
+
+        // No body at all: source none.
+        let none = Footprint::new("NONE");
+        assert_eq!(body_3d_summary(&none, false)["source"], "none");
     }
 
     #[test]

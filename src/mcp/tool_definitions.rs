@@ -149,8 +149,13 @@ impl McpServer {
                      regions, and text. The AI is responsible for calculating correct positions \
                      and sizes based on IPC-7351B or other standards. \
                      All coordinates and dimensions must be in millimetres (mm). \
-                     The response includes a 'warnings' array flagging silkscreen (overlay) \
-                     tracks that overlap a pad (silk-on-pad) so you can move them clear."
+                     If a footprint has no STEP model and no component body, an extruded 3D body \
+                     is added automatically (default height 1.0 mm). The response 'bodies' array \
+                     echoes each footprint's 3D body height and source ('auto-extruded' bodies are \
+                     flagged 'assumed_height': true) so you can confirm or override the height by \
+                     supplying 'component_bodies' explicitly. The response also includes a \
+                     'warnings' array flagging silkscreen (overlay) tracks that overlap a pad \
+                     (silk-on-pad) so you can move them clear."
                         .to_string(),
                 ),
                 input_schema: json!({
