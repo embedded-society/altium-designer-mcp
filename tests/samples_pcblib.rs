@@ -5,7 +5,9 @@
 //! against the file's authored intent (rather than round-tripping our own
 //! writer's output, as `file_io_roundtrip.rs` does).
 
-use altium_designer_mcp::altium::pcblib::{HoleShape, Layer, PadShape, PcbLib, TextKind};
+use altium_designer_mcp::altium::pcblib::{
+    HoleShape, Layer, PadShape, PadStackMode, PcbLib, TextKind,
+};
 use std::path::PathBuf;
 
 /// Resolves a sample fixture by name under `scripts/samples/`.
@@ -37,12 +39,13 @@ fn samples_exist() {
 fn samples_pcblib_pad_shapes() {
     let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
 
-    // The library contains nine footprints, one per primitive family.
-    assert_eq!(lib.len(), 9, "expected exactly nine footprints");
+    // The library contains ten footprints, one per primitive family.
+    assert_eq!(lib.len(), 10, "expected exactly ten footprints");
     let names = lib.names();
     for expected in [
         "PAD_SHAPES",
         "PAD_HOLES",
+        "PAD_STACK",
         "TRACKS",
         "ARCS",
         "REGIONS",
@@ -98,6 +101,48 @@ fn samples_pcblib_pad_shapes() {
             pad.height,
         );
     }
+}
+
+#[test]
+fn samples_pcblib_pad_stack() {
+    let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
+    let footprint = lib.get("PAD_STACK").expect("footprint PAD_STACK not found");
+    assert_eq!(footprint.pads.len(), 1, "PAD_STACK has 1 pad");
+    let pad = &footprint.pads[0];
+
+    // A multi-layer (LocalStack) through-hole pad authored with a 70-mil round top,
+    // 60-mil round mid and 50-mil square bottom over a 30-mil round hole. The reader
+    // recognises the stack MODE and surfaces the top layer + hole. The mid/bottom
+    // per-layer sizes are a known reader gap (TODO.md A1, "middle/bottom sizes
+    // (TopMiddleBottom)") — `per_layer_sizes` is still None; this sample is the golden
+    // that unblocks that fix.
+    assert_eq!(
+        pad.stack_mode,
+        PadStackMode::TopMiddleBottom,
+        "authored ePadMode_LocalStack reads back as a TopMiddleBottom stack",
+    );
+    assert_eq!(
+        pad.layer,
+        Layer::MultiLayer,
+        "through-hole pad spans all layers",
+    );
+    assert_eq!(pad.shape, PadShape::Round, "top-layer shape");
+    assert!(
+        approx_eq(pad.width, 1.778, 1e-2),
+        "top width ~70 mil, got {}",
+        pad.width,
+    );
+    assert!(
+        approx_eq(pad.height, 1.778, 1e-2),
+        "top height ~70 mil, got {}",
+        pad.height,
+    );
+    assert_eq!(pad.hole_shape, HoleShape::Round, "round hole");
+    assert!(
+        pad.hole_size.is_some_and(|h| approx_eq(h, 0.762, 1e-2)),
+        "hole ~30 mil, got {:?}",
+        pad.hole_size,
+    );
 }
 
 #[test]
