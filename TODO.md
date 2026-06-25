@@ -26,7 +26,7 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
 
 - [ ] 🟠 **Pad** — remaining (mostly golden / on-site / fidelity-gated): `is_plated` @SR5+60
       read-back; slot length @+263 / hole rotation @+267 (596-body); identity GUIDs @+126/+142
-      read-back; middle/bottom sizes (TopMiddleBottom); **multi-entry** full-stack tail (count>1);
+      read-back; **multi-entry** full-stack tail (count>1);
       oblong/oval SMD pads should route to the 651 size/shape block (golden shows 651, we emit
       empty). *(596 single-entry tail [#157] + tri-state mask modes [this PR] shipped; octagonal
       id-3 byte mapping is already correct.)*

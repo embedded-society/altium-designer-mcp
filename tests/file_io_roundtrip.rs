@@ -231,6 +231,65 @@ fn pcblib_file_roundtrip_pad_shapes() {
 }
 
 #[test]
+fn pcblib_file_roundtrip_pad_top_middle_bottom() {
+    let temp_dir = test_temp_dir();
+    let file_path = temp_dir.path().join("test_pad_tmb.PcbLib");
+
+    let mut lib = PcbLib::new();
+    let mut fp = Footprint::new("PAD_TMB");
+
+    // A TopMiddleBottom (LocalStack) through-hole pad with distinct top/mid/bottom
+    // sizes and shapes. The mid/bottom values live in the main geometry block, so
+    // they must survive a write -> read cycle (Block 5 stays empty here).
+    let mut pad = Pad::through_hole("1", 0.0, 0.0, 1.778, 1.778, 0.762);
+    pad.layer = Layer::MultiLayer;
+    pad.shape = PadShape::Round;
+    pad.stack_mode = PadStackMode::TopMiddleBottom;
+    pad.per_layer_sizes = Some(vec![(1.778, 1.778), (1.524, 1.524), (1.27, 1.27)]);
+    pad.per_layer_shapes = Some(vec![PadShape::Round, PadShape::Round, PadShape::Rectangle]);
+    fp.add_pad(pad);
+
+    lib.add(fp);
+
+    lib.save(&file_path).expect("Failed to write PcbLib");
+    let read_lib = PcbLib::open(&file_path).expect("Failed to read PcbLib");
+
+    let read_fp = read_lib.get("PAD_TMB").expect("Footprint not found");
+    assert_eq!(read_fp.pads.len(), 1);
+    let read_pad = &read_fp.pads[0];
+
+    assert_eq!(read_pad.stack_mode, PadStackMode::TopMiddleBottom);
+    assert_eq!(read_pad.layer, Layer::MultiLayer);
+
+    // Top size/shape survive (already exercised elsewhere, asserted here for completeness).
+    assert!(approx_eq(read_pad.width, 1.778, 1e-2));
+    assert!(approx_eq(read_pad.height, 1.778, 1e-2));
+    assert_eq!(read_pad.shape, PadShape::Round);
+
+    // Mid/bottom per-layer sizes round-trip.
+    let sizes = read_pad
+        .per_layer_sizes
+        .as_ref()
+        .expect("per_layer_sizes preserved for TopMiddleBottom");
+    assert_eq!(sizes.len(), 3, "per_layer_sizes is [top, mid, bottom]");
+    let expected_sizes = [(1.778, 1.778), (1.524, 1.524), (1.27, 1.27)];
+    for (i, &(ew, eh)) in expected_sizes.iter().enumerate() {
+        assert!(
+            approx_eq(sizes[i].0, ew, 1e-2) && approx_eq(sizes[i].1, eh, 1e-2),
+            "per-layer size {i}: expected ~({ew},{eh}), got {:?}",
+            sizes[i],
+        );
+    }
+
+    // Mid/bottom per-layer shapes round-trip.
+    assert_eq!(
+        read_pad.per_layer_shapes.as_deref(),
+        Some([PadShape::Round, PadShape::Round, PadShape::Rectangle].as_slice()),
+        "per_layer_shapes is [top, mid, bottom]",
+    );
+}
+
+#[test]
 fn pcblib_file_roundtrip_layers() {
     let temp_dir = test_temp_dir();
     let file_path = temp_dir.path().join("test_layers.PcbLib");
