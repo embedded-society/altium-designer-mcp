@@ -92,6 +92,57 @@ def test_write_read_roundtrip(client, runner, lib_path):
     runner.check("RESC0402" in json.dumps(got), "get_component returns RESC0402")
 
 
+def test_read_pcblib_exposes_vias_fills(client, runner, sample_path):
+    print("\n=== Test: read_pcblib exposes vias and fills ===")
+    # Regression guard: the read_pcblib / get_component / list_components JSON
+    # builders once omitted the `vias` and `fills` collections even though the
+    # reader parsed them. Drive the real tool against the committed sample
+    # (the MCP write path cannot author vias/fills) and assert both collections
+    # survive into the JSON output for the footprints that contain them.
+    read = client.call_tool("read_pcblib", {"filepath": sample_path})
+    runner.check(not read.get("_isError"), "read_pcblib succeeded", actual=read)
+
+    footprints = {fp.get("name"): fp for fp in read.get("footprints", [])}
+
+    vias_fp = footprints.get("VIAS", {})
+    runner.check("vias" in vias_fp, "VIAS footprint has 'vias' field")
+    runner.check(
+        len(vias_fp.get("vias", [])) == 2,
+        "VIAS footprint exposes 2 vias",
+        actual=len(vias_fp.get("vias", [])),
+        expected=2,
+    )
+
+    fills_fp = footprints.get("FILLS", {})
+    runner.check("fills" in fills_fp, "FILLS footprint has 'fills' field")
+    runner.check(
+        len(fills_fp.get("fills", [])) == 2,
+        "FILLS footprint exposes 2 fills",
+        actual=len(fills_fp.get("fills", [])),
+        expected=2,
+    )
+
+    # The fields must be present (as empty arrays) on footprints without them too.
+    shapes_fp = footprints.get("PAD_SHAPES", {})
+    runner.check("vias" in shapes_fp, "PAD_SHAPES footprint has 'vias' field")
+    runner.check("fills" in shapes_fp, "PAD_SHAPES footprint has 'fills' field")
+
+    # get_component must carry the same collections through. It returns the
+    # footprint under a singular `component` key (serialised straight from the
+    # Footprint struct), so guard that path too.
+    got = client.call_tool(
+        "get_component", {"filepath": sample_path, "component_name": "VIAS"}
+    )
+    runner.check(not got.get("_isError"), "get_component(VIAS) succeeded", actual=got)
+    got_component = got.get("component", {})
+    runner.check(
+        len(got_component.get("vias", [])) == 2,
+        "get_component(VIAS) exposes 2 vias",
+        actual=len(got_component.get("vias", [])),
+        expected=2,
+    )
+
+
 def test_unknown_tool(client, runner):
     print("\n=== Test: unknown tool ===")
     response = client.send("tools/call", {"name": "nope_not_a_tool", "arguments": {}})
@@ -148,12 +199,21 @@ def main():
     work = tempfile.mkdtemp(prefix="altium-it-")
     allowed = os.path.join(work, "libs")
     os.makedirs(allowed, exist_ok=True)
+    # The committed read-only fixture lives in the repo, so allow its directory
+    # too (the MCP write path cannot author vias/fills — reading the real sample
+    # is the only way to exercise those collections).
+    samples_dir = os.path.realpath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "samples")
+    )
     config_path = os.path.join(work, "config.json")
     with open(config_path, "w", encoding="utf-8") as f:
-        json.dump({"allowed_paths": [allowed], "logging": {"level": "warn"}}, f)
+        json.dump(
+            {"allowed_paths": [allowed, samples_dir], "logging": {"level": "warn"}}, f
+        )
 
     lib_path = os.path.join(allowed, "RoundTrip.PcbLib")
     outside_path = os.path.join(work, "outside.PcbLib")  # in `work`, not `allowed`
+    sample_path = os.path.join(samples_dir, "pads.PcbLib")
 
     client = McpTestClient(binary, config_path)
     client.start()
@@ -162,6 +222,7 @@ def main():
         test_initialise(client, runner)
         test_tools_list(client, runner)
         test_write_read_roundtrip(client, runner, lib_path)
+        test_read_pcblib_exposes_vias_fills(client, runner, sample_path)
         test_unknown_tool(client, runner)
         test_unknown_method(client, runner)
         test_missing_params(client, runner)
