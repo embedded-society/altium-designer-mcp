@@ -192,6 +192,43 @@ def test_ping(client, runner):
     runner.check("result" in response, "ping has result")
 
 
+def test_read_schlib_exposes_round_rects_polygons(client, runner, schlib_sample_path):
+    print("\n=== Test: read_schlib exposes round_rects and polygons ===")
+    # Regression guard mirroring the pcblib vias/fills one: the read_schlib /
+    # get_component / list_components symbol JSON builders omitted the
+    # `round_rects` and `polygons` collections even though the reader parsed
+    # them. Drive the real tool against the committed SchLib sample (the MCP
+    # write path cannot author them) and assert both survive into the output.
+    read = client.call_tool("read_schlib", {"filepath": schlib_sample_path})
+    runner.check(not read.get("_isError"), "read_schlib succeeded", actual=read)
+
+    symbols = {s.get("name"): s for s in read.get("symbols", [])}
+
+    rr = symbols.get("ROUNDRECTS", {})
+    runner.check("round_rects" in rr, "ROUNDRECTS symbol has 'round_rects' field")
+    runner.check(
+        len(rr.get("round_rects", [])) == 1,
+        "ROUNDRECTS exposes 1 round_rect",
+        actual=len(rr.get("round_rects", [])),
+        expected=1,
+    )
+
+    pg = symbols.get("POLYGONS", {})
+    runner.check("polygons" in pg, "POLYGONS symbol has 'polygons' field")
+    runner.check(
+        len(pg.get("polygons", [])) == 2,
+        "POLYGONS exposes 2 polygons",
+        actual=len(pg.get("polygons", [])),
+        expected=2,
+    )
+
+    # Empty-case guard: a non-shape symbol still carries both (empty) fields,
+    # so they can't silently vanish from the schema.
+    pins = symbols.get("PINS_ETYPE", {})
+    runner.check("round_rects" in pins, "PINS_ETYPE symbol has 'round_rects' field")
+    runner.check("polygons" in pins, "PINS_ETYPE symbol has 'polygons' field")
+
+
 def main():
     binary = find_binary()
     print(f"Using binary: {binary}")
@@ -214,6 +251,7 @@ def main():
     lib_path = os.path.join(allowed, "RoundTrip.PcbLib")
     outside_path = os.path.join(work, "outside.PcbLib")  # in `work`, not `allowed`
     sample_path = os.path.join(samples_dir, "pads.PcbLib")
+    schlib_sample_path = os.path.join(samples_dir, "symbols.SchLib")
 
     client = McpTestClient(binary, config_path)
     client.start()
@@ -223,6 +261,7 @@ def main():
         test_tools_list(client, runner)
         test_write_read_roundtrip(client, runner, lib_path)
         test_read_pcblib_exposes_vias_fills(client, runner, sample_path)
+        test_read_schlib_exposes_round_rects_polygons(client, runner, schlib_sample_path)
         test_unknown_tool(client, runner)
         test_unknown_method(client, runner)
         test_missing_params(client, runner)
