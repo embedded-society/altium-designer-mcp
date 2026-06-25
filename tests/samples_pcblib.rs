@@ -5,7 +5,9 @@
 //! against the file's authored intent (rather than round-tripping our own
 //! writer's output, as `file_io_roundtrip.rs` does).
 
-use altium_designer_mcp::altium::pcblib::{HoleShape, Layer, PadShape, PcbLib, TextKind};
+use altium_designer_mcp::altium::pcblib::{
+    HoleShape, Layer, PadShape, PadStackMode, PcbLib, TextKind,
+};
 use std::path::PathBuf;
 
 /// Resolves a sample fixture by name under `scripts/samples/`.
@@ -37,12 +39,13 @@ fn samples_exist() {
 fn samples_pcblib_pad_shapes() {
     let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
 
-    // The library contains nine footprints, one per primitive family.
-    assert_eq!(lib.len(), 9, "expected exactly nine footprints");
+    // The library contains eleven footprints, one per primitive family.
+    assert_eq!(lib.len(), 11, "expected exactly eleven footprints");
     let names = lib.names();
     for expected in [
         "PAD_SHAPES",
         "PAD_HOLES",
+        "PAD_STACK",
         "TRACKS",
         "ARCS",
         "REGIONS",
@@ -50,6 +53,7 @@ fn samples_pcblib_pad_shapes() {
         "VIAS",
         "FILLS",
         "TEXT_WIN1252",
+        "BODY3D",
     ] {
         assert!(
             names.iter().any(|n| n == expected),
@@ -98,6 +102,48 @@ fn samples_pcblib_pad_shapes() {
             pad.height,
         );
     }
+}
+
+#[test]
+fn samples_pcblib_pad_stack() {
+    let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
+    let footprint = lib.get("PAD_STACK").expect("footprint PAD_STACK not found");
+    assert_eq!(footprint.pads.len(), 1, "PAD_STACK has 1 pad");
+    let pad = &footprint.pads[0];
+
+    // A multi-layer (LocalStack) through-hole pad authored with a 70-mil round top,
+    // 60-mil round mid and 50-mil square bottom over a 30-mil round hole. The reader
+    // recognises the stack MODE and surfaces the top layer + hole. The mid/bottom
+    // per-layer sizes are a known reader gap (TODO.md A1, "middle/bottom sizes
+    // (TopMiddleBottom)") — `per_layer_sizes` is still None; this sample is the golden
+    // that unblocks that fix.
+    assert_eq!(
+        pad.stack_mode,
+        PadStackMode::TopMiddleBottom,
+        "authored ePadMode_LocalStack reads back as a TopMiddleBottom stack",
+    );
+    assert_eq!(
+        pad.layer,
+        Layer::MultiLayer,
+        "through-hole pad spans all layers",
+    );
+    assert_eq!(pad.shape, PadShape::Round, "top-layer shape");
+    assert!(
+        approx_eq(pad.width, 1.778, 1e-2),
+        "top width ~70 mil, got {}",
+        pad.width,
+    );
+    assert!(
+        approx_eq(pad.height, 1.778, 1e-2),
+        "top height ~70 mil, got {}",
+        pad.height,
+    );
+    assert_eq!(pad.hole_shape, HoleShape::Round, "round hole");
+    assert!(
+        pad.hole_size.is_some_and(|h| approx_eq(h, 0.762, 1e-2)),
+        "hole ~30 mil, got {:?}",
+        pad.hole_size,
+    );
 }
 
 #[test]
@@ -460,4 +506,74 @@ fn samples_pcblib_text_win1252() {
         assert_eq!(text.kind, TextKind::Stroke, "text {content:?} kind");
         assert_eq!(text.layer, Layer::TopOverlay, "text {content:?} layer");
     }
+}
+
+#[test]
+fn samples_pcblib_body3d() {
+    let lib = PcbLib::open(sample("pads.PcbLib")).expect("failed to open pads.PcbLib");
+
+    let footprint = lib.get("BODY3D").expect("footprint BODY3D not found");
+    assert_eq!(footprint.name, "BODY3D");
+    assert_eq!(
+        footprint.component_bodies.len(),
+        1,
+        "BODY3D has 1 component body",
+    );
+
+    // A simple extruded 3D component body: a 100x60 mil rectangle authored on the
+    // top 3D-body layer, ~1 mm (40 mil) tall, sitting flush on the board (standoff 0).
+    let body = &footprint.component_bodies[0];
+    assert!(
+        approx_eq(body.overall_height, 1.016, 1e-2),
+        "overall_height: expected ~1.016 mm (40 mil), got {}",
+        body.overall_height,
+    );
+    assert!(
+        approx_eq(body.standoff_height, 0.0, 1e-2),
+        "standoff_height: expected ~0, got {}",
+        body.standoff_height,
+    );
+    assert_eq!(body.layer, Layer::Top3DBody, "body layer");
+
+    // Altium reorders the contour vertices on save, so we assert the vertex count
+    // and the axis-aligned bounding box rather than an exact vertex order.
+    assert_eq!(body.outline.len(), 4, "body outline is a 4-vertex box");
+
+    let min_x = body
+        .outline
+        .iter()
+        .map(|&(x, _)| x)
+        .fold(f64::INFINITY, f64::min);
+    let max_x = body
+        .outline
+        .iter()
+        .map(|&(x, _)| x)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let min_y = body
+        .outline
+        .iter()
+        .map(|&(_, y)| y)
+        .fold(f64::INFINITY, f64::min);
+    let max_y = body
+        .outline
+        .iter()
+        .map(|&(_, y)| y)
+        .fold(f64::NEG_INFINITY, f64::max);
+
+    assert!(
+        approx_eq(min_x, -1.27, 1e-2),
+        "outline min x: expected ~-1.27 mm, got {min_x}",
+    );
+    assert!(
+        approx_eq(max_x, 1.27, 1e-2),
+        "outline max x: expected ~1.27 mm, got {max_x}",
+    );
+    assert!(
+        approx_eq(min_y, -0.762, 1e-2),
+        "outline min y: expected ~-0.762 mm, got {min_y}",
+    );
+    assert!(
+        approx_eq(max_y, 0.762, 1e-2),
+        "outline max y: expected ~0.762 mm, got {max_y}",
+    );
 }

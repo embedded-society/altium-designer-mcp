@@ -94,6 +94,29 @@ begin
                                   PCBM_BoardRegisteration, Pad.I_ObjectAddress);
 end;
 
+{ A multi-layer (LocalStack) through-hole pad: top/mid/bottom shapes+sizes differ.
+  ePadMode_LocalStack unlocks the Top/Mid/Bot triplet (the single mid applies to all
+  internal layers). Verified via CreatePCBObjects.PAS PlaceATopMidBotStackPad. }
+procedure AddThStackPad(Comp : IPCB_LibComponent; X : Integer; Nm : String);
+var
+    Pad : IPCB_Pad;
+begin
+    Pad := PCBServer.PCBObjectFactory(ePadObject, eNoDimension, eCreate_Default);
+    if Pad = nil then Exit;
+    Pad.Name     := Nm;
+    Pad.X        := MilsToCoord(X);
+    Pad.Y        := MilsToCoord(0);
+    Pad.Layer    := eMultiLayer;          // through-hole: spans all copper
+    Pad.HoleSize := MilsToCoord(30);      // round hole (HoleType left default)
+    Pad.Mode     := ePadMode_LocalStack;  // top / mid / bottom independent
+    Pad.TopShape := eRounded;      Pad.TopXSize := MilsToCoord(70);  Pad.TopYSize := MilsToCoord(70);
+    Pad.MidShape := eRounded;      Pad.MidXSize := MilsToCoord(60);  Pad.MidYSize := MilsToCoord(60);
+    Pad.BotShape := eRectangular;  Pad.BotXSize := MilsToCoord(50);  Pad.BotYSize := MilsToCoord(50);
+    Comp.AddPCBObject(Pad);
+    PCBServer.SendMessageToRobots(Comp.I_ObjectAddress, c_Broadcast,
+                                  PCBM_BoardRegisteration, Pad.I_ObjectAddress);
+end;
+
 { Adds one track (X1,Y1)->(X2,Y2) mils, width (mils), on Lay. Verified via UL FP_AddLine. }
 procedure AddTrack(Comp : IPCB_LibComponent; X1 : Integer; Y1 : Integer;
                    X2 : Integer; Y2 : Integer; W : Integer; Lay : TLayer);
@@ -224,6 +247,40 @@ begin
                                   PCBM_BoardRegisteration, Fill.I_ObjectAddress);
 end;
 
+{ A simple extruded 3D ComponentBody: a rectangular WMils x HMils outline centred at
+  (CX,CY) mils, extruded from the board (standoff 0) to OverallMils height. Outline via
+  ShapeSegments + UpdateContourFromShape (the from-scratch route proven in MakeRegionShapes
+  AddExtrudedBody2). A body lives on a MECHANICAL layer, never copper. }
+procedure AddExtrudedBox(Comp : IPCB_LibComponent; CX : Integer; CY : Integer;
+                         WMils : Integer; HMils : Integer; OverallMils : Integer);
+var
+    Body  : IPCB_ComponentBody;
+    Cont  : IPCB_Contour;
+    HalfW : Integer;
+    HalfH : Integer;
+begin
+    HalfW := WMils div 2;
+    HalfH := HMils div 2;
+    Body := PCBServer.PCBObjectFactory(eComponentBodyObject, eNoDimension, eCreate_Default);
+    if Body = nil then Exit;
+    Body.BodyProjection := eBoardSide_Top;
+    Body.Layer          := LayerUtils.MechanicalLayer(13);
+    Body.StandoffHeight := 0;
+    Body.OverallHeight  := MilsToCoord(OverallMils);
+    // Outline via the IPCB_Contour vertex API (1-based) — the same proven path AddRegionBox
+    // uses; avoids ShapeSegments/TPolySegment (TPolySegment.Kind is undeclared in AD24).
+    Cont := Body.MainContour.Replicate;
+    Cont.Count := 4;
+    Cont.X[1] := MilsToCoord(CX - HalfW);  Cont.Y[1] := MilsToCoord(CY - HalfH);
+    Cont.X[2] := MilsToCoord(CX + HalfW);  Cont.Y[2] := MilsToCoord(CY - HalfH);
+    Cont.X[3] := MilsToCoord(CX + HalfW);  Cont.Y[3] := MilsToCoord(CY + HalfH);
+    Cont.X[4] := MilsToCoord(CX - HalfW);  Cont.Y[4] := MilsToCoord(CY + HalfH);
+    Body.SetOutlineContour(Cont);
+    Comp.AddPCBObject(Body);
+    PCBServer.SendMessageToRobots(Comp.I_ObjectAddress, c_Broadcast,
+                                  PCBM_BoardRegisteration, Body.I_ObjectAddress);
+end;
+
 { ---- PcbLib authoring -------------------------------------------------------
 
   Footprints: PAD_SHAPES, PAD_HOLES, VIAS, TRACKS, ARCS, REGIONS, FILLS, TEXT_STROKE,
@@ -281,6 +338,17 @@ begin
     except
     end;
 
+    // PAD_STACK: one multi-layer through-hole pad (top/mid/bottom shapes+sizes differ).
+    try
+        Comp := PCBServer.CreatePCBLibComp;
+        Comp.Name := 'PAD_STACK';
+        Lib.RegisterComponent(Comp);
+        PCBServer.PreProcess;
+        AddThStackPad(Comp, 0, '1');
+        PCBServer.PostProcess;
+    except
+    end;
+
     // TRACKS: a 4-segment silk box (10 mil) + one wider copper track (20 mil).
     try
         Comp := PCBServer.CreatePCBLibComp;
@@ -328,6 +396,17 @@ begin
         PCBServer.PreProcess;
         AddFill(Comp,  0, 0,  40, 20, eTopLayer,  0);
         AddFill(Comp, 60, 0, 100, 20, eTopLayer, 45);
+        PCBServer.PostProcess;
+    except
+    end;
+
+    // BODY3D: a simple extruded 3D component body (100x60 mil outline, ~40 mil tall).
+    try
+        Comp := PCBServer.CreatePCBLibComp;
+        Comp.Name := 'BODY3D';
+        Lib.RegisterComponent(Comp);
+        PCBServer.PreProcess;
+        AddExtrudedBox(Comp, 0, 0, 100, 60, 40);
         PCBServer.PostProcess;
     except
     end;
