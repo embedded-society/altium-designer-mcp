@@ -94,6 +94,29 @@ begin
                                   PCBM_BoardRegisteration, Pad.I_ObjectAddress);
 end;
 
+{ A multi-layer (LocalStack) through-hole pad: top/mid/bottom shapes+sizes differ.
+  ePadMode_LocalStack unlocks the Top/Mid/Bot triplet (the single mid applies to all
+  internal layers). Verified via CreatePCBObjects.PAS PlaceATopMidBotStackPad. }
+procedure AddThStackPad(Comp : IPCB_LibComponent; X : Integer; Nm : String);
+var
+    Pad : IPCB_Pad;
+begin
+    Pad := PCBServer.PCBObjectFactory(ePadObject, eNoDimension, eCreate_Default);
+    if Pad = nil then Exit;
+    Pad.Name     := Nm;
+    Pad.X        := MilsToCoord(X);
+    Pad.Y        := MilsToCoord(0);
+    Pad.Layer    := eMultiLayer;          // through-hole: spans all copper
+    Pad.HoleSize := MilsToCoord(30);      // round hole (HoleType left default)
+    Pad.Mode     := ePadMode_LocalStack;  // top / mid / bottom independent
+    Pad.TopShape := eRounded;      Pad.TopXSize := MilsToCoord(70);  Pad.TopYSize := MilsToCoord(70);
+    Pad.MidShape := eRounded;      Pad.MidXSize := MilsToCoord(60);  Pad.MidYSize := MilsToCoord(60);
+    Pad.BotShape := eRectangular;  Pad.BotXSize := MilsToCoord(50);  Pad.BotYSize := MilsToCoord(50);
+    Comp.AddPCBObject(Pad);
+    PCBServer.SendMessageToRobots(Comp.I_ObjectAddress, c_Broadcast,
+                                  PCBM_BoardRegisteration, Pad.I_ObjectAddress);
+end;
+
 { Adds one track (X1,Y1)->(X2,Y2) mils, width (mils), on Lay. Verified via UL FP_AddLine. }
 procedure AddTrack(Comp : IPCB_LibComponent; X1 : Integer; Y1 : Integer;
                    X2 : Integer; Y2 : Integer; W : Integer; Lay : TLayer);
@@ -277,6 +300,17 @@ begin
         PCBServer.PreProcess;
         AddVia(Comp,  0, 0, 24, 12);
         AddVia(Comp, 80, 0, 40, 20);
+        PCBServer.PostProcess;
+    except
+    end;
+
+    // PAD_STACK: one multi-layer through-hole pad (top/mid/bottom shapes+sizes differ).
+    try
+        Comp := PCBServer.CreatePCBLibComp;
+        Comp.Name := 'PAD_STACK';
+        Lib.RegisterComponent(Comp);
+        PCBServer.PreProcess;
+        AddThStackPad(Comp, 0, '1');
         PCBServer.PostProcess;
     except
     end;

@@ -22,6 +22,7 @@ and [`tests/samples_schlib.rs`](../../tests/samples_schlib.rs).
 | `pads.PcbLib` | `PAD_SHAPES` | Four SMD pads, one per pad shape: Round, Rectangle, Octagonal, RoundedRectangle |
 | `pads.PcbLib` | `PAD_HOLES` | Three through-hole pads, one per hole shape: round, square, slot (square/slot exercise the 651-byte size/shape block) |
 | `pads.PcbLib` | `VIAS` | Two simple through-vias (Top to Bottom), different pad/hole sizes |
+| `pads.PcbLib` | `PAD_STACK` | A multi-layer through-hole pad stack (top/mid/bottom shapes and sizes differ) |
 | `pads.PcbLib` | `TRACKS` | Five tracks: a 4-segment silk box + a wider copper track |
 | `pads.PcbLib` | `ARCS` | A full circle and a quarter arc |
 | `pads.PcbLib` | `REGIONS` | A copper box and a mechanical box (filled regions) |
