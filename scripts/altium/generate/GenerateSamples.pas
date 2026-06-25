@@ -595,10 +595,10 @@ begin
     Pin.Name                 := Nm;
     Pin.ShowDesignator       := True;
     Pin.ShowName             := True;
-    Pin.Symbol_InnerEdge     := SInner;    { UNCERTAIN: Symbol_InnerEdge property name }
-    Pin.Symbol_OuterEdge     := SOuter;    { UNCERTAIN: Symbol_OuterEdge property name }
-    // Symbol_Inside / Symbol_Outside deferred: those exact names are undeclared in AD24
-    // (inner/outer edge compile fine). SInside/SOutside are accepted but unused for now.
+    Pin.Symbol_InnerEdge     := SInner;     { "Inside Edge" slot  (binary symbol_inner_edge) }
+    Pin.Symbol_OuterEdge     := SOuter;     { "Outside Edge" slot (binary symbol_outer_edge) }
+    Pin.Symbol_Inner         := SInside;    { "Inside" slot  (binary symbol_inside) }
+    Pin.Symbol_Outer         := SOutside;   { "Outside" slot (binary symbol_outside) }
     Pin.OwnerPartId          := OwnerPart;
     Pin.OwnerPartDisplayMode := Comp.DisplayMode;
     Comp.AddSchObject(Pin);
@@ -683,17 +683,21 @@ begin
     except
     end;
 
-    { ---- PINS_DECOR — dot / clock / active-low-clock (Tier A AddPinDecor) ---- }
+    { ---- PINS_DECOR — clock / dot on each of the four IEEE decoration slots ---- }
     try
         Comp := NewSymbol(Lib, 'PINS_DECOR', 'Pin decoration symbols', 1);
         if Comp <> nil then
         begin
-            AddPinDecor(Comp, 0,    0, 200, eRotate180, eElectricInput, '1', 'DOT',  1,
-                        eNoSymbol, eDot,   eNoSymbol,  eNoSymbol);
-            AddPinDecor(Comp, 0, -100, 200, eRotate180, eElectricInput, '2', 'CLK',  1,
-                        eNoSymbol, eNoSymbol,  eClock, eNoSymbol);
-            AddPinDecor(Comp, 0, -200, 200, eRotate180, eElectricInput, '3', 'NCLK', 1,
-                        eNoSymbol, eDot,   eClock, eNoSymbol);
+            { one pin per IEEE decoration slot, now that all four property names are confirmed
+              (SInner->InnerEdge, SOuter->OuterEdge, SInside->Inner, SOutside->Outer) }
+            AddPinDecor(Comp, 0,    0, 200, eRotate180, eElectricInput, '1', 'IECLK',  1,
+                        eClock,    eNoSymbol, eNoSymbol, eNoSymbol);   { inner edge = clock }
+            AddPinDecor(Comp, 0, -100, 200, eRotate180, eElectricInput, '2', 'OEDOT',  1,
+                        eNoSymbol, eDot,      eNoSymbol, eNoSymbol);   { outer edge = dot }
+            AddPinDecor(Comp, 0, -200, 200, eRotate180, eElectricInput, '3', 'INCLK',  1,
+                        eNoSymbol, eNoSymbol, eClock,    eNoSymbol);   { inside = clock }
+            AddPinDecor(Comp, 0, -300, 200, eRotate180, eElectricInput, '4', 'OUTDOT', 1,
+                        eNoSymbol, eNoSymbol, eNoSymbol, eDot);        { outside = dot }
         end;
     except
     end;
