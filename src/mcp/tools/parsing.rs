@@ -20,6 +20,18 @@ fn json_i32(json: &Value, field: &str) -> Option<i32> {
 impl McpServer {
     // ==================== Primitive Parsing Helpers ====================
 
+    pub(crate) fn check_unknown_fields(json: &serde_json::Value, allowed_keys: &[&str]) -> Result<(), String> {
+        if let Some(obj) = json.as_object() {
+            for key in obj.keys() {
+                if !allowed_keys.contains(&key.as_str()) {
+                    return Err(format!("Unknown field '{}'. Allowed fields are: {:?}", key, allowed_keys));
+                }
+            }
+        }
+        Ok(())
+    }
+
+
     /// Parses a pad from JSON.
     #[allow(clippy::too_many_lines)] // Pad has many fields requiring individual parsing
     pub(crate) fn parse_pad(json: &Value) -> Result<crate::altium::pcblib::Pad, String> {
