@@ -243,6 +243,14 @@ fn body_3d_summary(fp: &crate::altium::pcblib::Footprint, assumed_height: bool) 
     })
 }
 
+macro_rules! check_keys {
+    ($json:expr, $keys:expr) => {
+        if let Err(e) = McpServer::check_unknown_fields($json, $keys) {
+            return crate::mcp::server::ToolCallResult::error(e);
+        }
+    };
+}
+
 impl McpServer {
     // ==================== Tool Handlers ====================
 
@@ -492,6 +500,21 @@ impl McpServer {
         let mut bodies_echo: Vec<Value> = Vec::new();
 
         for fp_json in footprints_json {
+            check_keys!(
+                fp_json,
+                &[
+                    "name",
+                    "description",
+                    "pads",
+                    "tracks",
+                    "arcs",
+                    "regions",
+                    "texts",
+                    "vias",
+                    "fills",
+                    "step_model"
+                ]
+            );
             let name = fp_json
                 .get("name")
                 .and_then(Value::as_str)
@@ -590,6 +613,7 @@ impl McpServer {
             // Parse regions
             if let Some(regions) = fp_json.get("regions").and_then(Value::as_array) {
                 for region_json in regions {
+                    check_keys!(region_json, &["vertices"]);
                     if let Some(region) = Self::parse_region(region_json) {
                         footprint.add_region(region);
                     }
@@ -599,6 +623,7 @@ impl McpServer {
             // Parse text
             if let Some(texts) = fp_json.get("text").and_then(Value::as_array) {
                 for text_json in texts {
+                    check_keys!(text_json, &["height", "rotation", "text", "x", "y"]);
                     if let Some(text) = Self::parse_text(text_json) {
                         footprint.add_text(text);
                     }
@@ -1056,6 +1081,27 @@ impl McpServer {
         }
 
         for sym_json in symbols_json {
+            check_keys!(
+                sym_json,
+                &[
+                    "name",
+                    "description",
+                    "designator",
+                    "designator_prefix",
+                    "component_type",
+                    "part_count",
+                    "pins",
+                    "rectangles",
+                    "lines",
+                    "polylines",
+                    "polygons",
+                    "arcs",
+                    "ellipses",
+                    "labels",
+                    "texts",
+                    "parameters"
+                ]
+            );
             let name = sym_json
                 .get("name")
                 .and_then(Value::as_str)
@@ -1067,22 +1113,32 @@ impl McpServer {
             }
 
             // Always assign a reference designator. Precedence:
-            //   1. explicit `designator_prefix`
-            //   2. `component_type` mapped via IEEE 315 / ASME Y14.44 table
-            //   3. fallback "U" (integrated circuit)
+            //   1. explicit `designator`
+            //   2. explicit `designator_prefix`
+            //   3. `component_type` mapped via IEEE 315 / ASME Y14.44 table
+            //   4. fallback "U" (integrated circuit)
             // so every symbol carries a `<prefix>?` designator in the SchLib.
-            let prefix = sym_json
-                .get("designator_prefix")
+            let designator = sym_json
+                .get("designator")
                 .and_then(Value::as_str)
-                .map(str::to_string)
-                .or_else(|| {
-                    sym_json
-                        .get("component_type")
-                        .and_then(Value::as_str)
-                        .map(|t| ieee_designator_prefix(t).to_string())
-                })
-                .unwrap_or_else(|| "U".to_string());
-            symbol.designator = format!("{prefix}?");
+                .map_or_else(
+                    || {
+                        let prefix = sym_json
+                            .get("designator_prefix")
+                            .and_then(Value::as_str)
+                            .map(str::to_string)
+                            .or_else(|| {
+                                sym_json
+                                    .get("component_type")
+                                    .and_then(Value::as_str)
+                                    .map(|t| ieee_designator_prefix(t).to_string())
+                            })
+                            .unwrap_or_else(|| "U".to_string());
+                        format!("{prefix}?")
+                    },
+                    str::to_string,
+                );
+            symbol.designator = designator;
 
             // Parse part_count for multi-part symbols (e.g., dual op-amp)
             if let Some(part_count) = sym_json.get("part_count").and_then(Value::as_u64) {
@@ -1095,6 +1151,26 @@ impl McpServer {
             // Parse pins
             if let Some(pins) = sym_json.get("pins").and_then(Value::as_array) {
                 for pin_json in pins {
+                    check_keys!(
+                        pin_json,
+                        &[
+                            "name",
+                            "designator",
+                            "x",
+                            "y",
+                            "length",
+                            "orientation",
+                            "electrical_type",
+                            "hidden",
+                            "show_name",
+                            "show_designator",
+                            "owner_part_id",
+                            "symbol_inner_edge",
+                            "symbol_outer_edge",
+                            "symbol_inside",
+                            "symbol_outside"
+                        ]
+                    );
                     if let Some(pin) = Self::parse_schlib_pin(pin_json) {
                         symbol.add_pin(pin);
                     }
@@ -1104,6 +1180,18 @@ impl McpServer {
             // Parse rectangles
             if let Some(rects) = sym_json.get("rectangles").and_then(Value::as_array) {
                 for rect_json in rects {
+                    check_keys!(
+                        rect_json,
+                        &[
+                            "filled",
+                            "line_width",
+                            "owner_part_id",
+                            "x1",
+                            "x2",
+                            "y1",
+                            "y2"
+                        ]
+                    );
                     if let Some(rect) = Self::parse_schlib_rectangle(rect_json) {
                         symbol.add_rectangle(rect);
                     }
@@ -1113,6 +1201,7 @@ impl McpServer {
             // Parse rounded rectangles
             if let Some(round_rects) = sym_json.get("round_rects").and_then(Value::as_array) {
                 for round_rect_json in round_rects {
+                    check_keys!(round_rect_json, &[]);
                     if let Some(round_rect) = Self::parse_schlib_round_rect(round_rect_json) {
                         symbol.add_round_rect(round_rect);
                     }
@@ -1122,6 +1211,10 @@ impl McpServer {
             // Parse lines
             if let Some(lines) = sym_json.get("lines").and_then(Value::as_array) {
                 for line_json in lines {
+                    check_keys!(
+                        line_json,
+                        &["line_width", "owner_part_id", "x1", "x2", "y1", "y2"]
+                    );
                     if let Some(line) = Self::parse_schlib_line(line_json) {
                         symbol.add_line(line);
                     }
@@ -1131,6 +1224,7 @@ impl McpServer {
             // Parse polylines
             if let Some(polylines) = sym_json.get("polylines").and_then(Value::as_array) {
                 for polyline_json in polylines {
+                    check_keys!(polyline_json, &["line_width", "owner_part_id", "vertices"]);
                     if let Some(polyline) = Self::parse_schlib_polyline(polyline_json) {
                         symbol.add_polyline(polyline);
                     }
@@ -1140,6 +1234,10 @@ impl McpServer {
             // Parse polygons
             if let Some(polygons) = sym_json.get("polygons").and_then(Value::as_array) {
                 for polygon_json in polygons {
+                    check_keys!(
+                        polygon_json,
+                        &["filled", "line_width", "owner_part_id", "vertices"]
+                    );
                     if let Some(polygon) = Self::parse_schlib_polygon(polygon_json) {
                         symbol.add_polygon(polygon);
                     }
@@ -1149,6 +1247,7 @@ impl McpServer {
             // Parse arcs
             if let Some(arcs) = sym_json.get("arcs").and_then(Value::as_array) {
                 for arc_json in arcs {
+                    check_keys!(arc_json, &["layer"]);
                     if let Some(arc) = Self::parse_schlib_arc(arc_json) {
                         symbol.add_arc(arc);
                     }
@@ -1158,6 +1257,18 @@ impl McpServer {
             // Parse ellipses
             if let Some(ellipses) = sym_json.get("ellipses").and_then(Value::as_array) {
                 for ellipse_json in ellipses {
+                    check_keys!(
+                        ellipse_json,
+                        &[
+                            "filled",
+                            "line_width",
+                            "owner_part_id",
+                            "radius_x",
+                            "radius_y",
+                            "x",
+                            "y"
+                        ]
+                    );
                     if let Some(ellipse) = Self::parse_schlib_ellipse(ellipse_json) {
                         symbol.add_ellipse(ellipse);
                     }
@@ -1167,6 +1278,19 @@ impl McpServer {
             // Parse labels
             if let Some(labels) = sym_json.get("labels").and_then(Value::as_array) {
                 for label_json in labels {
+                    check_keys!(
+                        label_json,
+                        &[
+                            "font_id",
+                            "hidden",
+                            "justification",
+                            "owner_part_id",
+                            "rotation",
+                            "text",
+                            "x",
+                            "y"
+                        ]
+                    );
                     if let Some(label) = Self::parse_schlib_label(label_json) {
                         symbol.add_label(label);
                     }
@@ -1176,6 +1300,7 @@ impl McpServer {
             // Parse text annotations
             if let Some(texts) = sym_json.get("text").and_then(Value::as_array) {
                 for text_json in texts {
+                    check_keys!(text_json, &["height", "rotation", "text", "x", "y"]);
                     if let Some(text) = Self::parse_schlib_text(text_json) {
                         symbol.add_text(text);
                     }
@@ -1185,6 +1310,19 @@ impl McpServer {
             // Parse parameters
             if let Some(params) = sym_json.get("parameters").and_then(Value::as_array) {
                 for param_json in params {
+                    check_keys!(
+                        param_json,
+                        &[
+                            "name",
+                            "value",
+                            "x",
+                            "y",
+                            "hidden",
+                            "font_id",
+                            "color",
+                            "owner_part_id"
+                        ]
+                    );
                     if let Some(param) = Self::parse_schlib_parameter(param_json) {
                         symbol.add_parameter(param);
                     }
@@ -1194,6 +1332,21 @@ impl McpServer {
             // Parse footprint references
             if let Some(footprints) = sym_json.get("footprints").and_then(Value::as_array) {
                 for fp_json in footprints {
+                    check_keys!(
+                        fp_json,
+                        &[
+                            "name",
+                            "description",
+                            "pads",
+                            "tracks",
+                            "arcs",
+                            "regions",
+                            "texts",
+                            "vias",
+                            "fills",
+                            "step_model"
+                        ]
+                    );
                     if let Some(fp_name) = fp_json.get("name").and_then(Value::as_str) {
                         let mut fp = FootprintModel::new(fp_name);
                         if let Some(desc) = fp_json.get("description").and_then(Value::as_str) {
