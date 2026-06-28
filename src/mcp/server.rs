@@ -1631,6 +1631,46 @@ mod tests {
     }
 
     #[test]
+    fn write_schlib_accepts_arcs() {
+        // Regression: the strict-deserialization allow-list for SchLib arcs was
+        // copied from the (layer-based) PcbLib arc as `&["layer"]`, so every real
+        // arc — which carries x/y/radius/angles — was rejected as an unknown field
+        // and silently produced an arc-less symbol. The allow-list must accept the
+        // documented SchLib arc fields.
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("arc_lib.SchLib");
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepath": lib_path.to_string_lossy(),
+            "symbols": [{
+                "name": "ARC_SYM",
+                "designator": "L?",
+                "pins": [],
+                "arcs": [
+                    {"x": 0, "y": 0, "radius": 10, "start_angle": 0, "end_angle": 180,
+                     "line_width": 1, "color": 128, "owner_part_id": 1}
+                ]
+            }]
+        });
+
+        let result = server.call_write_schlib(&args);
+        assert!(
+            !result.is_error,
+            "arc input must be accepted, got: {}",
+            get_result_text(&result)
+        );
+
+        // The arc must actually persist (not be silently dropped).
+        let lib = SchLib::open(&lib_path).expect("Failed to read created library");
+        let sym = lib.get("ARC_SYM").expect("symbol present");
+        assert_eq!(sym.arcs.len(), 1, "arc written to the symbol");
+        let arc = &sym.arcs[0];
+        assert!((arc.radius - 10.0).abs() < 1e-9);
+        assert!((arc.end_angle - 180.0).abs() < 1e-9);
+    }
+
+    #[test]
     fn write_schlib_append_mode() {
         let temp = test_temp_dir();
         let lib_path = temp.path().join("append_test.SchLib");

@@ -1247,7 +1247,22 @@ impl McpServer {
             // Parse arcs
             if let Some(arcs) = sym_json.get("arcs").and_then(Value::as_array) {
                 for arc_json in arcs {
-                    check_keys!(arc_json, &["layer"]);
+                    // SchLib arcs are centre/radius/angle based, NOT layer-based like PcbLib arcs; the
+                    // allow-list must match the documented fields in tool_definitions or every arc is
+                    // rejected as an "unknown field" (was erroneously copied from the PcbLib arc as ["layer"]).
+                    check_keys!(
+                        arc_json,
+                        &[
+                            "color",
+                            "end_angle",
+                            "line_width",
+                            "owner_part_id",
+                            "radius",
+                            "start_angle",
+                            "x",
+                            "y"
+                        ]
+                    );
                     if let Some(arc) = Self::parse_schlib_arc(arc_json) {
                         symbol.add_arc(arc);
                     }
