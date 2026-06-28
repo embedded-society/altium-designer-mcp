@@ -371,31 +371,13 @@ fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
     })
 }
 
-/// Parses a numeric coordinate property, defaulting to zero when the key is
-/// absent or unparseable.
-///
-/// Altium omits zero-valued coordinates from a record's pipe-delimited text
-/// (`AddCoordParam` skips zeros), so a missing `Location.X` / `Corner.Y` /
-/// `Radius` / `X{n}` key means the value is zero — **not** a malformed record.
-/// Treating a missing key as fatal (the old `?` behaviour) silently dropped any
-/// shape that happened to sit on a zero coordinate.
-fn coord<T>(props: &HashMap<String, String>, key: &str) -> T
-where
-    T: std::str::FromStr + Default,
-{
-    props
-        .get(key)
-        .and_then(|s| s.parse().ok())
-        .unwrap_or_default()
-}
-
 /// Parses a rectangle from properties.
 #[allow(clippy::unnecessary_wraps)] // infallible (all coords default); Option kept for uniform parser dispatch
 fn parse_rectangle(props: &HashMap<String, String>) -> Option<Rectangle> {
-    let x1 = coord(props, "location.x");
-    let y1 = coord(props, "location.y");
-    let x2 = coord(props, "corner.x");
-    let y2 = coord(props, "corner.y");
+    let x1 = crate::altium::schlib::coord::read(props, "location.x");
+    let y1 = crate::altium::schlib::coord::read(props, "location.y");
+    let x2 = crate::altium::schlib::coord::read(props, "corner.x");
+    let y2 = crate::altium::schlib::coord::read(props, "corner.y");
 
     let line_width = props
         .get("linewidth")
@@ -479,14 +461,8 @@ fn parse_parameter(props: &HashMap<String, String>) -> Option<Parameter> {
     let name = props.get("name")?.clone();
     let value = props.get("text").cloned().unwrap_or_default();
 
-    let x = props
-        .get("location.x")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
-    let y = props
-        .get("location.y")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
+    let x = crate::altium::schlib::coord::read(props, "location.x");
+    let y = crate::altium::schlib::coord::read(props, "location.y");
     let font_id = props
         .get("fontid")
         .and_then(|s| s.parse().ok())
@@ -540,8 +516,8 @@ fn parse_polyline(props: &HashMap<String, String>) -> Option<Polyline> {
     for i in 1..=location_count {
         let x_key = format!("x{i}");
         let y_key = format!("y{i}");
-        let x = coord(props, &x_key);
-        let y = coord(props, &y_key);
+        let x = crate::altium::schlib::coord::read(props, &x_key);
+        let y = crate::altium::schlib::coord::read(props, &y_key);
         points.push((x, y));
     }
 
@@ -602,8 +578,8 @@ fn parse_polygon(props: &HashMap<String, String>) -> Option<Polygon> {
     for i in 1..=location_count {
         let x_key = format!("x{i}");
         let y_key = format!("y{i}");
-        let x = coord(props, &x_key);
-        let y = coord(props, &y_key);
+        let x = crate::altium::schlib::coord::read(props, &x_key);
+        let y = crate::altium::schlib::coord::read(props, &y_key);
         points.push((x, y));
     }
 
@@ -636,14 +612,15 @@ fn parse_polygon(props: &HashMap<String, String>) -> Option<Polygon> {
 /// Parses an ellipse from properties.
 #[allow(clippy::unnecessary_wraps)] // infallible (all coords default); Option kept for uniform parser dispatch
 fn parse_ellipse(props: &HashMap<String, String>) -> Option<Ellipse> {
-    let x = coord(props, "location.x");
-    let y = coord(props, "location.y");
-    let radius_x = coord(props, "radius");
+    let x = crate::altium::schlib::coord::read(props, "location.x");
+    let y = crate::altium::schlib::coord::read(props, "location.y");
+    let radius_x = crate::altium::schlib::coord::read(props, "radius");
     // Secondary radius, defaults to radius for circles
-    let radius_y = props
-        .get("secondaryradius")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(radius_x);
+    let radius_y = if props.contains_key("secondaryradius") {
+        crate::altium::schlib::coord::read(props, "secondaryradius")
+    } else {
+        radius_x
+    };
 
     let line_width = props
         .get("linewidth")
@@ -679,9 +656,9 @@ fn parse_ellipse(props: &HashMap<String, String>) -> Option<Ellipse> {
 /// Parses an arc from properties.
 #[allow(clippy::unnecessary_wraps)] // infallible (all coords default); Option kept for uniform parser dispatch
 fn parse_arc(props: &HashMap<String, String>) -> Option<Arc> {
-    let x = coord(props, "location.x");
-    let y = coord(props, "location.y");
-    let radius = coord(props, "radius");
+    let x = crate::altium::schlib::coord::read(props, "location.x");
+    let y = crate::altium::schlib::coord::read(props, "location.y");
+    let radius = crate::altium::schlib::coord::read(props, "radius");
 
     let start_angle = props
         .get("startangle")
@@ -725,14 +702,14 @@ fn parse_arc(props: &HashMap<String, String>) -> Option<Arc> {
 #[allow(clippy::unnecessary_wraps)] // infallible (all coords default); Option kept for uniform parser dispatch
 fn parse_bezier(props: &HashMap<String, String>) -> Option<Bezier> {
     // Bezier curves have 4 control points: X1,Y1 through X4,Y4
-    let x1 = coord(props, "x1");
-    let y1 = coord(props, "y1");
-    let x2 = coord(props, "x2");
-    let y2 = coord(props, "y2");
-    let x3 = coord(props, "x3");
-    let y3 = coord(props, "y3");
-    let x4 = coord(props, "x4");
-    let y4 = coord(props, "y4");
+    let x1 = crate::altium::schlib::coord::read(props, "x1");
+    let y1 = crate::altium::schlib::coord::read(props, "y1");
+    let x2 = crate::altium::schlib::coord::read(props, "x2");
+    let y2 = crate::altium::schlib::coord::read(props, "y2");
+    let x3 = crate::altium::schlib::coord::read(props, "x3");
+    let y3 = crate::altium::schlib::coord::read(props, "y3");
+    let x4 = crate::altium::schlib::coord::read(props, "x4");
+    let y4 = crate::altium::schlib::coord::read(props, "y4");
 
     let line_width = props
         .get("linewidth")
@@ -768,19 +745,13 @@ fn parse_bezier(props: &HashMap<String, String>) -> Option<Bezier> {
 #[allow(clippy::similar_names)]
 #[allow(clippy::unnecessary_wraps)] // infallible (all coords default); Option kept for uniform parser dispatch
 fn parse_round_rect(props: &HashMap<String, String>) -> Option<RoundRect> {
-    let x1 = coord(props, "location.x");
-    let y1 = coord(props, "location.y");
-    let x2 = coord(props, "corner.x");
-    let y2 = coord(props, "corner.y");
+    let x1 = crate::altium::schlib::coord::read(props, "location.x");
+    let y1 = crate::altium::schlib::coord::read(props, "location.y");
+    let x2 = crate::altium::schlib::coord::read(props, "corner.x");
+    let y2 = crate::altium::schlib::coord::read(props, "corner.y");
 
-    let corner_x_radius = props
-        .get("cornerxradius")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
-    let corner_y_radius = props
-        .get("corneryradius")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
+    let corner_x_radius = crate::altium::schlib::coord::read(props, "cornerxradius");
+    let corner_y_radius = crate::altium::schlib::coord::read(props, "corneryradius");
 
     let line_width = props
         .get("linewidth")
@@ -823,12 +794,8 @@ fn parse_round_rect(props: &HashMap<String, String>) -> Option<RoundRect> {
 /// Parses an elliptical arc from properties.
 #[allow(clippy::unnecessary_wraps)] // infallible (all coords default); Option kept for uniform parser dispatch
 fn parse_elliptical_arc(props: &HashMap<String, String>) -> Option<EllipticalArc> {
-    let x = coord(props, "location.x");
-    // Location.Y may be omitted if it's 0
-    let y = props
-        .get("location.y")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
+    let x = crate::altium::schlib::coord::read(props, "location.x");
+    let y = crate::altium::schlib::coord::read(props, "location.y");
 
     // Primary radius with optional fractional part (`Radius` + `Radius_Frac`).
     let radius = crate::altium::schlib::coord::read(props, "radius");
@@ -882,8 +849,8 @@ fn parse_elliptical_arc(props: &HashMap<String, String>) -> Option<EllipticalArc
 /// Parses a label from properties.
 #[allow(clippy::unnecessary_wraps)] // infallible (all coords default); Option kept for uniform parser dispatch
 fn parse_label(props: &HashMap<String, String>) -> Option<Label> {
-    let x = coord(props, "location.x");
-    let y = coord(props, "location.y");
+    let x = crate::altium::schlib::coord::read(props, "location.x");
+    let y = crate::altium::schlib::coord::read(props, "location.y");
     let text = props.get("text").cloned().unwrap_or_default();
 
     let font_id = props
@@ -924,8 +891,8 @@ fn parse_label(props: &HashMap<String, String>) -> Option<Label> {
 /// Parses a text annotation from properties.
 #[allow(clippy::unnecessary_wraps)] // infallible (all coords default); Option kept for uniform parser dispatch
 fn parse_text(props: &HashMap<String, String>) -> Option<Text> {
-    let x = coord(props, "location.x");
-    let y = coord(props, "location.y");
+    let x = crate::altium::schlib::coord::read(props, "location.x");
+    let y = crate::altium::schlib::coord::read(props, "location.y");
     let text = props.get("text").cloned().unwrap_or_default();
 
     let font_id = props
@@ -1035,10 +1002,10 @@ mod tests {
             "|RECORD=14|Location.X=-10|Location.Y=-4|Corner.X=10|Corner.Y=4|LineWidth=1|",
         );
         let rect = parse_rectangle(&props).unwrap();
-        assert_eq!(rect.x1, -10);
-        assert_eq!(rect.y1, -4);
-        assert_eq!(rect.x2, 10);
-        assert_eq!(rect.y2, 4);
+        assert_eq!(
+            (rect.x1, rect.y1, rect.x2, rect.y2),
+            (-10.0, -4.0, 10.0, 4.0)
+        );
     }
 
     #[test]
@@ -1050,13 +1017,13 @@ mod tests {
             "|RECORD=14|Corner.X=10|Corner.Y=4|", // Location.X / Location.Y omitted (== 0)
         ))
         .expect("rectangle with omitted zero Location must not be dropped");
-        assert_eq!((rect.x1, rect.y1, rect.x2, rect.y2), (0, 0, 10, 4));
+        assert_eq!((rect.x1, rect.y1, rect.x2, rect.y2), (0.0, 0.0, 10.0, 4.0));
 
         let arc = parse_arc(&parse_properties(
             "|RECORD=12|Radius=20|StartAngle=0|EndAngle=90|", // Location.X / Location.Y omitted
         ))
         .expect("arc with omitted zero Location must not be dropped");
-        assert_eq!((arc.x, arc.y, arc.radius), (0, 0, 20));
+        assert_eq!((arc.x, arc.y, arc.radius), (0.0, 0.0, 20.0));
     }
 
     #[test]

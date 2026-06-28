@@ -790,21 +790,14 @@ mod tests {
 
         // Verify first Bezier
         let b1 = &read_symbol.beziers[0];
-        assert_eq!(b1.x1, -50);
-        assert_eq!(b1.y1, 20);
-        assert_eq!(b1.x2, -60);
-        assert_eq!(b1.y2, 30);
-        assert_eq!(b1.x3, -50);
-        assert_eq!(b1.y3, 30);
-        assert_eq!(b1.x4, -40);
-        assert_eq!(b1.y4, 30);
+        assert_eq!(
+            (b1.x1, b1.y1, b1.x2, b1.y2, b1.x3, b1.y3, b1.x4, b1.y4),
+            (-50.0, 20.0, -60.0, 30.0, -50.0, 30.0, -40.0, 30.0)
+        );
 
         // Verify second Bezier
         let b2 = &read_symbol.beziers[1];
-        assert_eq!(b2.x1, 0);
-        assert_eq!(b2.y1, 0);
-        assert_eq!(b2.x4, 30);
-        assert_eq!(b2.y4, 0);
+        assert_eq!((b2.x1, b2.y1, b2.x4, b2.y4), (0.0, 0.0, 30.0, 0.0));
         assert_eq!(b2.line_width, 2);
         assert_eq!(b2.color, 0x00_00_FF);
     }
@@ -817,7 +810,7 @@ mod tests {
 
         // Add a filled triangle polygon
         let mut polygon = Polygon {
-            points: vec![(-30, 40), (-20, 30), (-10, 40)],
+            points: vec![(-30.0, 40.0), (-20.0, 30.0), (-10.0, 40.0)],
             line_width: 2,
             line_color: 0x00_00_FF, // Red border
             fill_color: 0xFF_00_00, // Blue fill
@@ -829,7 +822,7 @@ mod tests {
 
         // Add an unfilled rectangle polygon
         polygon = Polygon {
-            points: vec![(0, 0), (20, 0), (20, 20), (0, 20)],
+            points: vec![(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)],
             line_width: 1,
             line_color: 0x00_80_00, // Green border
             fill_color: 0,
@@ -856,9 +849,9 @@ mod tests {
         // Verify first polygon (triangle)
         let p1 = &read_symbol.polygons[0];
         assert_eq!(p1.points.len(), 3);
-        assert_eq!(p1.points[0], (-30, 40));
-        assert_eq!(p1.points[1], (-20, 30));
-        assert_eq!(p1.points[2], (-10, 40));
+        assert_eq!(p1.points[0], (-30.0, 40.0));
+        assert_eq!(p1.points[1], (-20.0, 30.0));
+        assert_eq!(p1.points[2], (-10.0, 40.0));
         assert_eq!(p1.line_width, 2);
         assert_eq!(p1.line_color, 0x00_00_FF);
         assert_eq!(p1.fill_color, 0xFF_00_00);
@@ -904,22 +897,32 @@ mod tests {
 
         // Verify first rounded rectangle
         let rr1 = &read_symbol.round_rects[0];
-        assert_eq!(rr1.x1, 40);
-        assert_eq!(rr1.y1, 20);
-        assert_eq!(rr1.x2, 90);
-        assert_eq!(rr1.y2, 50);
-        assert_eq!(rr1.corner_x_radius, 20);
-        assert_eq!(rr1.corner_y_radius, 20);
+        assert_eq!(
+            (
+                rr1.x1,
+                rr1.y1,
+                rr1.x2,
+                rr1.y2,
+                rr1.corner_x_radius,
+                rr1.corner_y_radius
+            ),
+            (40.0, 20.0, 90.0, 50.0, 20.0, 20.0)
+        );
         assert!(rr1.filled);
 
         // Verify second rounded rectangle
         let rr2 = &read_symbol.round_rects[1];
-        assert_eq!(rr2.x1, 0);
-        assert_eq!(rr2.y1, 0);
-        assert_eq!(rr2.x2, 30);
-        assert_eq!(rr2.y2, 20);
-        assert_eq!(rr2.corner_x_radius, 5);
-        assert_eq!(rr2.corner_y_radius, 10);
+        assert_eq!(
+            (
+                rr2.x1,
+                rr2.y1,
+                rr2.x2,
+                rr2.y2,
+                rr2.corner_x_radius,
+                rr2.corner_y_radius
+            ),
+            (0.0, 0.0, 30.0, 20.0, 5.0, 10.0)
+        );
         assert_eq!(rr2.line_width, 2);
         assert!(!rr2.filled);
     }
@@ -962,8 +965,7 @@ mod tests {
 
         // Verify first elliptical arc
         let ea1 = &read_symbol.elliptical_arcs[0];
-        assert_eq!(ea1.x, -60);
-        assert_eq!(ea1.y, 0);
+        assert_eq!((ea1.x, ea1.y), (-60.0, 0.0));
         // Check radii are close (allowing for fractional representation)
         assert!((ea1.radius - 9.96689).abs() < 0.001);
         assert!((ea1.secondary_radius - 9.99668).abs() < 0.001);
@@ -972,8 +974,7 @@ mod tests {
 
         // Verify second elliptical arc
         let ea2 = &read_symbol.elliptical_arcs[1];
-        assert_eq!(ea2.x, 20);
-        assert_eq!(ea2.y, 30);
+        assert_eq!((ea2.x, ea2.y), (20.0, 30.0));
         assert!((ea2.radius - 15.5).abs() < 0.001);
         assert!((ea2.secondary_radius - 10.25).abs() < 0.001);
         assert_eq!(ea2.line_width, 2);
@@ -990,9 +991,9 @@ mod tests {
 
         // AreaColor on Arc (Arc has no ::new — build a struct literal).
         let arc = Arc {
-            x: 0,
-            y: 0,
-            radius: 10,
+            x: 0.0,
+            y: 0.0,
+            radius: 10.0,
             is_not_accessible: true,
             start_angle: 0.0,
             end_angle: 360.0,
@@ -1244,5 +1245,113 @@ mod tests {
         reader::parse_data_stream(&mut decoded, &data);
         let l = &decoded.lines[0];
         assert!((l.x1 - (-30.0)).abs() < 1e-9 && (l.x2 - 30.0).abs() < 1e-9);
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines, clippy::many_single_char_names)] // exercises every fractional-capable primitive
+    fn roundtrip_all_primitives_fractional_and_negative_coords() {
+        // Every graphic primitive carries off-grid (including negative) coordinates
+        // through a write -> read round-trip via the `_Frac` companion fields.
+        let approx = |a: f64, b: f64| (a - b).abs() < 1e-9;
+
+        let mut sym = Symbol::new("FRAC_ALL");
+        sym.add_rectangle(Rectangle::new(-10.25, -0.5, 10.75, 20.125));
+        sym.add_round_rect(RoundRect::new(-5.5, -5.5, 5.5, 5.5, 1.25, 2.75));
+        sym.add_ellipse(Ellipse::new(-1.5, 2.5, 7.5, 3.25));
+        let arc = Arc {
+            x: -3.5,
+            y: 4.25,
+            radius: 6.75,
+            is_not_accessible: true,
+            start_angle: 0.0,
+            end_angle: 180.0,
+            line_width: 1,
+            color: 0,
+            fill_color: 0,
+            owner_part_id: 1,
+            unique_id: None,
+        };
+        sym.add_arc(arc);
+        sym.add_bezier(Bezier::new(-0.5, 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, -6.5));
+        sym.add_polyline(Polyline {
+            points: vec![(-1.25, 0.0), (2.5, -3.75), (10.0, 0.5)],
+            line_width: 1,
+            color: 0,
+            line_style: 0,
+            start_line_shape: 0,
+            end_line_shape: 0,
+            line_shape_size: 0,
+            transparent: false,
+            owner_part_id: 1,
+            unique_id: None,
+        });
+        sym.add_polygon(Polygon {
+            points: vec![(-2.5, -2.5), (2.5, -2.5), (0.0, 3.125)],
+            line_width: 1,
+            line_color: 0,
+            fill_color: 0,
+            filled: true,
+            owner_part_id: 1,
+            unique_id: None,
+        });
+        let label = Label {
+            x: -7.5,
+            y: 0.25,
+            text: "L".to_string(),
+            font_id: 1,
+            color: 0,
+            justification: TextJustification::BottomLeft,
+            rotation: 0.0,
+            is_mirrored: false,
+            is_hidden: false,
+            owner_part_id: 1,
+            unique_id: None,
+        };
+        sym.add_label(label);
+        let mut param = Parameter::new("Value", "1k");
+        param.x = -20.5;
+        param.y = 30.25;
+        sym.add_parameter(param);
+
+        let mut lib = SchLib::new();
+        lib.add(sym);
+        let mut buf = std::io::Cursor::new(Vec::new());
+        lib.write(&mut buf).expect("write");
+        buf.set_position(0);
+        let s = SchLib::read(buf).expect("read");
+        let s = s.get("FRAC_ALL").expect("symbol present");
+
+        let r = &s.rectangles[0];
+        assert!(
+            approx(r.x1, -10.25)
+                && approx(r.y1, -0.5)
+                && approx(r.x2, 10.75)
+                && approx(r.y2, 20.125)
+        );
+        let rr = &s.round_rects[0];
+        assert!(
+            approx(rr.x1, -5.5)
+                && approx(rr.corner_x_radius, 1.25)
+                && approx(rr.corner_y_radius, 2.75)
+        );
+        let e = &s.ellipses[0];
+        assert!(
+            approx(e.x, -1.5)
+                && approx(e.y, 2.5)
+                && approx(e.radius_x, 7.5)
+                && approx(e.radius_y, 3.25)
+        );
+        let a = &s.arcs[0];
+        assert!(approx(a.x, -3.5) && approx(a.y, 4.25) && approx(a.radius, 6.75));
+        let b = &s.beziers[0];
+        assert!(approx(b.x1, -0.5) && approx(b.y4, -6.5));
+        let pl = &s.polylines[0];
+        assert!(approx(pl.points[1].0, 2.5) && approx(pl.points[1].1, -3.75));
+        let pg = &s.polygons[0];
+        assert!(approx(pg.points[2].1, 3.125));
+        let lab = &s.labels[0];
+        assert!(approx(lab.x, -7.5) && approx(lab.y, 0.25));
+        let p = &s.parameters[0];
+        assert!(approx(p.x, -20.5) && approx(p.y, 30.25));
     }
 }

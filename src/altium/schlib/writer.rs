@@ -291,6 +291,33 @@ fn nonzero(key: &str, value: u32) -> String {
     }
 }
 
+/// Emits an Altium coordinate parameter: `|<key>=<int>` followed by
+/// `|<key>_Frac=<frac>` when the fractional part is non-zero (omitted otherwise,
+/// so integer-grid coordinates stay byte-identical to pre-fractional output).
+/// See [`super::coord`] for the integer/fraction split.
+fn coord_param(key: &str, value: f64) -> String {
+    let (int, frac) = coord::split(value);
+    format!("|{key}={int}{}", nonzero(&format!("{key}_Frac"), frac))
+}
+
+/// Pushes a numbered polyline/polygon vertex (`X{n}`/`Y{n}`) into a `parts`
+/// vector that is later joined by `|`, emitting `X{n}_Frac`/`Y{n}_Frac` only when
+/// the fractional part is non-zero. Mirrors [`coord_param`] for the list-style
+/// records that build their text from `parts.join("|")`.
+#[allow(clippy::similar_names)] // xi/yi/xf/yf are the obvious names for the split parts
+fn push_point(parts: &mut Vec<String>, n: usize, x: f64, y: f64) {
+    let (xi, xf) = coord::split(x);
+    let (yi, yf) = coord::split(y);
+    parts.push(format!("X{n}={xi}"));
+    if xf != 0 {
+        parts.push(format!("X{n}_Frac={xf}"));
+    }
+    parts.push(format!("Y{n}={yi}"));
+    if yf != 0 {
+        parts.push(format!("Y{n}_Frac={yf}"));
+    }
+}
+
 /// Encodes a rectangle record.
 fn encode_rectangle(rect: &Rectangle, index: usize) -> String {
     let transparent = if rect.transparent { "T" } else { "F" };
@@ -301,14 +328,14 @@ fn encode_rectangle(rect: &Rectangle, index: usize) -> String {
     let line_style = nonzero("LineStyleExt", u32::from(rect.line_style));
     format!(
         "|RECORD=14|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T\
-         |Location.X={}|Location.Y={}|Corner.X={}|Corner.Y={}\
+         {}{}{}{}\
          |LineWidth={}{}{}{}{}|Transparent={}|UniqueID={}",
         index,
         rect.owner_part_id,
-        rect.x1,
-        rect.y1,
-        rect.x2,
-        rect.y2,
+        coord_param("Location.X", rect.x1),
+        coord_param("Location.Y", rect.y1),
+        coord_param("Corner.X", rect.x2),
+        coord_param("Corner.Y", rect.y2),
         rect.line_width,
         nonzero("Color", rect.line_color),
         nonzero("AreaColor", rect.fill_color),
@@ -328,25 +355,15 @@ fn encode_line(line: &Line, index: usize) -> String {
         ""
     };
     let line_style = nonzero("LineStyle", u32::from(line.line_style));
-    // Each coordinate is an integer part plus a non-negative `…_Frac` companion;
-    // the fraction is omitted when zero, so integer-grid lines stay byte-identical.
-    let (x1, x1_frac) = coord::split(line.x1);
-    let (y1, y1_frac) = coord::split(line.y1);
-    let (x2, x2_frac) = coord::split(line.x2);
-    let (y2, y2_frac) = coord::split(line.y2);
     format!(
-        "|RECORD=13|IndexInSheet={}|OwnerPartId={}{}|Location.X={}{}|Location.Y={}{}|Corner.X={}{}|Corner.Y={}{}|LineWidth={}{}{}|UniqueID={}",
+        "|RECORD=13|IndexInSheet={}|OwnerPartId={}{}{}{}{}{}|LineWidth={}{}{}|UniqueID={}",
         index,
         line.owner_part_id,
         not_accessible,
-        x1,
-        nonzero("Location.X_Frac", x1_frac),
-        y1,
-        nonzero("Location.Y_Frac", y1_frac),
-        x2,
-        nonzero("Corner.X_Frac", x2_frac),
-        y2,
-        nonzero("Corner.Y_Frac", y2_frac),
+        coord_param("Location.X", line.x1),
+        coord_param("Location.Y", line.y1),
+        coord_param("Corner.X", line.x2),
+        coord_param("Corner.Y", line.y2),
         line.line_width,
         nonzero("Color", line.color),
         line_style,
@@ -359,16 +376,26 @@ fn encode_line(line: &Line, index: usize) -> String {
 /// Follows Altium's conventions: `IsHidden` is emitted only when hidden (never
 /// `=F`), `ReadOnlyState` / `ParamType` only when non-zero, `Text` only when
 /// non-empty, and the read `UniqueID` is preserved.
+#[allow(clippy::similar_names)] // px/py are the obvious names for the x/y integer parts
 fn encode_parameter(param: &Parameter, index: usize) -> String {
+    let (px, px_frac) = coord::split(param.x);
+    let (py, py_frac) = coord::split(param.y);
     let mut parts = vec![
         "RECORD=41".to_string(),
         format!("IndexInSheet={index}"),
         format!("OwnerPartId={}", param.owner_part_id),
-        format!("Location.X={}", param.x),
-        format!("Location.Y={}", param.y),
+        format!("Location.X={px}"),
+        format!("Location.Y={py}"),
         format!("Color={}", param.color),
         format!("FontID={}", param.font_id),
     ];
+    // Fractional companions (omitted when zero, so integer positions are unchanged).
+    if px_frac != 0 {
+        parts.push(format!("Location.X_Frac={px_frac}"));
+    }
+    if py_frac != 0 {
+        parts.push(format!("Location.Y_Frac={py_frac}"));
+    }
     if param.hidden {
         parts.push("IsHidden=T".to_string());
     }
@@ -418,8 +445,7 @@ fn encode_polyline(polyline: &Polyline, index: usize) -> String {
     ]);
 
     for (i, (x, y)) in polyline.points.iter().enumerate() {
-        parts.push(format!("X{}={}", i + 1, x));
-        parts.push(format!("Y{}={}", i + 1, y));
+        push_point(&mut parts, i + 1, *x, *y);
     }
 
     // Altium emits Transparent only when true; absent means opaque.
@@ -461,8 +487,7 @@ fn encode_polygon(polygon: &Polygon, index: usize) -> String {
     parts.push(format!("LocationCount={}", polygon.points.len()));
 
     for (i, (x, y)) in polygon.points.iter().enumerate() {
-        parts.push(format!("X{}={}", i + 1, x));
-        parts.push(format!("Y{}={}", i + 1, y));
+        push_point(&mut parts, i + 1, *x, *y);
     }
 
     parts.push(format!(
@@ -482,13 +507,13 @@ fn encode_arc(arc: &Arc, index: usize) -> String {
         ""
     };
     format!(
-        "|RECORD=12|IndexInSheet={}|OwnerPartId={}{}|Location.X={}|Location.Y={}|Radius={}|StartAngle={}|EndAngle={}|LineWidth={}{}{}|UniqueID={}",
+        "|RECORD=12|IndexInSheet={}|OwnerPartId={}{}{}{}{}|StartAngle={}|EndAngle={}|LineWidth={}{}{}|UniqueID={}",
         index,
         arc.owner_part_id,
         not_accessible,
-        arc.x,
-        arc.y,
-        arc.radius,
+        coord_param("Location.X", arc.x),
+        coord_param("Location.Y", arc.y),
+        coord_param("Radius", arc.radius),
         arc.start_angle,
         arc.end_angle,
         arc.line_width,
@@ -507,20 +532,20 @@ fn encode_bezier(bezier: &Bezier, index: usize) -> String {
         ""
     };
     format!(
-        "|RECORD=5|IndexInSheet={}|OwnerPartId={}{}|LineWidth={}{}|LocationCount=4|X1={}|Y1={}|X2={}|Y2={}|X3={}|Y3={}|X4={}|Y4={}|UniqueID={}",
+        "|RECORD=5|IndexInSheet={}|OwnerPartId={}{}|LineWidth={}{}|LocationCount=4{}{}{}{}{}{}{}{}|UniqueID={}",
         index,
         bezier.owner_part_id,
         not_accessible,
         bezier.line_width,
         nonzero("Color", bezier.color),
-        bezier.x1,
-        bezier.y1,
-        bezier.x2,
-        bezier.y2,
-        bezier.x3,
-        bezier.y3,
-        bezier.x4,
-        bezier.y4,
+        coord_param("X1", bezier.x1),
+        coord_param("Y1", bezier.y1),
+        coord_param("X2", bezier.x2),
+        coord_param("Y2", bezier.y2),
+        coord_param("X3", bezier.x3),
+        coord_param("Y3", bezier.y3),
+        coord_param("X4", bezier.x4),
+        coord_param("Y4", bezier.y4),
         bezier.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
 }
@@ -536,13 +561,13 @@ fn encode_ellipse(ellipse: &Ellipse, index: usize) -> String {
         ""
     };
     format!(
-        "|RECORD=8|IndexInSheet={}|OwnerPartId={}|Location.X={}|Location.Y={}|Radius={}|SecondaryRadius={}|LineWidth={}{}{}{}{}|UniqueID={}",
+        "|RECORD=8|IndexInSheet={}|OwnerPartId={}{}{}{}{}|LineWidth={}{}{}{}{}|UniqueID={}",
         index,
         ellipse.owner_part_id,
-        ellipse.x,
-        ellipse.y,
-        ellipse.radius_x,
-        ellipse.radius_y,
+        coord_param("Location.X", ellipse.x),
+        coord_param("Location.Y", ellipse.y),
+        coord_param("Radius", ellipse.radius_x),
+        coord_param("SecondaryRadius", ellipse.radius_y),
         ellipse.line_width,
         nonzero("Color", ellipse.line_color),
         nonzero("AreaColor", ellipse.fill_color),
@@ -565,17 +590,17 @@ fn encode_round_rect(round_rect: &RoundRect, index: usize) -> String {
     };
     format!(
         "|RECORD=10|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T\
-         |Location.X={}|Location.Y={}|Corner.X={}|Corner.Y={}\
-         |CornerXRadius={}|CornerYRadius={}\
+         {}{}{}{}\
+         {}{}\
          |LineWidth={}{}{}{}{}{}|UniqueID={}",
         index,
         round_rect.owner_part_id,
-        round_rect.x1,
-        round_rect.y1,
-        round_rect.x2,
-        round_rect.y2,
-        round_rect.corner_x_radius,
-        round_rect.corner_y_radius,
+        coord_param("Location.X", round_rect.x1),
+        coord_param("Location.Y", round_rect.y1),
+        coord_param("Corner.X", round_rect.x2),
+        coord_param("Corner.Y", round_rect.y2),
+        coord_param("CornerXRadius", round_rect.corner_x_radius),
+        coord_param("CornerYRadius", round_rect.corner_y_radius),
         round_rect.line_width,
         nonzero("Color", round_rect.line_color),
         nonzero("AreaColor", round_rect.fill_color),
@@ -599,15 +624,15 @@ fn encode_elliptical_arc(arc: &EllipticalArc, index: usize) -> String {
 
     format!(
         "|RECORD=11|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T\
-         |Location.X={}|Location.Y={}\
+         {}{}\
          |Radius={}{}\
          |SecondaryRadius={}{}\
          |StartAngle={}|EndAngle={}\
          |LineWidth={}{}{}|UniqueID={}",
         index,
         arc.owner_part_id,
-        arc.x,
-        arc.y,
+        coord_param("Location.X", arc.x),
+        coord_param("Location.Y", arc.y),
         radius_int,
         nonzero("Radius_Frac", radius_frac),
         secondary_radius_int,
@@ -634,11 +659,11 @@ fn encode_label(label: &Label, index: usize) -> String {
     };
     let is_hidden = if label.is_hidden { "|IsHidden=T" } else { "" };
     format!(
-        "|RECORD=4|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T|Location.X={}|Location.Y={}{}|FontID={}|Orientation={}|Justification={}{}{}|Text={}|UniqueID={}",
+        "|RECORD=4|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T{}{}{}|FontID={}|Orientation={}|Justification={}{}{}|Text={}|UniqueID={}",
         index,
         label.owner_part_id,
-        label.x,
-        label.y,
+        coord_param("Location.X", label.x),
+        coord_param("Location.Y", label.y),
         nonzero("Color", label.color),
         label.font_id,
         orientation,
@@ -663,11 +688,11 @@ fn encode_text(text: &Text, index: usize) -> String {
     };
     let is_hidden = if text.is_hidden { "|IsHidden=T" } else { "" };
     format!(
-        "|RECORD=4|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T|Location.X={}|Location.Y={}{}|FontID={}|Orientation={}|Justification={}{}{}|Text={}|UniqueID={}",
+        "|RECORD=4|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T{}{}{}|FontID={}|Orientation={}|Justification={}{}{}|Text={}|UniqueID={}",
         index,
         text.owner_part_id,
-        text.x,
-        text.y,
+        coord_param("Location.X", text.x),
+        coord_param("Location.Y", text.y),
         nonzero("Color", text.color),
         text.font_id,
         orientation,
@@ -1231,8 +1256,8 @@ mod tests {
     #[test]
     fn test_label_booleans_only_when_true() {
         let mut label = Label {
-            x: 0,
-            y: 0,
+            x: 0.0,
+            y: 0.0,
             text: "R".to_string(),
             font_id: 1,
             color: 0,
@@ -1261,9 +1286,9 @@ mod tests {
     #[test]
     fn test_arc_tags_is_not_accessible() {
         let arc = Arc {
-            x: 0,
-            y: 0,
-            radius: 10,
+            x: 0.0,
+            y: 0.0,
+            radius: 10.0,
             is_not_accessible: true,
             start_angle: 0.0,
             end_angle: 360.0,
@@ -1284,9 +1309,9 @@ mod tests {
     fn test_colour_omitted_when_zero() {
         // Altium omits Color / AreaColor when 0 (AddNonZero); emits them otherwise.
         let mut arc = Arc {
-            x: 0,
-            y: 0,
-            radius: 10,
+            x: 0.0,
+            y: 0.0,
+            radius: 10.0,
             is_not_accessible: true,
             start_angle: 0.0,
             end_angle: 360.0,
@@ -1308,8 +1333,8 @@ mod tests {
 
         let s = encode_text(
             &Text {
-                x: 0,
-                y: 0,
+                x: 0.0,
+                y: 0.0,
                 text: "hi".to_string(),
                 font_id: 1,
                 color: 0,

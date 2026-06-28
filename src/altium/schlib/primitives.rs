@@ -367,16 +367,23 @@ impl PinElectricalType {
 }
 
 /// A rectangle shape.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// Coordinates are `f64` schematic units (integer part plus optional `…_Frac`,
+/// see [`super::coord`]); `Eq` is not derived (floats are only `PartialEq`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Rectangle {
     /// Left X coordinate.
-    pub x1: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub x1: f64,
     /// Bottom Y coordinate.
-    pub y1: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub y1: f64,
     /// Right X coordinate.
-    pub x2: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub x2: f64,
     /// Top Y coordinate.
-    pub y2: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub y2: f64,
     /// Line width.
     #[serde(default = "default_line_width")]
     pub line_width: u8,
@@ -410,14 +417,19 @@ const fn default_line_width() -> u8 {
 }
 
 impl Rectangle {
-    /// Creates a new rectangle.
+    /// Creates a new rectangle. Accepts integer or float coordinates.
     #[must_use]
-    pub const fn new(x1: i32, y1: i32, x2: i32, y2: i32) -> Self {
+    pub fn new(
+        x1: impl Into<f64>,
+        y1: impl Into<f64>,
+        x2: impl Into<f64>,
+        y2: impl Into<f64>,
+    ) -> Self {
         Self {
-            x1,
-            y1,
-            x2,
-            y2,
+            x1: x1.into(),
+            y1: y1.into(),
+            x2: x2.into(),
+            y2: y2.into(),
             line_width: 1,
             line_color: 0x00_00_80, // Dark red (BGR)
             fill_color: 0xB0_FF_FF, // Light yellow (BGR), matches Altium's default AreaColor (11599871)
@@ -497,10 +509,13 @@ impl Line {
 }
 
 /// A polyline (multiple connected line segments).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// Point coordinates are `f64` schematic units (see [`super::coord`]); `Eq` is
+/// not derived (floats are only `PartialEq`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Polyline {
     /// Points as (x, y) pairs.
-    pub points: Vec<(i32, i32)>,
+    pub points: Vec<(f64, f64)>,
     /// Line width.
     #[serde(default = "default_line_width")]
     pub line_width: u8,
@@ -532,10 +547,13 @@ pub struct Polyline {
 }
 
 /// A filled polygon.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// Vertex coordinates are `f64` schematic units (see [`super::coord`]); `Eq` is
+/// not derived (floats are only `PartialEq`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Polygon {
     /// Vertices as (x, y) pairs.
-    pub points: Vec<(i32, i32)>,
+    pub points: Vec<(f64, f64)>,
     /// Border line width.
     #[serde(default = "default_line_width")]
     pub line_width: u8,
@@ -561,11 +579,14 @@ pub struct Polygon {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Arc {
     /// Centre X coordinate.
-    pub x: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub x: f64,
     /// Centre Y coordinate.
-    pub y: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub y: f64,
     /// Radius.
-    pub radius: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub radius: f64,
     /// Whether the arc is marked not-accessible. Altium tags every arc
     /// `IsNotAccesible` (its own single-'s' spelling), so this defaults to true.
     #[serde(default = "default_true")]
@@ -609,24 +630,35 @@ const fn default_end_angle() -> f64 {
 /// - Control point 1 (x2, y2)
 /// - Control point 2 (x3, y3)
 /// - End point (x4, y4)
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// Coordinates are `f64` schematic units (see [`super::coord`]); `Eq` is not
+/// derived (floats are only `PartialEq`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Bezier {
     /// Start point X.
-    pub x1: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub x1: f64,
     /// Start point Y.
-    pub y1: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub y1: f64,
     /// Control point 1 X.
-    pub x2: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub x2: f64,
     /// Control point 1 Y.
-    pub y2: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub y2: f64,
     /// Control point 2 X.
-    pub x3: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub x3: f64,
     /// Control point 2 Y.
-    pub y3: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub y3: f64,
     /// End point X.
-    pub x4: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub x4: f64,
     /// End point Y.
-    pub y4: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub y4: f64,
     /// Line width.
     #[serde(default = "default_line_width")]
     pub line_width: u8,
@@ -650,25 +682,25 @@ impl Bezier {
     /// Creates a new Bezier curve.
     #[must_use]
     #[allow(clippy::too_many_arguments)]
-    pub const fn new(
-        x1: i32,
-        y1: i32,
-        x2: i32,
-        y2: i32,
-        x3: i32,
-        y3: i32,
-        x4: i32,
-        y4: i32,
+    pub fn new(
+        x1: impl Into<f64>,
+        y1: impl Into<f64>,
+        x2: impl Into<f64>,
+        y2: impl Into<f64>,
+        x3: impl Into<f64>,
+        y3: impl Into<f64>,
+        x4: impl Into<f64>,
+        y4: impl Into<f64>,
     ) -> Self {
         Self {
-            x1,
-            y1,
-            x2,
-            y2,
-            x3,
-            y3,
-            x4,
-            y4,
+            x1: x1.into(),
+            y1: y1.into(),
+            x2: x2.into(),
+            y2: y2.into(),
+            x3: x3.into(),
+            y3: y3.into(),
+            x4: x4.into(),
+            y4: y4.into(),
             line_width: 1,
             color: 0x00_00_80, // Dark red (BGR)
             is_not_accessible: true,
@@ -679,16 +711,23 @@ impl Bezier {
 }
 
 /// An ellipse.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// Coordinates are `f64` schematic units (see [`super::coord`]); `Eq` is not
+/// derived (floats are only `PartialEq`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Ellipse {
     /// Centre X coordinate.
-    pub x: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub x: f64,
     /// Centre Y coordinate.
-    pub y: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub y: f64,
     /// X radius (horizontal).
-    pub radius_x: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub radius_x: f64,
     /// Y radius (vertical).
-    pub radius_y: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub radius_y: f64,
     /// Line width.
     #[serde(default = "default_line_width")]
     pub line_width: u8,
@@ -714,14 +753,19 @@ pub struct Ellipse {
 }
 
 impl Ellipse {
-    /// Creates a new ellipse.
+    /// Creates a new ellipse. Accepts integer or float coordinates.
     #[must_use]
-    pub const fn new(x: i32, y: i32, radius_x: i32, radius_y: i32) -> Self {
+    pub fn new(
+        x: impl Into<f64>,
+        y: impl Into<f64>,
+        radius_x: impl Into<f64>,
+        radius_y: impl Into<f64>,
+    ) -> Self {
         Self {
-            x,
-            y,
-            radius_x,
-            radius_y,
+            x: x.into(),
+            y: y.into(),
+            radius_x: radius_x.into(),
+            radius_y: radius_y.into(),
             line_width: 1,
             line_color: 0x00_00_80, // Dark red (BGR)
             fill_color: 0xB0_FF_FF, // Light yellow (BGR), matches Altium's default AreaColor (11599871)
@@ -734,7 +778,8 @@ impl Ellipse {
 
     /// Creates a new circle (equal radii).
     #[must_use]
-    pub const fn circle(x: i32, y: i32, radius: i32) -> Self {
+    pub fn circle(x: impl Into<f64>, y: impl Into<f64>, radius: impl Into<f64>) -> Self {
+        let (x, y, radius) = (x.into(), y.into(), radius.into());
         Self::new(x, y, radius, radius)
     }
 }
@@ -742,20 +787,28 @@ impl Ellipse {
 /// A rounded rectangle.
 ///
 /// Defined by two corner points and corner radii for rounding.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Coordinates are `f64` schematic units (see [`super::coord`]); `Eq` is not
+/// derived (floats are only `PartialEq`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RoundRect {
     /// Left/bottom X coordinate.
-    pub x1: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub x1: f64,
     /// Left/bottom Y coordinate.
-    pub y1: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub y1: f64,
     /// Right/top X coordinate.
-    pub x2: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub x2: f64,
     /// Right/top Y coordinate.
-    pub y2: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub y2: f64,
     /// Corner X radius (horizontal rounding).
-    pub corner_x_radius: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub corner_x_radius: f64,
     /// Corner Y radius (vertical rounding).
-    pub corner_y_radius: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub corner_y_radius: f64,
     /// Line width.
     #[serde(default = "default_line_width")]
     pub line_width: u8,
@@ -787,21 +840,21 @@ impl RoundRect {
     /// Creates a new rounded rectangle.
     #[must_use]
     #[allow(clippy::similar_names)]
-    pub const fn new(
-        x1: i32,
-        y1: i32,
-        x2: i32,
-        y2: i32,
-        corner_x_radius: i32,
-        corner_y_radius: i32,
+    pub fn new(
+        x1: impl Into<f64>,
+        y1: impl Into<f64>,
+        x2: impl Into<f64>,
+        y2: impl Into<f64>,
+        corner_x_radius: impl Into<f64>,
+        corner_y_radius: impl Into<f64>,
     ) -> Self {
         Self {
-            x1,
-            y1,
-            x2,
-            y2,
-            corner_x_radius,
-            corner_y_radius,
+            x1: x1.into(),
+            y1: y1.into(),
+            x2: x2.into(),
+            y2: y2.into(),
+            corner_x_radius: corner_x_radius.into(),
+            corner_y_radius: corner_y_radius.into(),
             line_width: 1,
             line_color: 0x00_00_80, // Dark red (BGR)
             fill_color: 0xB0_FF_FF, // Light yellow (BGR), matches Altium's default AreaColor (11599871)
@@ -821,9 +874,11 @@ impl RoundRect {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EllipticalArc {
     /// Centre X coordinate.
-    pub x: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub x: f64,
     /// Centre Y coordinate.
-    pub y: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub y: f64,
     /// Primary radius (horizontal).
     #[serde(serialize_with = "crate::altium::serde_round::serialize")]
     pub radius: f64,
@@ -861,17 +916,17 @@ pub struct EllipticalArc {
 impl EllipticalArc {
     /// Creates a new elliptical arc.
     #[must_use]
-    pub const fn new(
-        x: i32,
-        y: i32,
+    pub fn new(
+        x: impl Into<f64>,
+        y: impl Into<f64>,
         radius: f64,
         secondary_radius: f64,
         start_angle: f64,
         end_angle: f64,
     ) -> Self {
         Self {
-            x,
-            y,
+            x: x.into(),
+            y: y.into(),
             radius,
             secondary_radius,
             start_angle,
@@ -886,7 +941,12 @@ impl EllipticalArc {
 
     /// Creates a full ellipse (0 to 360 degrees).
     #[must_use]
-    pub const fn full_ellipse(x: i32, y: i32, radius: f64, secondary_radius: f64) -> Self {
+    pub fn full_ellipse(
+        x: impl Into<f64>,
+        y: impl Into<f64>,
+        radius: f64,
+        secondary_radius: f64,
+    ) -> Self {
         Self::new(x, y, radius, secondary_radius, 0.0, 360.0)
     }
 }
@@ -895,9 +955,11 @@ impl EllipticalArc {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Label {
     /// X position.
-    pub x: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub x: f64,
     /// Y position.
-    pub y: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub y: f64,
     /// Text content.
     pub text: String,
     /// Font ID (1-based index into library fonts).
@@ -934,9 +996,11 @@ pub struct Label {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Text {
     /// X position.
-    pub x: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub x: f64,
     /// Y position.
-    pub y: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub y: f64,
     /// Text content.
     pub text: String,
     /// Font ID (1-based index into library fonts).
@@ -982,7 +1046,10 @@ const fn default_justification() -> TextJustification {
 }
 
 /// A component parameter (e.g., Value, Part Number).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// Coordinates are `f64` schematic units (see [`super::coord`]); `Eq` is not
+/// derived (floats are only `PartialEq`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Parameter {
     /// Parameter name (e.g., "Value", "Part Number").
     pub name: String,
@@ -990,11 +1057,11 @@ pub struct Parameter {
     #[serde(default)]
     pub value: String,
     /// X position.
-    #[serde(default)]
-    pub x: i32,
+    #[serde(default, serialize_with = "crate::altium::serde_round::serialize")]
+    pub x: f64,
     /// Y position.
-    #[serde(default)]
-    pub y: i32,
+    #[serde(default, serialize_with = "crate::altium::serde_round::serialize")]
+    pub y: f64,
     /// Font ID.
     #[serde(default = "default_font_id")]
     pub font_id: u8,
@@ -1026,8 +1093,8 @@ impl Parameter {
         Self {
             name: name.into(),
             value: value.into(),
-            x: 0,
-            y: 0,
+            x: 0.0,
+            y: 0.0,
             font_id: 1,
             color: 0x80_00_00, // Dark blue (BGR)
             hidden: false,
