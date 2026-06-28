@@ -11,10 +11,11 @@
 //! through [`combine`] across the whole coordinate range — not just the
 //! non-negative radii the elliptical-arc encoder originally special-cased.
 //!
-//! NOTE: the floor convention matches this crate's reader (`int + frac`) and the
-//! documented non-negative `_Frac`. The negative-coordinate case has not yet been
-//! confirmed against an Altium-authored file; verify it before relying on
-//! fractional encoding for off-grid negative positions.
+//! The floor convention matches this crate's reader (`int + frac`) and the
+//! documented non-negative `_Frac`, and was confirmed in Altium: a floor-encoded
+//! `-10.5` line (`Location.X=-11`, `_Frac=50000`) renders mirror-equal to a
+//! `+10.5` line, whereas a truncate-magnitude decode would have placed it at
+//! `-11.5`.
 
 use std::collections::HashMap;
 
