@@ -46,6 +46,7 @@
 //! | 44 | Implementation List | Start of model list |
 //! | 45 | Model | Footprint model reference |
 
+pub(crate) mod coord;
 pub mod primitives;
 pub mod reader;
 pub mod writer;

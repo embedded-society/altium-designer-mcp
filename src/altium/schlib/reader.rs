@@ -829,24 +829,16 @@ fn parse_elliptical_arc(props: &HashMap<String, String>) -> Option<EllipticalArc
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
 
-    // Primary radius with optional fractional part
-    let radius_int: f64 = coord(props, "radius");
-    let radius_frac: f64 = props
-        .get("radius_frac")
-        .and_then(|s| s.parse::<u32>().ok())
-        .map_or(0.0, |f| f64::from(f) / 100_000.0);
-    let radius = radius_int + radius_frac;
+    // Primary radius with optional fractional part (`Radius` + `Radius_Frac`).
+    let radius = crate::altium::schlib::coord::read(props, "radius");
 
-    // Secondary radius with optional fractional part
-    let secondary_radius_int: f64 = props
-        .get("secondaryradius")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(radius_int);
-    let secondary_radius_frac: f64 = props
-        .get("secondaryradius_frac")
-        .and_then(|s| s.parse::<u32>().ok())
-        .map_or(0.0, |f| f64::from(f) / 100_000.0);
-    let secondary_radius = secondary_radius_int + secondary_radius_frac;
+    // Secondary radius with optional fractional part; defaults to the primary
+    // radius when absent (a circular arc).
+    let secondary_radius = if props.contains_key("secondaryradius") {
+        crate::altium::schlib::coord::read(props, "secondaryradius")
+    } else {
+        radius
+    };
 
     let start_angle = props
         .get("startangle")

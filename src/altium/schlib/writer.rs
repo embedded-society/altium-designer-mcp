@@ -19,6 +19,7 @@
 //! - `0x0000`: Text record (pipe-delimited key=value pairs)
 //! - `0x0001`: Binary pin record
 
+use super::coord;
 use super::primitives::{
     Arc, Bezier, Ellipse, EllipticalArc, FootprintModel, Label, Line, Parameter, Pin, Polygon,
     Polyline, Rectangle, RoundRect, Text, TextJustification,
@@ -579,20 +580,12 @@ fn encode_round_rect(round_rect: &RoundRect, index: usize) -> String {
 }
 
 /// Encodes an elliptical arc record.
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn encode_elliptical_arc(arc: &EllipticalArc, index: usize) -> String {
-    // Split each radius from a single rounded raw integer (`raw = round(r * 100_000)`)
-    // so a near-boundary value carries into the integer part exactly, matching
-    // AltiumSharp's `AddCoordParam` — rather than the old `trunc`/`fract` split, which
-    // clamped e.g. 4.999995 to `Radius=4|Radius_Frac=99999` instead of `Radius=5`.
-    // Radii are non-negative, so `raw % 100_000` is non-negative.
-    let radius_raw = (arc.radius * 100_000.0).round() as i64;
-    let radius_int = (radius_raw / 100_000) as i32;
-    let radius_frac = (radius_raw % 100_000) as u32;
-
-    let secondary_raw = (arc.secondary_radius * 100_000.0).round() as i64;
-    let secondary_radius_int = (secondary_raw / 100_000) as i32;
-    let secondary_radius_frac = (secondary_raw % 100_000) as u32;
+    // Split each radius into the integer part plus a non-negative `_Frac`
+    // companion (scaled by 100,000), carrying near-boundary values into the
+    // integer part. See [`super::coord`] for the shared encoding.
+    let (radius_int, radius_frac) = coord::split(arc.radius);
+    let (secondary_radius_int, secondary_radius_frac) = coord::split(arc.secondary_radius);
 
     format!(
         "|RECORD=11|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T\
