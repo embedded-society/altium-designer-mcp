@@ -622,10 +622,10 @@ impl McpServer {
     pub(crate) fn parse_schlib_rectangle(json: &Value) -> Option<crate::altium::schlib::Rectangle> {
         use crate::altium::schlib::Rectangle;
 
-        let x1 = json_i32(json, "x1")?;
-        let y1 = json_i32(json, "y1")?;
-        let x2 = json_i32(json, "x2")?;
-        let y2 = json_i32(json, "y2")?;
+        let x1 = json_f64(json, "x1")?;
+        let y1 = json_f64(json, "y1")?;
+        let x2 = json_f64(json, "x2")?;
+        let y2 = json_f64(json, "y2")?;
 
         let line_width = json.get("line_width").and_then(Value::as_u64).unwrap_or(1) as u8;
         let line_color = json
@@ -666,12 +666,12 @@ impl McpServer {
     ) -> Option<crate::altium::schlib::RoundRect> {
         use crate::altium::schlib::RoundRect;
 
-        let x1 = json_i32(json, "x1")?;
-        let y1 = json_i32(json, "y1")?;
-        let x2 = json_i32(json, "x2")?;
-        let y2 = json_i32(json, "y2")?;
-        let corner_x_radius = json_i32(json, "corner_x_radius").unwrap_or(0);
-        let corner_y_radius = json_i32(json, "corner_y_radius").unwrap_or(0);
+        let x1 = json_f64(json, "x1")?;
+        let y1 = json_f64(json, "y1")?;
+        let x2 = json_f64(json, "x2")?;
+        let y2 = json_f64(json, "y2")?;
+        let corner_x_radius = json_f64(json, "corner_x_radius").unwrap_or(0.0);
+        let corner_y_radius = json_f64(json, "corner_y_radius").unwrap_or(0.0);
 
         let line_width = json.get("line_width").and_then(Value::as_u64).unwrap_or(1) as u8;
         let line_color = json
@@ -748,8 +748,8 @@ impl McpServer {
             .unwrap_or("*")
             .to_string();
 
-        let x = json_i32(json, "x").unwrap_or(0);
-        let y = json_i32(json, "y").unwrap_or(0);
+        let x = json_f64(json, "x").unwrap_or(0.0);
+        let y = json_f64(json, "y").unwrap_or(0.0);
         let font_id = json.get("font_id").and_then(Value::as_u64).unwrap_or(1) as u8;
         let color = json
             .get("color")
@@ -784,11 +784,11 @@ impl McpServer {
             .get("points")
             .or_else(|| json.get("vertices"))
             .and_then(Value::as_array)?;
-        let points: Vec<(i32, i32)> = points_json
+        let points: Vec<(f64, f64)> = points_json
             .iter()
             .filter_map(|p| {
-                let x = json_i32(p, "x")?;
-                let y = json_i32(p, "y")?;
+                let x = json_f64(p, "x")?;
+                let y = json_f64(p, "y")?;
                 Some((x, y))
             })
             .collect();
@@ -832,11 +832,11 @@ impl McpServer {
             .get("points")
             .or_else(|| json.get("vertices"))
             .and_then(Value::as_array)?;
-        let points: Vec<(i32, i32)> = points_json
+        let points: Vec<(f64, f64)> = points_json
             .iter()
             .filter_map(|p| {
-                let x = json_i32(p, "x")?;
-                let y = json_i32(p, "y")?;
+                let x = json_f64(p, "x")?;
+                let y = json_f64(p, "y")?;
                 Some((x, y))
             })
             .collect();
@@ -873,9 +873,9 @@ impl McpServer {
     pub(crate) fn parse_schlib_arc(json: &Value) -> Option<crate::altium::schlib::Arc> {
         use crate::altium::schlib::Arc;
 
-        let x = json_i32(json, "x")?;
-        let y = json_i32(json, "y")?;
-        let radius = json_i32(json, "radius")?;
+        let x = json_f64(json, "x")?;
+        let y = json_f64(json, "y")?;
+        let radius = json_f64(json, "radius")?;
         let start_angle = json
             .get("start_angle")
             .and_then(Value::as_f64)
@@ -911,10 +911,10 @@ impl McpServer {
     pub(crate) fn parse_schlib_ellipse(json: &Value) -> Option<crate::altium::schlib::Ellipse> {
         use crate::altium::schlib::Ellipse;
 
-        let x = json_i32(json, "x")?;
-        let y = json_i32(json, "y")?;
-        let radius_x = json_i32(json, "radius_x")?;
-        let radius_y = json_i32(json, "radius_y")?;
+        let x = json_f64(json, "x")?;
+        let y = json_f64(json, "y")?;
+        let radius_x = json_f64(json, "radius_x")?;
+        let radius_y = json_f64(json, "radius_y")?;
 
         let line_width = json.get("line_width").and_then(Value::as_u64).unwrap_or(1) as u8;
         let line_color = json
@@ -948,8 +948,8 @@ impl McpServer {
     pub(crate) fn parse_schlib_label(json: &Value) -> Option<crate::altium::schlib::Label> {
         use crate::altium::schlib::{Label, TextJustification};
 
-        let x = json_i32(json, "x")?;
-        let y = json_i32(json, "y")?;
+        let x = json_f64(json, "x")?;
+        let y = json_f64(json, "y")?;
         let text = json.get("text").and_then(Value::as_str)?.to_string();
 
         let font_id = json.get("font_id").and_then(Value::as_u64).unwrap_or(1) as u8;
@@ -1008,8 +1008,8 @@ impl McpServer {
     pub(crate) fn parse_schlib_text(json: &Value) -> Option<crate::altium::schlib::Text> {
         use crate::altium::schlib::{Text, TextJustification};
 
-        let x = json_i32(json, "x")?;
-        let y = json_i32(json, "y")?;
+        let x = json_f64(json, "x")?;
+        let y = json_f64(json, "y")?;
         let text = json.get("text").and_then(Value::as_str)?.to_string();
 
         let font_id = json.get("font_id").and_then(Value::as_u64).unwrap_or(1) as u8;

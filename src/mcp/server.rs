@@ -1032,14 +1032,15 @@ mod tests {
 
     #[test]
     fn validate_schlib_coordinate_boundary() {
-        assert!(McpServer::validate_schlib_coordinate(32000, "x").is_ok());
-        assert!(McpServer::validate_schlib_coordinate(-32000, "x").is_ok());
-        assert!(McpServer::validate_schlib_coordinate(32001, "x").is_err());
-        assert!(McpServer::validate_schlib_coordinate(-32001, "x").is_err());
-        // Extremes must be rejected without panicking: `value.abs()` overflowed
-        // on i32::MIN (panic in debug, wrap-negative bypass in release).
-        assert!(McpServer::validate_schlib_coordinate(i32::MIN, "x").is_err());
-        assert!(McpServer::validate_schlib_coordinate(i32::MAX, "x").is_err());
+        assert!(McpServer::validate_schlib_coordinate(32000.0, "x").is_ok());
+        assert!(McpServer::validate_schlib_coordinate(-32000.0, "x").is_ok());
+        assert!(McpServer::validate_schlib_coordinate(32001.0, "x").is_err());
+        assert!(McpServer::validate_schlib_coordinate(-32001.0, "x").is_err());
+        // Fractional in-range coordinate is accepted.
+        assert!(McpServer::validate_schlib_coordinate(-28.995, "x").is_ok());
+        // Non-finite coordinates must be rejected.
+        assert!(McpServer::validate_schlib_coordinate(f64::NAN, "x").is_err());
+        assert!(McpServer::validate_schlib_coordinate(f64::INFINITY, "x").is_err());
     }
 
     #[test]
@@ -1142,13 +1143,13 @@ mod tests {
 
             #[test]
             fn schlib_coordinate_in_range_always_accepts(v in -32000i32..=32000) {
-                prop_assert!(McpServer::validate_schlib_coordinate(v, "x").is_ok());
+                prop_assert!(McpServer::validate_schlib_coordinate(f64::from(v), "x").is_ok());
             }
 
             #[test]
             fn schlib_coordinate_out_of_range_always_rejects(v in 32001i32..i32::MAX) {
-                prop_assert!(McpServer::validate_schlib_coordinate(v, "x").is_err());
-                prop_assert!(McpServer::validate_schlib_coordinate(-v, "x").is_err());
+                prop_assert!(McpServer::validate_schlib_coordinate(f64::from(v), "x").is_err());
+                prop_assert!(McpServer::validate_schlib_coordinate(f64::from(-v), "x").is_err());
             }
         }
     }

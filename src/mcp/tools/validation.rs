@@ -118,12 +118,13 @@ impl McpServer {
     /// `i16::MAX` = 32767, but we use 32000 as a conservative limit.
     const MAX_SCHLIB_COORDINATE: i32 = 32000;
 
-    /// Validates that a `SchLib` coordinate is within the safe range for i16.
-    pub(crate) fn validate_schlib_coordinate(value: i32, field_name: &str) -> Result<(), String> {
-        // Direct bound check, not `value.abs()`: `i32::MIN.abs()` overflows
-        // (panics in debug, wraps negative in release — silently passing the
-        // check), so a crafted coordinate could panic or bypass validation.
-        if !(-Self::MAX_SCHLIB_COORDINATE..=Self::MAX_SCHLIB_COORDINATE).contains(&value) {
+    /// Validates that a `SchLib` coordinate is within the safe range. Graphic
+    /// primitives carry f64 (off-grid) coordinates, so this takes f64 and also
+    /// rejects non-finite (NaN/∞) values. Pins pass their i32 coordinates via
+    /// `f64::from`.
+    pub(crate) fn validate_schlib_coordinate(value: f64, field_name: &str) -> Result<(), String> {
+        let max = f64::from(Self::MAX_SCHLIB_COORDINATE);
+        if !value.is_finite() || value < -max || value > max {
             return Err(format!(
                 "{field_name} value {value} exceeds the maximum safe range of ±{} units",
                 Self::MAX_SCHLIB_COORDINATE
@@ -133,20 +134,22 @@ impl McpServer {
     }
 
     /// Validates all coordinates in a symbol before writing.
-    // Graphic coordinates are f64; range-checking rounds them onto the integer
-    // schematic grid, so the f64→i32 cast is intentional (and saturates for
-    // absurd magnitudes, which the bound check then rejects).
-    #[allow(clippy::cast_possible_truncation)]
     pub(crate) fn validate_symbol_coordinates(
         symbol: &crate::altium::schlib::Symbol,
     ) -> Result<(), String> {
         let name = &symbol.name;
 
         for (i, pin) in symbol.pins.iter().enumerate() {
-            Self::validate_schlib_coordinate(pin.x, &format!("Symbol '{name}' pin {i} x"))?;
-            Self::validate_schlib_coordinate(pin.y, &format!("Symbol '{name}' pin {i} y"))?;
             Self::validate_schlib_coordinate(
-                pin.length,
+                f64::from(pin.x),
+                &format!("Symbol '{name}' pin {i} x"),
+            )?;
+            Self::validate_schlib_coordinate(
+                f64::from(pin.y),
+                &format!("Symbol '{name}' pin {i} y"),
+            )?;
+            Self::validate_schlib_coordinate(
+                f64::from(pin.length),
                 &format!("Symbol '{name}' pin {i} length"),
             )?;
         }
@@ -171,22 +174,10 @@ impl McpServer {
         }
 
         for (i, line) in symbol.lines.iter().enumerate() {
-            Self::validate_schlib_coordinate(
-                line.x1.round() as i32,
-                &format!("Symbol '{name}' line {i} x1"),
-            )?;
-            Self::validate_schlib_coordinate(
-                line.y1.round() as i32,
-                &format!("Symbol '{name}' line {i} y1"),
-            )?;
-            Self::validate_schlib_coordinate(
-                line.x2.round() as i32,
-                &format!("Symbol '{name}' line {i} x2"),
-            )?;
-            Self::validate_schlib_coordinate(
-                line.y2.round() as i32,
-                &format!("Symbol '{name}' line {i} y2"),
-            )?;
+            Self::validate_schlib_coordinate(line.x1, &format!("Symbol '{name}' line {i} x1"))?;
+            Self::validate_schlib_coordinate(line.y1, &format!("Symbol '{name}' line {i} y1"))?;
+            Self::validate_schlib_coordinate(line.x2, &format!("Symbol '{name}' line {i} x2"))?;
+            Self::validate_schlib_coordinate(line.y2, &format!("Symbol '{name}' line {i} y2"))?;
         }
 
         for (i, polyline) in symbol.polylines.iter().enumerate() {
