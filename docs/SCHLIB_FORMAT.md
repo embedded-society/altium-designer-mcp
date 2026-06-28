@@ -279,6 +279,29 @@ Derived from Rotated and Flipped flags:
 - Standard grid is 10 units
 - Pins are typically 10-30 units long
 
+### Fractional coordinates
+
+Graphic-primitive coordinates may sit off the integer grid. Altium stores each
+coordinate as an integer key plus an optional `<key>_Frac` companion holding the
+fractional part scaled by 100,000, reconstructed as:
+
+```text
+value = <key> + <key>_Frac / 100000
+```
+
+This applies to every coordinate key — `Location.X`/`Y`, `Corner.X`/`Y`,
+`Radius`, `SecondaryRadius`, `CornerXRadius`/`CornerYRadius`, and the polyline /
+polygon vertices `X{n}`/`Y{n}`. The `_Frac` field is **non-negative** (range
+`0..=99999`); for negative coordinates the integer part is the **floor**, so e.g.
+`-28.995` is stored as `Location.X=-29` with `Location.X_Frac=500`
+(`-29 + 500/100000 = -28.995`). A `_Frac` of `0` is omitted, so integer-grid
+coordinates serialise exactly as before. When the fractional part rounds up to a
+whole unit it **carries** into the integer part (e.g. `4.999995` → `Radius=5`,
+no `_Frac`) rather than being clamped.
+
+Binary pin records (Type 1) store integer coordinates only and do not use
+`_Frac`.
+
 ## Colour Format
 
 Colours are stored as 32-bit BGR values:
@@ -558,8 +581,9 @@ The designator record identifies the component (e.g., R?, U?, C?).
 | `LineWidth` | int | Line width |
 | `Color` | int | Line colour (BGR) |
 
-> **Note:** Fractional radius values are stored multiplied by 100,000 for precision without floating point.
-> Maximum fractional value is 99999 (clamped during writing).
+> **Note:** Fractional radius values are stored multiplied by 100,000 for precision without floating point
+> (see [Fractional coordinates](#fractional-coordinates)). The fractional field is non-negative
+> (`0..=99999`); a value rounding up to a whole unit carries into the integer part rather than being clamped.
 >
 > `Location.Y` may be omitted if the value is 0.
 >
