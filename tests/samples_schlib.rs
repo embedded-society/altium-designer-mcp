@@ -273,14 +273,21 @@ fn samples_schlib_lines() {
     let symbol = lib.get("LINES").expect("symbol LINES not found");
     assert_eq!(symbol.lines.len(), 3, "LINES has 3 lines");
 
-    // Match each line by its (x1, y1, x2, y2) endpoints (reader units).
-    for endpoints in [(0, 0, 10, 0), (0, 0, 0, 10), (0, 0, 10, 10)] {
+    // Match each line by its (x1, y1, x2, y2) endpoints (reader units). Coords are
+    // f64; the integer-grid sample reads back as exact whole values.
+    for endpoints in [
+        (0.0, 0.0, 10.0, 0.0),
+        (0.0, 0.0, 0.0, 10.0),
+        (0.0, 0.0, 10.0, 10.0),
+    ] {
         let (x1, y1, x2, y2) = endpoints;
         assert!(
-            symbol
-                .lines
-                .iter()
-                .any(|l| l.x1 == x1 && l.y1 == y1 && l.x2 == x2 && l.y2 == y2),
+            symbol.lines.iter().any(|l| {
+                (l.x1 - x1).abs() < 1e-9
+                    && (l.y1 - y1).abs() < 1e-9
+                    && (l.x2 - x2).abs() < 1e-9
+                    && (l.y2 - y2).abs() < 1e-9
+            }),
             "missing line {endpoints:?}",
         );
     }

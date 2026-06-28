@@ -431,16 +431,24 @@ impl Rectangle {
 }
 
 /// A line segment.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// Coordinates are `f64` schematic units: Altium stores the integer part plus an
+/// optional `…_Frac` companion (see [`super::coord`]), so a line endpoint can sit
+/// off the integer grid. `Eq` is therefore not derived (floats are only `PartialEq`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Line {
     /// Start X coordinate.
-    pub x1: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub x1: f64,
     /// Start Y coordinate.
-    pub y1: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub y1: f64,
     /// End X coordinate.
-    pub x2: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub x2: f64,
     /// End Y coordinate.
-    pub y2: i32,
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub y2: f64,
     /// Line width.
     #[serde(default = "default_line_width")]
     pub line_width: u8,
@@ -464,14 +472,20 @@ pub struct Line {
 }
 
 impl Line {
-    /// Creates a new line.
+    /// Creates a new line. Accepts integer or float coordinates (`impl Into<f64>`),
+    /// so existing integer-literal call sites keep working.
     #[must_use]
-    pub const fn new(x1: i32, y1: i32, x2: i32, y2: i32) -> Self {
+    pub fn new(
+        x1: impl Into<f64>,
+        y1: impl Into<f64>,
+        x2: impl Into<f64>,
+        y2: impl Into<f64>,
+    ) -> Self {
         Self {
-            x1,
-            y1,
-            x2,
-            y2,
+            x1: x1.into(),
+            y1: y1.into(),
+            x2: x2.into(),
+            y2: y2.into(),
             line_width: 1,
             color: 0x00_00_80, // Dark red (BGR)
             line_style: 0,

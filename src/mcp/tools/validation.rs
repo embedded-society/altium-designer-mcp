@@ -133,6 +133,10 @@ impl McpServer {
     }
 
     /// Validates all coordinates in a symbol before writing.
+    // Graphic coordinates are f64; range-checking rounds them onto the integer
+    // schematic grid, so the f64→i32 cast is intentional (and saturates for
+    // absurd magnitudes, which the bound check then rejects).
+    #[allow(clippy::cast_possible_truncation)]
     pub(crate) fn validate_symbol_coordinates(
         symbol: &crate::altium::schlib::Symbol,
     ) -> Result<(), String> {
@@ -167,10 +171,22 @@ impl McpServer {
         }
 
         for (i, line) in symbol.lines.iter().enumerate() {
-            Self::validate_schlib_coordinate(line.x1, &format!("Symbol '{name}' line {i} x1"))?;
-            Self::validate_schlib_coordinate(line.y1, &format!("Symbol '{name}' line {i} y1"))?;
-            Self::validate_schlib_coordinate(line.x2, &format!("Symbol '{name}' line {i} x2"))?;
-            Self::validate_schlib_coordinate(line.y2, &format!("Symbol '{name}' line {i} y2"))?;
+            Self::validate_schlib_coordinate(
+                line.x1.round() as i32,
+                &format!("Symbol '{name}' line {i} x1"),
+            )?;
+            Self::validate_schlib_coordinate(
+                line.y1.round() as i32,
+                &format!("Symbol '{name}' line {i} y1"),
+            )?;
+            Self::validate_schlib_coordinate(
+                line.x2.round() as i32,
+                &format!("Symbol '{name}' line {i} x2"),
+            )?;
+            Self::validate_schlib_coordinate(
+                line.y2.round() as i32,
+                &format!("Symbol '{name}' line {i} y2"),
+            )?;
         }
 
         for (i, polyline) in symbol.polylines.iter().enumerate() {

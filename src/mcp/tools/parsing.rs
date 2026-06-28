@@ -17,6 +17,16 @@ fn json_i32(json: &Value, field: &str) -> Option<i32> {
         .and_then(|v| i32::try_from(v).ok())
 }
 
+/// Reads a JSON number field as `f64`, accepting both integer and fractional
+/// JSON values and rejecting non-finite (NaN/∞) inputs. Schematic graphic
+/// coordinates use this so off-grid (fractional) positions survive instead of
+/// being dropped by the integer-only [`json_i32`].
+fn json_f64(json: &Value, field: &str) -> Option<f64> {
+    json.get(field)
+        .and_then(Value::as_f64)
+        .filter(|v| v.is_finite())
+}
+
 impl McpServer {
     // ==================== Primitive Parsing Helpers ====================
 
@@ -698,10 +708,12 @@ impl McpServer {
     pub(crate) fn parse_schlib_line(json: &Value) -> Option<crate::altium::schlib::Line> {
         use crate::altium::schlib::Line;
 
-        let x1 = json_i32(json, "x1")?;
-        let y1 = json_i32(json, "y1")?;
-        let x2 = json_i32(json, "x2")?;
-        let y2 = json_i32(json, "y2")?;
+        // Coordinates accept fractional values; integer-only `json_i32` would drop
+        // an off-grid endpoint like 3.75.
+        let x1 = json_f64(json, "x1")?;
+        let y1 = json_f64(json, "y1")?;
+        let x2 = json_f64(json, "x2")?;
+        let y2 = json_f64(json, "y2")?;
 
         let line_width = json.get("line_width").and_then(Value::as_u64).unwrap_or(1) as u8;
         let color = json
@@ -1049,5 +1061,43 @@ impl McpServer {
             owner_part_id,
             unique_id: None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{json_f64, json_i32};
+    use crate::mcp::server::McpServer;
+    use serde_json::json;
+
+    #[test]
+    fn json_i32_drops_fractional_coordinate() {
+        // Demonstrates the original defect: the integer reader rejects an
+        // off-grid value, so a fractional coordinate was silently dropped while
+        // an integer one passed through.
+        assert_eq!(json_i32(&json!({ "x": 3.75 }), "x"), None);
+        assert_eq!(json_i32(&json!({ "x": 3 }), "x"), Some(3));
+    }
+
+    #[test]
+    fn json_f64_accepts_numbers_and_rejects_non_numeric() {
+        // The fix: accept fractional and integer JSON numbers; reject non-numeric.
+        assert_eq!(json_f64(&json!({ "x": 3.75 }), "x"), Some(3.75));
+        assert_eq!(json_f64(&json!({ "x": -28 }), "x"), Some(-28.0));
+        assert_eq!(json_f64(&json!({ "x": "nope" }), "x"), None);
+        assert_eq!(json_f64(&json!({}), "x"), None);
+    }
+
+    #[test]
+    fn parse_schlib_line_preserves_fractional_coords() {
+        // End-to-end: a fractional line now parses (instead of being dropped)
+        // and keeps its exact coordinates, including a negative fractional X.
+        let line = McpServer::parse_schlib_line(&json!({
+            "x1": -28.995, "y1": 7.5, "x2": 10.0, "y2": 0.0
+        }))
+        .expect("fractional line should parse");
+        assert!((line.x1 - (-28.995)).abs() < 1e-9, "x1 kept: {}", line.x1);
+        assert!((line.y1 - 7.5).abs() < 1e-9, "y1 kept: {}", line.y1);
+        assert!((line.x2 - 10.0).abs() < 1e-9, "x2 kept: {}", line.x2);
     }
 }

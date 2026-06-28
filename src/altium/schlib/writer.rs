@@ -328,15 +328,25 @@ fn encode_line(line: &Line, index: usize) -> String {
         ""
     };
     let line_style = nonzero("LineStyle", u32::from(line.line_style));
+    // Each coordinate is an integer part plus a non-negative `…_Frac` companion;
+    // the fraction is omitted when zero, so integer-grid lines stay byte-identical.
+    let (x1, x1_frac) = coord::split(line.x1);
+    let (y1, y1_frac) = coord::split(line.y1);
+    let (x2, x2_frac) = coord::split(line.x2);
+    let (y2, y2_frac) = coord::split(line.y2);
     format!(
-        "|RECORD=13|IndexInSheet={}|OwnerPartId={}{}|Location.X={}|Location.Y={}|Corner.X={}|Corner.Y={}|LineWidth={}{}{}|UniqueID={}",
+        "|RECORD=13|IndexInSheet={}|OwnerPartId={}{}|Location.X={}{}|Location.Y={}{}|Corner.X={}{}|Corner.Y={}{}|LineWidth={}{}{}|UniqueID={}",
         index,
         line.owner_part_id,
         not_accessible,
-        line.x1,
-        line.y1,
-        line.x2,
-        line.y2,
+        x1,
+        nonzero("Location.X_Frac", x1_frac),
+        y1,
+        nonzero("Location.Y_Frac", y1_frac),
+        x2,
+        nonzero("Corner.X_Frac", x2_frac),
+        y2,
+        nonzero("Corner.Y_Frac", y2_frac),
         line.line_width,
         nonzero("Color", line.color),
         line_style,
@@ -1314,5 +1324,39 @@ mod tests {
         );
         assert!(!s.contains("Color="), "zero text Color omitted: {s}");
         assert!(!s.contains("=F"), "text never emits a boolean =F: {s}");
+    }
+
+    #[test]
+    fn encode_line_omits_frac_for_integer_coords() {
+        // Byte-identity: an integer-grid line must emit its coordinates plainly
+        // with no `_Frac` companion, so existing files are unchanged by the
+        // f64 coordinate migration.
+        let s = encode_line(&Line::new(-10, 0, 10, 0), 1);
+        assert!(
+            s.contains("|Location.X=-10|"),
+            "integer X emitted plainly: {s}"
+        );
+        assert!(s.contains("|Corner.X=10|"), "integer corner X plainly: {s}");
+        assert!(
+            !s.contains("_Frac"),
+            "an integer-grid line must emit no _Frac token: {s}"
+        );
+    }
+
+    #[test]
+    fn encode_line_emits_frac_for_fractional_and_negative_coords() {
+        // Floor split: -28.995 -> Location.X=-29 with Location.X_Frac=500; the
+        // positive 7.5 -> 7 + 50000. This is the capability the integer field
+        // could not represent at all.
+        let mut line = Line::new(-28.995, 7.5, 0, 0);
+        line.unique_id = Some("ABCD1234".to_string());
+        let s = encode_line(&line, 1);
+        assert!(s.contains("|Location.X=-29|"), "floor integer part: {s}");
+        assert!(
+            s.contains("|Location.X_Frac=500|"),
+            "non-negative fractional part: {s}"
+        );
+        assert!(s.contains("|Location.Y=7|"), "Y integer part: {s}");
+        assert!(s.contains("|Location.Y_Frac=50000|"), "Y fractional: {s}");
     }
 }

@@ -1204,4 +1204,45 @@ mod tests {
             "Expected 'expected SchLib' in error, got: {err_str}"
         );
     }
+
+    #[test]
+    fn roundtrip_line_fractional_and_negative_coords() {
+        // Off-grid endpoints — including a negative fractional coordinate, the
+        // case the elliptical-arc encoder never exercised — must survive a
+        // write -> read round-trip through the `_Frac` companion fields.
+        let mut symbol = Symbol::new("FRAC_LINE");
+        symbol.add_line(Line::new(-28.995, 7.5, 10.25, -0.5));
+
+        let mut lib = SchLib::new();
+        lib.add(symbol);
+        let mut buf = Cursor::new(Vec::new());
+        lib.write(&mut buf).expect("Failed to write SchLib");
+        buf.set_position(0);
+        let read = SchLib::read(buf).expect("Failed to read SchLib");
+
+        let l = &read.get("FRAC_LINE").expect("symbol present").lines[0];
+        assert!((l.x1 - (-28.995)).abs() < 1e-9, "x1 round-trips: {}", l.x1);
+        assert!((l.y1 - 7.5).abs() < 1e-9, "y1 round-trips: {}", l.y1);
+        assert!((l.x2 - 10.25).abs() < 1e-9, "x2 round-trips: {}", l.x2);
+        assert!((l.y2 - (-0.5)).abs() < 1e-9, "y2 round-trips: {}", l.y2);
+    }
+
+    #[test]
+    fn roundtrip_line_integer_coords_emit_no_frac() {
+        // Integer-grid lines must serialise without any `_Frac` token (byte
+        // identity with pre-migration output) and still round-trip exactly.
+        let mut symbol = Symbol::new("INT_LINE");
+        symbol.add_line(Line::new(-30, 0, 30, 0));
+        let data = writer::encode_data_stream(&symbol).expect("encode");
+        let text = String::from_utf8_lossy(&data);
+        assert!(
+            !text.contains("_Frac"),
+            "integer line must emit no _Frac: {text}"
+        );
+
+        let mut decoded = Symbol::new("INT_LINE");
+        reader::parse_data_stream(&mut decoded, &data);
+        let l = &decoded.lines[0];
+        assert!((l.x1 - (-30.0)).abs() < 1e-9 && (l.x2 - 30.0).abs() < 1e-9);
+    }
 }

@@ -458,10 +458,13 @@ impl McpServer {
             if !matches_part(line.owner_part_id) {
                 continue;
             }
-            min_x = min_x.min(line.x1).min(line.x2);
-            max_x = max_x.max(line.x1).max(line.x2);
-            min_y = min_y.min(line.y1).min(line.y2);
-            max_y = max_y.max(line.y1).max(line.y2);
+            // Lines carry f64 coordinates; round to the integer ASCII grid.
+            let (lx1, ly1) = (line.x1.round() as i32, line.y1.round() as i32);
+            let (lx2, ly2) = (line.x2.round() as i32, line.y2.round() as i32);
+            min_x = min_x.min(lx1).min(lx2);
+            max_x = max_x.max(lx1).max(lx2);
+            min_y = min_y.min(ly1).min(ly2);
+            max_y = max_y.max(ly1).max(ly2);
         }
 
         // Calculate bounding box from polylines
@@ -593,8 +596,8 @@ impl McpServer {
             }
             Self::draw_line(
                 &mut canvas,
-                to_canvas(line.x1, line.y1),
-                to_canvas(line.x2, line.y2),
+                to_canvas(line.x1.round() as i32, line.y1.round() as i32),
+                to_canvas(line.x2.round() as i32, line.y2.round() as i32),
                 '-',
             );
         }

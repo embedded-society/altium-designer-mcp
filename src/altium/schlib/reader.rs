@@ -437,10 +437,11 @@ fn parse_rectangle(props: &HashMap<String, String>) -> Option<Rectangle> {
 /// Parses a line from properties.
 #[allow(clippy::unnecessary_wraps)] // infallible (all coords default); Option kept for uniform parser dispatch
 fn parse_line(props: &HashMap<String, String>) -> Option<Line> {
-    let x1 = coord(props, "location.x");
-    let y1 = coord(props, "location.y");
-    let x2 = coord(props, "corner.x");
-    let y2 = coord(props, "corner.y");
+    // Each coordinate may carry a `…_Frac` companion (off-grid endpoints).
+    let x1 = crate::altium::schlib::coord::read(props, "location.x");
+    let y1 = crate::altium::schlib::coord::read(props, "location.y");
+    let x2 = crate::altium::schlib::coord::read(props, "corner.x");
+    let y2 = crate::altium::schlib::coord::read(props, "corner.y");
 
     let line_width = props
         .get("linewidth")
