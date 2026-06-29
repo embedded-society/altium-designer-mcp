@@ -369,7 +369,7 @@ impl PinElectricalType {
 /// A rectangle shape.
 ///
 /// Coordinates are `f64` schematic units (integer part plus optional `…_Frac`,
-/// see [`super::coord`]); `Eq` is not derived (floats are only `PartialEq`).
+/// see `super::coord`); `Eq` is not derived (floats are only `PartialEq`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Rectangle {
     /// Left X coordinate.
@@ -445,7 +445,7 @@ impl Rectangle {
 /// A line segment.
 ///
 /// Coordinates are `f64` schematic units: Altium stores the integer part plus an
-/// optional `…_Frac` companion (see [`super::coord`]), so a line endpoint can sit
+/// optional `…_Frac` companion (see `super::coord`), so a line endpoint can sit
 /// off the integer grid. `Eq` is therefore not derived (floats are only `PartialEq`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Line {
@@ -510,7 +510,7 @@ impl Line {
 
 /// A polyline (multiple connected line segments).
 ///
-/// Point coordinates are `f64` schematic units (see [`super::coord`]); `Eq` is
+/// Point coordinates are `f64` schematic units (see `super::coord`); `Eq` is
 /// not derived (floats are only `PartialEq`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Polyline {
@@ -548,7 +548,7 @@ pub struct Polyline {
 
 /// A filled polygon.
 ///
-/// Vertex coordinates are `f64` schematic units (see [`super::coord`]); `Eq` is
+/// Vertex coordinates are `f64` schematic units (see `super::coord`); `Eq` is
 /// not derived (floats are only `PartialEq`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Polygon {
@@ -631,7 +631,7 @@ const fn default_end_angle() -> f64 {
 /// - Control point 2 (x3, y3)
 /// - End point (x4, y4)
 ///
-/// Coordinates are `f64` schematic units (see [`super::coord`]); `Eq` is not
+/// Coordinates are `f64` schematic units (see `super::coord`); `Eq` is not
 /// derived (floats are only `PartialEq`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Bezier {
@@ -712,7 +712,7 @@ impl Bezier {
 
 /// An ellipse.
 ///
-/// Coordinates are `f64` schematic units (see [`super::coord`]); `Eq` is not
+/// Coordinates are `f64` schematic units (see `super::coord`); `Eq` is not
 /// derived (floats are only `PartialEq`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Ellipse {
@@ -787,7 +787,7 @@ impl Ellipse {
 /// A rounded rectangle.
 ///
 /// Defined by two corner points and corner radii for rounding.
-/// Coordinates are `f64` schematic units (see [`super::coord`]); `Eq` is not
+/// Coordinates are `f64` schematic units (see `super::coord`); `Eq` is not
 /// derived (floats are only `PartialEq`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RoundRect {
@@ -1047,7 +1047,7 @@ const fn default_justification() -> TextJustification {
 
 /// A component parameter (e.g., Value, Part Number).
 ///
-/// Coordinates are `f64` schematic units (see [`super::coord`]); `Eq` is not
+/// Coordinates are `f64` schematic units (see `super::coord`); `Eq` is not
 /// derived (floats are only `PartialEq`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Parameter {
