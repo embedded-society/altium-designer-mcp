@@ -50,7 +50,7 @@ jobs:
 
             - name: Restore npm cache
               id: npm-cache-restore
-              uses: actions/cache/restore@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+              uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
               with:
                 path: ~/.npm
                 key: npm-markdownlint-${{ runner.os }}-node-${{ steps.setup-node.outputs.node-version }}-mdlint-${{ steps.mdlint-version.outputs.version }}
@@ -66,7 +66,7 @@ jobs:
 
             - name: Save npm cache
               if: steps.npm-cache-restore.outputs.cache-hit != 'true'
-              uses: actions/cache/save@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+              uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
               with:
                 path: ~/.npm
                 key: npm-markdownlint-${{ runner.os }}-node-${{ steps.setup-node.outputs.node-version }}-mdlint-${{ steps.mdlint-version.outputs.version }}
@@ -111,7 +111,7 @@ jobs:
 
             - name: Restore Rust cache
               id: cache-restore
-              uses: actions/cache/restore@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+              uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
               with:
                 path: |
                     ~/.cargo/bin/
@@ -168,7 +168,7 @@ jobs:
             - name: Save Rust cache
               if: steps.cache-restore.outputs.cache-hit != 'true'
               continue-on-error: true
-              uses: actions/cache/save@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+              uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
               with:
                 path: |
                     ~/.cargo/bin/
@@ -203,7 +203,7 @@ jobs:
                 components: llvm-tools-preview
 
             - name: Install cargo-llvm-cov
-              uses: taiki-e/install-action@682e7d9e49c5e653d371fc6adbda67653461378a # v2.82.4
+              uses: taiki-e/install-action@bffeee26d4db9be238a4ea78d8826604ebcb594d # v2.82.5
               with:
                 tool: cargo-llvm-cov
 
@@ -214,7 +214,7 @@ jobs:
 
             - name: Restore Rust cache
               id: cache-restore
-              uses: actions/cache/restore@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+              uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
               with:
                 path: |
                     ~/.cargo/registry/index/
@@ -234,7 +234,7 @@ jobs:
             - name: Save Rust cache
               if: steps.cache-restore.outputs.cache-hit != 'true'
               continue-on-error: true
-              uses: actions/cache/save@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+              uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
               with:
                 path: |
                     ~/.cargo/registry/index/
