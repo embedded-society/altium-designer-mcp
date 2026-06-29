@@ -1671,6 +1671,89 @@ mod tests {
     }
 
     #[test]
+    fn write_schlib_accepts_all_primitive_fields() {
+        // Guards the strict-deserialization allow-lists against narrowing. The
+        // unit suite otherwise never exercises these optional fields, so an
+        // allow-list that rejects a shipped field (the #188/#189 regression the
+        // integration suite caught) would still pass CI. Each primitive here
+        // carries the full field set its `parse_*` reads.
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("all_prims.SchLib");
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepath": lib_path.to_string_lossy(),
+            "symbols": [{
+                "name": "ALL", "designator_prefix": "U",
+                "pins": [],
+                "rectangles": [{"x1": -10, "y1": -10, "x2": 10, "y2": 10,
+                    "line_width": 1, "line_color": 128, "fill_color": 11_599_871,
+                    "filled": true, "owner_part_id": 1}],
+                "round_rects": [{"x1": -5, "y1": -5, "x2": 5, "y2": 5,
+                    "corner_x_radius": 1, "corner_y_radius": 1, "line_width": 1,
+                    "line_color": 128, "fill_color": 11_599_871, "filled": true,
+                    "owner_part_id": 1}],
+                "lines": [{"x1": 0, "y1": 0, "x2": 10, "y2": 0, "line_width": 1,
+                    "color": 128, "owner_part_id": 1}],
+                "polylines": [{"points": [{"x": 0, "y": 0}, {"x": 5, "y": 5}],
+                    "line_width": 1, "color": 128, "owner_part_id": 1}],
+                "polygons": [{"points": [{"x": 0, "y": 0}, {"x": 5, "y": 0},
+                    {"x": 5, "y": 5}], "line_width": 1, "line_color": 128,
+                    "fill_color": 11_599_871, "filled": true, "owner_part_id": 1}],
+                "arcs": [{"x": 0, "y": 0, "radius": 5, "start_angle": 0,
+                    "end_angle": 360, "line_width": 1, "color": 128, "owner_part_id": 1}],
+                "ellipses": [{"x": 0, "y": 0, "radius_x": 5, "radius_y": 3,
+                    "line_width": 1, "line_color": 128, "fill_color": 11_599_871,
+                    "filled": true, "owner_part_id": 1}],
+                "labels": [{"x": 0, "y": 0, "text": "L", "font_id": 1, "color": 128,
+                    "rotation": 0, "is_mirrored": false, "is_hidden": false,
+                    "justification": "bottom_left", "owner_part_id": 1}],
+                "text": [{"x": 0, "y": 0, "text": "T", "font_id": 1, "color": 128,
+                    "rotation": 0, "is_mirrored": false, "is_hidden": false,
+                    "justification": "bottom_left", "owner_part_id": 1}],
+                "parameters": [{"name": "Value", "value": "*", "x": 0, "y": 0,
+                    "hidden": false, "font_id": 1, "color": 8_388_608, "owner_part_id": 1}],
+                "footprints": [{"name": "FP", "description": "d",
+                    "library_path": lib_path.to_string_lossy()}]
+            }]
+        });
+        let result = server.call_write_schlib(&args);
+        assert!(
+            !result.is_error,
+            "all schlib primitive fields must be accepted, got: {}",
+            get_result_text(&result)
+        );
+    }
+
+    #[test]
+    fn write_pcblib_accepts_all_primitive_fields() {
+        // Companion to the SchLib guard: text (layer/stroke_width), region
+        // (layer) and component_bodies must survive the footprint allow-list.
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("all_prims.PcbLib");
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepath": lib_path.to_string_lossy(),
+            "footprints": [{
+                "name": "FP",
+                "pads": [{"designator": "1", "x": 0, "y": 0, "width": 1, "height": 1}],
+                "regions": [{"layer": "Top Courtyard",
+                    "vertices": [{"x": -1, "y": -1}, {"x": 1, "y": -1}, {"x": 1, "y": 1}]}],
+                "text": [{"x": 0, "y": 2, "text": ".Designator", "height": 0.5,
+                    "layer": "Top Overlay", "rotation": 0, "stroke_width": 0.1}],
+                "component_bodies": [{"layer": "Top 3D Body", "overall_height": 1.0,
+                    "outline": [{"x": -1, "y": -1}, {"x": 1, "y": -1}, {"x": 1, "y": 1},
+                        {"x": -1, "y": 1}]}]
+            }]
+        });
+        let result = server.call_write_pcblib(&args);
+        assert!(
+            !result.is_error,
+            "all pcblib primitive fields must be accepted, got: {}",
+            get_result_text(&result)
+        );
+    }
+
+    #[test]
     fn write_schlib_append_mode() {
         let temp = test_temp_dir();
         let lib_path = temp.path().join("append_test.SchLib");

@@ -509,10 +509,11 @@ impl McpServer {
                     "tracks",
                     "arcs",
                     "regions",
-                    "texts",
+                    "text",
                     "vias",
                     "fills",
-                    "step_model"
+                    "step_model",
+                    "component_bodies"
                 ]
             );
             let name = fp_json
@@ -613,7 +614,7 @@ impl McpServer {
             // Parse regions
             if let Some(regions) = fp_json.get("regions").and_then(Value::as_array) {
                 for region_json in regions {
-                    check_keys!(region_json, &["vertices"]);
+                    check_keys!(region_json, &["layer", "vertices"]);
                     if let Some(region) = Self::parse_region(region_json) {
                         footprint.add_region(region);
                     }
@@ -623,7 +624,18 @@ impl McpServer {
             // Parse text
             if let Some(texts) = fp_json.get("text").and_then(Value::as_array) {
                 for text_json in texts {
-                    check_keys!(text_json, &["height", "rotation", "text", "x", "y"]);
+                    check_keys!(
+                        text_json,
+                        &[
+                            "height",
+                            "layer",
+                            "rotation",
+                            "stroke_width",
+                            "text",
+                            "x",
+                            "y"
+                        ]
+                    );
                     if let Some(text) = Self::parse_text(text_json) {
                         footprint.add_text(text);
                     }
@@ -1092,14 +1104,16 @@ impl McpServer {
                     "part_count",
                     "pins",
                     "rectangles",
+                    "round_rects",
                     "lines",
                     "polylines",
                     "polygons",
                     "arcs",
                     "ellipses",
                     "labels",
-                    "texts",
-                    "parameters"
+                    "text",
+                    "parameters",
+                    "footprints"
                 ]
             );
             let name = sym_json
@@ -1183,7 +1197,9 @@ impl McpServer {
                     check_keys!(
                         rect_json,
                         &[
+                            "fill_color",
                             "filled",
+                            "line_color",
                             "line_width",
                             "owner_part_id",
                             "x1",
@@ -1201,7 +1217,22 @@ impl McpServer {
             // Parse rounded rectangles
             if let Some(round_rects) = sym_json.get("round_rects").and_then(Value::as_array) {
                 for round_rect_json in round_rects {
-                    check_keys!(round_rect_json, &[]);
+                    check_keys!(
+                        round_rect_json,
+                        &[
+                            "corner_x_radius",
+                            "corner_y_radius",
+                            "fill_color",
+                            "filled",
+                            "line_color",
+                            "line_width",
+                            "owner_part_id",
+                            "x1",
+                            "x2",
+                            "y1",
+                            "y2"
+                        ]
+                    );
                     if let Some(round_rect) = Self::parse_schlib_round_rect(round_rect_json) {
                         symbol.add_round_rect(round_rect);
                     }
@@ -1213,7 +1244,15 @@ impl McpServer {
                 for line_json in lines {
                     check_keys!(
                         line_json,
-                        &["line_width", "owner_part_id", "x1", "x2", "y1", "y2"]
+                        &[
+                            "color",
+                            "line_width",
+                            "owner_part_id",
+                            "x1",
+                            "x2",
+                            "y1",
+                            "y2"
+                        ]
                     );
                     if let Some(line) = Self::parse_schlib_line(line_json) {
                         symbol.add_line(line);
@@ -1224,7 +1263,10 @@ impl McpServer {
             // Parse polylines
             if let Some(polylines) = sym_json.get("polylines").and_then(Value::as_array) {
                 for polyline_json in polylines {
-                    check_keys!(polyline_json, &["line_width", "owner_part_id", "vertices"]);
+                    check_keys!(
+                        polyline_json,
+                        &["color", "line_width", "owner_part_id", "points", "vertices"]
+                    );
                     if let Some(polyline) = Self::parse_schlib_polyline(polyline_json) {
                         symbol.add_polyline(polyline);
                     }
@@ -1236,7 +1278,15 @@ impl McpServer {
                 for polygon_json in polygons {
                     check_keys!(
                         polygon_json,
-                        &["filled", "line_width", "owner_part_id", "vertices"]
+                        &[
+                            "fill_color",
+                            "filled",
+                            "line_color",
+                            "line_width",
+                            "owner_part_id",
+                            "points",
+                            "vertices"
+                        ]
                     );
                     if let Some(polygon) = Self::parse_schlib_polygon(polygon_json) {
                         symbol.add_polygon(polygon);
@@ -1275,7 +1325,9 @@ impl McpServer {
                     check_keys!(
                         ellipse_json,
                         &[
+                            "fill_color",
                             "filled",
+                            "line_color",
                             "line_width",
                             "owner_part_id",
                             "radius_x",
@@ -1296,8 +1348,11 @@ impl McpServer {
                     check_keys!(
                         label_json,
                         &[
+                            "color",
                             "font_id",
                             "hidden",
+                            "is_hidden",
+                            "is_mirrored",
                             "justification",
                             "owner_part_id",
                             "rotation",
@@ -1315,7 +1370,22 @@ impl McpServer {
             // Parse text annotations
             if let Some(texts) = sym_json.get("text").and_then(Value::as_array) {
                 for text_json in texts {
-                    check_keys!(text_json, &["height", "rotation", "text", "x", "y"]);
+                    check_keys!(
+                        text_json,
+                        &[
+                            "color",
+                            "font_id",
+                            "hidden",
+                            "is_hidden",
+                            "is_mirrored",
+                            "justification",
+                            "owner_part_id",
+                            "rotation",
+                            "text",
+                            "x",
+                            "y"
+                        ]
+                    );
                     if let Some(text) = Self::parse_schlib_text(text_json) {
                         symbol.add_text(text);
                     }
@@ -1347,21 +1417,10 @@ impl McpServer {
             // Parse footprint references
             if let Some(footprints) = sym_json.get("footprints").and_then(Value::as_array) {
                 for fp_json in footprints {
-                    check_keys!(
-                        fp_json,
-                        &[
-                            "name",
-                            "description",
-                            "pads",
-                            "tracks",
-                            "arcs",
-                            "regions",
-                            "texts",
-                            "vias",
-                            "fills",
-                            "step_model"
-                        ]
-                    );
+                    // A footprint reference is a model link (name + optional
+                    // description + library_path), not an embedded footprint, so
+                    // only those fields are read here.
+                    check_keys!(fp_json, &["name", "description", "library_path"]);
                     if let Some(fp_name) = fp_json.get("name").and_then(Value::as_str) {
                         let mut fp = FootprintModel::new(fp_name);
                         if let Some(desc) = fp_json.get("description").and_then(Value::as_str) {
