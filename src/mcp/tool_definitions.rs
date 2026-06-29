@@ -421,10 +421,10 @@ impl McpServer {
                                         "items": {
                                             "type": "object",
                                             "properties": {
-                                                "x1": { "type": "integer", "description": "Left X coordinate" },
-                                                "y1": { "type": "integer", "description": "Bottom Y coordinate" },
-                                                "x2": { "type": "integer", "description": "Right X coordinate" },
-                                                "y2": { "type": "integer", "description": "Top Y coordinate" },
+                                                "x1": { "type": "number", "description": "Left X coordinate" },
+                                                "y1": { "type": "number", "description": "Bottom Y coordinate" },
+                                                "x2": { "type": "number", "description": "Right X coordinate" },
+                                                "y2": { "type": "number", "description": "Top Y coordinate" },
                                                 "line_width": { "type": "integer", "description": "Border width. Default: 1" },
                                                 "line_color": { "type": "integer", "description": "Border BGR colour. Default: 0x000080" },
                                                 "fill_color": { "type": "integer", "description": "Fill BGR colour. Default: 0xB0FFFF (Altium light yellow)" },
@@ -440,12 +440,12 @@ impl McpServer {
                                         "items": {
                                             "type": "object",
                                             "properties": {
-                                                "x1": { "type": "integer", "description": "Left X coordinate" },
-                                                "y1": { "type": "integer", "description": "Bottom Y coordinate" },
-                                                "x2": { "type": "integer", "description": "Right X coordinate" },
-                                                "y2": { "type": "integer", "description": "Top Y coordinate" },
-                                                "corner_x_radius": { "type": "integer", "description": "Horizontal corner radius. Default: 0" },
-                                                "corner_y_radius": { "type": "integer", "description": "Vertical corner radius. Default: 0" },
+                                                "x1": { "type": "number", "description": "Left X coordinate" },
+                                                "y1": { "type": "number", "description": "Bottom Y coordinate" },
+                                                "x2": { "type": "number", "description": "Right X coordinate" },
+                                                "y2": { "type": "number", "description": "Top Y coordinate" },
+                                                "corner_x_radius": { "type": "number", "description": "Horizontal corner radius. Default: 0" },
+                                                "corner_y_radius": { "type": "number", "description": "Vertical corner radius. Default: 0" },
                                                 "line_width": { "type": "integer", "description": "Border width. Default: 1" },
                                                 "line_color": { "type": "integer", "description": "Border BGR colour. Default: 0x000080" },
                                                 "fill_color": { "type": "integer", "description": "Fill BGR colour. Default: 0xB0FFFF (Altium light yellow)" },
@@ -461,10 +461,10 @@ impl McpServer {
                                         "items": {
                                             "type": "object",
                                             "properties": {
-                                                "x1": { "type": "integer", "description": "Start X coordinate" },
-                                                "y1": { "type": "integer", "description": "Start Y coordinate" },
-                                                "x2": { "type": "integer", "description": "End X coordinate" },
-                                                "y2": { "type": "integer", "description": "End Y coordinate" },
+                                                "x1": { "type": "number", "description": "Start X coordinate" },
+                                                "y1": { "type": "number", "description": "Start Y coordinate" },
+                                                "x2": { "type": "number", "description": "End X coordinate" },
+                                                "y2": { "type": "number", "description": "End Y coordinate" },
                                                 "line_width": { "type": "integer", "description": "Line width. Default: 1" },
                                                 "color": { "type": "integer", "description": "Line BGR colour. Default: 0x000080" },
                                                 "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" }
@@ -484,8 +484,8 @@ impl McpServer {
                                                     "items": {
                                                         "type": "object",
                                                         "properties": {
-                                                            "x": { "type": "integer" },
-                                                            "y": { "type": "integer" }
+                                                            "x": { "type": "number" },
+                                                            "y": { "type": "number" }
                                                         },
                                                         "required": ["x", "y"]
                                                     }
@@ -505,9 +505,9 @@ impl McpServer {
                                         "items": {
                                             "type": "object",
                                             "properties": {
-                                                "x": { "type": "integer", "description": "Centre X coordinate" },
-                                                "y": { "type": "integer", "description": "Centre Y coordinate" },
-                                                "radius": { "type": "integer", "description": "Radius in schematic units" },
+                                                "x": { "type": "number", "description": "Centre X coordinate" },
+                                                "y": { "type": "number", "description": "Centre Y coordinate" },
+                                                "radius": { "type": "number", "description": "Radius in schematic units" },
                                                 "start_angle": { "type": "number", "description": "Start angle in degrees (0 = right, CCW). Default: 0" },
                                                 "end_angle": { "type": "number", "description": "End angle in degrees. Default: 360 (full circle)" },
                                                 "line_width": { "type": "integer", "description": "Line width. Default: 1" },
@@ -523,10 +523,10 @@ impl McpServer {
                                         "items": {
                                             "type": "object",
                                             "properties": {
-                                                "x": { "type": "integer", "description": "Centre X coordinate" },
-                                                "y": { "type": "integer", "description": "Centre Y coordinate" },
-                                                "radius_x": { "type": "integer", "description": "Horizontal radius" },
-                                                "radius_y": { "type": "integer", "description": "Vertical radius" },
+                                                "x": { "type": "number", "description": "Centre X coordinate" },
+                                                "y": { "type": "number", "description": "Centre Y coordinate" },
+                                                "radius_x": { "type": "number", "description": "Horizontal radius" },
+                                                "radius_y": { "type": "number", "description": "Vertical radius" },
                                                 "line_width": { "type": "integer", "description": "Border width. Default: 1" },
                                                 "line_color": { "type": "integer", "description": "Border BGR colour. Default: 0x000080" },
                                                 "fill_color": { "type": "integer", "description": "Fill BGR colour. Default: 0xB0FFFF (Altium light yellow)" },
@@ -542,8 +542,8 @@ impl McpServer {
                                         "items": {
                                             "type": "object",
                                             "properties": {
-                                                "x": { "type": "integer", "description": "X position" },
-                                                "y": { "type": "integer", "description": "Y position" },
+                                                "x": { "type": "number", "description": "X position" },
+                                                "y": { "type": "number", "description": "Y position" },
                                                 "text": { "type": "string", "description": "Text content" },
                                                 "font_id": { "type": "integer", "description": "Font ID. Default: 1" },
                                                 "color": { "type": "integer", "description": "BGR colour. Default: 0x000080" },
@@ -562,8 +562,8 @@ impl McpServer {
                                         "items": {
                                             "type": "object",
                                             "properties": {
-                                                "x": { "type": "integer", "description": "X position" },
-                                                "y": { "type": "integer", "description": "Y position" },
+                                                "x": { "type": "number", "description": "X position" },
+                                                "y": { "type": "number", "description": "Y position" },
                                                 "text": { "type": "string", "description": "Text content" },
                                                 "font_id": { "type": "integer", "description": "Font ID. Default: 1" },
                                                 "color": { "type": "integer", "description": "BGR colour. Default: 0x000080" },
@@ -584,8 +584,8 @@ impl McpServer {
                                             "properties": {
                                                 "name": { "type": "string", "description": "Parameter name (e.g., 'Value')" },
                                                 "value": { "type": "string", "description": "Parameter value (e.g., '10k'). Default: '*'" },
-                                                "x": { "type": "integer", "description": "X position. Default: 0" },
-                                                "y": { "type": "integer", "description": "Y position. Default: 0" },
+                                                "x": { "type": "number", "description": "X position. Default: 0" },
+                                                "y": { "type": "number", "description": "Y position. Default: 0" },
                                                 "font_id": { "type": "integer", "description": "Font ID. Default: 1" },
                                                 "color": { "type": "integer", "description": "BGR colour. Default: 0x800000 (dark red)" },
                                                 "hidden": { "type": "boolean", "description": "Whether hidden. Default: false" },

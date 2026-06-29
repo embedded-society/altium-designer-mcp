@@ -206,19 +206,13 @@ impl McpServer {
                         if let Some(hidden) = arguments.get("hidden").and_then(Value::as_bool) {
                             param.hidden = hidden;
                         }
-                        if let Some(x) = arguments.get("x").and_then(Value::as_i64) {
-                            let Ok(x) = i32::try_from(x) else {
-                                return ToolCallResult::error("Parameter 'x' is out of range");
-                            };
+                        if let Some(x) = arguments.get("x").and_then(Value::as_f64) {
                             if let Err(e) = Self::validate_schlib_coordinate(x, "parameter x") {
                                 return ToolCallResult::error(e);
                             }
                             param.x = x;
                         }
-                        if let Some(y) = arguments.get("y").and_then(Value::as_i64) {
-                            let Ok(y) = i32::try_from(y) else {
-                                return ToolCallResult::error("Parameter 'y' is out of range");
-                            };
+                        if let Some(y) = arguments.get("y").and_then(Value::as_f64) {
                             if let Err(e) = Self::validate_schlib_coordinate(y, "parameter y") {
                                 return ToolCallResult::error(e);
                             }

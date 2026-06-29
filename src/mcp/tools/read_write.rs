@@ -67,6 +67,7 @@ const fn pin_tip(pin: &crate::altium::schlib::Pin) -> (i32, i32) {
 /// For each pin it reports the body-attach end, the computed connection tip, and
 /// the orientation; plus the symbol's bounding box. All values are in schematic
 /// units (10 = 1 grid square).
+#[allow(clippy::cast_possible_truncation)] // rectangle coords rounded onto the integer bbox grid
 fn symbol_geometry(symbol: &crate::altium::schlib::Symbol) -> Value {
     let mut xs: Vec<i32> = Vec::new();
     let mut ys: Vec<i32> = Vec::new();
@@ -89,10 +90,10 @@ fn symbol_geometry(symbol: &crate::altium::schlib::Symbol) -> Value {
         })
         .collect();
     for r in &symbol.rectangles {
-        xs.push(r.x1);
-        xs.push(r.x2);
-        ys.push(r.y1);
-        ys.push(r.y2);
+        xs.push(r.x1.round() as i32);
+        xs.push(r.x2.round() as i32);
+        ys.push(r.y1.round() as i32);
+        ys.push(r.y2.round() as i32);
     }
     let bounding_box = if xs.is_empty() {
         Value::Null

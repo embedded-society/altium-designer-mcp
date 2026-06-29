@@ -447,10 +447,12 @@ impl McpServer {
             if !matches_part(rect.owner_part_id) {
                 continue;
             }
-            min_x = min_x.min(rect.x1).min(rect.x2);
-            max_x = max_x.max(rect.x1).max(rect.x2);
-            min_y = min_y.min(rect.y1).min(rect.y2);
-            max_y = max_y.max(rect.y1).max(rect.y2);
+            let (rx1, ry1) = (rect.x1.round() as i32, rect.y1.round() as i32);
+            let (rx2, ry2) = (rect.x2.round() as i32, rect.y2.round() as i32);
+            min_x = min_x.min(rx1).min(rx2);
+            max_x = max_x.max(rx1).max(rx2);
+            min_y = min_y.min(ry1).min(ry2);
+            max_y = max_y.max(ry1).max(ry2);
         }
 
         // Calculate bounding box from lines
@@ -458,10 +460,13 @@ impl McpServer {
             if !matches_part(line.owner_part_id) {
                 continue;
             }
-            min_x = min_x.min(line.x1).min(line.x2);
-            max_x = max_x.max(line.x1).max(line.x2);
-            min_y = min_y.min(line.y1).min(line.y2);
-            max_y = max_y.max(line.y1).max(line.y2);
+            // Lines carry f64 coordinates; round to the integer ASCII grid.
+            let (lx1, ly1) = (line.x1.round() as i32, line.y1.round() as i32);
+            let (lx2, ly2) = (line.x2.round() as i32, line.y2.round() as i32);
+            min_x = min_x.min(lx1).min(lx2);
+            max_x = max_x.max(lx1).max(lx2);
+            min_y = min_y.min(ly1).min(ly2);
+            max_y = max_y.max(ly1).max(ly2);
         }
 
         // Calculate bounding box from polylines
@@ -470,10 +475,11 @@ impl McpServer {
                 continue;
             }
             for &(x, y) in &polyline.points {
-                min_x = min_x.min(x);
-                max_x = max_x.max(x);
-                min_y = min_y.min(y);
-                max_y = max_y.max(y);
+                let (xi, yi) = (x.round() as i32, y.round() as i32);
+                min_x = min_x.min(xi);
+                max_x = max_x.max(xi);
+                min_y = min_y.min(yi);
+                max_y = max_y.max(yi);
             }
         }
 
@@ -482,10 +488,10 @@ impl McpServer {
             if !matches_part(arc.owner_part_id) {
                 continue;
             }
-            min_x = min_x.min(arc.x - arc.radius);
-            max_x = max_x.max(arc.x + arc.radius);
-            min_y = min_y.min(arc.y - arc.radius);
-            max_y = max_y.max(arc.y + arc.radius);
+            min_x = min_x.min((arc.x - arc.radius).round() as i32);
+            max_x = max_x.max((arc.x + arc.radius).round() as i32);
+            min_y = min_y.min((arc.y - arc.radius).round() as i32);
+            max_y = max_y.max((arc.y + arc.radius).round() as i32);
         }
 
         // Calculate bounding box from ellipses
@@ -493,10 +499,10 @@ impl McpServer {
             if !matches_part(ellipse.owner_part_id) {
                 continue;
             }
-            min_x = min_x.min(ellipse.x - ellipse.radius_x);
-            max_x = max_x.max(ellipse.x + ellipse.radius_x);
-            min_y = min_y.min(ellipse.y - ellipse.radius_y);
-            max_y = max_y.max(ellipse.y + ellipse.radius_y);
+            min_x = min_x.min((ellipse.x - ellipse.radius_x).round() as i32);
+            max_x = max_x.max((ellipse.x + ellipse.radius_x).round() as i32);
+            min_y = min_y.min((ellipse.y - ellipse.radius_y).round() as i32);
+            max_y = max_y.max((ellipse.y + ellipse.radius_y).round() as i32);
         }
 
         // Handle empty symbol
@@ -544,8 +550,8 @@ impl McpServer {
             if !matches_part(rect.owner_part_id) {
                 continue;
             }
-            let (x1, y1) = to_canvas(rect.x1, rect.y1);
-            let (x2, y2) = to_canvas(rect.x2, rect.y2);
+            let (x1, y1) = to_canvas(rect.x1.round() as i32, rect.y1.round() as i32);
+            let (x2, y2) = to_canvas(rect.x2.round() as i32, rect.y2.round() as i32);
             let (min_cx, max_cx) = (x1.min(x2), x1.max(x2));
             let (min_cy, max_cy) = (y1.min(y2), y1.max(y2));
 
@@ -593,8 +599,8 @@ impl McpServer {
             }
             Self::draw_line(
                 &mut canvas,
-                to_canvas(line.x1, line.y1),
-                to_canvas(line.x2, line.y2),
+                to_canvas(line.x1.round() as i32, line.y1.round() as i32),
+                to_canvas(line.x2.round() as i32, line.y2.round() as i32),
                 '-',
             );
         }
@@ -607,7 +613,12 @@ impl McpServer {
             for i in 0..polyline.points.len().saturating_sub(1) {
                 let (x1, y1) = polyline.points[i];
                 let (x2, y2) = polyline.points[i + 1];
-                Self::draw_line(&mut canvas, to_canvas(x1, y1), to_canvas(x2, y2), '-');
+                Self::draw_line(
+                    &mut canvas,
+                    to_canvas(x1.round() as i32, y1.round() as i32),
+                    to_canvas(x2.round() as i32, y2.round() as i32),
+                    '-',
+                );
             }
         }
 
@@ -616,7 +627,7 @@ impl McpServer {
             if !matches_part(arc.owner_part_id) {
                 continue;
             }
-            let (cx, cy) = to_canvas(arc.x, arc.y);
+            let (cx, cy) = to_canvas(arc.x.round() as i32, arc.y.round() as i32);
             if cx < canvas_width && cy < canvas_height {
                 canvas[cy][cx] = 'o';
             }
@@ -627,7 +638,7 @@ impl McpServer {
             if !matches_part(ellipse.owner_part_id) {
                 continue;
             }
-            let (cx, cy) = to_canvas(ellipse.x, ellipse.y);
+            let (cx, cy) = to_canvas(ellipse.x.round() as i32, ellipse.y.round() as i32);
             if cx < canvas_width && cy < canvas_height {
                 canvas[cy][cx] = 'O';
             }

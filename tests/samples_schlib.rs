@@ -273,14 +273,21 @@ fn samples_schlib_lines() {
     let symbol = lib.get("LINES").expect("symbol LINES not found");
     assert_eq!(symbol.lines.len(), 3, "LINES has 3 lines");
 
-    // Match each line by its (x1, y1, x2, y2) endpoints (reader units).
-    for endpoints in [(0, 0, 10, 0), (0, 0, 0, 10), (0, 0, 10, 10)] {
+    // Match each line by its (x1, y1, x2, y2) endpoints (reader units). Coords are
+    // f64; the integer-grid sample reads back as exact whole values.
+    for endpoints in [
+        (0.0, 0.0, 10.0, 0.0),
+        (0.0, 0.0, 0.0, 10.0),
+        (0.0, 0.0, 10.0, 10.0),
+    ] {
         let (x1, y1, x2, y2) = endpoints;
         assert!(
-            symbol
-                .lines
-                .iter()
-                .any(|l| l.x1 == x1 && l.y1 == y1 && l.x2 == x2 && l.y2 == y2),
+            symbol.lines.iter().any(|l| {
+                (l.x1 - x1).abs() < 1e-9
+                    && (l.y1 - y1).abs() < 1e-9
+                    && (l.x2 - x2).abs() < 1e-9
+                    && (l.y2 - y2).abs() < 1e-9
+            }),
             "missing line {endpoints:?}",
         );
     }
@@ -296,9 +303,9 @@ fn samples_schlib_arcs() {
     let circle = symbol
         .arcs
         .iter()
-        .find(|a| a.x == 0 && a.y == 0)
+        .find(|a| approx_eq(a.x, 0.0) && approx_eq(a.y, 0.0))
         .expect("full-circle arc at origin not found");
-    assert_eq!(circle.radius, 5, "circle radius");
+    assert!(approx_eq(circle.radius, 5.0), "circle radius");
     assert!(approx_eq(circle.start_angle, 0.0), "circle start angle");
     assert!(approx_eq(circle.end_angle, 360.0), "circle end angle");
 
@@ -306,9 +313,9 @@ fn samples_schlib_arcs() {
     let quarter = symbol
         .arcs
         .iter()
-        .find(|a| a.x == 0 && a.y == -20)
+        .find(|a| approx_eq(a.x, 0.0) && approx_eq(a.y, -20.0))
         .expect("quarter arc at (0,-20) not found");
-    assert_eq!(quarter.radius, 5, "quarter-arc radius");
+    assert!(approx_eq(quarter.radius, 5.0), "quarter-arc radius");
     assert!(
         approx_eq(quarter.start_angle, 0.0),
         "quarter-arc start angle"
@@ -403,26 +410,30 @@ fn samples_schlib_rects() {
     assert_eq!(symbol.rectangles.len(), 2, "RECTS has 2 rectangles");
 
     // Match by left edge (x1); both share line_color 0 / fill_color 65535.
-    let by_x1 = |x1: i32| -> &Rectangle {
+    let by_x1 = |x1: f64| -> &Rectangle {
         symbol
             .rectangles
             .iter()
-            .find(|r| r.x1 == x1)
+            .find(|r| approx_eq(r.x1, x1))
             .unwrap_or_else(|| panic!("rectangle with x1 = {x1} not found"))
     };
 
-    let filled = by_x1(-10);
-    assert_eq!(filled.y1, 0, "filled rect y1");
-    assert_eq!(filled.x2, 10, "filled rect x2");
-    assert_eq!(filled.y2, 10, "filled rect y2");
+    let filled = by_x1(-10.0);
+    assert_eq!(
+        (filled.y1, filled.x2, filled.y2),
+        (0.0, 10.0, 10.0),
+        "filled rect geometry"
+    );
     assert!(filled.filled, "filled rect is filled");
     assert_eq!(filled.fill_color, 65535, "filled rect fill_color");
     assert_eq!(filled.line_color, 0, "filled rect line_color");
 
-    let unfilled = by_x1(15);
-    assert_eq!(unfilled.y1, 0, "unfilled rect y1");
-    assert_eq!(unfilled.x2, 35, "unfilled rect x2");
-    assert_eq!(unfilled.y2, 10, "unfilled rect y2");
+    let unfilled = by_x1(15.0);
+    assert_eq!(
+        (unfilled.y1, unfilled.x2, unfilled.y2),
+        (0.0, 35.0, 10.0),
+        "unfilled rect geometry"
+    );
     assert!(!unfilled.filled, "unfilled rect is not filled");
     assert_eq!(unfilled.fill_color, 65535, "unfilled rect fill_color");
     assert_eq!(unfilled.line_color, 0, "unfilled rect line_color");
@@ -435,24 +446,28 @@ fn samples_schlib_ellipses() {
     assert_eq!(symbol.ellipses.len(), 2, "ELLIPSES has 2 ellipses");
 
     // Match by horizontal radius (radius_x), which is unique here.
-    let by_radius_x = |radius_x: i32| -> &Ellipse {
+    let by_radius_x = |radius_x: f64| -> &Ellipse {
         symbol
             .ellipses
             .iter()
-            .find(|e| e.radius_x == radius_x)
+            .find(|e| approx_eq(e.radius_x, radius_x))
             .unwrap_or_else(|| panic!("ellipse with radius_x = {radius_x} not found"))
     };
 
-    let circle = by_radius_x(5);
-    assert_eq!(circle.x, 0, "circle x");
-    assert_eq!(circle.y, 0, "circle y");
-    assert_eq!(circle.radius_y, 5, "circle radius_y");
+    let circle = by_radius_x(5.0);
+    assert_eq!(
+        (circle.x, circle.y, circle.radius_y),
+        (0.0, 0.0, 5.0),
+        "circle geometry"
+    );
     assert!(circle.filled, "circle is filled");
 
-    let ellipse = by_radius_x(8);
-    assert_eq!(ellipse.x, 20, "ellipse x");
-    assert_eq!(ellipse.y, 0, "ellipse y");
-    assert_eq!(ellipse.radius_y, 4, "ellipse radius_y");
+    let ellipse = by_radius_x(8.0);
+    assert_eq!(
+        (ellipse.x, ellipse.y, ellipse.radius_y),
+        (20.0, 0.0, 4.0),
+        "ellipse geometry"
+    );
     assert!(!ellipse.filled, "ellipse is not filled");
 }
 
@@ -465,7 +480,7 @@ fn samples_schlib_polylines() {
     let polyline = &symbol.polylines[0];
     assert_eq!(
         polyline.points,
-        vec![(0, 0), (10, 5), (0, 10)],
+        vec![(0.0, 0.0), (10.0, 5.0), (0.0, 10.0)],
         "polyline points",
     );
 }
@@ -477,12 +492,16 @@ fn samples_schlib_roundrects() {
     assert_eq!(symbol.round_rects.len(), 1, "ROUNDRECTS has 1 rounded rect");
 
     let rr: &RoundRect = &symbol.round_rects[0];
-    assert_eq!(rr.x1, -10, "round rect x1");
-    assert_eq!(rr.y1, 0, "round rect y1");
-    assert_eq!(rr.x2, 10, "round rect x2");
-    assert_eq!(rr.y2, 10, "round rect y2");
-    assert_eq!(rr.corner_x_radius, 2, "round rect corner_x_radius");
-    assert_eq!(rr.corner_y_radius, 2, "round rect corner_y_radius");
+    assert_eq!(
+        (rr.x1, rr.y1, rr.x2, rr.y2),
+        (-10.0, 0.0, 10.0, 10.0),
+        "round rect geometry"
+    );
+    assert_eq!(
+        (rr.corner_x_radius, rr.corner_y_radius),
+        (2.0, 2.0),
+        "round rect corner radii"
+    );
     assert!(rr.filled, "round rect is filled");
 }
 
@@ -493,26 +512,26 @@ fn samples_schlib_polygons() {
     assert_eq!(symbol.polygons.len(), 2, "POLYGONS has 2 polygons");
 
     // Both are 4-vertex boxes; match each by its first vertex x (unique here).
-    let by_first_x = |x: i32| -> &Polygon {
+    let by_first_x = |x: f64| -> &Polygon {
         symbol
             .polygons
             .iter()
-            .find(|p| p.points.first().is_some_and(|&(px, _)| px == x))
+            .find(|p| p.points.first().is_some_and(|&(px, _)| approx_eq(px, x)))
             .unwrap_or_else(|| panic!("polygon with first vertex x = {x} not found"))
     };
 
-    let left = by_first_x(-10);
+    let left = by_first_x(-10.0);
     assert_eq!(
         left.points,
-        vec![(-10, 0), (10, 0), (10, 10), (-10, 10)],
+        vec![(-10.0, 0.0), (10.0, 0.0), (10.0, 10.0), (-10.0, 10.0)],
         "left polygon points",
     );
     assert!(left.filled, "left polygon is filled");
 
-    let right = by_first_x(15);
+    let right = by_first_x(15.0);
     assert_eq!(
         right.points,
-        vec![(15, 0), (35, 0), (35, 10), (15, 10)],
+        vec![(15.0, 0.0), (35.0, 0.0), (35.0, 10.0), (15.0, 10.0)],
         "right polygon points",
     );
     assert!(right.filled, "right polygon is filled");
