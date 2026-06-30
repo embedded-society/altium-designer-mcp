@@ -448,6 +448,204 @@ def test_write_pcblib_via_fill(client, runner, lib_path):
         )
 
 
+def test_write_pcblib_flags_mask_keepout(client, runner, lib_path):
+    print("\n=== Test: write_pcblib flags + solder_mask + keepout round trip ===")
+    # Coverage PR-4: the three EE-meaningful fields — flags, solder_mask_expansion,
+    # and keepout_restrictions — must be authorable via write_pcblib for every 2D
+    # primitive that carries them, and round-trip through read_pcblib. `flags` is
+    # serialised by read_pcblib as the bitflags name string (PcbFlags' serde impl),
+    # e.g. "LOCKED" or "LOCKED | KEEPOUT" — the write path accepts that same shape.
+    LOCKED = "LOCKED"
+    KEEPOUT = "KEEPOUT"
+    footprint = {
+        "name": "FLAGS_RT",
+        "pads": [
+            {
+                "designator": "1",
+                "x": 0.0,
+                "y": 0.0,
+                "width": 1.0,
+                "height": 1.0,
+                "flags": LOCKED,
+                "solder_mask_expansion": 0.05,
+                "solder_mask_expansion_mode": "manual",
+            }
+        ],
+        "tracks": [
+            {
+                "x1": -1.0,
+                "y1": 0.0,
+                "x2": 1.0,
+                "y2": 0.0,
+                "width": 0.15,
+                "layer": "Top Overlay",
+                "flags": LOCKED,
+                "solder_mask_expansion": 0.1,
+                "keepout_restrictions": 3,
+            }
+        ],
+        "arcs": [
+            {
+                "x": 0.0,
+                "y": 2.0,
+                "radius": 0.5,
+                "start_angle": 0.0,
+                "end_angle": 90.0,
+                "width": 0.15,
+                "layer": "Top Overlay",
+                "flags": LOCKED,
+                "solder_mask_expansion": 0.2,
+                "keepout_restrictions": 5,
+            }
+        ],
+        "regions": [
+            {
+                "vertices": [
+                    {"x": 0.0, "y": 0.0},
+                    {"x": 1.0, "y": 0.0},
+                    {"x": 0.0, "y": 1.0},
+                ],
+                "layer": "Top Courtyard",
+                "flags": KEEPOUT,
+            }
+        ],
+        "fills": [
+            {
+                "x1": -1.0,
+                "y1": -1.0,
+                "x2": 1.0,
+                "y2": 1.0,
+                "layer": "Top Layer",
+                "flags": LOCKED,
+                "solder_mask_expansion": 0.05,
+                "keepout_restrictions": 2,
+            }
+        ],
+        "text": [
+            {
+                "x": 0.0,
+                "y": 3.0,
+                "text": "REF",
+                "height": 0.5,
+                "layer": "Top Overlay",
+                "flags": LOCKED,
+            }
+        ],
+    }
+    write = client.call_tool(
+        "write_pcblib",
+        {"filepath": lib_path, "footprints": [footprint], "append": False},
+    )
+    runner.check(not write.get("_isError"), "write_pcblib (flags) succeeded", actual=write)
+
+    read = client.call_tool("read_pcblib", {"filepath": lib_path})
+    runner.check(not read.get("_isError"), "read_pcblib succeeded", actual=read)
+    footprints = {fp.get("name"): fp for fp in read.get("footprints", [])}
+    fp = footprints.get("FLAGS_RT", {})
+    runner.check(bool(fp), "FLAGS_RT footprint present", actual=list(footprints))
+
+    # Tolerance: Altium stores mask values as fixed-point internal units, so a
+    # round-trip carries sub-micron quantisation error. 1e-4 mm is well below any
+    # meaningful PCB tolerance.
+    tol = 1e-4
+
+    def has_flag(value, name):
+        # read_pcblib serialises PcbFlags as a "|"-joined name string, e.g.
+        # "LOCKED" or "LOCKED | KEEPOUT". Assert set membership of the bit we set.
+        parts = {p.strip() for p in str(value or "").split("|")}
+        return name in parts
+
+    pads = fp.get("pads", [])
+    runner.check(len(pads) == 1, "1 pad survived", actual=len(pads))
+    if pads:
+        p = pads[0]
+        runner.check(has_flag(p.get("flags"), LOCKED), "pad flags LOCKED", actual=p.get("flags"))
+        runner.check(
+            abs(p.get("solder_mask_expansion", 0) - 0.05) < tol,
+            "pad solder_mask_expansion",
+            actual=p.get("solder_mask_expansion"),
+            expected=0.05,
+        )
+        runner.check(
+            p.get("solder_mask_expansion_mode") == "manual",
+            "pad solder_mask_expansion_mode",
+            actual=p.get("solder_mask_expansion_mode"),
+            expected="manual",
+        )
+
+    tracks = fp.get("tracks", [])
+    runner.check(len(tracks) == 1, "1 track survived", actual=len(tracks))
+    if tracks:
+        t = tracks[0]
+        runner.check(has_flag(t.get("flags"), LOCKED), "track flags LOCKED", actual=t.get("flags"))
+        runner.check(
+            abs(t.get("solder_mask_expansion", 0) - 0.1) < tol,
+            "track solder_mask_expansion",
+            actual=t.get("solder_mask_expansion"),
+            expected=0.1,
+        )
+        runner.check(
+            t.get("keepout_restrictions") == 3,
+            "track keepout_restrictions",
+            actual=t.get("keepout_restrictions"),
+            expected=3,
+        )
+
+    arcs = fp.get("arcs", [])
+    runner.check(len(arcs) == 1, "1 arc survived", actual=len(arcs))
+    if arcs:
+        a = arcs[0]
+        runner.check(has_flag(a.get("flags"), LOCKED), "arc flags LOCKED", actual=a.get("flags"))
+        runner.check(
+            abs(a.get("solder_mask_expansion", 0) - 0.2) < tol,
+            "arc solder_mask_expansion",
+            actual=a.get("solder_mask_expansion"),
+            expected=0.2,
+        )
+        runner.check(
+            a.get("keepout_restrictions") == 5,
+            "arc keepout_restrictions",
+            actual=a.get("keepout_restrictions"),
+            expected=5,
+        )
+
+    regions = fp.get("regions", [])
+    runner.check(len(regions) == 1, "1 region survived", actual=len(regions))
+    if regions:
+        rg = regions[0]
+        runner.check(has_flag(rg.get("flags"), KEEPOUT), "region flags KEEPOUT", actual=rg.get("flags"))
+
+    fills = fp.get("fills", [])
+    runner.check(len(fills) == 1, "1 fill survived", actual=len(fills))
+    if fills:
+        fl = fills[0]
+        runner.check(has_flag(fl.get("flags"), LOCKED), "fill flags LOCKED", actual=fl.get("flags"))
+        runner.check(
+            abs(fl.get("solder_mask_expansion", 0) - 0.05) < tol,
+            "fill solder_mask_expansion",
+            actual=fl.get("solder_mask_expansion"),
+            expected=0.05,
+        )
+        runner.check(
+            fl.get("keepout_restrictions") == 2,
+            "fill keepout_restrictions",
+            actual=fl.get("keepout_restrictions"),
+            expected=2,
+        )
+
+    # The writer may inject an auto designator/comment text, so locate the
+    # one we authored by content rather than asserting an exact count.
+    texts = fp.get("text", [])
+    ref_text = next((t for t in texts if t.get("text") == "REF"), None)
+    runner.check(ref_text is not None, "REF text survived", actual=[t.get("text") for t in texts])
+    if ref_text:
+        runner.check(
+            has_flag(ref_text.get("flags"), LOCKED),
+            "text flags LOCKED",
+            actual=ref_text.get("flags"),
+        )
+
+
 def main():
     binary = find_binary()
     print(f"Using binary: {binary}")
@@ -482,6 +680,7 @@ def main():
         test_write_read_roundtrip(client, runner, lib_path)
         test_write_pcblib_auto_3d_body_opt_in(client, runner, lib_path)
         test_write_pcblib_via_fill(client, runner, lib_path)
+        test_write_pcblib_flags_mask_keepout(client, runner, lib_path)
         test_write_schlib_shapes(client, runner, schlib_path)
         test_read_pcblib_exposes_vias_fills(client, runner, sample_path)
         test_read_schlib_exposes_round_rects_polygons(client, runner, schlib_sample_path)
