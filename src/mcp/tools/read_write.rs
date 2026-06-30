@@ -1183,7 +1183,13 @@ impl McpServer {
                             "symbol_inner_edge",
                             "symbol_outer_edge",
                             "symbol_inside",
-                            "symbol_outside"
+                            "symbol_outside",
+                            "description",
+                            "colour",
+                            "graphically_locked",
+                            "swap_id_group",
+                            "part_and_sequence",
+                            "default_value"
                         ]
                     );
                     if let Some(pin) = Self::parse_schlib_pin(pin_json) {
@@ -1201,8 +1207,10 @@ impl McpServer {
                             "fill_color",
                             "filled",
                             "line_color",
+                            "line_style",
                             "line_width",
                             "owner_part_id",
+                            "transparent",
                             "x1",
                             "x2",
                             "y1",
@@ -1226,8 +1234,10 @@ impl McpServer {
                             "fill_color",
                             "filled",
                             "line_color",
+                            "line_style",
                             "line_width",
                             "owner_part_id",
+                            "transparent",
                             "x1",
                             "x2",
                             "y1",
@@ -1247,6 +1257,7 @@ impl McpServer {
                         line_json,
                         &[
                             "color",
+                            "line_style",
                             "line_width",
                             "owner_part_id",
                             "x1",
@@ -1266,7 +1277,18 @@ impl McpServer {
                 for polyline_json in polylines {
                     check_keys!(
                         polyline_json,
-                        &["color", "line_width", "owner_part_id", "points", "vertices"]
+                        &[
+                            "color",
+                            "end_line_shape",
+                            "line_shape_size",
+                            "line_style",
+                            "line_width",
+                            "owner_part_id",
+                            "points",
+                            "start_line_shape",
+                            "transparent",
+                            "vertices"
+                        ]
                     );
                     if let Some(polyline) = Self::parse_schlib_polyline(polyline_json) {
                         symbol.add_polyline(polyline);
@@ -1306,6 +1328,7 @@ impl McpServer {
                         &[
                             "color",
                             "end_angle",
+                            "fill_color",
                             "line_width",
                             "owner_part_id",
                             "radius",
@@ -1333,6 +1356,7 @@ impl McpServer {
                             "owner_part_id",
                             "radius_x",
                             "radius_y",
+                            "transparent",
                             "x",
                             "y"
                         ]

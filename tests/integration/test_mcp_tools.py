@@ -646,6 +646,143 @@ def test_write_pcblib_flags_mask_keepout(client, runner, lib_path):
         )
 
 
+def test_write_schlib_fields(client, runner, schlib_path):
+    print("\n=== Test: write_schlib field-completeness round trip ===")
+    # Coverage PR-12/PR-13: every primitive field the read tool round-trips must
+    # be authorable via write_schlib. Author a pin that sets all six previously
+    # hard-coded fields plus an open-collector pin, and shapes that set
+    # line_style/transparent/fill where the struct carries them; read back and
+    # assert each survived. This also proves the strict-deser allow-lists accept
+    # every new field (an un-allowed field would make write_schlib error here).
+    symbol = {
+        "name": "FIELDS",
+        "pins": [
+            {
+                "designator": "1",
+                "name": "CLK",
+                "x": -50,
+                "y": 0,
+                "length": 30,
+                "orientation": "left",
+                "description": "clock input",
+                "colour": 0x00FF00,
+                "graphically_locked": True,
+                "swap_id_group": "grpA",
+                "part_and_sequence": "|1&2|",
+                "default_value": "0",
+            },
+            {
+                "designator": "2",
+                "name": "OC",
+                "x": -50,
+                "y": 20,
+                "length": 30,
+                "orientation": "left",
+                "electrical_type": "open_collector",
+            },
+        ],
+        "rectangles": [
+            {"x1": 0, "y1": 0, "x2": 40, "y2": 30, "line_style": 2, "transparent": True}
+        ],
+        "round_rects": [
+            {
+                "x1": 0,
+                "y1": 40,
+                "x2": 40,
+                "y2": 70,
+                "corner_x_radius": 5,
+                "corner_y_radius": 7,
+                "line_style": 1,
+                "transparent": True,
+            }
+        ],
+        "lines": [{"x1": 0, "y1": 80, "x2": 40, "y2": 80, "line_style": 2}],
+        "polylines": [
+            {
+                "points": [{"x": 0, "y": 90}, {"x": 20, "y": 90}, {"x": 20, "y": 110}],
+                "line_style": 1,
+                "start_line_shape": 2,
+                "end_line_shape": 3,
+                "line_shape_size": 4,
+                "transparent": True,
+            }
+        ],
+        "arcs": [{"x": 80, "y": 80, "radius": 25, "fill_color": 0x112233}],
+        "ellipses": [
+            {"x": 60, "y": 120, "radius_x": 15, "radius_y": 10, "transparent": True}
+        ],
+    }
+
+    write = client.call_tool(
+        "write_schlib",
+        {"filepath": schlib_path, "symbols": [symbol], "append": False},
+    )
+    runner.check(not write.get("_isError"), "write_schlib (fields) succeeded", actual=write)
+
+    read = client.call_tool("read_schlib", {"filepath": schlib_path})
+    runner.check(not read.get("_isError"), "read_schlib succeeded", actual=read)
+
+    symbols = {s.get("name"): s for s in read.get("symbols", [])}
+    sym = symbols.get("FIELDS", {})
+    runner.check(bool(sym), "FIELDS symbol present", actual=list(symbols))
+
+    pins = {p.get("name"): p for p in sym.get("pins", [])}
+    clk = pins.get("CLK", {})
+    runner.check(clk.get("description") == "clock input", "pin description", actual=clk.get("description"))
+    runner.check(clk.get("colour") == 0x00FF00, "pin colour", actual=clk.get("colour"), expected=0x00FF00)
+    runner.check(clk.get("graphically_locked") is True, "pin graphically_locked", actual=clk.get("graphically_locked"))
+    runner.check(clk.get("swap_id_group") == "grpA", "pin swap_id_group", actual=clk.get("swap_id_group"))
+    runner.check(clk.get("part_and_sequence") == "|1&2|", "pin part_and_sequence", actual=clk.get("part_and_sequence"))
+    runner.check(clk.get("default_value") == "0", "pin default_value", actual=clk.get("default_value"))
+
+    oc = pins.get("OC", {})
+    runner.check(
+        oc.get("electrical_type") == "open_collector",
+        "pin electrical_type open_collector",
+        actual=oc.get("electrical_type"),
+        expected="open_collector",
+    )
+
+    rects = sym.get("rectangles", [])
+    runner.check(len(rects) == 1, "1 rectangle survived", actual=len(rects))
+    if rects:
+        r = rects[0]
+        runner.check(r.get("line_style") == 2, "rectangle line_style", actual=r.get("line_style"), expected=2)
+        runner.check(r.get("transparent") is True, "rectangle transparent", actual=r.get("transparent"))
+
+    rrs = sym.get("round_rects", [])
+    runner.check(len(rrs) == 1, "1 round_rect survived", actual=len(rrs))
+    if rrs:
+        rr = rrs[0]
+        runner.check(rr.get("line_style") == 1, "round_rect line_style", actual=rr.get("line_style"), expected=1)
+        runner.check(rr.get("transparent") is True, "round_rect transparent", actual=rr.get("transparent"))
+
+    lines = sym.get("lines", [])
+    runner.check(len(lines) == 1, "1 line survived", actual=len(lines))
+    if lines:
+        runner.check(lines[0].get("line_style") == 2, "line line_style", actual=lines[0].get("line_style"), expected=2)
+
+    polylines = sym.get("polylines", [])
+    runner.check(len(polylines) == 1, "1 polyline survived", actual=len(polylines))
+    if polylines:
+        pl = polylines[0]
+        runner.check(pl.get("line_style") == 1, "polyline line_style", actual=pl.get("line_style"), expected=1)
+        runner.check(pl.get("start_line_shape") == 2, "polyline start_line_shape", actual=pl.get("start_line_shape"), expected=2)
+        runner.check(pl.get("end_line_shape") == 3, "polyline end_line_shape", actual=pl.get("end_line_shape"), expected=3)
+        runner.check(pl.get("line_shape_size") == 4, "polyline line_shape_size", actual=pl.get("line_shape_size"), expected=4)
+        runner.check(pl.get("transparent") is True, "polyline transparent", actual=pl.get("transparent"))
+
+    arcs = sym.get("arcs", [])
+    runner.check(len(arcs) == 1, "1 arc survived", actual=len(arcs))
+    if arcs:
+        runner.check(arcs[0].get("fill_color") == 0x112233, "arc fill_color", actual=arcs[0].get("fill_color"), expected=0x112233)
+
+    ellipses = sym.get("ellipses", [])
+    runner.check(len(ellipses) == 1, "1 ellipse survived", actual=len(ellipses))
+    if ellipses:
+        runner.check(ellipses[0].get("transparent") is True, "ellipse transparent", actual=ellipses[0].get("transparent"))
+
+
 def main():
     binary = find_binary()
     print(f"Using binary: {binary}")
@@ -682,6 +819,7 @@ def main():
         test_write_pcblib_via_fill(client, runner, lib_path)
         test_write_pcblib_flags_mask_keepout(client, runner, lib_path)
         test_write_schlib_shapes(client, runner, schlib_path)
+        test_write_schlib_fields(client, runner, schlib_path)
         test_read_pcblib_exposes_vias_fills(client, runner, sample_path)
         test_read_schlib_exposes_round_rects_polygons(client, runner, schlib_sample_path)
         test_unknown_tool(client, runner)

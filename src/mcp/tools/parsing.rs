@@ -644,6 +644,36 @@ impl McpServer {
             .and_then(Value::as_str)
             .map_or(PinSymbol::None, parse_pin_symbol);
 
+        // Authoring fields these previously hard-coded; read each from JSON so an
+        // AI can set them, matching the names `read_schlib` exposes (serialised
+        // straight from the `Pin` struct). `colour` is a BGR integer; absent keys
+        // keep the from-scratch defaults (`part_and_sequence` defaults to "|&|").
+        let description = json
+            .get("description")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let colour = json.get("colour").and_then(Value::as_u64).unwrap_or(0) as u32;
+        let graphically_locked = json
+            .get("graphically_locked")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let swap_id_group = json
+            .get("swap_id_group")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let part_and_sequence = json
+            .get("part_and_sequence")
+            .and_then(Value::as_str)
+            .unwrap_or("|&|")
+            .to_string();
+        let default_value = json
+            .get("default_value")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+
         Some(Pin {
             name: name.to_string(),
             designator: designator.to_string(),
@@ -655,19 +685,19 @@ impl McpServer {
             hidden,
             show_name,
             show_designator,
-            description: String::new(),
+            description,
             owner_part_id,
-            colour: 0,
-            graphically_locked: false,
+            colour,
+            graphically_locked,
             symbol_inner_edge,
             symbol_outer_edge,
             symbol_inside,
             symbol_outside,
             is_not_accessible: false,
             formal_type: 1,
-            swap_id_group: String::new(),
-            part_and_sequence: "|&|".to_string(),
-            default_value: String::new(),
+            swap_id_group,
+            part_and_sequence,
+            default_value,
         })
     }
 
@@ -691,6 +721,13 @@ impl McpServer {
             .and_then(Value::as_u64)
             .unwrap_or(0xB0_FF_FF) as u32;
         let filled = json.get("filled").and_then(Value::as_bool).unwrap_or(true);
+        // Style fields these previously hard-coded; read from JSON (matches the
+        // names `read_schlib` exposes). `line_style`: 0=Solid, 1=Dashed, 2=Dotted.
+        let line_style = json.get("line_style").and_then(Value::as_u64).unwrap_or(0) as u8;
+        let transparent = json
+            .get("transparent")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
 
         Some(Rectangle {
@@ -701,9 +738,9 @@ impl McpServer {
             line_width,
             line_color,
             fill_color,
-            line_style: 0,
+            line_style,
             filled,
-            transparent: false,
+            transparent,
             owner_part_id,
             unique_id: None,
         })
@@ -737,6 +774,13 @@ impl McpServer {
             .and_then(Value::as_u64)
             .unwrap_or(0xB0_FF_FF) as u32;
         let filled = json.get("filled").and_then(Value::as_bool).unwrap_or(true);
+        // Style fields these previously hard-coded; read from JSON (matches the
+        // names `read_schlib` exposes). `line_style`: 0=Solid, 1=Dashed, 2=Dotted.
+        let line_style = json.get("line_style").and_then(Value::as_u64).unwrap_or(0) as u8;
+        let transparent = json
+            .get("transparent")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
 
         Some(RoundRect {
@@ -749,9 +793,9 @@ impl McpServer {
             line_width,
             line_color,
             fill_color,
-            line_style: 0,
+            line_style,
             filled,
-            transparent: false,
+            transparent,
             owner_part_id,
             unique_id: None,
         })
@@ -774,6 +818,9 @@ impl McpServer {
             .get("color")
             .and_then(Value::as_u64)
             .unwrap_or(0x00_00_80) as u32;
+        // `line_style` previously hard-coded; read from JSON (matches the name
+        // `read_schlib` exposes). 0=Solid, 1=Dashed, 2=Dotted.
+        let line_style = json.get("line_style").and_then(Value::as_u64).unwrap_or(0) as u8;
         let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
 
         Some(Line {
@@ -783,7 +830,7 @@ impl McpServer {
             y2,
             line_width,
             color,
-            line_style: 0,
+            line_style,
             is_not_accessible: true,
             owner_part_id,
             unique_id: None,
@@ -856,17 +903,38 @@ impl McpServer {
             .get("color")
             .and_then(Value::as_u64)
             .unwrap_or(0x00_00_80) as u32;
+        // Style + arrowhead fields these previously hard-coded; read from JSON
+        // (matches the names `read_schlib` exposes). `line_style`: 0=Solid,
+        // 1=Dashed, 2=Dotted. `start_line_shape`/`end_line_shape` are endpoint
+        // (arrowhead) shapes and `line_shape_size` their size.
+        let line_style = json.get("line_style").and_then(Value::as_u64).unwrap_or(0) as u8;
+        let start_line_shape = json
+            .get("start_line_shape")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as u8;
+        let end_line_shape = json
+            .get("end_line_shape")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as u8;
+        let line_shape_size = json
+            .get("line_shape_size")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as u8;
+        let transparent = json
+            .get("transparent")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
 
         Some(Polyline {
             points,
             line_width,
             color,
-            line_style: 0,
-            start_line_shape: 0,
-            end_line_shape: 0,
-            line_shape_size: 0,
-            transparent: false,
+            line_style,
+            start_line_shape,
+            end_line_shape,
+            line_shape_size,
+            transparent,
             owner_part_id,
             unique_id: None,
         })
@@ -943,6 +1011,9 @@ impl McpServer {
             .get("color")
             .and_then(Value::as_u64)
             .unwrap_or(0x00_00_80) as u32;
+        // `fill_color` previously hard-coded to 0; read from JSON (matches the name
+        // `read_schlib` exposes). Maps to the `AreaColor` param; 0 = no fill.
+        let fill_color = json.get("fill_color").and_then(Value::as_u64).unwrap_or(0) as u32;
         let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
 
         Some(Arc {
@@ -954,7 +1025,7 @@ impl McpServer {
             end_angle,
             line_width,
             color,
-            fill_color: 0,
+            fill_color,
             owner_part_id,
             unique_id: None,
         })
@@ -980,6 +1051,12 @@ impl McpServer {
             .and_then(Value::as_u64)
             .unwrap_or(0xB0_FF_FF) as u32;
         let filled = json.get("filled").and_then(Value::as_bool).unwrap_or(true);
+        // `transparent` previously hard-coded; read from JSON (matches the name
+        // `read_schlib` exposes). The ellipse struct carries no `line_style`.
+        let transparent = json
+            .get("transparent")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
 
         Some(Ellipse {
@@ -991,7 +1068,7 @@ impl McpServer {
             line_color,
             fill_color,
             filled,
-            transparent: false,
+            transparent,
             owner_part_id,
             unique_id: None,
         })
@@ -1281,5 +1358,134 @@ mod tests {
         }))
         .expect("text should parse");
         assert!(text.flags.contains(PcbFlags::LOCKED));
+    }
+
+    // --- PR-12/PR-13: SchLib write-path authoring fields. These were previously
+    // hard-coded in the parsers, so the structs round-tripped them on read but no
+    // JSON value reached them on write. Each test sets a non-default value and
+    // asserts it lands on the struct (the field names match the read DTO).
+
+    #[test]
+    fn parse_schlib_pin_reads_authoring_fields() {
+        let pin = McpServer::parse_schlib_pin(&json!({
+            "designator": "1", "name": "P1", "x": 0, "y": 0, "length": 10,
+            "orientation": "left",
+            "description": "clock input",
+            "colour": 0x00_FF_00,
+            "graphically_locked": true,
+            "swap_id_group": "grpA",
+            "part_and_sequence": "|1&2|",
+            "default_value": "0",
+        }))
+        .expect("pin should parse");
+        assert_eq!(pin.description, "clock input");
+        assert_eq!(pin.colour, 0x00_FF_00);
+        assert!(pin.graphically_locked);
+        assert_eq!(pin.swap_id_group, "grpA");
+        assert_eq!(pin.part_and_sequence, "|1&2|");
+        assert_eq!(pin.default_value, "0");
+    }
+
+    #[test]
+    fn parse_schlib_pin_defaults_match_struct() {
+        // Absent authoring keys keep the from-scratch defaults (notably the
+        // `|&|` part_and_sequence Altium uses for a fresh pin).
+        let pin = McpServer::parse_schlib_pin(&json!({
+            "designator": "1", "name": "P1", "x": 0, "y": 0, "length": 10,
+            "orientation": "left",
+        }))
+        .expect("pin should parse");
+        assert_eq!(pin.description, "");
+        assert_eq!(pin.colour, 0);
+        assert!(!pin.graphically_locked);
+        assert_eq!(pin.swap_id_group, "");
+        assert_eq!(pin.part_and_sequence, "|&|");
+        assert_eq!(pin.default_value, "");
+    }
+
+    #[test]
+    fn parse_schlib_pin_reads_open_collector_electrical_type() {
+        use crate::altium::schlib::PinElectricalType;
+        let oc = McpServer::parse_schlib_pin(&json!({
+            "designator": "1", "name": "P1", "x": 0, "y": 0, "length": 10,
+            "orientation": "left", "electrical_type": "open_collector",
+        }))
+        .expect("pin should parse");
+        assert_eq!(oc.electrical_type, PinElectricalType::OpenCollector);
+        // `tristate` is the advertised alias for HiZ.
+        let tri = McpServer::parse_schlib_pin(&json!({
+            "designator": "2", "name": "P2", "x": 0, "y": 0, "length": 10,
+            "orientation": "left", "electrical_type": "tristate",
+        }))
+        .expect("pin should parse");
+        assert_eq!(tri.electrical_type, PinElectricalType::HiZ);
+    }
+
+    #[test]
+    fn parse_schlib_rectangle_reads_line_style_and_transparent() {
+        let rect = McpServer::parse_schlib_rectangle(&json!({
+            "x1": 0.0, "y1": 0.0, "x2": 10.0, "y2": 10.0,
+            "line_style": 2, "transparent": true,
+        }))
+        .expect("rectangle should parse");
+        assert_eq!(rect.line_style, 2);
+        assert!(rect.transparent);
+    }
+
+    #[test]
+    fn parse_schlib_round_rect_reads_line_style_and_transparent() {
+        let rr = McpServer::parse_schlib_round_rect(&json!({
+            "x1": 0.0, "y1": 0.0, "x2": 10.0, "y2": 10.0,
+            "corner_x_radius": 2.0, "corner_y_radius": 2.0,
+            "line_style": 1, "transparent": true,
+        }))
+        .expect("round_rect should parse");
+        assert_eq!(rr.line_style, 1);
+        assert!(rr.transparent);
+    }
+
+    #[test]
+    fn parse_schlib_line_reads_line_style() {
+        let line = McpServer::parse_schlib_line(&json!({
+            "x1": 0.0, "y1": 0.0, "x2": 10.0, "y2": 0.0, "line_style": 2,
+        }))
+        .expect("line should parse");
+        assert_eq!(line.line_style, 2);
+    }
+
+    #[test]
+    fn parse_schlib_polyline_reads_style_and_arrowheads() {
+        let pl = McpServer::parse_schlib_polyline(&json!({
+            "points": [{"x": 0.0, "y": 0.0}, {"x": 10.0, "y": 0.0}],
+            "line_style": 1,
+            "start_line_shape": 2,
+            "end_line_shape": 3,
+            "line_shape_size": 4,
+            "transparent": true,
+        }))
+        .expect("polyline should parse");
+        assert_eq!(pl.line_style, 1);
+        assert_eq!(pl.start_line_shape, 2);
+        assert_eq!(pl.end_line_shape, 3);
+        assert_eq!(pl.line_shape_size, 4);
+        assert!(pl.transparent);
+    }
+
+    #[test]
+    fn parse_schlib_arc_reads_fill_color() {
+        let arc = McpServer::parse_schlib_arc(&json!({
+            "x": 0.0, "y": 0.0, "radius": 5.0, "fill_color": 0x11_22_33,
+        }))
+        .expect("arc should parse");
+        assert_eq!(arc.fill_color, 0x11_22_33);
+    }
+
+    #[test]
+    fn parse_schlib_ellipse_reads_transparent() {
+        let el = McpServer::parse_schlib_ellipse(&json!({
+            "x": 0.0, "y": 0.0, "radius_x": 5.0, "radius_y": 3.0, "transparent": true,
+        }))
+        .expect("ellipse should parse");
+        assert!(el.transparent);
     }
 }
