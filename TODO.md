@@ -28,12 +28,11 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
       read-back; slot length @+263 / hole rotation @+267 (596-body); identity GUIDs @+126/+142
       read-back; **multi-entry** full-stack tail (count>1);
       oblong/oval SMD pads should route to the 651 size/shape block (golden shows 651, we emit
-      empty). *(596 single-entry tail [#157] + tri-state mask modes [this PR] shipped; octagonal
-      id-3 byte mapping is already correct.)*
+      empty).
 - [ ] 🟠 **Via**: identity GUIDs @259-274/@275-290; net/comp/power-plane/paste/drill-pair fields.
 - [ ] 🟠 **Text**: `mirrored` @35 / `isComment` @40 / `isDesignator` @41; font-name fields
-      @46-109/@161-224; InvertedRect template bytes @124-131. *(italic / baseFontType shipped #154;
-      raw `fontId` @25 + justification @132 are custom-font / inverted-rect only — deferred.)*
+      @46-109/@161-224; InvertedRect template bytes @124-131. *(raw `fontId` @25 + justification
+      @132 are custom-font / inverted-rect only — deferred.)*
 
 ### A2. PcbLib stream / container layer
 
@@ -41,7 +40,7 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
       EmbeddedFonts / LayerKindMap) in the File-Structure tree.
 
   *(SectionKeys + the non-empty WideStrings fidelity were triaged to §B — they need a real
-  golden `.PcbLib` to settle. PRIMITIVEINDEX and the empty WideStrings form are shipped.)*
+      golden `.PcbLib` to settle.)*
 
 ### A3. SchLib records (code bugs + missing features)
 
@@ -76,18 +75,12 @@ Outstanding SchLib field fidelity all needs an Altium-authored golden to settle 
 - [ ] **WideStrings Tier 2**: text SubRecord-1 offset-115 `wideStringIndex`, the dot/empty-filtered
       index base vs Altium's unfiltered, UTF-16-vs-Win1252 encoding, and the root-vs-per-component
       reader path — needs a real multi-text footprint as the oracle.
-- [ ] **SchLib `IsNotAccesible` on Ellipse / Polyline**: the other per-record fields shipped, but
-      these two emit no token today, so adding the field changes from-scratch bytes — confirm the
-      default against a golden ellipse/polyline first.
-- [ ] **SchLib `*_FRAC` cross-cutting** (Location/Corner/X1..n on arc, ellipse, line, rectangle,
-      roundrect, label, bezier, polyline): encoding known (`raw = DXP*100000 + FRAC`, signed), but
-      every coord field is `i32` and can't hold sub-DXP precision — a faithful fix is a breaking
-      `i32`→`f64` model/API change, and the per-record `_Frac` key spellings need a byte-compared
-      golden. *(EllipticalArc radii already round-trip; the carry bug was fixed separately.)*
-- [ ] **SchLib Component (RECORD=1) header fields**: the `PartCount` floor is fixed; remaining is
-      the component `UniqueID` (AltiumSharp carries it, but a fresh symbol would emit a brand-new
-      random id — not byte-identical) and the dropped header fields (`DesignItemId` / `ComponentKind`
-      / `LibraryPath` / `SheetPartFileName` / `IndexInSheet` / `OwnerPartId`) — need golden fixtures.
+- [ ] **SchLib `IsNotAccesible` on Ellipse / Polyline**: these two emit no token today, so adding the
+      field changes from-scratch bytes — confirm the default against a golden ellipse/polyline first.
+- [ ] **SchLib Component (RECORD=1) header fields**: remaining is the component `UniqueID`
+      (AltiumSharp carries it, but a fresh symbol would emit a brand-new random id — not
+      byte-identical) and the dropped header fields (`DesignItemId` / `ComponentKind` / `LibraryPath`
+      / `SheetPartFileName` / `IndexInSheet` / `OwnerPartId`) — need golden fixtures.
 - [ ] **SchLib Designator position**: emit `Location.X/Y` instead of the hardcoded `Y=-6` / omitted
       `X`; the from-scratch default magnitude (Altium ~`X=-5, Y=5`) is unverified without a golden.
 - [ ] **SchLib `IndexInSheet`**: AltiumSharp does NOT default it to `-1` per shape — the correct
@@ -97,13 +90,12 @@ Outstanding SchLib field fidelity all needs an Altium-authored golden to settle 
       against a golden.
 - [ ] **SchLib Implementation structural**: `MapDefiner` (RECORD=47) pin→pad map, the 46/48 payload
       bodies + cross-record `OwnerIndex` chain, honouring `IsCurrent` on write, `DataFileCount` > 1.
-      *(IsCurrent read-back shipped #150.)*
 - [ ] **SchLib Pin aux streams**: `SymbolLineWidth` + `PinFrac` live in separate OLE streams, not the
-      pin record — need golden byte offsets. *(FormalType / SwapId / DefaultValue tail shipped #151.)*
-- [ ] **PcbLib ComponentBody remaining**: the additive 3D-body param tier shipped; remaining is
-      `IDENTIFIER` (comma-separated codepoint list — would misrender as a plain string),
-      `MODEL.MODELTYPE`, `MODEL.SNAP*`, `TEXTURE`, and the non-default unit-formatted values
-      (`ARCRESOLUTION`/`CAVITYHEIGHT`/`MODEL.2D.X/Y`) — need a golden to validate the formatting.
+      pin record — need golden byte offsets.
+- [ ] **PcbLib ComponentBody remaining**: `IDENTIFIER` (comma-separated codepoint list — would
+      misrender as a plain string), `MODEL.MODELTYPE`, `MODEL.SNAP*`, `TEXTURE`, and the non-default
+      unit-formatted values (`ARCRESOLUTION`/`CAVITYHEIGHT`/`MODEL.2D.X/Y`) — need a golden to
+      validate the formatting.
 - [ ] Feed confirmed answers back into the fix ladder (especially the pad, A3).
 
 ## C. On-site Altium tooling
