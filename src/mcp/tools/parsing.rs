@@ -83,7 +83,9 @@ impl McpServer {
     /// Parses a pad from JSON.
     #[allow(clippy::too_many_lines)] // Pad has many fields requiring individual parsing
     pub(crate) fn parse_pad(json: &Value) -> Result<crate::altium::pcblib::Pad, String> {
-        use crate::altium::pcblib::{Layer, MaskExpansionMode, Pad, PadShape, PadStackMode};
+        use crate::altium::pcblib::{
+            Layer, MaskExpansionMode, Pad, PadShape, PadStackMode, PowerPlaneConnectStyle,
+        };
 
         let designator = json
             .get("designator")
@@ -205,6 +207,40 @@ impl McpServer {
             .and_then(|v| u8::try_from(v).ok())
             .filter(|&v| v <= 100);
 
+        // Thermal-relief / power-plane connection fields. Absent keys keep the
+        // from-scratch defaults (= Altium's pad template), so an unspecified pad
+        // round-trips byte-identically.
+        let power_plane_connect_style = json
+            .get("power_plane_connect_style")
+            .and_then(Value::as_str)
+            .map(|s| match s.to_lowercase().as_str() {
+                "direct" => PowerPlaneConnectStyle::Direct,
+                "no_connect" | "noconnect" => PowerPlaneConnectStyle::NoConnect,
+                _ => PowerPlaneConnectStyle::Relief,
+            })
+            .unwrap_or_default();
+        let relief_conductor_width = json
+            .get("relief_conductor_width")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.254);
+        let relief_entries = json
+            .get("relief_entries")
+            .and_then(Value::as_i64)
+            .and_then(|v| i16::try_from(v).ok())
+            .unwrap_or(4);
+        let relief_air_gap = json
+            .get("relief_air_gap")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.254);
+        let power_plane_relief_expansion = json
+            .get("power_plane_relief_expansion")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.508);
+        let power_plane_clearance = json
+            .get("power_plane_clearance")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.508);
+
         Ok(Pad {
             designator: designator.to_string(),
             x,
@@ -220,6 +256,12 @@ impl McpServer {
             solder_mask_expansion,
             paste_mask_expansion_mode,
             solder_mask_expansion_mode,
+            power_plane_connect_style,
+            relief_conductor_width,
+            relief_entries,
+            relief_air_gap,
+            power_plane_relief_expansion,
+            power_plane_clearance,
             corner_radius_percent,
             stack_mode: PadStackMode::Simple,
             per_layer_sizes: None,
@@ -1279,6 +1321,50 @@ mod tests {
         assert!(pad.flags.contains(PcbFlags::LOCKED));
         assert_eq!(pad.solder_mask_expansion, Some(0.05));
         assert_eq!(pad.solder_mask_expansion_mode, MaskExpansionMode::Manual);
+    }
+
+    #[test]
+    fn parse_pad_reads_thermal_relief_fields() {
+        use crate::altium::pcblib::PowerPlaneConnectStyle;
+        // Non-default thermal-relief / power-plane keys parse into the model.
+        let pad = McpServer::parse_pad(&json!({
+            "designator": "1", "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0,
+            "power_plane_connect_style": "direct",
+            "relief_conductor_width": 0.3,
+            "relief_entries": 2,
+            "relief_air_gap": 0.2,
+            "power_plane_relief_expansion": 0.6,
+            "power_plane_clearance": 0.7,
+        }))
+        .expect("pad should parse");
+        assert_eq!(
+            pad.power_plane_connect_style,
+            PowerPlaneConnectStyle::Direct
+        );
+        assert!((pad.relief_conductor_width - 0.3).abs() < 1e-9);
+        assert_eq!(pad.relief_entries, 2);
+        assert!((pad.relief_air_gap - 0.2).abs() < 1e-9);
+        assert!((pad.power_plane_relief_expansion - 0.6).abs() < 1e-9);
+        assert!((pad.power_plane_clearance - 0.7).abs() < 1e-9);
+    }
+
+    #[test]
+    fn parse_pad_thermal_relief_defaults() {
+        use crate::altium::pcblib::PowerPlaneConnectStyle;
+        // Absent keys keep the from-scratch defaults (= Altium's pad template).
+        let pad = McpServer::parse_pad(&json!({
+            "designator": "1", "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0,
+        }))
+        .expect("pad should parse");
+        assert_eq!(
+            pad.power_plane_connect_style,
+            PowerPlaneConnectStyle::Relief
+        );
+        assert!((pad.relief_conductor_width - 0.254).abs() < 1e-9);
+        assert_eq!(pad.relief_entries, 4);
+        assert!((pad.relief_air_gap - 0.254).abs() < 1e-9);
+        assert!((pad.power_plane_relief_expansion - 0.508).abs() < 1e-9);
+        assert!((pad.power_plane_clearance - 0.508).abs() < 1e-9);
     }
 
     #[test]

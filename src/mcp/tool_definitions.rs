@@ -203,6 +203,16 @@ impl McpServer {
                                                     "enum": ["none", "from_rule", "manual"],
                                                     "description": "Solder mask expansion mode. Default: from_rule"
                                                 },
+                                                "power_plane_connect_style": {
+                                                    "type": "string",
+                                                    "enum": ["relief", "direct", "no_connect"],
+                                                    "description": "How the pad connects to an internal power plane. Default: relief (thermal spokes)"
+                                                },
+                                                "relief_conductor_width": { "type": "number", "description": "Thermal-relief spoke (conductor) width in mm. Default: 0.254 (10 mil)" },
+                                                "relief_entries": { "type": "integer", "description": "Number of thermal-relief spokes. Default: 4" },
+                                                "relief_air_gap": { "type": "number", "description": "Thermal-relief air-gap width in mm. Default: 0.254 (10 mil)" },
+                                                "power_plane_relief_expansion": { "type": "number", "description": "Power-plane relief expansion in mm. Default: 0.508 (20 mil)" },
+                                                "power_plane_clearance": { "type": "number", "description": "Power-plane (anti-pad) clearance to the plane in mm. Default: 0.508 (20 mil)" },
                                                 "flags": { "type": ["string", "integer"], "description": "Primitive flags (optional). Accepts the name string read_pcblib emits (e.g. \"LOCKED\" or \"LOCKED | KEEPOUT\") or a raw bitmask integer (1=locked, 2=polygon, 4=keepout, 8=tenting-top, 16=tenting-bottom). Default: none" }
                                             },
                                             "required": ["designator", "x", "y", "width", "height"]

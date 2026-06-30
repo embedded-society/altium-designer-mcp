@@ -44,8 +44,8 @@ use serde::{Deserialize, Serialize};
 
 pub use primitives::{
     Arc, ComponentBody, EmbeddedModel, Fill, HoleShape, Layer, MaskExpansionMode, Model3D, Pad,
-    PadShape, PadStackMode, PcbFlags, Region, StrokeFont, Text, TextJustification, TextKind, Track,
-    Vertex, Via,
+    PadShape, PadStackMode, PcbFlags, PowerPlaneConnectStyle, Region, StrokeFont, Text,
+    TextJustification, TextKind, Track, Vertex, Via,
 };
 
 use crate::altium::error::{AltiumError, AltiumResult};
@@ -591,6 +591,55 @@ mod tests {
         assert!(approx_eq(decoded.pads[1].x, 0.5, 0.001));
         assert!(approx_eq(decoded.pads[0].width, 0.6, 0.001));
         assert!(approx_eq(decoded.pads[0].height, 0.5, 0.001));
+    }
+
+    #[test]
+    fn binary_roundtrip_pad_thermal_relief() {
+        // A pad with NON-default thermal-relief / power-plane settings must survive
+        // encode -> decode with all six fields intact.
+        let mut original = Footprint::new("ROUNDTRIP_PAD_RELIEF");
+        let mut pad = Pad::through_hole("1", 0.0, 0.0, 1.6, 1.6, 0.8);
+        pad.power_plane_connect_style = PowerPlaneConnectStyle::Direct;
+        pad.relief_conductor_width = 0.3; // != 0.254 default
+        pad.relief_entries = 2; // != 4 default
+        pad.relief_air_gap = 0.2; // != 0.254 default
+        pad.power_plane_relief_expansion = 0.6; // != 0.508 default
+        pad.power_plane_clearance = 0.7; // != 0.508 default
+        original.add_pad(pad);
+
+        let data = writer::encode_data_stream(&original).expect("encoding should succeed");
+        let mut decoded = Footprint::new("ROUNDTRIP_PAD_RELIEF");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        assert_eq!(decoded.pads.len(), 1);
+        let p = &decoded.pads[0];
+        assert_eq!(p.power_plane_connect_style, PowerPlaneConnectStyle::Direct);
+        assert!(approx_eq(p.relief_conductor_width, 0.3, 0.0001));
+        assert_eq!(p.relief_entries, 2);
+        assert!(approx_eq(p.relief_air_gap, 0.2, 0.0001));
+        assert!(approx_eq(p.power_plane_relief_expansion, 0.6, 0.0001));
+        assert!(approx_eq(p.power_plane_clearance, 0.7, 0.0001));
+    }
+
+    #[test]
+    fn pad_default_thermal_relief_byte_identical() {
+        // A pad created with default thermal-relief must produce byte-for-byte
+        // identical output regardless of whether the writer emits the struct
+        // fields or the old fixed template constants. We prove this by checking
+        // that the default field values map back to the canonical template raw
+        // values (style 0; conductor width / air gap 100000; entries 4; relief
+        // expansion / clearance 200000), so the oracle stays at 0 regressions.
+        let pad = Pad::smd("1", 0.0, 0.0, 1.0, 1.0);
+        assert_eq!(
+            pad.power_plane_connect_style,
+            PowerPlaneConnectStyle::Relief
+        );
+        assert_eq!(pad.power_plane_connect_style.to_id(), 0);
+        assert_eq!(units::from_mm(pad.relief_conductor_width), 100_000);
+        assert_eq!(pad.relief_entries, 4);
+        assert_eq!(units::from_mm(pad.relief_air_gap), 100_000);
+        assert_eq!(units::from_mm(pad.power_plane_relief_expansion), 200_000);
+        assert_eq!(units::from_mm(pad.power_plane_clearance), 200_000);
     }
 
     #[test]

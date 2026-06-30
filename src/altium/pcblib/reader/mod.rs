@@ -28,13 +28,13 @@ use std::collections::HashMap;
 
 use super::primitives::{
     Arc, ComponentBody, Fill, HoleShape, Layer, MaskExpansionMode, Pad, PadShape, PadStackMode,
-    PcbFlags, Region, StrokeFont, Text, TextJustification, TextKind, Track, Vertex, Via,
-    ViaStackMode,
+    PcbFlags, PowerPlaneConnectStyle, Region, StrokeFont, Text, TextJustification, TextKind, Track,
+    Vertex, Via, ViaStackMode,
 };
 use super::Footprint;
 use crate::altium::bytes::{
-    read_f64_le as read_f64, read_i32_le as read_i32, read_u16_le as read_u16,
-    read_u32_le as read_u32,
+    read_f64_le as read_f64, read_i16_le as read_i16, read_i32_le as read_i32,
+    read_u16_le as read_u16, read_u32_le as read_u32,
 };
 use crate::altium::error::AltiumError;
 
