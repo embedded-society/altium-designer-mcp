@@ -425,8 +425,21 @@ impl McpServer {
                                                 "y": { "type": "number", "description": "Y of the pin's body-attach (inner) end, in schematic units. See 'x'." },
                                                 "length": { "type": "number", "description": "Pin length in schematic units (10 = 1 grid). Drawn from (x,y) outward in the 'orientation' direction." },
                                                 "orientation": { "type": "string", "enum": ["left", "right", "up", "down"], "description": "Direction the pin POINTS, away from the body — NOT which side it sits on. A pin on the LEFT side uses 'left' (tip at x-length); a RIGHT-side pin uses 'right' (tip at x+length); 'up'/'down' for top/bottom pins. Put each pin's (x,y) on the matching body-rectangle edge so it attaches flush, e.g. left pin {x:-50,y:20,length:30,orientation:'left'} with rectangle x1=-50, and the matching right pin {x:50,y:20,length:30,orientation:'right'} with x2=50. For TOP/BOTTOM pins, (x,y) sits on the body's top/bottom edge and the pin points outward (away from the body centre): a top-side pin uses 'up' (tip at y+length, above the body), a bottom-side pin uses 'down' (tip at y-length, below) — e.g. a vertical 2-pin part with the body near y=0: top pin {x:0,y:10,length:30,orientation:'up'} (tip at y=40), bottom pin {x:0,y:-10,length:30,orientation:'down'} (tip at y=-40)." },
-                                                "electrical_type": { "type": "string", "enum": ["input", "output", "bidirectional", "passive", "power"] },
-                                                "owner_part_id": { "type": "integer", "description": "Part number this pin belongs to (1-based). Default: 1" }
+                                                "electrical_type": { "type": "string", "enum": ["input", "output", "bidirectional", "passive", "power", "open_collector", "open_emitter", "hi_z", "tristate"], "description": "Pin electrical type. 'tristate' is accepted as an alias for 'hi_z'. Default: passive" },
+                                                "owner_part_id": { "type": "integer", "description": "Part number this pin belongs to (1-based). Default: 1" },
+                                                "hidden": { "type": "boolean", "description": "Whether the pin is hidden. Default: false" },
+                                                "show_name": { "type": "boolean", "description": "Whether to show the pin name. Default: true" },
+                                                "show_designator": { "type": "boolean", "description": "Whether to show the pin designator. Default: true" },
+                                                "description": { "type": "string", "description": "Pin description. Default: empty" },
+                                                "colour": { "type": "integer", "description": "Pin colour (BGR integer). Default: 0" },
+                                                "graphically_locked": { "type": "boolean", "description": "Whether the pin is graphically locked. Default: false" },
+                                                "swap_id_group": { "type": "string", "description": "Pin swap-id group, for pin-swap. Default: empty" },
+                                                "part_and_sequence": { "type": "string", "description": "Pin part-and-sequence swap id. Default: '|&|'" },
+                                                "default_value": { "type": "string", "description": "Pin default value. Default: empty" },
+                                                "symbol_inner_edge": { "type": "string", "description": "Decoration on the INNER edge (nearest the body), e.g. 'dot' (inversion bubble), 'clock'. Default: none" },
+                                                "symbol_outer_edge": { "type": "string", "description": "Decoration on the OUTER edge (furthest from the body), e.g. 'dot', 'clock'. Default: none" },
+                                                "symbol_inside": { "type": "string", "description": "Decoration drawn inside the pin line, e.g. 'postponed_output', 'open_collector'. Default: none" },
+                                                "symbol_outside": { "type": "string", "description": "Decoration drawn outside the pin line, e.g. 'right_left_signal_flow', 'analog_signal_in'. Default: none" }
                                             },
                                             "required": ["designator", "name", "x", "y", "length", "orientation"]
                                         }
@@ -444,7 +457,9 @@ impl McpServer {
                                                 "line_width": { "type": "integer", "description": "Border width. Default: 1" },
                                                 "line_color": { "type": "integer", "description": "Border BGR colour. Default: 0x000080" },
                                                 "fill_color": { "type": "integer", "description": "Fill BGR colour. Default: 0xB0FFFF (Altium light yellow)" },
+                                                "line_style": { "type": "integer", "description": "Border line style: 0=Solid, 1=Dashed, 2=Dotted. Default: 0" },
                                                 "filled": { "type": "boolean", "description": "Whether filled. Default: true" },
+                                                "transparent": { "type": "boolean", "description": "Whether the fill is transparent. Default: false" },
                                                 "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" }
                                             },
                                             "required": ["x1", "y1", "x2", "y2"]
@@ -465,7 +480,9 @@ impl McpServer {
                                                 "line_width": { "type": "integer", "description": "Border width. Default: 1" },
                                                 "line_color": { "type": "integer", "description": "Border BGR colour. Default: 0x000080" },
                                                 "fill_color": { "type": "integer", "description": "Fill BGR colour. Default: 0xB0FFFF (Altium light yellow)" },
+                                                "line_style": { "type": "integer", "description": "Border line style: 0=Solid, 1=Dashed, 2=Dotted. Default: 0" },
                                                 "filled": { "type": "boolean", "description": "Whether filled. Default: true" },
+                                                "transparent": { "type": "boolean", "description": "Whether the fill is transparent. Default: false" },
                                                 "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" }
                                             },
                                             "required": ["x1", "y1", "x2", "y2", "corner_x_radius", "corner_y_radius"]
@@ -483,9 +500,40 @@ impl McpServer {
                                                 "y2": { "type": "number", "description": "End Y coordinate" },
                                                 "line_width": { "type": "integer", "description": "Line width. Default: 1" },
                                                 "color": { "type": "integer", "description": "Line BGR colour. Default: 0x000080" },
+                                                "line_style": { "type": "integer", "description": "Line style: 0=Solid, 1=Dashed, 2=Dotted. Default: 0" },
                                                 "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" }
                                             },
                                             "required": ["x1", "y1", "x2", "y2"]
+                                        }
+                                    },
+                                    "polylines": {
+                                        "type": "array",
+                                        "description": "Polyline definitions (>= 2 connected points). Optional endpoint shapes turn a polyline into an arrow.",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "points": {
+                                                    "type": "array",
+                                                    "description": "Points (>= 2) as objects with x/y in schematic units. 'vertices' is accepted as an alias.",
+                                                    "items": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "x": { "type": "number" },
+                                                            "y": { "type": "number" }
+                                                        },
+                                                        "required": ["x", "y"]
+                                                    }
+                                                },
+                                                "line_width": { "type": "integer", "description": "Line width. Default: 1" },
+                                                "color": { "type": "integer", "description": "Line BGR colour. Default: 0x000080" },
+                                                "line_style": { "type": "integer", "description": "Line style: 0=Solid, 1=Dashed, 2=Dotted. Default: 0" },
+                                                "start_line_shape": { "type": "integer", "description": "Start endpoint (arrowhead) shape id. Default: 0 (none)" },
+                                                "end_line_shape": { "type": "integer", "description": "End endpoint (arrowhead) shape id. Default: 0 (none)" },
+                                                "line_shape_size": { "type": "integer", "description": "Size of the endpoint shapes. Default: 0" },
+                                                "transparent": { "type": "boolean", "description": "Whether the polyline is transparent. Default: false" },
+                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" }
+                                            },
+                                            "required": ["points"]
                                         }
                                     },
                                     "polygons": {
@@ -528,6 +576,7 @@ impl McpServer {
                                                 "end_angle": { "type": "number", "description": "End angle in degrees. Default: 360 (full circle)" },
                                                 "line_width": { "type": "integer", "description": "Line width. Default: 1" },
                                                 "color": { "type": "integer", "description": "Line BGR colour. Default: 0x000080" },
+                                                "fill_color": { "type": "integer", "description": "Fill BGR colour (maps to AreaColor). Default: 0 (no fill)" },
                                                 "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" }
                                             },
                                             "required": ["x", "y", "radius"]
@@ -547,6 +596,7 @@ impl McpServer {
                                                 "line_color": { "type": "integer", "description": "Border BGR colour. Default: 0x000080" },
                                                 "fill_color": { "type": "integer", "description": "Fill BGR colour. Default: 0xB0FFFF (Altium light yellow)" },
                                                 "filled": { "type": "boolean", "description": "Whether filled. Default: true" },
+                                                "transparent": { "type": "boolean", "description": "Whether the fill is transparent. Default: false" },
                                                 "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" }
                                             },
                                             "required": ["x", "y", "radius_x", "radius_y"]
