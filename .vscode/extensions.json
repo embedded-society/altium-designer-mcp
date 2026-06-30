@@ -15,7 +15,6 @@
         "ms-vscode.hexeditor",
         "ms-vscode.powershell",
         "alefragnani.pascal",
-        "github.copilot",
         "github.vscode-pull-request-github"
     ]
 }
