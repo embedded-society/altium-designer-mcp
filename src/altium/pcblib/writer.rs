@@ -583,6 +583,25 @@ fn build_pad_extended_tail(pad: &Pad) -> [u8; 141] {
 
     // 62: pad stack mode
     tail[62 - START] = pad_stack_mode_to_id(pad.stack_mode);
+    // Thermal-relief / power-plane connection fields. Each default equals the
+    // template constant at its offset (style 0; conductor width / air gap
+    // 100000 = 0.254mm; entries 4; relief expansion / clearance 200000 =
+    // 0.508mm), so a default pad stays byte-identical. See
+    // PAD_EXTENDED_TAIL_TEMPLATE.
+    // 67: power-plane connection style (0=Relief, 1=Direct, 2=NoConnect)
+    tail[67 - START] = pad.power_plane_connect_style.to_id();
+    // 68-71: thermal-relief conductor (spoke) width
+    tail[68 - START..72 - START]
+        .copy_from_slice(&from_mm(pad.relief_conductor_width).to_le_bytes());
+    // 72-73: thermal-relief spoke count (i16)
+    tail[72 - START..74 - START].copy_from_slice(&pad.relief_entries.to_le_bytes());
+    // 74-77: thermal-relief air gap
+    tail[74 - START..78 - START].copy_from_slice(&from_mm(pad.relief_air_gap).to_le_bytes());
+    // 78-81: power-plane relief expansion
+    tail[78 - START..82 - START]
+        .copy_from_slice(&from_mm(pad.power_plane_relief_expansion).to_le_bytes());
+    // 82-85: power-plane (anti-pad) clearance
+    tail[82 - START..86 - START].copy_from_slice(&from_mm(pad.power_plane_clearance).to_le_bytes());
     // 86-89 / 90-93: paste & solder mask expansion
     tail[86 - START..90 - START]
         .copy_from_slice(&from_mm(pad.paste_mask_expansion.unwrap_or(0.0)).to_le_bytes());

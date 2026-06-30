@@ -44,7 +44,10 @@ pub use layer::Layer;
 mod models3d;
 pub use models3d::{ComponentBody, EmbeddedModel, Model3D};
 mod pads;
-pub use pads::{HoleShape, MaskExpansionMode, Pad, PadShape, PadStackMode, Via, ViaStackMode};
+pub use pads::{
+    HoleShape, MaskExpansionMode, Pad, PadShape, PadStackMode, PowerPlaneConnectStyle, Via,
+    ViaStackMode,
+};
 mod shapes;
 pub use shapes::{Arc, Region, Track, Vertex};
 mod text;

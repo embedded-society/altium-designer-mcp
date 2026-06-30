@@ -99,6 +99,48 @@ pub struct Pad {
     #[serde(default)]
     pub solder_mask_expansion_mode: MaskExpansionMode,
 
+    /// Power-plane connection style — extended-tail byte @67
+    /// (`Relief` / `Direct` / `NoConnect`). Altium's default is `Relief`.
+    #[serde(default)]
+    pub power_plane_connect_style: PowerPlaneConnectStyle,
+
+    /// Thermal-relief spoke (conductor) width in mm — extended-tail i32 @68.
+    /// Default: 0.254mm (10 mil), matching Altium's pad template.
+    #[serde(
+        default = "default_pad_relief_conductor_width",
+        serialize_with = "crate::altium::serde_round::serialize"
+    )]
+    pub relief_conductor_width: f64,
+
+    /// Number of thermal-relief spokes (entries) — extended-tail i16 @72.
+    /// Default: 4.
+    #[serde(default = "default_pad_relief_entries")]
+    pub relief_entries: i16,
+
+    /// Thermal-relief air-gap width in mm — extended-tail i32 @74.
+    /// Default: 0.254mm (10 mil), matching Altium's pad template.
+    #[serde(
+        default = "default_pad_relief_air_gap",
+        serialize_with = "crate::altium::serde_round::serialize"
+    )]
+    pub relief_air_gap: f64,
+
+    /// Power-plane relief expansion in mm — extended-tail i32 @78.
+    /// Default: 0.508mm (20 mil), matching Altium's pad template.
+    #[serde(
+        default = "default_pad_power_plane_relief_expansion",
+        serialize_with = "crate::altium::serde_round::serialize"
+    )]
+    pub power_plane_relief_expansion: f64,
+
+    /// Power-plane (anti-pad) clearance to the plane in mm — extended-tail i32 @82.
+    /// Default: 0.508mm (20 mil), matching Altium's pad template.
+    #[serde(
+        default = "default_pad_power_plane_clearance",
+        serialize_with = "crate::altium::serde_round::serialize"
+    )]
+    pub power_plane_clearance: f64,
+
     /// Corner radius as percentage of smaller pad dimension (0-100).
     /// Only applies to `RoundedRectangle` shape.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -158,6 +200,31 @@ fn is_default_hole_shape(shape: &HoleShape) -> bool {
     *shape == HoleShape::default()
 }
 
+/// Default pad thermal-relief conductor width (10 mil = 0.254mm; raw 100000).
+const fn default_pad_relief_conductor_width() -> f64 {
+    0.254
+}
+
+/// Default pad thermal-relief spoke count (matches Altium's pad template).
+const fn default_pad_relief_entries() -> i16 {
+    4
+}
+
+/// Default pad thermal-relief air gap (10 mil = 0.254mm; raw 100000).
+const fn default_pad_relief_air_gap() -> f64 {
+    0.254
+}
+
+/// Default pad power-plane relief expansion (20 mil = 0.508mm; raw 200000).
+const fn default_pad_power_plane_relief_expansion() -> f64 {
+    0.508
+}
+
+/// Default pad power-plane (anti-pad) clearance (20 mil = 0.508mm; raw 200000).
+const fn default_pad_power_plane_clearance() -> f64 {
+    0.508
+}
+
 impl Pad {
     /// Creates a new SMD pad on the top layer.
     #[must_use]
@@ -177,6 +244,12 @@ impl Pad {
             solder_mask_expansion: None,
             paste_mask_expansion_mode: MaskExpansionMode::FromRule,
             solder_mask_expansion_mode: MaskExpansionMode::FromRule,
+            power_plane_connect_style: PowerPlaneConnectStyle::Relief,
+            relief_conductor_width: default_pad_relief_conductor_width(),
+            relief_entries: default_pad_relief_entries(),
+            relief_air_gap: default_pad_relief_air_gap(),
+            power_plane_relief_expansion: default_pad_power_plane_relief_expansion(),
+            power_plane_clearance: default_pad_power_plane_clearance(),
             corner_radius_percent: None,
             stack_mode: PadStackMode::Simple,
             per_layer_sizes: None,
@@ -213,6 +286,12 @@ impl Pad {
             solder_mask_expansion: None,
             paste_mask_expansion_mode: MaskExpansionMode::FromRule,
             solder_mask_expansion_mode: MaskExpansionMode::FromRule,
+            power_plane_connect_style: PowerPlaneConnectStyle::Relief,
+            relief_conductor_width: default_pad_relief_conductor_width(),
+            relief_entries: default_pad_relief_entries(),
+            relief_air_gap: default_pad_relief_air_gap(),
+            power_plane_relief_expansion: default_pad_power_plane_relief_expansion(),
+            power_plane_clearance: default_pad_power_plane_clearance(),
             corner_radius_percent: None,
             stack_mode: PadStackMode::Simple,
             per_layer_sizes: None,
@@ -324,6 +403,45 @@ impl MaskExpansionMode {
             Self::None => 0,
             Self::FromRule => 1,
             Self::Manual => 2,
+        }
+    }
+}
+
+/// Power-plane connection style for a pad (Altium `TPlaneConnectStyle`).
+///
+/// Controls how a pad connects to an internal power plane: with a thermal-relief
+/// spoke pattern, a solid (direct) copper connection, or no connection at all.
+/// Stored as a single byte at extended-tail offset 67.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PowerPlaneConnectStyle {
+    /// Thermal-relief connection (spokes). Altium's default.
+    #[default]
+    Relief,
+    /// Solid/direct copper connection to the plane.
+    Direct,
+    /// No connection to the plane.
+    NoConnect,
+}
+
+impl PowerPlaneConnectStyle {
+    /// Creates from the Altium byte (`0` = `Relief`, `1` = `Direct`, `2` = `NoConnect`).
+    #[must_use]
+    pub const fn from_id(id: u8) -> Self {
+        match id {
+            1 => Self::Direct,
+            2 => Self::NoConnect,
+            _ => Self::Relief,
+        }
+    }
+
+    /// Returns the Altium connection-style byte.
+    #[must_use]
+    pub const fn to_id(self) -> u8 {
+        match self {
+            Self::Relief => 0,
+            Self::Direct => 1,
+            Self::NoConnect => 2,
         }
     }
 }

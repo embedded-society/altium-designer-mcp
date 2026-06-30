@@ -646,6 +646,89 @@ def test_write_pcblib_flags_mask_keepout(client, runner, lib_path):
         )
 
 
+def test_write_pcblib_pad_thermal_relief(client, runner, lib_path):
+    print("\n=== Test: write_pcblib pad thermal-relief / power-plane round trip ===")
+    # Coverage PR-6: the six pad thermal-relief / power-plane connection fields
+    # must be authorable via write_pcblib and round-trip through read_pcblib.
+    footprint = {
+        "name": "PAD_RELIEF_RT",
+        "pads": [
+            {
+                "designator": "1",
+                "x": 0.0,
+                "y": 0.0,
+                "width": 1.6,
+                "height": 1.6,
+                "hole_size": 0.8,
+                "layer": "Multi-Layer",
+                "power_plane_connect_style": "direct",
+                "relief_conductor_width": 0.3,
+                "relief_entries": 2,
+                "relief_air_gap": 0.2,
+                "power_plane_relief_expansion": 0.6,
+                "power_plane_clearance": 0.7,
+            }
+        ],
+    }
+    write = client.call_tool(
+        "write_pcblib",
+        {"filepath": lib_path, "footprints": [footprint], "append": False},
+    )
+    runner.check(
+        not write.get("_isError"), "write_pcblib (pad relief) succeeded", actual=write
+    )
+
+    read = client.call_tool("read_pcblib", {"filepath": lib_path})
+    runner.check(not read.get("_isError"), "read_pcblib succeeded", actual=read)
+    footprints = {fp.get("name"): fp for fp in read.get("footprints", [])}
+    fp = footprints.get("PAD_RELIEF_RT", {})
+    runner.check(bool(fp), "PAD_RELIEF_RT footprint present", actual=list(footprints))
+
+    # Coord fields carry sub-micron fixed-point quantisation; 1e-4 mm is well
+    # below any meaningful PCB tolerance.
+    tol = 1e-4
+    pads = fp.get("pads", [])
+    runner.check(len(pads) == 1, "1 pad survived", actual=len(pads))
+    if pads:
+        p = pads[0]
+        runner.check(
+            p.get("power_plane_connect_style") == "direct",
+            "pad power_plane_connect_style",
+            actual=p.get("power_plane_connect_style"),
+            expected="direct",
+        )
+        runner.check(
+            abs(p.get("relief_conductor_width", 0) - 0.3) < tol,
+            "pad relief_conductor_width",
+            actual=p.get("relief_conductor_width"),
+            expected=0.3,
+        )
+        runner.check(
+            p.get("relief_entries") == 2,
+            "pad relief_entries",
+            actual=p.get("relief_entries"),
+            expected=2,
+        )
+        runner.check(
+            abs(p.get("relief_air_gap", 0) - 0.2) < tol,
+            "pad relief_air_gap",
+            actual=p.get("relief_air_gap"),
+            expected=0.2,
+        )
+        runner.check(
+            abs(p.get("power_plane_relief_expansion", 0) - 0.6) < tol,
+            "pad power_plane_relief_expansion",
+            actual=p.get("power_plane_relief_expansion"),
+            expected=0.6,
+        )
+        runner.check(
+            abs(p.get("power_plane_clearance", 0) - 0.7) < tol,
+            "pad power_plane_clearance",
+            actual=p.get("power_plane_clearance"),
+            expected=0.7,
+        )
+
+
 def test_write_schlib_fields(client, runner, schlib_path):
     print("\n=== Test: write_schlib field-completeness round trip ===")
     # Coverage PR-12/PR-13: every primitive field the read tool round-trips must
@@ -818,6 +901,7 @@ def main():
         test_write_pcblib_auto_3d_body_opt_in(client, runner, lib_path)
         test_write_pcblib_via_fill(client, runner, lib_path)
         test_write_pcblib_flags_mask_keepout(client, runner, lib_path)
+        test_write_pcblib_pad_thermal_relief(client, runner, lib_path)
         test_write_schlib_shapes(client, runner, schlib_path)
         test_write_schlib_fields(client, runner, schlib_path)
         test_read_pcblib_exposes_vias_fills(client, runner, sample_path)

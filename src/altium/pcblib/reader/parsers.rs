@@ -174,6 +174,21 @@ pub(super) fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
         MaskExpansionMode::from_id(b)
     });
 
+    // Thermal-relief / power-plane connection fields (extended tail). Each
+    // falls back to the from-scratch default (= Altium's pad template constant)
+    // when the byte is absent, so a short or older pad round-trips faithfully.
+    // 67: connection style; 68-71/74-77/78-81/82-85: i32 coords; 72-73: i16 count.
+    let power_plane_connect_style = geometry
+        .get(67)
+        .map_or(PowerPlaneConnectStyle::Relief, |&b| {
+            PowerPlaneConnectStyle::from_id(b)
+        });
+    let relief_conductor_width = read_i32(geometry, 68).map_or(0.254, to_mm);
+    let relief_entries = read_i16(geometry, 72).unwrap_or(4);
+    let relief_air_gap = read_i32(geometry, 74).map_or(0.254, to_mm);
+    let power_plane_relief_expansion = read_i32(geometry, 78).map_or(0.508, to_mm);
+    let power_plane_clearance = read_i32(geometry, 82).map_or(0.508, to_mm);
+
     // Parse per-layer data when stack mode is not Simple
     // Per-layer data format:
     // - 32 size entries (width, height as i32 pairs) = 256 bytes
@@ -247,6 +262,12 @@ pub(super) fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
         solder_mask_expansion,
         paste_mask_expansion_mode,
         solder_mask_expansion_mode,
+        power_plane_connect_style,
+        relief_conductor_width,
+        relief_entries,
+        relief_air_gap,
+        power_plane_relief_expansion,
+        power_plane_clearance,
         corner_radius_percent,
         stack_mode,
         per_layer_sizes,
