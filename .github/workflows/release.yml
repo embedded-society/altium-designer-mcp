@@ -148,6 +148,8 @@ jobs:
                 cp target/${{ matrix.target }}/release/${{ matrix.binary }} dist/
                 cp README.md LICENCE CHANGELOG.md dist/
                 cp config/example-config.json dist/
+                mkdir -p dist/docs
+                cp docs/AGENT_GUIDE.md docs/TOOLS.md dist/docs/
                 cd dist
                 tar -czvf ../${{ matrix.artifact }}.tar.gz *
 
@@ -159,6 +161,8 @@ jobs:
                 cp target/${{ matrix.target }}/release/${{ matrix.binary }} dist/
                 cp README.md LICENCE CHANGELOG.md dist/
                 cp config/example-config.json dist/
+                mkdir -p dist/docs
+                cp docs/AGENT_GUIDE.md docs/TOOLS.md dist/docs/
                 cd dist
                 7z a -tzip ../${{ matrix.artifact }}.zip *
 

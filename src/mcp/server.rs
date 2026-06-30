@@ -119,6 +119,11 @@ pub struct ToolDefinition {
     pub description: Option<String>,
     /// JSON Schema for the tool's input parameters.
     pub input_schema: Value,
+    /// Representative `tools/call` example, rendered into `docs/TOOLS.md` by the
+    /// doc generator. Internal only — `#[serde(skip)]` keeps it off the
+    /// `tools/list` wire response (it is not part of the MCP tool schema).
+    #[serde(skip)]
+    pub example: Option<Value>,
 }
 
 /// Parameters for tools/call request.
@@ -712,6 +717,12 @@ impl McpServer {
             "protocolVersion": negotiated_version,
             "capabilities": ServerCapabilities::default(),
             "serverInfo": ServerInfo::default(),
+            // MCP `instructions`: surfaced to the model by the client so an agent
+            // learns the conventions (units, pin geometry, sandbox, build flow)
+            // without reading the source. Embedded from docs/AGENT_GUIDE.md so
+            // there is a single source of truth; per-tool detail stays in the
+            // tools/list schema.
+            "instructions": include_str!("../../docs/AGENT_GUIDE.md"),
         });
 
         Ok(JsonRpcResponse::success(req.id.clone(), result))
@@ -1668,6 +1679,40 @@ mod tests {
         let arc = &sym.arcs[0];
         assert!((arc.radius - 10.0).abs() < 1e-9);
         assert!((arc.end_angle - 180.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn initialize_sends_agent_instructions() {
+        // The MCP `instructions` field is how a client teaches the model the
+        // conventions; it must be sent and must be the embedded AGENT_GUIDE so
+        // the doc stays the single source.
+        let dir = test_temp_dir();
+        let mut server = McpServer::new(vec![dir.path().to_path_buf()]);
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: RequestId::Number(1),
+            method: "initialize".to_string(),
+            params: Some(json!({
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": { "name": "test", "version": "1.0.0" }
+            })),
+        };
+        let resp = server.handle_initialize(&req).expect("initialize ok");
+        let instructions = resp
+            .result
+            .get("instructions")
+            .and_then(|v| v.as_str())
+            .expect("initialize result includes `instructions`");
+        assert!(
+            !instructions.trim().is_empty(),
+            "instructions must be non-empty"
+        );
+        assert_eq!(
+            instructions,
+            include_str!("../../docs/AGENT_GUIDE.md"),
+            "instructions must be the embedded AGENT_GUIDE.md"
+        );
     }
 
     #[test]
