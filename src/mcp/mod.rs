@@ -29,6 +29,8 @@
 pub mod protocol;
 pub mod server;
 mod tool_definitions;
+#[cfg(test)]
+mod tool_docs;
 mod tools;
 pub mod transport;
 
