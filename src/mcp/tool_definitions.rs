@@ -196,7 +196,14 @@ impl McpServer {
                                                     "description": "Pad shape: rectangle (pin 1), rounded_rectangle (SMD default), round/circle (equivalent, for through-hole), oval, octagonal"
                                                 },
                                                 "layer": { "type": "string", "description": "Layer name: Top Layer, Bottom Layer, Multi-Layer (default for SMD)" },
-                                                "hole_size": { "type": "number", "description": "Hole diameter for through-hole pads (mm)" }
+                                                "hole_size": { "type": "number", "description": "Hole diameter for through-hole pads (mm)" },
+                                                "solder_mask_expansion": { "type": "number", "description": "Solder mask expansion in mm (optional; omit to use the rule default)" },
+                                                "solder_mask_expansion_mode": {
+                                                    "type": "string",
+                                                    "enum": ["none", "from_rule", "manual"],
+                                                    "description": "Solder mask expansion mode. Default: from_rule"
+                                                },
+                                                "flags": { "type": ["string", "integer"], "description": "Primitive flags (optional). Accepts the name string read_pcblib emits (e.g. \"LOCKED\" or \"LOCKED | KEEPOUT\") or a raw bitmask integer (1=locked, 2=polygon, 4=keepout, 8=tenting-top, 16=tenting-bottom). Default: none" }
                                             },
                                             "required": ["designator", "x", "y", "width", "height"]
                                         }
@@ -212,7 +219,10 @@ impl McpServer {
                                                 "x2": { "type": "number" },
                                                 "y2": { "type": "number" },
                                                 "width": { "type": "number", "description": "Line width in mm" },
-                                                "layer": { "type": "string", "description": "Layer name: Top Overlay, Top Assembly, Top Courtyard, Mechanical 1, etc." }
+                                                "layer": { "type": "string", "description": "Layer name: Top Overlay, Top Assembly, Top Courtyard, Mechanical 1, etc." },
+                                                "solder_mask_expansion": { "type": "number", "description": "Solder mask expansion override in mm (optional; omit to use the rule default)" },
+                                                "keepout_restrictions": { "type": "integer", "description": "Keepout restriction bitmask (optional; defaults to 0)" },
+                                                "flags": { "type": ["string", "integer"], "description": "Primitive flags (optional). Accepts the name string read_pcblib emits (e.g. \"LOCKED\" or \"LOCKED | KEEPOUT\") or a raw bitmask integer (1=locked, 2=polygon, 4=keepout, 8=tenting-top, 16=tenting-bottom). Default: none" }
                                             },
                                             "required": ["x1", "y1", "x2", "y2", "width", "layer"]
                                         }
@@ -255,7 +265,8 @@ impl McpServer {
                                                 "layer": { "type": "string", "description": "Layer name (default Top Layer): Top Layer, Bottom Layer, Top Overlay, Mechanical 1, etc." },
                                                 "rotation": { "type": "number", "description": "Rotation in degrees. Default: 0" },
                                                 "solder_mask_expansion": { "type": "number", "description": "Solder mask expansion override in mm (optional; omit to use the rule default)" },
-                                                "keepout_restrictions": { "type": "integer", "description": "Keepout restriction bitmask (optional; defaults to 0)" }
+                                                "keepout_restrictions": { "type": "integer", "description": "Keepout restriction bitmask (optional; defaults to 0)" },
+                                                "flags": { "type": ["string", "integer"], "description": "Primitive flags (optional). Accepts the name string read_pcblib emits (e.g. \"LOCKED\" or \"LOCKED | KEEPOUT\") or a raw bitmask integer (1=locked, 2=polygon, 4=keepout, 8=tenting-top, 16=tenting-bottom). Default: none" }
                                             },
                                             "required": ["x1", "y1", "x2", "y2"]
                                         }
@@ -272,7 +283,10 @@ impl McpServer {
                                                 "start_angle": { "type": "number", "description": "Start angle in degrees" },
                                                 "end_angle": { "type": "number", "description": "End angle in degrees" },
                                                 "width": { "type": "number", "description": "Line width in mm" },
-                                                "layer": { "type": "string", "description": "Layer name: Top Overlay, Top Assembly, Mechanical 1, etc." }
+                                                "layer": { "type": "string", "description": "Layer name: Top Overlay, Top Assembly, Mechanical 1, etc." },
+                                                "solder_mask_expansion": { "type": "number", "description": "Solder mask expansion override in mm (optional; omit to use the rule default)" },
+                                                "keepout_restrictions": { "type": "integer", "description": "Keepout restriction bitmask (optional; defaults to 0)" },
+                                                "flags": { "type": ["string", "integer"], "description": "Primitive flags (optional). Accepts the name string read_pcblib emits (e.g. \"LOCKED\" or \"LOCKED | KEEPOUT\") or a raw bitmask integer (1=locked, 2=polygon, 4=keepout, 8=tenting-top, 16=tenting-bottom). Default: none" }
                                             },
                                             "required": ["x", "y", "radius", "start_angle", "end_angle", "width", "layer"]
                                         }
@@ -293,7 +307,8 @@ impl McpServer {
                                                         }
                                                     }
                                                 },
-                                                "layer": { "type": "string", "description": "Layer name: Top Courtyard, Top Assembly, Mechanical 1, etc." }
+                                                "layer": { "type": "string", "description": "Layer name: Top Courtyard, Top Assembly, Mechanical 1, etc." },
+                                                "flags": { "type": ["string", "integer"], "description": "Primitive flags (optional). Accepts the name string read_pcblib emits (e.g. \"LOCKED\" or \"LOCKED | KEEPOUT\") or a raw bitmask integer (1=locked, 2=polygon, 4=keepout, 8=tenting-top, 16=tenting-bottom). Default: none" }
                                             },
                                             "required": ["vertices", "layer"]
                                         }
@@ -310,7 +325,8 @@ impl McpServer {
                                                 "height": { "type": "number", "description": "Text height in mm" },
                                                 "layer": { "type": "string", "description": "Layer name: Top Overlay, Top Assembly, Mechanical 1, etc." },
                                                 "rotation": { "type": "number", "description": "Rotation in degrees" },
-                                                "stroke_width": { "type": "number", "description": "Stroke line width in mm (optional; defaults to Altium's ~4 mil)" }
+                                                "stroke_width": { "type": "number", "description": "Stroke line width in mm (optional; defaults to Altium's ~4 mil)" },
+                                                "flags": { "type": ["string", "integer"], "description": "Primitive flags (optional). Accepts the name string read_pcblib emits (e.g. \"LOCKED\" or \"LOCKED | KEEPOUT\") or a raw bitmask integer (1=locked, 2=polygon, 4=keepout, 8=tenting-top, 16=tenting-bottom). Default: none" }
                                             },
                                             "required": ["x", "y", "text", "height", "layer"]
                                         }

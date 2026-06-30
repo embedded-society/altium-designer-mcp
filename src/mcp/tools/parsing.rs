@@ -27,6 +27,40 @@ fn json_f64(json: &Value, field: &str) -> Option<f64> {
         .filter(|v| v.is_finite())
 }
 
+/// Reads the optional `flags` field of a `PcbLib` 2D primitive.
+///
+/// `read_pcblib` serialises [`crate::altium::pcblib::PcbFlags`] (a `bitflags`
+/// set) via its serde impl, which in JSON is a string of `|`-separated flag
+/// names, e.g. `"LOCKED"` or `"LOCKED | KEEPOUT"`. The write side deserialises
+/// that exact form with serde so a value read from disk round-trips unchanged.
+/// For caller convenience a raw `u16` bitmask integer is also accepted
+/// (`1` = `LOCKED`, `4` = `KEEPOUT`, …). An absent or unparseable value yields
+/// the empty flag set rather than erroring, matching the lenient handling of the
+/// other optional tail fields.
+fn json_flags(json: &Value) -> crate::altium::pcblib::PcbFlags {
+    use crate::altium::pcblib::PcbFlags;
+    match json.get("flags") {
+        // Canonical round-trip shape: the bitflags serde string ("LOCKED | …").
+        Some(v @ Value::String(_)) => {
+            serde_json::from_value(v.clone()).unwrap_or_else(|_| PcbFlags::empty())
+        }
+        // Convenience shape: a raw bitmask integer.
+        Some(Value::Number(n)) => n
+            .as_u64()
+            .and_then(|v| u16::try_from(v).ok())
+            .map_or_else(PcbFlags::empty, PcbFlags::from_bits_truncate),
+        _ => PcbFlags::empty(),
+    }
+}
+
+/// Reads the optional `keepout_restrictions` bitmask (`u8`) of a `PcbLib` 2D
+/// primitive, mirroring how `read_pcblib` serialises the `Option<u8>` field.
+fn json_keepout(json: &Value) -> Option<u8> {
+    json.get("keepout_restrictions")
+        .and_then(Value::as_u64)
+        .and_then(|v| u8::try_from(v).ok())
+}
+
 impl McpServer {
     // ==================== Primitive Parsing Helpers ====================
 
@@ -49,9 +83,7 @@ impl McpServer {
     /// Parses a pad from JSON.
     #[allow(clippy::too_many_lines)] // Pad has many fields requiring individual parsing
     pub(crate) fn parse_pad(json: &Value) -> Result<crate::altium::pcblib::Pad, String> {
-        use crate::altium::pcblib::{
-            Layer, MaskExpansionMode, Pad, PadShape, PadStackMode, PcbFlags,
-        };
+        use crate::altium::pcblib::{Layer, MaskExpansionMode, Pad, PadShape, PadStackMode};
 
         let designator = json
             .get("designator")
@@ -194,7 +226,7 @@ impl McpServer {
             per_layer_shapes: None,
             per_layer_corner_radii: None,
             per_layer_offsets: None,
-            flags: PcbFlags::empty(),
+            flags: json_flags(json),
             unique_id: None,
         })
     }
@@ -235,12 +267,18 @@ impl McpServer {
             None => Layer::TopOverlay, // Default for tracks is Top Overlay
         };
 
-        Ok(Track::new(x1, y1, x2, y2, width, layer))
+        let mut track = Track::new(x1, y1, x2, y2, width, layer);
+        // Optional EE tail (mirrors the modelled optionals; absent keys keep the
+        // `Track::new` defaults so a from-scratch track is byte-identical).
+        track.flags = json_flags(json);
+        track.solder_mask_expansion = json_f64(json, "solder_mask_expansion");
+        track.keepout_restrictions = json_keepout(json);
+        Ok(track)
     }
 
     /// Parses an arc from JSON.
     pub(crate) fn parse_arc(json: &Value) -> Result<crate::altium::pcblib::Arc, String> {
-        use crate::altium::pcblib::{Arc, Layer, PcbFlags};
+        use crate::altium::pcblib::{Arc, Layer};
 
         let x = json
             .get("x")
@@ -286,16 +324,18 @@ impl McpServer {
             end_angle,
             width,
             layer,
-            flags: PcbFlags::empty(),
+            flags: json_flags(json),
             unique_id: None,
-            solder_mask_expansion: None,
-            keepout_restrictions: None,
+            // Optional EE tail (mirrors the modelled optionals; absent keys keep
+            // the default `None` so a from-scratch arc is byte-identical).
+            solder_mask_expansion: json_f64(json, "solder_mask_expansion"),
+            keepout_restrictions: json_keepout(json),
         })
     }
 
     /// Parses a region from JSON.
     pub(crate) fn parse_region(json: &Value) -> Option<crate::altium::pcblib::Region> {
-        use crate::altium::pcblib::{Layer, PcbFlags, Region, Vertex};
+        use crate::altium::pcblib::{Layer, Region, Vertex};
 
         let vertices_json = json.get("vertices").and_then(Value::as_array)?;
         let layer = json
@@ -321,14 +361,14 @@ impl McpServer {
             vertices,
             holes: Vec::new(),
             layer,
-            flags: PcbFlags::empty(),
+            flags: json_flags(json),
             unique_id: None,
         })
     }
 
     /// Parses text from JSON.
     pub(crate) fn parse_text(json: &Value) -> Option<crate::altium::pcblib::Text> {
-        use crate::altium::pcblib::{Layer, PcbFlags, Text, TextJustification, TextKind};
+        use crate::altium::pcblib::{Layer, Text, TextJustification, TextKind};
 
         let x = json.get("x").and_then(Value::as_f64)?;
         let y = json.get("y").and_then(Value::as_f64)?;
@@ -358,7 +398,7 @@ impl McpServer {
             stroke_width,
             italic: false,
             justification: TextJustification::MiddleCenter,
-            flags: PcbFlags::empty(),
+            flags: json_flags(json),
             unique_id: None,
         })
     }
@@ -499,12 +539,10 @@ impl McpServer {
         if let Some(r) = json.get("rotation").and_then(Value::as_f64) {
             fill.rotation = r;
         }
-        // Optional mask/keepout tail (mirrors the modelled optionals).
+        // Optional flags + mask/keepout tail (mirrors the modelled optionals).
+        fill.flags = json_flags(json);
         fill.solder_mask_expansion = json.get("solder_mask_expansion").and_then(Value::as_f64);
-        fill.keepout_restrictions = json
-            .get("keepout_restrictions")
-            .and_then(Value::as_u64)
-            .and_then(|v| u8::try_from(v).ok());
+        fill.keepout_restrictions = json_keepout(json);
 
         Ok(fill)
     }
@@ -1115,5 +1153,133 @@ mod tests {
         assert!((line.x1 - (-28.995)).abs() < 1e-9, "x1 kept: {}", line.x1);
         assert!((line.y1 - 7.5).abs() < 1e-9, "y1 kept: {}", line.y1);
         assert!((line.x2 - 10.0).abs() < 1e-9, "x2 kept: {}", line.x2);
+    }
+
+    // --- PR-4: flags / solder_mask_expansion / keepout_restrictions on the
+    // write (JSON -> primitive) path. The `flags` JSON shape is the raw u16
+    // bitmask that `read_pcblib` serialises (PcbFlags is #[serde(transparent)]),
+    // so the values these tests feed in are the same ones a read would emit.
+
+    #[test]
+    fn json_flags_reads_read_dto_string_form() {
+        use crate::altium::pcblib::PcbFlags;
+        // Canonical round-trip shape: the bitflags serde string read_pcblib emits.
+        let flags = super::json_flags(&json!({ "flags": "LOCKED | KEEPOUT" }));
+        assert!(flags.contains(PcbFlags::LOCKED));
+        assert!(flags.contains(PcbFlags::KEEPOUT));
+        let single = super::json_flags(&json!({ "flags": "LOCKED" }));
+        assert!(single.contains(PcbFlags::LOCKED));
+        assert!(!single.contains(PcbFlags::KEEPOUT));
+        // Convenience shape: a raw bitmask integer (LOCKED 1 | KEEPOUT 4 = 5).
+        let int_flags = super::json_flags(&json!({ "flags": 5 }));
+        assert!(int_flags.contains(PcbFlags::LOCKED));
+        assert!(int_flags.contains(PcbFlags::KEEPOUT));
+        // Absent key -> empty (default), matching the read-side skip_serializing_if.
+        assert!(super::json_flags(&json!({})).is_empty());
+    }
+
+    #[test]
+    fn pcbflags_write_then_read_dto_round_trip() {
+        use crate::altium::pcblib::PcbFlags;
+        // The string the read DTO serialises must parse back to the same flags on
+        // the write path — guards the read/write shape reconciliation.
+        let original = PcbFlags::LOCKED | PcbFlags::KEEPOUT;
+        let dto = serde_json::to_value(original).expect("serialise flags");
+        let parsed = super::json_flags(&json!({ "flags": dto }));
+        assert_eq!(parsed, original);
+    }
+
+    #[test]
+    fn parse_pad_reads_flags_and_solder_mask() {
+        use crate::altium::pcblib::{MaskExpansionMode, PcbFlags};
+        let pad = McpServer::parse_pad(&json!({
+            "designator": "1", "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0,
+            "flags": "LOCKED",
+            "solder_mask_expansion": 0.05,
+            "solder_mask_expansion_mode": "manual",
+        }))
+        .expect("pad should parse");
+        assert!(pad.flags.contains(PcbFlags::LOCKED));
+        assert_eq!(pad.solder_mask_expansion, Some(0.05));
+        assert_eq!(pad.solder_mask_expansion_mode, MaskExpansionMode::Manual);
+    }
+
+    #[test]
+    fn parse_track_reads_flags_solder_mask_keepout() {
+        use crate::altium::pcblib::PcbFlags;
+        let track = McpServer::parse_track(&json!({
+            "x1": 0.0, "y1": 0.0, "x2": 1.0, "y2": 0.0, "width": 0.15,
+            "layer": "Top Overlay",
+            "flags": "KEEPOUT",
+            "solder_mask_expansion": 0.1,
+            "keepout_restrictions": 3,
+        }))
+        .expect("track should parse");
+        assert!(track.flags.contains(PcbFlags::KEEPOUT));
+        assert_eq!(track.solder_mask_expansion, Some(0.1));
+        assert_eq!(track.keepout_restrictions, Some(3));
+        // Absent keys leave the Track::new defaults untouched.
+        let bare = McpServer::parse_track(&json!({
+            "x1": 0.0, "y1": 0.0, "x2": 1.0, "y2": 0.0, "width": 0.15, "layer": "Top Overlay"
+        }))
+        .expect("bare track should parse");
+        assert!(bare.flags.is_empty());
+        assert_eq!(bare.solder_mask_expansion, None);
+        assert_eq!(bare.keepout_restrictions, None);
+    }
+
+    #[test]
+    fn parse_arc_reads_flags_solder_mask_keepout() {
+        use crate::altium::pcblib::PcbFlags;
+        let arc = McpServer::parse_arc(&json!({
+            "x": 0.0, "y": 0.0, "radius": 1.0,
+            "start_angle": 0.0, "end_angle": 90.0, "width": 0.15,
+            "layer": "Top Overlay",
+            "flags": "LOCKED",
+            "solder_mask_expansion": 0.2,
+            "keepout_restrictions": 5,
+        }))
+        .expect("arc should parse");
+        assert!(arc.flags.contains(PcbFlags::LOCKED));
+        assert_eq!(arc.solder_mask_expansion, Some(0.2));
+        assert_eq!(arc.keepout_restrictions, Some(5));
+    }
+
+    #[test]
+    fn parse_region_reads_flags() {
+        use crate::altium::pcblib::PcbFlags;
+        let region = McpServer::parse_region(&json!({
+            "layer": "Top Courtyard",
+            "vertices": [{"x": 0.0, "y": 0.0}, {"x": 1.0, "y": 0.0}, {"x": 0.0, "y": 1.0}],
+            "flags": "KEEPOUT",
+        }))
+        .expect("region should parse");
+        assert!(region.flags.contains(PcbFlags::KEEPOUT));
+    }
+
+    #[test]
+    fn parse_fill_reads_flags() {
+        use crate::altium::pcblib::PcbFlags;
+        let fill = McpServer::parse_fill(&json!({
+            "x1": 0.0, "y1": 0.0, "x2": 1.0, "y2": 1.0, "layer": "Top Layer",
+            "flags": "LOCKED",
+            "solder_mask_expansion": 0.05,
+            "keepout_restrictions": 2,
+        }))
+        .expect("fill should parse");
+        assert!(fill.flags.contains(PcbFlags::LOCKED));
+        assert_eq!(fill.solder_mask_expansion, Some(0.05));
+        assert_eq!(fill.keepout_restrictions, Some(2));
+    }
+
+    #[test]
+    fn parse_text_reads_flags() {
+        use crate::altium::pcblib::PcbFlags;
+        let text = McpServer::parse_text(&json!({
+            "x": 0.0, "y": 0.0, "text": "REF", "height": 0.5, "layer": "Top Overlay",
+            "flags": "LOCKED",
+        }))
+        .expect("text should parse");
+        assert!(text.flags.contains(PcbFlags::LOCKED));
     }
 }
