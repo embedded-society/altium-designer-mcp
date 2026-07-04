@@ -1078,6 +1078,37 @@ impl McpServer {
             .and_then(Value::as_u64)
             .unwrap_or(0x80_00_00) as u32;
         let hidden = json.get("hidden").and_then(Value::as_bool).unwrap_or(false);
+        // De-hardcoded: the core already models these, so read them from JSON.
+        // Defaults equal the previous hard-coded values, keeping a default
+        // parameter byte-identical.
+        let read_only_state = json
+            .get("read_only_state")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as u8;
+        let param_type = json.get("param_type").and_then(Value::as_u64).unwrap_or(0) as u8;
+        let unique_id = json
+            .get("unique_id")
+            .and_then(Value::as_str)
+            .map(ToString::to_string);
+        // EE-meaningful display fields (omit-when-default).
+        let orientation = json_i32(json, "orientation").unwrap_or(0);
+        let show_name = json
+            .get("show_name")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let hide_name = json
+            .get("hide_name")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let description = json
+            .get("description")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let is_configurable = json
+            .get("is_configurable")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
 
         Some(Parameter {
@@ -1088,11 +1119,16 @@ impl McpServer {
             font_id,
             color,
             hidden,
-            read_only_state: 0,
-            param_type: 0,
+            read_only_state,
+            param_type,
+            orientation,
+            show_name,
+            hide_name,
+            description,
+            is_configurable,
             owner_part_id,
             display_flags: parse_schlib_display_flags(json),
-            unique_id: None,
+            unique_id,
         })
     }
 

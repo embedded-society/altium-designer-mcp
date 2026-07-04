@@ -159,6 +159,27 @@ impl McpServer {
                                 {
                                     p.hidden = hidden;
                                 }
+                                // De-hardcoded core fields (omit-when-default on
+                                // write, so leaving them unset stays byte-identical).
+                                if let Some(ros) = arguments
+                                    .get("read_only_state")
+                                    .and_then(Value::as_u64)
+                                    .and_then(|v| u8::try_from(v).ok())
+                                {
+                                    p.read_only_state = ros;
+                                }
+                                if let Some(pt) = arguments
+                                    .get("param_type")
+                                    .and_then(Value::as_u64)
+                                    .and_then(|v| u8::try_from(v).ok())
+                                {
+                                    p.param_type = pt;
+                                }
+                                if let Some(uid) =
+                                    arguments.get("unique_id").and_then(Value::as_str)
+                                {
+                                    p.unique_id = Some(uid.to_string());
+                                }
 
                                 json!({
                                     "status": "success",
@@ -205,6 +226,23 @@ impl McpServer {
                         // Apply optional properties
                         if let Some(hidden) = arguments.get("hidden").and_then(Value::as_bool) {
                             param.hidden = hidden;
+                        }
+                        if let Some(ros) = arguments
+                            .get("read_only_state")
+                            .and_then(Value::as_u64)
+                            .and_then(|v| u8::try_from(v).ok())
+                        {
+                            param.read_only_state = ros;
+                        }
+                        if let Some(pt) = arguments
+                            .get("param_type")
+                            .and_then(Value::as_u64)
+                            .and_then(|v| u8::try_from(v).ok())
+                        {
+                            param.param_type = pt;
+                        }
+                        if let Some(uid) = arguments.get("unique_id").and_then(Value::as_str) {
+                            param.unique_id = Some(uid.to_string());
                         }
                         if let Some(x) = arguments.get("x").and_then(Value::as_f64) {
                             if let Err(e) = Self::validate_schlib_coordinate(x, "parameter x") {

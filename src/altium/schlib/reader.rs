@@ -498,6 +498,14 @@ fn parse_parameter(props: &HashMap<String, String>) -> Option<Parameter> {
         .get("paramtype")
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
+    let orientation = props
+        .get("orientation")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let show_name = props.get("showname").is_some_and(|s| s == "T");
+    let hide_name = props.get("hidename").is_some_and(|s| s == "T");
+    let description = props.get("description").cloned().unwrap_or_default();
+    let is_configurable = props.get("isconfigurable").is_some_and(|s| s == "T");
     let owner_part_id = props
         .get("ownerpartid")
         .and_then(|s| s.parse().ok())
@@ -513,6 +521,11 @@ fn parse_parameter(props: &HashMap<String, String>) -> Option<Parameter> {
         hidden,
         read_only_state,
         param_type,
+        orientation,
+        show_name,
+        hide_name,
+        description,
+        is_configurable,
         owner_part_id,
         display_flags: read_display_flags(props),
         unique_id: props.get("uniqueid").cloned(),
