@@ -485,6 +485,37 @@ pub struct Via {
     #[serde(default)]
     pub solder_mask_expansion_mode: MaskExpansionMode,
 
+    /// Paste-mask expansion in mm — `SubRecord-1` i32 @50. Default: 0.0, matching
+    /// Altium's via template (a via has no paste by default).
+    #[serde(default, serialize_with = "crate::altium::serde_round::serialize")]
+    pub paste_mask_expansion: f64,
+
+    /// Power-plane connection style — `SubRecord-1` byte @31
+    /// (`Relief` / `Direct` / `NoConnect`). Altium's default is `Relief`.
+    #[serde(default)]
+    pub power_plane_connect_style: PowerPlaneConnectStyle,
+
+    /// Power-plane relief expansion in mm — `SubRecord-1` i32 @42.
+    /// Default: 0.508mm (20 mil), matching Altium's via template.
+    #[serde(
+        default = "default_via_power_plane_relief_expansion",
+        serialize_with = "crate::altium::serde_round::serialize"
+    )]
+    pub power_plane_relief_expansion: f64,
+
+    /// Power-plane (anti-pad) clearance to the plane in mm — `SubRecord-1` i32 @46.
+    /// Default: 0.508mm (20 mil), matching Altium's via template.
+    #[serde(
+        default = "default_via_power_plane_clearance",
+        serialize_with = "crate::altium::serde_round::serialize"
+    )]
+    pub power_plane_clearance: f64,
+
+    /// Net index into the board's net list — `SubRecord-1` u16 @3.
+    /// `0xFFFF` (65535) means "no net", the default for a footprint via.
+    #[serde(default = "default_via_net_index")]
+    pub net_index: u16,
+
     /// Bottom-face solder-mask expansion in mm (Altium geometry offset 242). `None`
     /// mirrors the front-face `solder_mask_expansion` (Altium's template encodes both
     /// faces equally), so a default via round-trips byte-identically.
@@ -528,6 +559,11 @@ pub struct Via {
     )]
     pub per_layer_diameters: Option<Vec<f64>>,
 
+    /// Primitive flags (locked, keepout, tenting top/bottom) — common-header word @1-2.
+    /// Tenting a via covers its pad with solder mask on the given face.
+    #[serde(default, skip_serializing_if = "PcbFlags::is_empty")]
+    pub flags: PcbFlags,
+
     /// Unique ID assigned by Altium (8-character alphanumeric string).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unique_id: Option<String>,
@@ -548,6 +584,21 @@ const fn default_thermal_relief_width() -> f64 {
     0.254
 }
 
+/// Default via power-plane relief expansion (20 mil = 0.508mm; raw 200000).
+const fn default_via_power_plane_relief_expansion() -> f64 {
+    0.508
+}
+
+/// Default via power-plane (anti-pad) clearance (20 mil = 0.508mm; raw 200000).
+const fn default_via_power_plane_clearance() -> f64 {
+    0.508
+}
+
+/// Default via net index (`0xFFFF` = no net).
+const fn default_via_net_index() -> u16 {
+    0xFFFF
+}
+
 impl Via {
     /// Creates a new via with default settings.
     ///
@@ -565,11 +616,17 @@ impl Via {
             solder_mask_expansion: 0.0,
             solder_mask_expansion_mode: MaskExpansionMode::FromRule,
             solder_mask_expansion_back: None,
-            thermal_relief_gap: 0.254, // 10 mils
+            paste_mask_expansion: 0.0,
+            power_plane_connect_style: PowerPlaneConnectStyle::Relief,
+            power_plane_relief_expansion: 0.508, // 20 mils
+            power_plane_clearance: 0.508,        // 20 mils
+            net_index: 0xFFFF,                   // no net
+            thermal_relief_gap: 0.254,           // 10 mils
             thermal_relief_conductors: 4,
             thermal_relief_width: 0.254, // 10 mils
             diameter_stack_mode: ViaStackMode::Simple,
             per_layer_diameters: None,
+            flags: PcbFlags::empty(),
             unique_id: None,
         }
     }
@@ -594,11 +651,17 @@ impl Via {
             solder_mask_expansion: 0.0,
             solder_mask_expansion_mode: MaskExpansionMode::FromRule,
             solder_mask_expansion_back: None,
-            thermal_relief_gap: 0.254, // 10 mils
+            paste_mask_expansion: 0.0,
+            power_plane_connect_style: PowerPlaneConnectStyle::Relief,
+            power_plane_relief_expansion: 0.508, // 20 mils
+            power_plane_clearance: 0.508,        // 20 mils
+            net_index: 0xFFFF,                   // no net
+            thermal_relief_gap: 0.254,           // 10 mils
             thermal_relief_conductors: 4,
             thermal_relief_width: 0.254, // 10 mils
             diameter_stack_mode: ViaStackMode::Simple,
             per_layer_diameters: None,
+            flags: PcbFlags::empty(),
             unique_id: None,
         }
     }

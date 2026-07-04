@@ -729,6 +729,92 @@ def test_write_pcblib_pad_thermal_relief(client, runner, lib_path):
         )
 
 
+def test_write_pcblib_via_thermal_power_plane(client, runner, lib_path):
+    print("\n=== Test: write_pcblib via thermal / power-plane / tenting round trip ===")
+    # Coverage PR-7: the via flag word (tenting/keepout/locked), power-plane
+    # connection style/expansion/clearance, paste-mask expansion and net index
+    # must be authorable via write_pcblib and round-trip through read_pcblib.
+    footprint = {
+        "name": "VIA_RELIEF_RT",
+        "vias": [
+            {
+                "x": 1.0,
+                "y": 2.0,
+                "diameter": 0.8,
+                "hole_size": 0.4,
+                "from_layer": "Top Layer",
+                "to_layer": "Bottom Layer",
+                "power_plane_connect_style": "direct",
+                "power_plane_relief_expansion": 0.6,
+                "power_plane_clearance": 0.7,
+                "paste_mask_expansion": 0.05,
+                "net_index": 42,
+                "flags": "TENTING_TOP | TENTING_BOTTOM | KEEPOUT | LOCKED",
+            }
+        ],
+    }
+    write = client.call_tool(
+        "write_pcblib",
+        {"filepath": lib_path, "footprints": [footprint], "append": False},
+    )
+    runner.check(
+        not write.get("_isError"), "write_pcblib (via relief) succeeded", actual=write
+    )
+
+    read = client.call_tool("read_pcblib", {"filepath": lib_path})
+    runner.check(not read.get("_isError"), "read_pcblib succeeded", actual=read)
+    footprints = {fp.get("name"): fp for fp in read.get("footprints", [])}
+    fp = footprints.get("VIA_RELIEF_RT", {})
+    runner.check(bool(fp), "VIA_RELIEF_RT footprint present", actual=list(footprints))
+
+    # Coord fields carry sub-micron fixed-point quantisation; 1e-4 mm is well
+    # below any meaningful PCB tolerance.
+    tol = 1e-4
+    vias = fp.get("vias", [])
+    runner.check(len(vias) == 1, "1 via survived", actual=len(vias))
+    if vias:
+        v = vias[0]
+        runner.check(
+            v.get("power_plane_connect_style") == "direct",
+            "via power_plane_connect_style",
+            actual=v.get("power_plane_connect_style"),
+            expected="direct",
+        )
+        runner.check(
+            abs(v.get("power_plane_relief_expansion", 0) - 0.6) < tol,
+            "via power_plane_relief_expansion",
+            actual=v.get("power_plane_relief_expansion"),
+            expected=0.6,
+        )
+        runner.check(
+            abs(v.get("power_plane_clearance", 0) - 0.7) < tol,
+            "via power_plane_clearance",
+            actual=v.get("power_plane_clearance"),
+            expected=0.7,
+        )
+        runner.check(
+            abs(v.get("paste_mask_expansion", 0) - 0.05) < tol,
+            "via paste_mask_expansion",
+            actual=v.get("paste_mask_expansion"),
+            expected=0.05,
+        )
+        runner.check(
+            v.get("net_index") == 42,
+            "via net_index",
+            actual=v.get("net_index"),
+            expected=42,
+        )
+        # read_pcblib serialises PcbFlags as the bitflags name string; order is
+        # canonical (LOCKED before KEEPOUT before tenting). Assert each bit is set.
+        flags = v.get("flags", "")
+        runner.check(
+            all(f in flags for f in ("LOCKED", "KEEPOUT", "TENTING_TOP", "TENTING_BOTTOM")),
+            "via flags (tenting/keepout/locked)",
+            actual=flags,
+            expected="LOCKED | KEEPOUT | TENTING_TOP | TENTING_BOTTOM",
+        )
+
+
 def test_write_schlib_fields(client, runner, schlib_path):
     print("\n=== Test: write_schlib field-completeness round trip ===")
     # Coverage PR-12/PR-13: every primitive field the read tool round-trips must
@@ -902,6 +988,7 @@ def main():
         test_write_pcblib_via_fill(client, runner, lib_path)
         test_write_pcblib_flags_mask_keepout(client, runner, lib_path)
         test_write_pcblib_pad_thermal_relief(client, runner, lib_path)
+        test_write_pcblib_via_thermal_power_plane(client, runner, lib_path)
         test_write_schlib_shapes(client, runner, schlib_path)
         test_write_schlib_fields(client, runner, schlib_path)
         test_read_pcblib_exposes_vias_fills(client, runner, sample_path)

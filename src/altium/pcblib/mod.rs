@@ -1345,6 +1345,75 @@ mod tests {
     }
 
     #[test]
+    fn via_thermal_power_plane_fields_round_trip() {
+        use super::primitives::PowerPlaneConnectStyle;
+
+        // PR-7: the via flag word (tenting/keepout/locked), power-plane connection,
+        // paste-mask expansion and net index all survive encode -> decode.
+        let mut original = Footprint::new("VIA_PP");
+        let mut via = Via::new(1.0, 2.0, 0.8, 0.4);
+        via.flags =
+            PcbFlags::TENTING_TOP | PcbFlags::TENTING_BOTTOM | PcbFlags::KEEPOUT | PcbFlags::LOCKED;
+        via.power_plane_connect_style = PowerPlaneConnectStyle::Direct;
+        via.power_plane_relief_expansion = 0.6;
+        via.power_plane_clearance = 0.7;
+        via.paste_mask_expansion = 0.05;
+        via.net_index = 42;
+        original.add_via(via);
+
+        let data = writer::encode_data_stream(&original).expect("encode");
+        let mut decoded = Footprint::new("VIA_PP");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        assert_eq!(decoded.vias.len(), 1);
+        let d = &decoded.vias[0];
+        assert!(d.flags.contains(PcbFlags::TENTING_TOP));
+        assert!(d.flags.contains(PcbFlags::TENTING_BOTTOM));
+        assert!(d.flags.contains(PcbFlags::KEEPOUT));
+        assert!(d.flags.contains(PcbFlags::LOCKED));
+        assert_eq!(d.power_plane_connect_style, PowerPlaneConnectStyle::Direct);
+        assert!(approx_eq(d.power_plane_relief_expansion, 0.6, 0.001));
+        assert!(approx_eq(d.power_plane_clearance, 0.7, 0.001));
+        assert!(approx_eq(d.paste_mask_expansion, 0.05, 0.001));
+        assert_eq!(d.net_index, 42);
+    }
+
+    #[test]
+    fn default_via_defaults_match_template() {
+        use super::primitives::PowerPlaneConnectStyle;
+
+        // A from-scratch via must default to exactly the VIA_SR1_TEMPLATE constants
+        // so it serialises byte-identically (the readability oracle exercises vias).
+        let via = Via::new(0.0, 0.0, 0.6, 0.3);
+        assert_eq!(via.flags, PcbFlags::empty()); // flag word 0x000C (saved|unlocked)
+        assert_eq!(via.net_index, 0xFFFF); // @3-4 = 0xFFFF (no net)
+        assert_eq!(
+            via.power_plane_connect_style,
+            PowerPlaneConnectStyle::Relief // @31 = 0
+        );
+        assert!(approx_eq(via.power_plane_relief_expansion, 0.508, 1e-9)); // @42 = 200000
+        assert!(approx_eq(via.power_plane_clearance, 0.508, 1e-9)); // @46 = 200000
+        assert!(approx_eq(via.paste_mask_expansion, 0.0, 1e-9)); // @50 = 0
+
+        // Encode and confirm the SubRecord-1 bytes equal the template at each offset.
+        let mut fp = Footprint::new("VIA_TEMPLATE");
+        fp.add_via(via);
+        let data = writer::encode_data_stream(&fp).expect("encode");
+        let sig = [0x03u8, 0x41, 0x01, 0x00, 0x00];
+        let pos = data
+            .windows(sig.len())
+            .position(|w| w == sig)
+            .expect("via block");
+        let block = &data[pos + 5..pos + 5 + 321];
+        assert_eq!(&block[1..3], &[0x0C, 0x00]); // flags word
+        assert_eq!(&block[3..5], &[0xFF, 0xFF]); // net index
+        assert_eq!(block[31], 0x00); // power-plane connect style
+        assert_eq!(&block[42..46], &200_000i32.to_le_bytes()); // relief expansion
+        assert_eq!(&block[46..50], &200_000i32.to_le_bytes()); // plane clearance
+        assert_eq!(&block[50..54], &0i32.to_le_bytes()); // paste-mask expansion
+    }
+
+    #[test]
     fn pad_mask_expansion_mode_round_trips() {
         use super::primitives::MaskExpansionMode;
 

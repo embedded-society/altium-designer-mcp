@@ -262,7 +262,17 @@ impl McpServer {
                                                 },
                                                 "thermal_relief_gap": { "type": "number", "description": "Thermal relief air-gap width in mm. Default: 0.254 (10 mil)" },
                                                 "thermal_relief_conductors": { "type": "integer", "description": "Number of thermal relief conductors. Default: 4" },
-                                                "thermal_relief_width": { "type": "number", "description": "Thermal relief conductor width in mm. Default: 0.254 (10 mil)" }
+                                                "thermal_relief_width": { "type": "number", "description": "Thermal relief conductor width in mm. Default: 0.254 (10 mil)" },
+                                                "power_plane_connect_style": {
+                                                    "type": "string",
+                                                    "enum": ["relief", "direct", "no_connect"],
+                                                    "description": "How the via connects to an internal power plane. Default: relief (thermal spokes)"
+                                                },
+                                                "power_plane_relief_expansion": { "type": "number", "description": "Power-plane relief expansion in mm. Default: 0.508 (20 mil)" },
+                                                "power_plane_clearance": { "type": "number", "description": "Power-plane (anti-pad) clearance in mm. Default: 0.508 (20 mil)" },
+                                                "paste_mask_expansion": { "type": "number", "description": "Paste-mask expansion in mm. Default: 0" },
+                                                "net_index": { "type": "integer", "description": "Net index into the board net list (0-65534; 65535 = no net). Default: 65535" },
+                                                "flags": { "type": ["string", "integer"], "description": "Primitive flags (optional). Accepts the name string read_pcblib emits (e.g. \"TENTING_TOP\" or \"LOCKED | KEEPOUT\") or a raw bitmask integer (1=locked, 2=polygon, 4=keepout, 8=tenting-top, 16=tenting-bottom). Tenting covers the via with solder mask. Default: none" }
                                             },
                                             "required": ["x", "y", "diameter", "hole_size"]
                                         }
