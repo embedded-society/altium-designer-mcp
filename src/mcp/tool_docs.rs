@@ -22,6 +22,9 @@ const HEADER: &str = "<!-- GENERATED — do not edit by hand.
      Source of truth: src/mcp/tool_definitions.rs
      Regenerate: UPDATE_DOCS=1 cargo test --lib tools_md_in_sync -->
 
+<!-- markdownlint-disable MD013 -->
+<!-- Generated tables and inline JSON schemas legitimately exceed the line-length limit. -->
+
 # MCP Tools Reference
 
 Every tool the **altium-designer-mcp** server exposes, rendered from the tool
