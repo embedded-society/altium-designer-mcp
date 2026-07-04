@@ -36,6 +36,21 @@ rectangle; the tip extends further left. The `write_schlib` response echoes each
 pin's computed `body_end`/`tip` so you can verify placement without opening
 Altium.
 
+## Overbar / active-low names
+
+Pin, net, and parameter names are stored verbatim, so use Altium's overbar
+convention: a backslash **after** each character to bar it. `R\E\S\E\T\` renders
+as an overbarred RESET; `RW\` bars only the `W`. Only the barred characters take a
+trailing `\`.
+
+## Multi-part symbols
+
+For a multi-unit component (dual/quad op-amp, gate array), set the symbol's
+`part_count` and give each pin an `owner_part_id` = its 1-based part number. The
+`DUALPART` sample shows pins split across two parts.
+
+*Overbar + multi-part conventions per [coffeenmusic/altium-mcp](https://github.com/coffeenmusic/altium-mcp).*
+
 ## Filesystem sandbox
 
 Only paths inside the configured `allowed_paths` (see `config.json`) can be read
