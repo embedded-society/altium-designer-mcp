@@ -6,7 +6,7 @@
 //! writer's output, as `file_io_roundtrip.rs` does).
 
 use altium_designer_mcp::altium::pcblib::{
-    HoleShape, Layer, PadShape, PadStackMode, PcbLib, TextKind,
+    HoleShape, Layer, PadShape, PadStackMode, PcbLib, RegionKind, TextKind,
 };
 use std::path::PathBuf;
 
@@ -422,7 +422,9 @@ fn samples_pcblib_regions() {
     assert_eq!(footprint.regions.len(), 2, "REGIONS has 2 regions");
 
     // Each region is a 4-vertex box; one is on the Top Layer, the other on
-    // Mechanical 1.
+    // Mechanical 1. The reader now parses the nested parameter block, so KIND,
+    // NAME, and ARCRESOLUTION are populated from the golden's real Altium values
+    // (`KIND=0`, `NAME= ` -> empty, `ARCRESOLUTION=0.5mil`).
     for region in &footprint.regions {
         assert_eq!(
             region.vertices.len(),
@@ -431,6 +433,20 @@ fn samples_pcblib_regions() {
             region.vertices.len(),
             region.layer,
         );
+        assert_eq!(region.kind, RegionKind::Copper, "golden regions are copper");
+        assert!(
+            region.name.is_empty(),
+            "golden region NAME is blank, got {:?}",
+            region.name
+        );
+        // ARCRESOLUTION=0.5mil = 0.0127 mm.
+        assert!(
+            approx_eq(region.arc_resolution, 0.5 * 0.0254, 1e-6),
+            "golden region ARCRESOLUTION should be 0.5mil (0.0127mm), got {}",
+            region.arc_resolution
+        );
+        assert_eq!(region.sub_poly_index, -1, "golden SUBPOLYINDEX=-1");
+        assert!(!region.is_shape_based, "golden ISSHAPEBASED=FALSE");
     }
 
     assert!(

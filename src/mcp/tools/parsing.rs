@@ -395,7 +395,7 @@ impl McpServer {
 
     /// Parses a region from JSON.
     pub(crate) fn parse_region(json: &Value) -> Option<crate::altium::pcblib::Region> {
-        use crate::altium::pcblib::{Layer, Region, Vertex};
+        use crate::altium::pcblib::{Layer, Region, RegionKind, Vertex};
 
         let vertices_json = json.get("vertices").and_then(Value::as_array)?;
         let layer = json
@@ -417,12 +417,75 @@ impl McpServer {
             return None; // Need at least 3 vertices for a polygon
         }
 
+        // `kind` accepts a name ("copper"/"cutout") or a raw KIND integer.
+        let parse_kind_str = |s: &str| match s.to_ascii_lowercase().as_str() {
+            "cutout" => RegionKind::Cutout,
+            "copper" => RegionKind::Copper,
+            other => other
+                .parse::<i32>()
+                .map_or(RegionKind::Copper, RegionKind::from_id),
+        };
+        let kind = match json.get("kind") {
+            Some(v) if v.is_string() => parse_kind_str(v.as_str().unwrap_or("copper")),
+            Some(v) => v
+                .as_i64()
+                .and_then(|i| i32::try_from(i).ok())
+                .map_or(RegionKind::Copper, RegionKind::from_id),
+            None => RegionKind::Copper,
+        };
+        let name = json
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let net_index = json
+            .get("net_index")
+            .and_then(Value::as_u64)
+            .and_then(|n| u16::try_from(n).ok())
+            .unwrap_or(0xFFFF);
+        let cavity_height = json
+            .get("cavity_height")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0);
+
+        // Optional interior hole contours: an array of vertex arrays (each >= 3 pts).
+        let holes: Vec<Vec<Vertex>> = json
+            .get("holes")
+            .and_then(Value::as_array)
+            .map(|contours| {
+                contours
+                    .iter()
+                    .filter_map(Value::as_array)
+                    .map(|contour| {
+                        contour
+                            .iter()
+                            .filter_map(|v| {
+                                let x = v.get("x").and_then(Value::as_f64)?;
+                                let y = v.get("y").and_then(Value::as_f64)?;
+                                Some(Vertex { x, y })
+                            })
+                            .collect()
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let unique_id = json
+            .get("unique_id")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+
         Some(Region {
             vertices,
-            holes: Vec::new(),
+            holes,
             layer,
             flags: json_flags(json),
-            unique_id: None,
+            kind,
+            name,
+            net_index,
+            cavity_height,
+            unique_id,
+            ..Region::default()
         })
     }
 

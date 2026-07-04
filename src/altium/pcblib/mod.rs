@@ -44,7 +44,7 @@ use serde::{Deserialize, Serialize};
 
 pub use primitives::{
     Arc, ComponentBody, EmbeddedModel, Fill, HoleShape, Layer, MaskExpansionMode, Model3D, Pad,
-    PadShape, PadStackMode, PcbFlags, PowerPlaneConnectStyle, Region, StrokeFont, Text,
+    PadShape, PadStackMode, PcbFlags, PowerPlaneConnectStyle, Region, RegionKind, StrokeFont, Text,
     TextJustification, TextKind, Track, Vertex, Via,
 };
 
@@ -985,10 +985,8 @@ mod tests {
                     y: 1.016,
                 },
             ],
-            holes: Vec::new(),
             layer: Layer::TopAssembly,
-            flags: PcbFlags::empty(),
-            unique_id: None,
+            ..Region::default()
         });
 
         // Add a rectangular region

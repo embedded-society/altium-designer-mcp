@@ -941,6 +941,63 @@ def test_write_pcblib_via_slot_tolerances(client, runner, lib_path):
         )
 
 
+def test_write_pcblib_region_kind_net_name(client, runner, lib_path):
+    print("\n=== Test: write_pcblib region kind/net/name/cavity round trip ===")
+    # Coverage PR-9: the region's nested parameter block is now parsed and written,
+    # so KIND (copper vs cutout), NAME, net_index, and cavity_height must be
+    # authorable via write_pcblib and round-trip through read_pcblib.
+    tol = 1e-4
+    footprint = {
+        "name": "REGION_FIELDS_RT",
+        "regions": [
+            {
+                "vertices": [
+                    {"x": -1.0, "y": -1.0},
+                    {"x": 1.0, "y": -1.0},
+                    {"x": 1.0, "y": 1.0},
+                    {"x": -1.0, "y": 1.0},
+                ],
+                "layer": "Top Layer",
+                "kind": "cutout",
+                "name": "POUR_A",
+                "net_index": 7,
+                "cavity_height": 0.254,  # 10 mil in mm
+            }
+        ],
+    }
+    write = client.call_tool(
+        "write_pcblib",
+        {"filepath": lib_path, "footprints": [footprint], "append": False},
+    )
+    runner.check(not write.get("_isError"), "write_pcblib (region) succeeded", actual=write)
+
+    read = client.call_tool("read_pcblib", {"filepath": lib_path})
+    runner.check(not read.get("_isError"), "read_pcblib succeeded", actual=read)
+    footprints = {fp.get("name"): fp for fp in read.get("footprints", [])}
+    fp = footprints.get("REGION_FIELDS_RT", {})
+    runner.check(bool(fp), "REGION_FIELDS_RT footprint present", actual=list(footprints))
+
+    regions = fp.get("regions", [])
+    runner.check(len(regions) == 1, "1 region survived", actual=len(regions))
+    if regions:
+        rg = regions[0]
+        runner.check(
+            rg.get("kind") == "cutout", "region kind=cutout", actual=rg.get("kind"), expected="cutout"
+        )
+        runner.check(
+            rg.get("name") == "POUR_A", "region name", actual=rg.get("name"), expected="POUR_A"
+        )
+        runner.check(
+            rg.get("net_index") == 7, "region net_index", actual=rg.get("net_index"), expected=7
+        )
+        runner.check(
+            abs(rg.get("cavity_height", 0) - 0.254) < tol,
+            "region cavity_height",
+            actual=rg.get("cavity_height"),
+            expected=0.254,
+        )
+
+
 def test_write_schlib_fields(client, runner, schlib_path):
     print("\n=== Test: write_schlib field-completeness round trip ===")
     # Coverage PR-12/PR-13: every primitive field the read tool round-trips must
@@ -1117,6 +1174,7 @@ def main():
         test_write_pcblib_via_thermal_power_plane(client, runner, lib_path)
         test_write_pcblib_pad_slot_hole(client, runner, lib_path)
         test_write_pcblib_via_slot_tolerances(client, runner, lib_path)
+        test_write_pcblib_region_kind_net_name(client, runner, lib_path)
         test_write_schlib_shapes(client, runner, schlib_path)
         test_write_schlib_fields(client, runner, schlib_path)
         test_read_pcblib_exposes_vias_fills(client, runner, sample_path)
