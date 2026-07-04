@@ -81,6 +81,53 @@ pub fn decode_windows1252(bytes: &[u8]) -> String {
     encoding_rs::WINDOWS_1252.decode(bytes).0.into_owned()
 }
 
+/// Returns `true` when `value` cannot be represented losslessly in Windows-1252,
+/// so it must be stored behind a `%UTF8%` key to avoid silent `?` corruption.
+///
+/// Altium stores a text value's plain `Text` key as Windows-1252; any character
+/// outside that code page (Cyrillic, CJK, Greek `Ω`, …) would be replaced with
+/// `?` on write. Altium (and `AltiumSharp`) detect this by re-encoding the value
+/// through Windows-1252 and checking it survives; when it does not, the value is
+/// emitted as `%UTF8%Text` instead. This mirrors that check exactly (the round
+/// trip is `WINDOWS_1252.decode(WINDOWS_1252.encode(value)) != value`).
+#[must_use]
+pub fn requires_utf8(value: &str) -> bool {
+    if value.is_empty() {
+        return false;
+    }
+    decode_windows1252(&encode_windows1252(value)) != value
+}
+
+/// Encodes a Unicode `value` into the "one Windows-1252 char per UTF-8 byte"
+/// form Altium uses for a `%UTF8%`-prefixed value.
+///
+/// The surrounding parameter record is written as Windows-1252, so a value whose
+/// UTF-8 bytes are mapped one-per-char here is emitted on disk as its raw UTF-8
+/// byte sequence. This is the inverse of [`decode_utf8_param_value`]. The mapping
+/// is a byte bijection (every 0x00–0xFF Windows-1252 char round-trips through
+/// [`encode_windows1252`]), so no bytes are lost.
+#[must_use]
+pub fn encode_utf8_param_value(value: &str) -> String {
+    decode_windows1252(value.as_bytes())
+}
+
+/// Decodes a `%UTF8%`-prefixed value that was read back from a Windows-1252
+/// decoded record, recovering the original Unicode string.
+///
+/// The record was decoded as Windows-1252, so a UTF-8 value arrives as one char
+/// per raw byte ("mojibake"). Re-encoding those chars to Windows-1252 bytes
+/// recovers the original UTF-8 byte sequence, which is then decoded as UTF-8.
+/// Inverse of [`encode_utf8_param_value`]; matches `AltiumSharp`'s
+/// `DecodeUtf8ParameterValue`.
+#[must_use]
+pub fn decode_utf8_param_value(value: &str) -> String {
+    if value.is_empty() {
+        return String::new();
+    }
+    let bytes = encode_windows1252(value);
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
 /// Generates a safe OLE storage name for a component.
 ///
 /// OLE Compound File names are limited to 31 characters. This function:
