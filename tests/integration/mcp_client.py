@@ -47,6 +47,7 @@ class McpTestClient:
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
+            encoding="utf-8",
         )
         self._reader = threading.Thread(target=self._read_lines, daemon=True)
         self._reader.start()
