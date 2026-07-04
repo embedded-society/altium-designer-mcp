@@ -428,7 +428,19 @@ impl McpServer {
                                                 "rotation_x": { "type": "number" },
                                                 "rotation_y": { "type": "number" },
                                                 "rotation_z": { "type": "number" },
-                                                "model_checksum": { "type": "integer", "description": "Altium MODEL.CHECKSUM; normally omitted (defaults to 0). Preserved verbatim on a read-modify-write round-trip." }
+                                                "model_checksum": { "type": "integer", "description": "Altium MODEL.CHECKSUM; normally omitted (defaults to 0). Preserved verbatim on a read-modify-write round-trip." },
+                                                "name": { "type": "string", "description": "Altium NAME. Default: \" \" (a single space, as template-default bodies emit)." },
+                                                "kind": { "type": "integer", "description": "Altium KIND (0=extruded, etc.). Default: 0" },
+                                                "sub_poly_index": { "type": "integer", "description": "Altium SUBPOLYINDEX; -1 when not a polygon sub-shape. Default: -1" },
+                                                "union_index": { "type": "integer", "description": "Altium UNIONINDEX for grouped primitives. Default: 0" },
+                                                "is_shape_based": { "type": "boolean", "description": "Altium ISSHAPEBASED (shape-based vs. model-based body). Default: false" },
+                                                "body_projection": { "type": "integer", "description": "Altium BODYPROJECTION (board side). Default: 0" },
+                                                "body_color_3d": { "type": "integer", "description": "3D body colour as decimal RGB (Altium BODYCOLOR3D). Default: 8421504 (0xE0E0E0, grey)" },
+                                                "body_opacity_3d": { "type": "number", "description": "3D body opacity, 0.0-1.0 (Altium BODYOPACITY3D). Default: 1.0" },
+                                                "model_2d_rotation": { "type": "number", "description": "2D placement rotation in degrees (Altium MODEL.2D.ROTATION). Default: 0" },
+                                                "model_id": { "type": "string", "description": "Model GUID referencing an embedded model (Altium MODELID). Default: \"\" (none)" },
+                                                "model_name": { "type": "string", "description": "Model filename or external path (Altium MODEL.NAME). Default: \"\" (none)" },
+                                                "embedded": { "type": "boolean", "description": "Whether the model is embedded in the library (Altium MODEL.EMBED). Default: false" }
                                             },
                                             "required": ["overall_height"]
                                         }

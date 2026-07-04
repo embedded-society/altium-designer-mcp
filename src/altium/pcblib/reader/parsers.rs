@@ -1306,10 +1306,20 @@ pub(super) fn parse_component_body(data: &[u8], offset: usize) -> ParseResult<Co
         .and_then(|v| v.parse::<i64>().ok())
         .unwrap_or(0);
 
-    // Parse layer from V7_LAYER (e.g., "MECHANICAL6")
-    let layer = params
-        .get("V7_LAYER")
-        .and_then(|v| parse_v7_layer(v))
+    // The body's layer is the CommonPrimitiveData layer byte at block offset 0 — the
+    // authoritative source, exactly as AltiumSharp does (`result.Layer = layer`,
+    // PcbLibReader.ReadComponentBody). Previously we only decoded the `V7_LAYER`
+    // parameter string via the incomplete `parse_v7_layer` (MECHANICAL2-7 only) and
+    // fell back to `Top3DBody`, silently collapsing every other mechanical layer
+    // (e.g. MECHANICAL13 / id 69) to the top 3D-body layer on read. The header byte
+    // covers the full Mechanical1-32 range through `layer_from_id`, so a body authored
+    // on any layer now reads back on its true layer. The writer already emits the
+    // matching header byte and `V7_LAYER` token, so this is a read-only fix. When the
+    // header byte is absent (empty block) fall back to the `V7_LAYER` string.
+    let layer = block0
+        .first()
+        .map(|&id| layer_from_id(id))
+        .or_else(|| params.get("V7_LAYER").and_then(|v| parse_v7_layer(v)))
         .unwrap_or(Layer::Top3DBody);
 
     // Additive fields previously discarded. Each default matches the writer's
@@ -1424,17 +1434,22 @@ pub(super) fn parse_mil_value(s: Option<&str>) -> f64 {
     numeric.parse::<f64>().map_or(0.0, |v| v * MM_PER_MIL) // Convert mils to mm
 }
 
-/// Parses `V7_LAYER` string (e.g., "MECHANICAL6") to Layer enum.
+/// Parses a `V7_LAYER` token (e.g., "MECHANICAL13") to a `Layer`.
+///
+/// Handles the full `MECHANICAL1`-`MECHANICAL32` range, inverting the writer's
+/// [`region_v7_layer_token`](super::super::writer) mapping via [`layer_from_id`]:
+/// `MECHANICAL{1..=16}` map to layer ids `57..=72` and `MECHANICAL{17..=32}` to
+/// `186..=201`. It previously mapped only `MECHANICAL2`-`MECHANICAL7`, returning
+/// `None` for every other mechanical layer. This is the fallback for a body whose
+/// header layer byte is missing; the primary layer source is the header byte.
 pub(super) fn parse_v7_layer(s: &str) -> Option<Layer> {
-    match s {
-        "MECHANICAL6" => Some(Layer::Top3DBody),
-        "MECHANICAL7" => Some(Layer::Bottom3DBody),
-        "MECHANICAL2" => Some(Layer::TopAssembly),
-        "MECHANICAL3" => Some(Layer::BottomAssembly),
-        "MECHANICAL4" => Some(Layer::TopCourtyard),
-        "MECHANICAL5" => Some(Layer::BottomCourtyard),
-        _ => None,
-    }
+    let n: u8 = s.strip_prefix("MECHANICAL")?.parse().ok()?;
+    let id = match n {
+        1..=16 => 56 + n,
+        17..=32 => 169 + n,
+        _ => return None,
+    };
+    Some(layer_from_id(id))
 }
 
 // =============================================================================

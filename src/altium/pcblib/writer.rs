@@ -2134,6 +2134,9 @@ mod tests {
         body.is_shape_based = true;
         body.model_2d_rotation = 90.0;
         body.name = "BODY_A".into();
+        // Author on Mechanical 13 so the layer-reader fix (read the header layer byte,
+        // not just the incomplete V7_LAYER map) is exercised through encode -> decode.
+        body.layer = Layer::Mechanical13;
         original.add_component_body(body);
 
         let data = encode_data_stream(&original).expect("encode");
@@ -2150,6 +2153,7 @@ mod tests {
         assert!(b.is_shape_based);
         assert!((b.model_2d_rotation - 90.0).abs() < 1e-9);
         assert_eq!(b.name, "BODY_A");
+        assert_eq!(b.layer, Layer::Mechanical13, "body layer round-trips");
     }
 
     #[test]
