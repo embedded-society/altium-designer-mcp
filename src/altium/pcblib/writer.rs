@@ -15,7 +15,7 @@
 
 use super::primitives::{
     Arc, ComponentBody, Fill, HoleShape, Layer, Pad, PadShape, PadStackMode, PcbFlags, Region,
-    StrokeFont, Text, TextKind, Track, Via, ViaStackMode,
+    StrokeFont, Text, TextJustification, TextKind, Track, Via, ViaStackMode,
 };
 use super::Footprint;
 
@@ -838,6 +838,46 @@ const fn text_kind_to_id(kind: TextKind) -> u8 {
     }
 }
 
+/// Writes a text font name into a fixed 64-byte UTF-16 field (`dst.len() == 64`).
+///
+/// The name is encoded UTF-16 little-endian, truncated to at most 62 bytes (31
+/// UTF-16 code units) so the field always ends in at least one null pair, and the
+/// remainder is zero-filled. Mirrors `AltiumSharp`'s modeled emit: for the default
+/// "Arial" this reproduces the template's exact bytes (`41 00 72 00 69 00 61 00
+/// 6C 00 00 00 …`), keeping a from-scratch text byte-identical.
+fn encode_font_name_field(dst: &mut [u8], name: &str) {
+    debug_assert_eq!(dst.len(), 64);
+    dst.fill(0);
+    let mut i = 0;
+    for unit in name.encode_utf16() {
+        if i + 2 > 62 {
+            break; // leave the final 2 bytes as a null terminator
+        }
+        dst[i..i + 2].copy_from_slice(&unit.to_le_bytes());
+        i += 2;
+    }
+}
+
+/// Converts a [`TextJustification`] to the Altium PCB text-box justification byte
+/// (geometry offset 132). Altium encodes this column-major (1-based):
+/// `LeftTop=1, LeftCenter=2, LeftBottom=3, CenterTop=4, CenterCenter=5,
+/// CenterBottom=6, RightTop=7, RightCenter=8, RightBottom=9`. The shared 3x3 grid
+/// maps onto it cell-for-cell, so the field's from-scratch default (`BottomLeft`
+/// = `LeftBottom`) yields `0x03`, matching the template.
+const fn pcb_justification_to_id(j: TextJustification) -> u8 {
+    match j {
+        TextJustification::TopLeft => 1,
+        TextJustification::MiddleLeft => 2,
+        TextJustification::BottomLeft => 3,
+        TextJustification::TopCenter => 4,
+        TextJustification::MiddleCenter => 5,
+        TextJustification::BottomCenter => 6,
+        TextJustification::TopRight => 7,
+        TextJustification::MiddleRight => 8,
+        TextJustification::BottomRight => 9,
+    }
+}
+
 /// Converts a `StrokeFont` to its binary font-table ID. Altium's default
 /// stroke font is index 1, so the ids are 1-based.
 const fn stroke_font_to_id(font: StrokeFont) -> u16 {
@@ -985,10 +1025,18 @@ pub fn encode_text_geometry(text: &Text) -> Vec<u8> {
     // Rotation (offsets 27-34, f64 degrees).
     block[27..35].copy_from_slice(&text.rotation.to_le_bytes());
 
+    // Mirror flag (offset 35, IsMirrored). Default false reproduces the template's
+    // 0x00; true marks a bottom-side (mirrored) silkscreen text.
+    block[35] = u8::from(text.mirror);
+
     // Stroke line width (offset 36, i32). `None` keeps the template default (4 mil).
     if let Some(width) = text.stroke_width {
         block[36..40].copy_from_slice(&from_mm(width).to_le_bytes());
     }
+
+    // Font bold (offset 44, FontBold — twin of italic@45). Default false
+    // reproduces the template's 0x00.
+    block[44] = u8::from(text.bold);
 
     // Authoritative text kind (offset 160).
     block[160] = text_kind_to_id(text.kind);
@@ -1000,6 +1048,16 @@ pub fn encode_text_geometry(text: &Text) -> Vec<u8> {
     block[43] = u8::from(!matches!(text.kind, TextKind::Stroke));
     // Italic style (offset 45). Default false reproduces the template's 0x00.
     block[45] = u8::from(text.italic);
+
+    // Font name (offsets 46-109, UTF-16, 64-byte field). The default "Arial"
+    // reproduces the template's exact bytes: the UTF-16 name (max 62 bytes) then
+    // zero fill — byte-identical to the "Arial\0…" template for a from-scratch text.
+    encode_font_name_field(&mut block[46..110], &text.font_name);
+
+    // Text-box justification (offset 132). The from-scratch default `MiddleCenter`
+    // encodes to 0x00 (the template byte); other anchors map onto the Altium
+    // column-major text-box encoding.
+    block[132] = pcb_justification_to_id(text.justification);
 
     // v7 layer id (offsets 226-229), derived from the layer.
     block[226..230].copy_from_slice(&v7_layer_id(layer_to_id(text.layer)).to_le_bytes());
@@ -2270,6 +2328,9 @@ mod tests {
             stroke_font: None,
             stroke_width: None,
             italic: false,
+            bold: false,
+            mirror: false,
+            font_name: "Arial".to_string(),
             justification: TextJustification::MiddleCenter,
             flags: PcbFlags::empty(),
             unique_id: None,

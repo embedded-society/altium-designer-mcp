@@ -380,6 +380,13 @@ impl McpServer {
                                                 "height": { "type": "number", "description": "Text height in mm" },
                                                 "layer": { "type": "string", "description": "Layer name: Top Overlay, Top Assembly, Mechanical 1, etc." },
                                                 "rotation": { "type": "number", "description": "Rotation in degrees" },
+                                                "kind": { "type": "string", "enum": ["stroke", "true_type", "bar_code"], "description": "Text rendering kind. \"stroke\" (default) uses a vector stroke font (most common for silkscreen); \"true_type\" renders with the TrueType font named by font_name; \"bar_code\" is a barcode. Default: stroke" },
+                                                "stroke_font": { "type": "string", "enum": ["default", "sans_serif", "serif"], "description": "Stroke font selection (only meaningful when kind is \"stroke\"). Default: default (Altium's built-in stroke font)" },
+                                                "font_name": { "type": "string", "description": "TrueType font name (only meaningful when kind is \"true_type\"). Default: Arial" },
+                                                "bold": { "type": "boolean", "description": "Bold font style (TrueType). Default: false" },
+                                                "italic": { "type": "boolean", "description": "Italic font style (TrueType). Default: false" },
+                                                "mirror": { "type": "boolean", "description": "Mirror the text (bottom-side silkscreen). Default: false" },
+                                                "justification": { "type": "string", "enum": ["bottom_left", "bottom_center", "bottom_right", "middle_left", "middle_center", "middle_right", "top_left", "top_center", "top_right"], "description": "Text anchor / justification within its frame. Default: bottom_left" },
                                                 "stroke_width": { "type": "number", "description": "Stroke line width in mm (optional; defaults to Altium's ~4 mil)" },
                                                 "flags": { "type": ["string", "integer"], "description": "Primitive flags (optional). Accepts the name string read_pcblib emits (e.g. \"LOCKED\" or \"LOCKED | KEEPOUT\") or a raw bitmask integer (1=locked, 2=polygon, 4=keepout, 8=tenting-top, 16=tenting-bottom). Default: none" }
                                             },

@@ -640,10 +640,17 @@ impl McpServer {
                     check_keys!(
                         text_json,
                         &[
+                            "bold",
                             "flags",
+                            "font_name",
                             "height",
+                            "italic",
+                            "justification",
+                            "kind",
                             "layer",
+                            "mirror",
                             "rotation",
+                            "stroke_font",
                             "stroke_width",
                             "text",
                             "x",
@@ -821,7 +828,13 @@ impl McpServer {
                     stroke_font: None,
                     stroke_width: None,
                     italic: false,
-                    justification: TextJustification::BottomCenter,
+                    bold: false,
+                    mirror: false,
+                    font_name: "Arial".to_string(),
+                    // BottomLeft = the template's 0x03 anchor: the writer now honours
+                    // @132, so keep the auto-designator on the template default to stay
+                    // byte-identical (and oracle-safe).
+                    justification: TextJustification::BottomLeft,
                     flags: PcbFlags::empty(),
                     unique_id: None,
                 });

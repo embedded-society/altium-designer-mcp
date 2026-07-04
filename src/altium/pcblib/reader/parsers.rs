@@ -784,18 +784,29 @@ pub(super) fn parse_text(
         0.0
     };
 
+    // Mirror flag - offset 35 (bool, IsMirrored). Absent/short blocks default to false.
+    let mirror = geometry_block.get(35).is_some_and(|&b| b != 0);
+
     // Stroke line width - offset 36 (i32, internal units; Altium reads I32(36)).
     // A positive value is surfaced explicitly; 0/absent leaves it as the default.
     let stroke_width = read_i32(geometry_block, 36).filter(|&w| w > 0).map(to_mm);
 
-    // Italic style - offset 45 (bool). Absent/short blocks default to false.
+    // Bold/italic styles - offsets 44/45 (bool). Absent/short blocks default to false.
     // baseFontType@43 is not read: it is fully derived from `kind` (offset 160).
+    let bold = geometry_block.get(44).is_some_and(|&b| b != 0);
     let italic = geometry_block.get(45).is_some_and(|&b| b != 0);
 
-    // Normal (non-inverted) text does not carry a justification field in this
-    // record — it only exists inside the inverted-rectangle sub-block — so
-    // default it rather than mis-read a byte inside the font-name field.
-    let justification = TextJustification::default();
+    // Font name - offsets 46-109 (UTF-16, 64-byte field). Empty/short blocks
+    // default to "Arial" (the template font).
+    let font_name = read_text_font_name(geometry_block);
+
+    // Text-box justification - offset 132 (Altium column-major encoding). Absent
+    // blocks default to `BottomLeft` (the template's 0x03 anchor).
+    let justification = geometry_block
+        .get(132)
+        .map_or(TextJustification::BottomLeft, |&b| {
+            pcb_justification_from_id(b)
+        });
 
     // Block 1: Text content
     let text_content = if let Some((text_block, next)) = read_block(data, current) {
@@ -825,12 +836,57 @@ pub(super) fn parse_text(
         stroke_font,
         stroke_width,
         italic,
+        bold,
+        mirror,
+        font_name,
         justification,
         flags,
         unique_id: None,
     };
 
     Ok((text, current))
+}
+
+/// Reads the 64-byte UTF-16 font-name field at offset 46 of a text geometry
+/// block. Decodes little-endian UTF-16 up to the first null pair and defaults to
+/// `"Arial"` (the template font) when the field is absent or empty.
+fn read_text_font_name(block: &[u8]) -> String {
+    let Some(field) = block.get(46..110) else {
+        return "Arial".to_string();
+    };
+    let mut units = Vec::with_capacity(32);
+    for pair in field.chunks_exact(2) {
+        let unit = u16::from_le_bytes([pair[0], pair[1]]);
+        if unit == 0 {
+            break;
+        }
+        units.push(unit);
+    }
+    if units.is_empty() {
+        return "Arial".to_string();
+    }
+    String::from_utf16_lossy(&units)
+}
+
+/// Converts an Altium PCB text-box justification byte (offset 132) to a
+/// [`TextJustification`]. The inverse of the writer's `pcb_justification_to_id`:
+/// Altium's column-major (1-based) encoding is mapped back onto the shared 3x3
+/// grid. The template's `0x03` (= Altium `LeftBottom`) round-trips to the default
+/// `BottomLeft` anchor; the manual byte `0` (no member in the shared grid) also
+/// decodes to `BottomLeft`.
+const fn pcb_justification_from_id(id: u8) -> TextJustification {
+    match id {
+        1 => TextJustification::TopLeft,
+        2 => TextJustification::MiddleLeft,
+        4 => TextJustification::TopCenter,
+        5 => TextJustification::MiddleCenter,
+        6 => TextJustification::BottomCenter,
+        7 => TextJustification::TopRight,
+        8 => TextJustification::MiddleRight,
+        9 => TextJustification::BottomRight,
+        // 3 (LeftBottom, the template default) and 0 (manual) → BottomLeft.
+        _ => TextJustification::BottomLeft,
+    }
 }
 
 /// Resolves text content, looking up `WideStrings` if needed.

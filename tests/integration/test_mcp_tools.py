@@ -1135,6 +1135,54 @@ def test_write_schlib_fields(client, runner, schlib_path):
         runner.check(ellipses[0].get("transparent") is True, "ellipse transparent", actual=ellipses[0].get("transparent"))
 
 
+def test_write_pcblib_text_font_style(client, runner, lib_path):
+    print("\n=== Test: write_pcblib text mirror/bold/font/kind/justification round trip ===")
+    # Coverage PR-10: the text primitive's mirror/bold/font_name plus the
+    # previously tool-blocked kind/italic/justification must be authorable via
+    # write_pcblib and round-trip through read_pcblib.
+    footprint = {
+        "name": "TEXT_STYLE_RT",
+        "text": [
+            {
+                "x": 0.0,
+                "y": 0.0,
+                "text": "REF",
+                "height": 1.0,
+                "layer": "Top Overlay",
+                "kind": "true_type",
+                "font_name": "Times New Roman",
+                "bold": True,
+                "italic": True,
+                "mirror": True,
+                "justification": "top_right",
+                "flags": "LOCKED",
+            }
+        ],
+    }
+    write = client.call_tool(
+        "write_pcblib",
+        {"filepath": lib_path, "footprints": [footprint], "append": False},
+    )
+    runner.check(not write.get("_isError"), "write_pcblib (text style) succeeded", actual=write)
+
+    read = client.call_tool("read_pcblib", {"filepath": lib_path})
+    runner.check(not read.get("_isError"), "read_pcblib succeeded", actual=read)
+    footprints = {fp.get("name"): fp for fp in read.get("footprints", [])}
+    fp = footprints.get("TEXT_STYLE_RT", {})
+    runner.check(bool(fp), "TEXT_STYLE_RT footprint present", actual=list(footprints))
+
+    texts = fp.get("text", [])
+    ref = next((t for t in texts if t.get("text") == "REF"), None)
+    runner.check(ref is not None, "REF text survived", actual=[t.get("text") for t in texts])
+    if ref is not None:
+        runner.check(ref.get("kind") == "true_type", "text kind", actual=ref.get("kind"), expected="true_type")
+        runner.check(ref.get("font_name") == "Times New Roman", "text font_name", actual=ref.get("font_name"), expected="Times New Roman")
+        runner.check(ref.get("bold") is True, "text bold", actual=ref.get("bold"))
+        runner.check(ref.get("italic") is True, "text italic", actual=ref.get("italic"))
+        runner.check(ref.get("mirror") is True, "text mirror", actual=ref.get("mirror"))
+        runner.check(ref.get("justification") == "top_right", "text justification", actual=ref.get("justification"), expected="top_right")
+
+
 def main():
     binary = find_binary()
     print(f"Using binary: {binary}")
@@ -1175,6 +1223,7 @@ def main():
         test_write_pcblib_pad_slot_hole(client, runner, lib_path)
         test_write_pcblib_via_slot_tolerances(client, runner, lib_path)
         test_write_pcblib_region_kind_net_name(client, runner, lib_path)
+        test_write_pcblib_text_font_style(client, runner, lib_path)
         test_write_schlib_shapes(client, runner, schlib_path)
         test_write_schlib_fields(client, runner, schlib_path)
         test_read_pcblib_exposes_vias_fills(client, runner, sample_path)
