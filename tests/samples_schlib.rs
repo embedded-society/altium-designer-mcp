@@ -373,9 +373,31 @@ fn samples_schlib_params() {
 
     let value = find("Value", "10k");
     assert!(!value.hidden, "authored Value parameter is visible");
+    // The golden's parameters carry neither SHOWNAME nor HIDENAME, so both
+    // name-visibility toggles read back as their omit-when-default `false`.
+    // Visibility is driven solely by IsHidden.
+    assert!(!value.show_name, "golden Value parameter has no ShowName");
+    assert!(!value.hide_name, "golden Value parameter has no HideName");
+    assert_eq!(value.orientation, 0, "golden Value parameter Orientation=0");
+    assert!(
+        value.description.is_empty(),
+        "golden Value parameter has no Description"
+    );
+    assert!(
+        !value.is_configurable,
+        "golden Value parameter is not configurable"
+    );
 
     let comment = find("Comment", "100nF");
     assert!(comment.hidden, "authored Comment parameter is hidden");
+    assert!(
+        !comment.show_name,
+        "golden Comment parameter has no ShowName"
+    );
+    assert!(
+        !comment.hide_name,
+        "golden Comment parameter has no HideName"
+    );
 }
 
 #[test]

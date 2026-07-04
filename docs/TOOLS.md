@@ -840,7 +840,10 @@ Manage component parameters in Altium SchLib files. Supports listing, getting, s
 | `filepath` | string | yes | Path to the Altium SchLib file |
 | `hidden` | boolean | no | Whether the parameter is hidden (optional for set, add) |
 | `operation` | enum | yes | Operation to perform: list (all parameters), get (single parameter), set (update value), add (new parameter), delete (remove parameter) (one of: list, get, set, add, delete) |
+| `param_type` | integer | no | Parameter type (0=String, 1=Boolean, 2=Integer, 3=Float) (optional for set, add). Default: 0 |
 | `parameter_name` | string | no | Name of the parameter (required for get, set, add, delete) |
+| `read_only_state` | integer | no | Read-only state (0=editable, 1=read-only) (optional for set, add). Default: 0 |
+| `unique_id` | string | no | 8-char Altium unique ID (optional for set, add). Default: auto-generated |
 | `value` | string | no | Parameter value (required for set, add) |
 | `x` | integer | no | X position in schematic units (optional for add) |
 | `y` | integer | no | Y position in schematic units (optional for add) |

@@ -1346,6 +1346,111 @@ def test_write_schlib_display_flags(client, runner, schlib_path):
             check_flags(shapes[0], label)
 
 
+def test_write_schlib_parameter_display_fields(client, runner, schlib_path):
+    print("\n=== Test: write_schlib parameter display fields round trip ===")
+    # Coverage PR-15: the de-hardcoded core fields (read_only_state, param_type,
+    # unique_id) plus the EE-meaningful display fields (orientation, show_name,
+    # hide_name, description, is_configurable) must be authorable on a SchLib
+    # parameter and survive a write -> read. Proving they survive also proves the
+    # parameter's strict-deser allow-list accepts them (an un-allowed field would
+    # make write_schlib error here) and that the write tool is no longer
+    # hard-coding read_only_state/param_type/unique_id.
+    symbol = {
+        "name": "PARAMFIELDS",
+        "pins": [
+            {
+                "designator": "1",
+                "name": "P1",
+                "x": -50,
+                "y": 0,
+                "length": 30,
+                "orientation": "left",
+            }
+        ],
+        "parameters": [
+            {
+                "name": "Value",
+                "value": "10k",
+                "read_only_state": 1,
+                "param_type": 2,
+                "unique_id": "WXYZ7890",
+                "orientation": 3,
+                "show_name": True,
+                "hide_name": True,
+                "description": "Resistance",
+                "is_configurable": True,
+            }
+        ],
+    }
+
+    write = client.call_tool(
+        "write_schlib",
+        {"filepath": schlib_path, "symbols": [symbol], "append": False},
+    )
+    runner.check(
+        not write.get("_isError"),
+        "write_schlib (parameter display fields) succeeded",
+        actual=write,
+    )
+
+    read = client.call_tool("read_schlib", {"filepath": schlib_path})
+    runner.check(not read.get("_isError"), "read_schlib succeeded", actual=read)
+
+    symbols = {s.get("name"): s for s in read.get("symbols", [])}
+    sym = symbols.get("PARAMFIELDS", {})
+    runner.check(bool(sym), "PARAMFIELDS symbol present", actual=list(symbols))
+
+    params = {p.get("name"): p for p in sym.get("parameters", [])}
+    val = params.get("Value", {})
+    runner.check(bool(val), "Value parameter present", actual=list(params))
+
+    runner.check(
+        val.get("read_only_state") == 1,
+        "parameter read_only_state",
+        actual=val.get("read_only_state"),
+        expected=1,
+    )
+    runner.check(
+        val.get("param_type") == 2,
+        "parameter param_type",
+        actual=val.get("param_type"),
+        expected=2,
+    )
+    runner.check(
+        val.get("unique_id") == "WXYZ7890",
+        "parameter unique_id preserved",
+        actual=val.get("unique_id"),
+        expected="WXYZ7890",
+    )
+    runner.check(
+        val.get("orientation") == 3,
+        "parameter orientation",
+        actual=val.get("orientation"),
+        expected=3,
+    )
+    runner.check(
+        val.get("show_name") is True,
+        "parameter show_name",
+        actual=val.get("show_name"),
+    )
+    runner.check(
+        val.get("hide_name") is True,
+        "parameter hide_name",
+        actual=val.get("hide_name"),
+    )
+    runner.check(
+        val.get("description") == "Resistance",
+        "parameter description",
+        actual=val.get("description"),
+        expected="Resistance",
+    )
+    runner.check(
+        val.get("is_configurable") is True,
+        "parameter is_configurable",
+        actual=val.get("is_configurable"),
+    )
+
+
 def test_write_pcblib_text_font_style(client, runner, lib_path):
     print("\n=== Test: write_pcblib text mirror/bold/font/kind/justification round trip ===")
     # Coverage PR-10: the text primitive's mirror/bold/font_name plus the
@@ -1439,6 +1544,7 @@ def main():
         test_write_schlib_shapes(client, runner, schlib_path)
         test_write_schlib_fields(client, runner, schlib_path)
         test_write_schlib_display_flags(client, runner, schlib_path)
+        test_write_schlib_parameter_display_fields(client, runner, schlib_path)
         test_read_pcblib_exposes_vias_fills(client, runner, sample_path)
         test_read_schlib_exposes_round_rects_polygons(client, runner, schlib_sample_path)
         test_unknown_tool(client, runner)

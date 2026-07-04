@@ -1112,6 +1112,7 @@ const fn default_justification() -> TextJustification {
 /// Coordinates are `f64` schematic units (see `super::coord`); `Eq` is not
 /// derived (floats are only `PartialEq`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[allow(clippy::struct_excessive_bools)] // independent Altium display/visibility toggles
 pub struct Parameter {
     /// Parameter name (e.g., "Value", "Part Number").
     pub name: String,
@@ -1139,6 +1140,30 @@ pub struct Parameter {
     /// Parameter type (0 = String, 1 = Boolean, 2 = Integer, 3 = Float).
     #[serde(default)]
     pub param_type: u8,
+    /// Text orientation (`ORIENTATION`): `0`/`1`/`2`/`3` = 0°/90°/180°/270°.
+    /// Omit-when-default: the reader defaults an absent key to `0` and the writer
+    /// emits `Orientation` only when non-zero. Default `0`.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub orientation: i32,
+    /// Whether to show the parameter name alongside its value (`SHOWNAME`).
+    /// Omit-when-default: Altium omits the key for a from-scratch parameter (the
+    /// golden's visible + hidden parameters carry neither `SHOWNAME` nor
+    /// `HIDENAME`), so the reader defaults an absent key to `false` and the writer
+    /// emits `ShowName=T` only when set. Default `false`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub show_name: bool,
+    /// Whether to hide the parameter name, showing only the value (`HIDENAME`).
+    /// Omit-when-default (see `show_name`). Default `false`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hide_name: bool,
+    /// Parameter description text (`DESCRIPTION`). Omit-when-default: emitted only
+    /// when non-empty. Default empty.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
+    /// Whether the parameter is variant-configurable (`ISCONFIGURABLE`).
+    /// Omit-when-default: emitted only when `true`. Default `false`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_configurable: bool,
     /// Owner part ID.
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,
@@ -1165,6 +1190,11 @@ impl Parameter {
             hidden: false,
             read_only_state: 0,
             param_type: 0,
+            orientation: 0,
+            show_name: false,
+            hide_name: false,
+            description: String::new(),
+            is_configurable: false,
             owner_part_id: 1,
             display_flags: ShapeDisplayFlags::default(),
             unique_id: None,

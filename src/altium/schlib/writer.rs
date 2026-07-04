@@ -424,8 +424,9 @@ fn encode_line(line: &Line, index: usize) -> String {
 /// Encodes a parameter record.
 ///
 /// Follows Altium's conventions: `IsHidden` is emitted only when hidden (never
-/// `=F`), `ReadOnlyState` / `ParamType` only when non-zero, `Text` only when
-/// non-empty, and the read `UniqueID` is preserved.
+/// `=F`), `ReadOnlyState` / `ParamType` / `Orientation` only when non-zero,
+/// `ShowName` / `HideName` / `IsConfigurable` only when set, `Text` /
+/// `Description` only when non-empty, and the read `UniqueID` is preserved.
 #[allow(clippy::similar_names)] // px/py are the obvious names for the x/y integer parts
 fn encode_parameter(param: &Parameter, index: usize) -> String {
     let (px, px_frac) = coord::split(param.x);
@@ -455,8 +456,26 @@ fn encode_parameter(param: &Parameter, index: usize) -> String {
     if param.param_type != 0 {
         parts.push(format!("ParamType={}", param.param_type));
     }
+    // EE-meaningful display fields, each omit-when-default so a from-scratch
+    // parameter stays byte-identical to Altium (the golden's parameters carry
+    // none of these keys).
+    if param.orientation != 0 {
+        parts.push(format!("Orientation={}", param.orientation));
+    }
+    if param.show_name {
+        parts.push("ShowName=T".to_string());
+    }
+    if param.hide_name {
+        parts.push("HideName=T".to_string());
+    }
+    if param.is_configurable {
+        parts.push("IsConfigurable=T".to_string());
+    }
     if !param.value.is_empty() {
         parts.push(format!("Text={}", param.value));
+    }
+    if !param.description.is_empty() {
+        parts.push(format!("Description={}", param.description));
     }
     parts.push(format!("Name={}", param.name));
     push_display_flags(&mut parts, param.display_flags);
@@ -1294,6 +1313,19 @@ mod tests {
             "omit ReadOnlyState when 0: {s}"
         );
         assert!(!s.contains("ParamType"), "omit ParamType when 0: {s}");
+        // The EE-meaningful display fields are omit-when-default too, so a
+        // from-scratch parameter stays byte-identical to Altium's output.
+        assert!(!s.contains("Orientation"), "omit Orientation when 0: {s}");
+        assert!(!s.contains("ShowName"), "omit ShowName when false: {s}");
+        assert!(!s.contains("HideName"), "omit HideName when false: {s}");
+        assert!(
+            !s.contains("Description"),
+            "omit Description when empty: {s}"
+        );
+        assert!(
+            !s.contains("IsConfigurable"),
+            "omit IsConfigurable when false: {s}"
+        );
 
         // Hidden + value + a preserved UniqueID.
         p.hidden = true;
@@ -1310,6 +1342,67 @@ mod tests {
             s.contains("|UniqueID=ABCD1234"),
             "preserve read UniqueID: {s}"
         );
+
+        // Non-default EE-meaningful fields are each emitted with the Altium key.
+        p.orientation = 2;
+        p.show_name = true;
+        p.hide_name = true;
+        p.is_configurable = true;
+        p.description = "Resistance".to_string();
+        let s = encode_parameter(&p, 1);
+        assert!(
+            s.contains("|Orientation=2"),
+            "emit Orientation when set: {s}"
+        );
+        assert!(s.contains("|ShowName=T"), "emit ShowName when set: {s}");
+        assert!(s.contains("|HideName=T"), "emit HideName when set: {s}");
+        assert!(
+            s.contains("|IsConfigurable=T"),
+            "emit IsConfigurable when set: {s}"
+        );
+        assert!(
+            s.contains("|Description=Resistance"),
+            "emit Description when set: {s}"
+        );
+    }
+
+    #[test]
+    fn test_parameter_ee_fields_roundtrip() {
+        // A parameter with the de-hardcoded + EE-meaningful fields set survives a
+        // full write -> read round-trip through a one-symbol library.
+        let mut symbol = Symbol::new("R");
+        let mut p = Parameter::new("Value", "10k");
+        p.read_only_state = 1;
+        p.param_type = 2;
+        p.orientation = 3;
+        p.show_name = true;
+        p.hide_name = true;
+        p.description = "Resistance".to_string();
+        p.is_configurable = true;
+        p.unique_id = Some("WXYZ7890".to_string());
+        symbol.add_parameter(p);
+
+        let mut lib = crate::altium::schlib::SchLib::new();
+        lib.add(symbol);
+        let mut buf = std::io::Cursor::new(Vec::new());
+        lib.write(&mut buf).expect("library should serialise");
+        buf.set_position(0);
+        let back_lib =
+            crate::altium::schlib::SchLib::read(buf).expect("library should deserialise");
+        let back_sym = back_lib.get("R").expect("symbol R round-trips");
+        let back = back_sym
+            .parameters
+            .iter()
+            .find(|q| q.name == "Value")
+            .expect("Value parameter round-trips");
+        assert_eq!(back.read_only_state, 1);
+        assert_eq!(back.param_type, 2);
+        assert_eq!(back.orientation, 3);
+        assert!(back.show_name);
+        assert!(back.hide_name);
+        assert_eq!(back.description, "Resistance");
+        assert!(back.is_configurable);
+        assert_eq!(back.unique_id.as_deref(), Some("WXYZ7890"));
     }
 
     #[test]

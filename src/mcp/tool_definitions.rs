@@ -778,6 +778,14 @@ impl McpServer {
                                                 "font_id": { "type": "integer", "description": "Font ID. Default: 1" },
                                                 "color": { "type": "integer", "description": "BGR colour. Default: 0x800000 (dark red)" },
                                                 "hidden": { "type": "boolean", "description": "Whether hidden. Default: false" },
+                                                "read_only_state": { "type": "integer", "description": "Read-only state (0=editable, 1=read-only). Default: 0" },
+                                                "param_type": { "type": "integer", "description": "Parameter type (0=String, 1=Boolean, 2=Integer, 3=Float). Default: 0" },
+                                                "unique_id": { "type": "string", "description": "8-char Altium unique ID. Default: auto-generated" },
+                                                "orientation": { "type": "integer", "description": "Text orientation (0/1/2/3 = 0/90/180/270 degrees). Default: 0" },
+                                                "show_name": { "type": "boolean", "description": "Whether the parameter name is shown alongside the value. Default: false" },
+                                                "hide_name": { "type": "boolean", "description": "Whether the parameter name is hidden (only the value shown). Default: false" },
+                                                "description": { "type": "string", "description": "Parameter description text. Default: empty" },
+                                                "is_configurable": { "type": "boolean", "description": "Whether the parameter is variant-configurable. Default: false" },
                                                 "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" },
                                                 "graphically_locked": { "type": "boolean", "description": "Whether the shape is graphically locked. Default: false" },
                                                 "disabled": { "type": "boolean", "description": "Whether the shape is disabled. Default: false" },
@@ -1505,6 +1513,18 @@ impl McpServer {
                         "hidden": {
                             "type": "boolean",
                             "description": "Whether the parameter is hidden (optional for set, add)"
+                        },
+                        "read_only_state": {
+                            "type": "integer",
+                            "description": "Read-only state (0=editable, 1=read-only) (optional for set, add). Default: 0"
+                        },
+                        "param_type": {
+                            "type": "integer",
+                            "description": "Parameter type (0=String, 1=Boolean, 2=Integer, 3=Float) (optional for set, add). Default: 0"
+                        },
+                        "unique_id": {
+                            "type": "string",
+                            "description": "8-char Altium unique ID (optional for set, add). Default: auto-generated"
                         },
                         "x": {
                             "type": "integer",
