@@ -27,6 +27,26 @@ fn json_f64(json: &Value, field: &str) -> Option<f64> {
         .filter(|v| v.is_finite())
 }
 
+/// Reads the four universal display/lock flags shared by every `SchLib` graphic
+/// shape (`graphically_locked` / `disabled` / `dimmed` /
+/// `owner_part_display_mode`) from a shape's JSON. Absent keys default to
+/// `false` / `0`, matching Altium's omit-when-default records.
+fn parse_schlib_display_flags(json: &Value) -> crate::altium::schlib::ShapeDisplayFlags {
+    #[allow(clippy::cast_possible_truncation)]
+    crate::altium::schlib::ShapeDisplayFlags {
+        graphically_locked: json
+            .get("graphically_locked")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        disabled: json
+            .get("disabled")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        dimmed: json.get("dimmed").and_then(Value::as_bool).unwrap_or(false),
+        owner_part_display_mode: json_i32(json, "owner_part_display_mode").unwrap_or(0),
+    }
+}
+
 /// Reads the optional `flags` field of a `PcbLib` 2D primitive.
 ///
 /// `read_pcblib` serialises [`crate::altium::pcblib::PcbFlags`] (a `bitflags`
@@ -940,6 +960,7 @@ impl McpServer {
             filled,
             transparent,
             owner_part_id,
+            display_flags: parse_schlib_display_flags(json),
             unique_id: None,
         })
     }
@@ -995,6 +1016,7 @@ impl McpServer {
             filled,
             transparent,
             owner_part_id,
+            display_flags: parse_schlib_display_flags(json),
             unique_id: None,
         })
     }
@@ -1031,6 +1053,7 @@ impl McpServer {
             line_style,
             is_not_accessible: true,
             owner_part_id,
+            display_flags: parse_schlib_display_flags(json),
             unique_id: None,
         })
     }
@@ -1068,6 +1091,7 @@ impl McpServer {
             read_only_state: 0,
             param_type: 0,
             owner_part_id,
+            display_flags: parse_schlib_display_flags(json),
             unique_id: None,
         })
     }
@@ -1134,6 +1158,7 @@ impl McpServer {
             line_shape_size,
             transparent,
             owner_part_id,
+            display_flags: parse_schlib_display_flags(json),
             unique_id: None,
         })
     }
@@ -1184,6 +1209,7 @@ impl McpServer {
             fill_color,
             filled,
             owner_part_id,
+            display_flags: parse_schlib_display_flags(json),
             unique_id: None,
         })
     }
@@ -1225,6 +1251,7 @@ impl McpServer {
             color,
             fill_color,
             owner_part_id,
+            display_flags: parse_schlib_display_flags(json),
             unique_id: None,
         })
     }
@@ -1268,6 +1295,7 @@ impl McpServer {
             filled,
             transparent,
             owner_part_id,
+            display_flags: parse_schlib_display_flags(json),
             unique_id: None,
         })
     }
@@ -1328,6 +1356,7 @@ impl McpServer {
             is_mirrored,
             is_hidden,
             owner_part_id,
+            display_flags: parse_schlib_display_flags(json),
             unique_id: None,
         })
     }

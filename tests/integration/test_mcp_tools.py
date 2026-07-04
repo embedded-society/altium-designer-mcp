@@ -1231,6 +1231,121 @@ def test_write_schlib_fields(client, runner, schlib_path):
         runner.check(ellipses[0].get("transparent") is True, "ellipse transparent", actual=ellipses[0].get("transparent"))
 
 
+def test_write_schlib_display_flags(client, runner, schlib_path):
+    print("\n=== Test: write_schlib universal display/lock flags round trip ===")
+    # Coverage PR-14: the four universal display/lock flags (graphically_locked,
+    # disabled, dimmed, owner_part_display_mode) must be authorable on every
+    # graphic shape and survive a write -> read. Proving they survive also proves
+    # each shape's strict-deser allow-list accepts them (an un-allowed field would
+    # make write_schlib error here).
+    flags = {
+        "graphically_locked": True,
+        "disabled": True,
+        "dimmed": True,
+        "owner_part_display_mode": 1,
+    }
+    symbol = {
+        "name": "FLAGS",
+        "pins": [
+            {
+                "designator": "1",
+                "name": "P1",
+                "x": -50,
+                "y": 0,
+                "length": 30,
+                "orientation": "left",
+            }
+        ],
+        "rectangles": [dict({"x1": 0, "y1": 0, "x2": 40, "y2": 30}, **flags)],
+        "round_rects": [
+            dict(
+                {
+                    "x1": 0,
+                    "y1": 40,
+                    "x2": 40,
+                    "y2": 70,
+                    "corner_x_radius": 5,
+                    "corner_y_radius": 7,
+                },
+                **flags,
+            )
+        ],
+        "ellipses": [dict({"x": 60, "y": 120, "radius_x": 15, "radius_y": 10}, **flags)],
+        "lines": [dict({"x1": 0, "y1": 80, "x2": 40, "y2": 80}, **flags)],
+        "polylines": [
+            dict(
+                {"points": [{"x": 0, "y": 90}, {"x": 20, "y": 90}, {"x": 20, "y": 110}]},
+                **flags,
+            )
+        ],
+        "polygons": [
+            dict(
+                {"points": [{"x": 0, "y": 0}, {"x": 20, "y": 0}, {"x": 10, "y": 20}]},
+                **flags,
+            )
+        ],
+        "arcs": [dict({"x": 80, "y": 80, "radius": 25}, **flags)],
+        "labels": [dict({"x": 0, "y": 130, "text": "L"}, **flags)],
+        "parameters": [dict({"name": "Value", "value": "1k"}, **flags)],
+    }
+
+    write = client.call_tool(
+        "write_schlib",
+        {"filepath": schlib_path, "symbols": [symbol], "append": False},
+    )
+    runner.check(
+        not write.get("_isError"),
+        "write_schlib (display flags) succeeded",
+        actual=write,
+    )
+
+    read = client.call_tool("read_schlib", {"filepath": schlib_path})
+    runner.check(not read.get("_isError"), "read_schlib succeeded", actual=read)
+
+    symbols = {s.get("name"): s for s in read.get("symbols", [])}
+    sym = symbols.get("FLAGS", {})
+    runner.check(bool(sym), "FLAGS symbol present", actual=list(symbols))
+
+    def check_flags(shape, label):
+        runner.check(
+            shape.get("graphically_locked") is True,
+            f"{label} graphically_locked",
+            actual=shape.get("graphically_locked"),
+        )
+        runner.check(
+            shape.get("disabled") is True,
+            f"{label} disabled",
+            actual=shape.get("disabled"),
+        )
+        runner.check(
+            shape.get("dimmed") is True,
+            f"{label} dimmed",
+            actual=shape.get("dimmed"),
+        )
+        runner.check(
+            shape.get("owner_part_display_mode") == 1,
+            f"{label} owner_part_display_mode",
+            actual=shape.get("owner_part_display_mode"),
+            expected=1,
+        )
+
+    for coll, label in [
+        ("rectangles", "rectangle"),
+        ("round_rects", "round_rect"),
+        ("ellipses", "ellipse"),
+        ("lines", "line"),
+        ("polylines", "polyline"),
+        ("polygons", "polygon"),
+        ("arcs", "arc"),
+        ("labels", "label"),
+        ("parameters", "parameter"),
+    ]:
+        shapes = sym.get(coll, [])
+        runner.check(len(shapes) == 1, f"1 {label} survived", actual=len(shapes))
+        if shapes:
+            check_flags(shapes[0], label)
+
+
 def test_write_pcblib_text_font_style(client, runner, lib_path):
     print("\n=== Test: write_pcblib text mirror/bold/font/kind/justification round trip ===")
     # Coverage PR-10: the text primitive's mirror/bold/font_name plus the
@@ -1323,6 +1438,7 @@ def main():
         test_write_pcblib_text_font_style(client, runner, lib_path)
         test_write_schlib_shapes(client, runner, schlib_path)
         test_write_schlib_fields(client, runner, schlib_path)
+        test_write_schlib_display_flags(client, runner, schlib_path)
         test_read_pcblib_exposes_vias_fills(client, runner, sample_path)
         test_read_schlib_exposes_round_rects_polygons(client, runner, schlib_sample_path)
         test_unknown_tool(client, runner)
