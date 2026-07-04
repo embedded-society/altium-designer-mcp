@@ -491,7 +491,7 @@ impl McpServer {
 
     /// Parses text from JSON.
     pub(crate) fn parse_text(json: &Value) -> Option<crate::altium::pcblib::Text> {
-        use crate::altium::pcblib::{Layer, Text, TextJustification, TextKind};
+        use crate::altium::pcblib::{Layer, StrokeFont, Text, TextJustification, TextKind};
 
         let x = json.get("x").and_then(Value::as_f64)?;
         let y = json.get("y").and_then(Value::as_f64)?;
@@ -509,6 +509,32 @@ impl McpServer {
             .and_then(Value::as_f64)
             .filter(|&w| w > 0.0);
 
+        // Style/font fields are now authored from JSON instead of being hard-coded.
+        // The string enums (`kind`, `stroke_font`, `justification`) deserialise via
+        // serde so the accepted tokens match exactly what `read_pcblib` emits; an
+        // absent or unparseable value falls back to the from-scratch default (which
+        // keeps a default text byte-identical to the template).
+        let kind = json
+            .get("kind")
+            .and_then(|v| serde_json::from_value::<TextKind>(v.clone()).ok())
+            .unwrap_or_default();
+        let stroke_font = json
+            .get("stroke_font")
+            .and_then(|v| serde_json::from_value::<StrokeFont>(v.clone()).ok());
+        let italic = json.get("italic").and_then(Value::as_bool).unwrap_or(false);
+        let bold = json.get("bold").and_then(Value::as_bool).unwrap_or(false);
+        let mirror = json.get("mirror").and_then(Value::as_bool).unwrap_or(false);
+        let font_name = json
+            .get("font_name")
+            .and_then(Value::as_str)
+            .map_or_else(|| "Arial".to_string(), ToString::to_string);
+        // The from-scratch default is `BottomLeft` (encodes to the template's
+        // 0x03 byte, keeping a default text byte-identical).
+        let justification = json
+            .get("justification")
+            .and_then(|v| serde_json::from_value::<TextJustification>(v.clone()).ok())
+            .unwrap_or(TextJustification::BottomLeft);
+
         Some(Text {
             x,
             y,
@@ -516,11 +542,14 @@ impl McpServer {
             height,
             layer,
             rotation,
-            kind: TextKind::Stroke,
-            stroke_font: None,
+            kind,
+            stroke_font,
             stroke_width,
-            italic: false,
-            justification: TextJustification::MiddleCenter,
+            italic,
+            bold,
+            mirror,
+            font_name,
+            justification,
             flags: json_flags(json),
             unique_id: None,
         })
@@ -1616,6 +1645,49 @@ mod tests {
         }))
         .expect("text should parse");
         assert!(text.flags.contains(PcbFlags::LOCKED));
+    }
+
+    #[test]
+    fn parse_text_reads_authoring_fields() {
+        // PR-10: kind/stroke_font/italic/bold/mirror/font_name/justification were
+        // previously hard-coded; each must now flow from JSON onto the struct.
+        use crate::altium::pcblib::{StrokeFont, TextJustification, TextKind};
+        let text = McpServer::parse_text(&json!({
+            "x": 0.0, "y": 0.0, "text": "REF", "height": 0.5, "layer": "Top Overlay",
+            "kind": "true_type",
+            "stroke_font": "serif",
+            "italic": true,
+            "bold": true,
+            "mirror": true,
+            "font_name": "Times New Roman",
+            "justification": "top_right",
+        }))
+        .expect("text should parse");
+        assert_eq!(text.kind, TextKind::TrueType);
+        assert_eq!(text.stroke_font, Some(StrokeFont::Serif));
+        assert!(text.italic);
+        assert!(text.bold);
+        assert!(text.mirror);
+        assert_eq!(text.font_name, "Times New Roman");
+        assert_eq!(text.justification, TextJustification::TopRight);
+    }
+
+    #[test]
+    fn parse_text_defaults_are_template_identical() {
+        // A minimal text must keep the from-scratch defaults (stroke, no font
+        // override, Arial, middle-center) so it stays byte-identical on write.
+        use crate::altium::pcblib::{TextJustification, TextKind};
+        let text = McpServer::parse_text(&json!({
+            "x": 0.0, "y": 0.0, "text": "REF", "height": 0.5, "layer": "Top Overlay",
+        }))
+        .expect("text should parse");
+        assert_eq!(text.kind, TextKind::Stroke);
+        assert_eq!(text.stroke_font, None);
+        assert!(!text.italic);
+        assert!(!text.bold);
+        assert!(!text.mirror);
+        assert_eq!(text.font_name, "Arial");
+        assert_eq!(text.justification, TextJustification::BottomLeft);
     }
 
     // --- PR-12/PR-13: SchLib write-path authoring fields. These were previously

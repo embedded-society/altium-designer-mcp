@@ -500,6 +500,11 @@ fn samples_pcblib_text_stroke() {
 
         assert_eq!(text.layer, Layer::TopOverlay, "text {content:?} layer");
         assert_eq!(text.kind, TextKind::Stroke, "text {content:?} kind");
+        // PR-10: the reader now populates mirror/bold/font_name from the geometry
+        // block; a default Altium stroke text is top-side, non-bold, Arial.
+        assert!(!text.mirror, "text {content:?} mirror");
+        assert!(!text.bold, "text {content:?} bold");
+        assert_eq!(text.font_name, "Arial", "text {content:?} font_name");
         assert!(
             approx_eq(text.height, height, 1e-2),
             "text {content:?} height: expected ~{height} mm, got {}",

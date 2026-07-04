@@ -806,6 +806,9 @@ mod tests {
             stroke_font: None,
             stroke_width: None,
             italic: false,
+            bold: false,
+            mirror: false,
+            font_name: "Arial".to_string(),
             justification: TextJustification::MiddleCenter,
             flags: PcbFlags::empty(),
             unique_id: None,
@@ -821,6 +824,9 @@ mod tests {
             stroke_font: None,
             stroke_width: None,
             italic: false,
+            bold: false,
+            mirror: false,
+            font_name: "Arial".to_string(),
             justification: TextJustification::TopLeft,
             flags: PcbFlags::empty(),
             unique_id: None,
@@ -864,6 +870,9 @@ mod tests {
             stroke_font: None,
             stroke_width: Some(0.2),
             italic: false,
+            bold: false,
+            mirror: false,
+            font_name: "Arial".to_string(),
             justification: TextJustification::MiddleCenter,
             flags: PcbFlags::empty(),
             unique_id: None,
@@ -895,6 +904,9 @@ mod tests {
             stroke_font: None,
             stroke_width: None,
             italic: true,
+            bold: false,
+            mirror: false,
+            font_name: "Arial".to_string(),
             justification: TextJustification::MiddleCenter,
             flags: PcbFlags::empty(),
             unique_id: None,
@@ -912,7 +924,8 @@ mod tests {
     #[test]
     fn text_default_stroke_geometry_byte_identical() {
         // Guards the oracle: a from-scratch stroke text with default styling must emit
-        // the unmodified template at the styling offsets (43, 45 == 0).
+        // the unmodified template at the styling offsets (43, 45 == 0) and at the
+        // PR-10 offsets (mirror@35, bold@44, font-name@46-109, justification@132).
         let geom = writer::encode_text_geometry(&Text {
             x: 0.0,
             y: 0.0,
@@ -924,7 +937,11 @@ mod tests {
             stroke_font: None,
             stroke_width: None,
             italic: false,
-            justification: TextJustification::MiddleCenter,
+            bold: false,
+            mirror: false,
+            font_name: "Arial".to_string(),
+            // BottomLeft is the from-scratch default; it encodes to the template's 0x03.
+            justification: TextJustification::BottomLeft,
             flags: PcbFlags::empty(),
             unique_id: None,
         });
@@ -933,6 +950,64 @@ mod tests {
             "stroke baseFontType must stay template default"
         );
         assert_eq!(geom[45], 0x00, "non-italic must stay template default");
+        // PR-10 byte-identity: every new/wired field's default equals the template byte.
+        assert_eq!(geom[35], 0x00, "default mirror must stay template 0x00");
+        assert_eq!(geom[44], 0x00, "default bold must stay template 0x00");
+        assert_eq!(
+            geom[132], 0x03,
+            "default justification must stay template 0x03"
+        );
+        // Font-name field (46-109): "Arial" UTF-16 LE + zero fill, exactly the template.
+        let mut expected_font = [0u8; 64];
+        expected_font[..10]
+            .copy_from_slice(&[0x41, 0x00, 0x72, 0x00, 0x69, 0x00, 0x61, 0x00, 0x6C, 0x00]);
+        assert_eq!(
+            &geom[46..110],
+            &expected_font,
+            "default font name must reproduce the template's Arial UTF-16 field"
+        );
+    }
+
+    #[test]
+    fn text_pr10_fields_round_trip() {
+        // A non-default text must survive encode -> decode for every PR-10 field:
+        // mirror, bold, font_name, a non-default justification, kind, italic.
+        let mut original = Footprint::new("TEXT_PR10");
+        original.add_text(Text {
+            x: 0.0,
+            y: 0.0,
+            text: "Fancy".to_string(),
+            height: 1.0,
+            layer: Layer::TopOverlay,
+            rotation: 0.0,
+            kind: TextKind::TrueType,
+            stroke_font: None,
+            stroke_width: None,
+            italic: true,
+            bold: true,
+            mirror: true,
+            font_name: "Times New Roman".to_string(),
+            justification: TextJustification::TopRight,
+            flags: PcbFlags::empty(),
+            unique_id: None,
+        });
+
+        let data = writer::encode_data_stream(&original).expect("encode");
+        let mut decoded = Footprint::new("TEXT_PR10");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        assert_eq!(decoded.text.len(), 1);
+        let t = &decoded.text[0];
+        assert!(t.mirror, "mirror must round-trip");
+        assert!(t.bold, "bold must round-trip");
+        assert!(t.italic, "italic must round-trip");
+        assert_eq!(t.kind, TextKind::TrueType, "kind must round-trip");
+        assert_eq!(t.font_name, "Times New Roman", "font_name must round-trip");
+        assert_eq!(
+            t.justification,
+            TextJustification::TopRight,
+            "justification must round-trip"
+        );
     }
 
     #[test]
@@ -951,6 +1026,9 @@ mod tests {
             stroke_font: None,
             stroke_width: None,
             italic: false,
+            bold: false,
+            mirror: false,
+            font_name: "Arial".to_string(),
             justification: TextJustification::MiddleCenter,
             flags: PcbFlags::LOCKED | PcbFlags::TENTING_TOP,
             unique_id: None,

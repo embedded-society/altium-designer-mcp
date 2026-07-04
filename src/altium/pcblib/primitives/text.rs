@@ -38,9 +38,24 @@ pub enum StrokeFont {
 }
 
 /// Text justification (alignment). Shared with `SchLib`; the canonical
-/// definition is [`crate::altium::TextJustification`]. `PcbLib` text defaults to
-/// `MiddleCenter` (this enum's `Default`).
+/// definition is [`crate::altium::TextJustification`]. A `PcbLib` text's
+/// text-box anchor defaults to `BottomLeft`, which encodes to the geometry
+/// template's justification byte (`0x03` = Altium `LeftBottom`) at offset 132 —
+/// so a from-scratch text stays byte-identical. This matches `AltiumSharp`'s
+/// `PcbText.Justification` default.
 pub use crate::altium::TextJustification;
+
+/// Default text-box justification for a from-scratch `PcbLib` text: `BottomLeft`,
+/// which the writer encodes to the template's `0x03` byte at geometry offset 132.
+const fn default_justification() -> TextJustification {
+    TextJustification::BottomLeft
+}
+
+/// Default font name for a from-scratch text: `"Arial"`, matching the geometry
+/// template's UTF-16 font-name field (offsets 46-109).
+fn default_font_name() -> String {
+    "Arial".to_string()
+}
 
 /// A text string on a layer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -72,6 +87,22 @@ pub struct Text {
     /// reproduces the template byte exactly.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub italic: bool,
+    /// Font bold style (Altium `FontBold`, geometry offset 44 — the twin of
+    /// [`Self::italic`]@45). Only meaningful when `kind` is `TrueType`. `false`
+    /// (the from-scratch default) reproduces the template's `0x00` byte exactly.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub bold: bool,
+    /// Whether the text is mirrored (Altium `IsMirrored`, geometry offset 35;
+    /// bottom-side silkscreen). `false` (the from-scratch default) reproduces the
+    /// template's `0x00` byte exactly.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub mirror: bool,
+    /// TrueType font name (Altium `FontName`, geometry offset 46, UTF-16, 64-byte
+    /// field). Only meaningful when `kind` is `TrueType`. Defaults to `"Arial"`,
+    /// matching the template; a from-scratch default text reproduces the template's
+    /// exact 64-byte UTF-16 encoding.
+    #[serde(default = "default_font_name")]
+    pub font_name: String,
     /// Stroke line width in mm (Altium `StrokeWidth`, geometry offset 36). `None`
     /// uses Altium's template default (4 mil); a read value round-trips exactly.
     #[serde(
@@ -80,8 +111,10 @@ pub struct Text {
         serialize_with = "crate::altium::serde_round::option::serialize"
     )]
     pub stroke_width: Option<f64>,
-    /// Text justification (alignment).
-    #[serde(default)]
+    /// Text-box justification / anchor (Altium `InvertedRectJustification`,
+    /// geometry offset 132). Defaults to `BottomLeft`, which reproduces the
+    /// template byte `0x03`.
+    #[serde(default = "default_justification")]
     pub justification: TextJustification,
     /// Primitive flags (locked, keepout, etc.).
     #[serde(default, skip_serializing_if = "PcbFlags::is_empty")]
