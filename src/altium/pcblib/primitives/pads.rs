@@ -71,6 +71,36 @@ pub struct Pad {
     #[serde(default, skip_serializing_if = "is_default_hole_shape")]
     pub hole_shape: HoleShape,
 
+    /// Slot length in mm for a `Slot` hole — size/shape block i32 @263.
+    /// Only meaningful when `hole_shape` is `Slot`. Default 0.0 (matches the
+    /// value the writer previously hard-coded).
+    #[serde(default, serialize_with = "crate::altium::serde_round::serialize")]
+    pub hole_slot_length: f64,
+
+    /// Hole rotation in degrees — size/shape block f64 @267. Rotates a slot hole.
+    /// Default 0.0 (matches the value the writer previously hard-coded).
+    #[serde(default, serialize_with = "crate::altium::serde_round::serialize")]
+    pub hole_rotation: f64,
+
+    /// Positive drill tolerance in mm — extended-tail i32 @162. `None` writes the
+    /// `0x7FFFFFFF` "unset" sentinel Altium uses (byte-identical to the template);
+    /// `Some(mm)` writes the raw tolerance.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::altium::serde_round::option"
+    )]
+    pub hole_positive_tolerance: Option<f64>,
+
+    /// Negative drill tolerance in mm — extended-tail i32 @166. `None` writes the
+    /// `0x7FFFFFFF` "unset" sentinel (byte-identical to the template).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::altium::serde_round::option"
+    )]
+    pub hole_negative_tolerance: Option<f64>,
+
     /// Rotation angle in degrees.
     #[serde(default, serialize_with = "crate::altium::serde_round::serialize")]
     pub rotation: f64,
@@ -239,6 +269,10 @@ impl Pad {
             layer: Layer::TopLayer,
             hole_size: None,
             hole_shape: HoleShape::Round,
+            hole_slot_length: 0.0,
+            hole_rotation: 0.0,
+            hole_positive_tolerance: None,
+            hole_negative_tolerance: None,
             rotation: 0.0,
             paste_mask_expansion: None,
             solder_mask_expansion: None,
@@ -281,6 +315,10 @@ impl Pad {
             layer: Layer::MultiLayer,
             hole_size: Some(hole_size),
             hole_shape: HoleShape::Round,
+            hole_slot_length: 0.0,
+            hole_rotation: 0.0,
+            hole_positive_tolerance: None,
+            hole_negative_tolerance: None,
             rotation: 0.0,
             paste_mask_expansion: None,
             solder_mask_expansion: None,
@@ -526,6 +564,25 @@ pub struct Via {
     )]
     pub solder_mask_expansion_back: Option<f64>,
 
+    /// Positive drill tolerance in mm — `SubRecord-1` i32 @291. `None` writes the
+    /// `0x7FFFFFFF` "unset" sentinel Altium uses (byte-identical to the template);
+    /// `Some(mm)` writes the raw tolerance.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::altium::serde_round::option"
+    )]
+    pub hole_positive_tolerance: Option<f64>,
+
+    /// Negative drill tolerance in mm — `SubRecord-1` i32 @295. `None` writes the
+    /// `0x7FFFFFFF` "unset" sentinel (byte-identical to the template).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::altium::serde_round::option"
+    )]
+    pub hole_negative_tolerance: Option<f64>,
+
     // Thermal relief settings (for polygon pours)
     /// Thermal relief air gap width in mm (default: 0.254mm = 10 mils).
     #[serde(
@@ -616,6 +673,8 @@ impl Via {
             solder_mask_expansion: 0.0,
             solder_mask_expansion_mode: MaskExpansionMode::FromRule,
             solder_mask_expansion_back: None,
+            hole_positive_tolerance: None,
+            hole_negative_tolerance: None,
             paste_mask_expansion: 0.0,
             power_plane_connect_style: PowerPlaneConnectStyle::Relief,
             power_plane_relief_expansion: 0.508, // 20 mils
@@ -651,6 +710,8 @@ impl Via {
             solder_mask_expansion: 0.0,
             solder_mask_expansion_mode: MaskExpansionMode::FromRule,
             solder_mask_expansion_back: None,
+            hole_positive_tolerance: None,
+            hole_negative_tolerance: None,
             paste_mask_expansion: 0.0,
             power_plane_connect_style: PowerPlaneConnectStyle::Relief,
             power_plane_relief_expansion: 0.508, // 20 mils

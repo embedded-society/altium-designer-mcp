@@ -53,8 +53,9 @@
 
 ### PR-8 — PcbLib: Pad/Via slot-hole geometry & drill tolerances (format)
 
-**Primitives:** Pad, Via. **Kind:** read+write+tool. **Missing:** HoleSlotLength + HoleRotation (currently hard-coded 0 in writer), HolePositiveTolerance/HoleNegativeTolerance (hard-coded 0x7FFFFFFF sentinel), DrillType (simple/pressfit).
+**Primitives:** Pad, Via. **Kind:** read+write+tool. **Missing:** HoleSlotLength + HoleRotation (currently hard-coded 0 in writer), HolePositiveTolerance/HoleNegativeTolerance (hard-coded 0x7FFFFFFF sentinel).
 **Fix:** Read slot length/rotation from the size-shape block and tolerances from extended-tail offsets 162/166 (Pad) / 291/295 (Via); add struct fields; replace the hard-coded writer values; expose in schema. Without this `hole_shape='slot'` produces a zero-length degenerate slot.
+**Deferred:** DrillType (simple/pressfit) — the `.PcbLib` binary has no verified offset (neither AltiumSharp nor pyaltiumlib serialise it, and every pad in AltiumSharp's test corpus is `Simple`). Deferred until a press-fit golden lets us locate the byte; a non-persisting write field would only mislead an AI.
 
 ### PR-9 — PcbLib: Region KIND / net / name (format)
 

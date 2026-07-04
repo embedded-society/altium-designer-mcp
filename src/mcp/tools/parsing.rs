@@ -241,6 +241,20 @@ impl McpServer {
             .and_then(Value::as_f64)
             .unwrap_or(0.508);
 
+        // Slot geometry + drill tolerances. Absent keys keep the struct defaults
+        // (slot 0, rotation 0, tolerances unset), so an unspecified pad round-trips
+        // byte-identically.
+        let hole_slot_length = json
+            .get("hole_slot_length")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0);
+        let hole_rotation = json
+            .get("hole_rotation")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0);
+        let hole_positive_tolerance = json.get("hole_positive_tolerance").and_then(Value::as_f64);
+        let hole_negative_tolerance = json.get("hole_negative_tolerance").and_then(Value::as_f64);
+
         Ok(Pad {
             designator: designator.to_string(),
             x,
@@ -251,6 +265,10 @@ impl McpServer {
             layer,
             hole_size,
             hole_shape,
+            hole_slot_length,
+            hole_rotation,
+            hole_positive_tolerance,
+            hole_negative_tolerance,
             rotation,
             paste_mask_expansion,
             solder_mask_expansion,
@@ -570,6 +588,17 @@ impl McpServer {
         {
             via.net_index = v;
         }
+
+        // Drill tolerances (SubRecord-1 @291/@295). Absent keys keep the
+        // from-scratch defaults (tolerances unset), so an unspecified via
+        // round-trips byte-identically.
+        if let Some(v) = json.get("hole_positive_tolerance").and_then(Value::as_f64) {
+            via.hole_positive_tolerance = Some(v);
+        }
+        if let Some(v) = json.get("hole_negative_tolerance").and_then(Value::as_f64) {
+            via.hole_negative_tolerance = Some(v);
+        }
+
         via.flags = json_flags(json);
 
         Ok(via)

@@ -100,9 +100,21 @@ def _generate(binary, out_dir):
             "pads": [
                 {"designator": "1", "x": -0.5, "y": 0.0, "width": 0.6, "height": 0.5},
                 {"designator": "2", "x": 0.5, "y": 0.0, "width": 0.6, "height": 0.5},
+                # PR-8: a slot-hole through-hole pad with drill tolerances so the
+                # oracle guards the slot length/rotation (@263/@267) and tolerance
+                # (@162/@166) bytes stay Altium-readable.
+                {"designator": "3", "x": 0.0, "y": 0.8, "width": 1.2, "height": 0.8,
+                 "hole_size": 0.5, "layer": "Multi-Layer", "hole_shape": "slot",
+                 "hole_slot_length": 0.6, "hole_rotation": 30.0,
+                 "hole_positive_tolerance": 0.05, "hole_negative_tolerance": 0.02},
             ],
-            # Via exercises the single-block via record (issue #113).
-            "vias": [{"x": 0.0, "y": -0.8, "diameter": 0.6, "hole_size": 0.3}],
+            # Via exercises the single-block via record (issue #113); the second via
+            # carries PR-8 drill tolerances (@291/@295) so the oracle guards them.
+            "vias": [
+                {"x": 0.0, "y": -0.8, "diameter": 0.6, "hole_size": 0.3},
+                {"x": 0.4, "y": -0.8, "diameter": 0.6, "hole_size": 0.3,
+                 "hole_positive_tolerance": 0.05, "hole_negative_tolerance": 0.02},
+            ],
             "tracks": [{"x1": -1, "y1": 0.5, "x2": 1, "y2": 0.5,
                         "width": 0.1, "layer": "Top Overlay"}],
             "arcs": [{"x": 0, "y": 0, "radius": 0.3, "start_angle": 0,

@@ -643,6 +643,44 @@ mod tests {
     }
 
     #[test]
+    fn binary_roundtrip_pad_slot_hole_and_tolerances() {
+        // PR-8: a pad with a slot hole (non-zero slot length + rotation) and
+        // non-default drill tolerances must survive encode -> decode.
+        let mut original = Footprint::new("ROUNDTRIP_PAD_SLOT");
+        let mut pad = Pad::through_hole("1", 0.0, 0.0, 2.0, 1.2, 0.8);
+        pad.hole_shape = HoleShape::Slot;
+        pad.hole_slot_length = 1.5; // != 0 default
+        pad.hole_rotation = 45.0; // != 0 default
+        pad.hole_positive_tolerance = Some(0.05);
+        pad.hole_negative_tolerance = Some(0.02);
+        original.add_pad(pad);
+
+        let data = writer::encode_data_stream(&original).expect("encoding should succeed");
+        let mut decoded = Footprint::new("ROUNDTRIP_PAD_SLOT");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        assert_eq!(decoded.pads.len(), 1);
+        let p = &decoded.pads[0];
+        assert_eq!(p.hole_shape, HoleShape::Slot);
+        assert!(approx_eq(p.hole_slot_length, 1.5, 0.0001));
+        assert!(approx_eq(p.hole_rotation, 45.0, 0.0001));
+        assert!(approx_eq(p.hole_positive_tolerance.unwrap(), 0.05, 0.0001));
+        assert!(approx_eq(p.hole_negative_tolerance.unwrap(), 0.02, 0.0001));
+    }
+
+    #[test]
+    fn pad_default_slot_hole_fields_byte_identical() {
+        // A default (round-hole, unset-tolerance) pad must map its new fields back to
+        // exactly the writer's previous hard-coded values so the oracle stays at 0
+        // regressions: slot length 0, rotation 0, tolerances -> 0x7FFFFFFF sentinel.
+        let pad = Pad::smd("1", 0.0, 0.0, 1.0, 1.0);
+        assert_eq!(units::from_mm(pad.hole_slot_length), 0); // writer hard-coded 0
+        assert!(approx_eq(pad.hole_rotation, 0.0, 1e-9)); // writer hard-coded 0.0
+        assert_eq!(pad.hole_positive_tolerance, None); // None -> sentinel
+        assert_eq!(pad.hole_negative_tolerance, None);
+    }
+
+    #[test]
     fn binary_roundtrip_tracks() {
         let mut original = Footprint::new("ROUNDTRIP_TRACK");
         original.add_track(Track::new(-1.0, -0.5, 1.0, -0.5, 0.15, Layer::TopOverlay));
@@ -1411,6 +1449,38 @@ mod tests {
         assert_eq!(&block[42..46], &200_000i32.to_le_bytes()); // relief expansion
         assert_eq!(&block[46..50], &200_000i32.to_le_bytes()); // plane clearance
         assert_eq!(&block[50..54], &0i32.to_le_bytes()); // paste-mask expansion
+                                                         // PR-8: default drill tolerances stay the 0x7FFFFFFF "unset" sentinel @291/@295.
+        assert_eq!(&block[291..295], &i32::MAX.to_le_bytes());
+        assert_eq!(&block[295..299], &i32::MAX.to_le_bytes());
+    }
+
+    #[test]
+    fn binary_roundtrip_via_tolerances() {
+        // PR-8: a via with non-default drill tolerances must survive encode -> decode.
+        // Vias carry no slot geometry.
+        let mut original = Footprint::new("VIA_TOL");
+        let mut via = Via::new(1.0, 2.0, 0.8, 0.4);
+        via.hole_positive_tolerance = Some(0.05);
+        via.hole_negative_tolerance = Some(0.02);
+        original.add_via(via);
+
+        let data = writer::encode_data_stream(&original).expect("encode");
+        let mut decoded = Footprint::new("VIA_TOL");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        assert_eq!(decoded.vias.len(), 1);
+        let d = &decoded.vias[0];
+        assert!(approx_eq(d.hole_positive_tolerance.unwrap(), 0.05, 0.001));
+        assert!(approx_eq(d.hole_negative_tolerance.unwrap(), 0.02, 0.001));
+    }
+
+    #[test]
+    fn via_default_tolerances_unset() {
+        // A from-scratch via leaves both drill tolerances unset (None -> sentinel), so
+        // it serialises byte-identically to the template.
+        let via = Via::new(0.0, 0.0, 0.6, 0.3);
+        assert_eq!(via.hole_positive_tolerance, None);
+        assert_eq!(via.hole_negative_tolerance, None);
     }
 
     #[test]
