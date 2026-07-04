@@ -168,6 +168,28 @@ and the standard Altium layer names are documented in the reference — see
 **[docs/TOOLS.md](TOOLS.md)** and [README § Primitive Types](../README.md#primitive-types).
 This guide covers the *workflow* of assembling them, not the field-by-field reference.
 
+## Symbol Pin Conventions
+
+Conventions the per-tool schema can't express — adapted from
+[coffeenmusic/altium-mcp](https://github.com/coffeenmusic/altium-mcp):
+
+### Active-low pins (overbar)
+
+Pin names are written verbatim, so Altium's overbar convention works directly: put a
+backslash **after** each character that should carry a bar.
+
+| Intended rendering | Pin `name` |
+|--------------------|------------|
+| `RESET`, fully overbarred | `R\E\S\E\T\` |
+| `CS`, both letters barred | `C\S\` |
+| `RW`, bar the `W` only | `RW\` |
+
+### Multi-part symbols
+
+For multi-unit parts (dual / quad op-amps, gate arrays): set `part_count` on the symbol
+and tag each pin with `owner_part_id` (the 1-based part it belongs to). The `DUALPART`
+sample demonstrates a two-part symbol with pins split across parts 1 and 2.
+
 ## Working with Large Libraries
 
 For libraries with many components, use pagination to avoid output limits:
