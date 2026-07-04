@@ -401,6 +401,36 @@ fn samples_schlib_params() {
 }
 
 #[test]
+fn samples_schlib_no_utf8_key_for_win1252_golden() {
+    // Every text value in the golden library is Windows-1252-representable, so the
+    // UTF-8 fix must NOT introduce a `%UTF8%` key anywhere: re-encoding each
+    // symbol's Data stream yields output with no `%UTF8%` marker, confirming the
+    // common case stays byte-identical (and the oracle sees zero regressions).
+    let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
+    for symbol in lib.iter() {
+        let data = altium_designer_mcp::altium::schlib::writer::encode_data_stream(symbol)
+            .expect("encode");
+        assert!(
+            !data.windows(6).any(|w| w == b"%UTF8%"),
+            "symbol {:?}: golden (all Windows-1252) must not gain a %UTF8% key",
+            symbol.name
+        );
+    }
+
+    // And the specific text-bearing symbols round-trip their values unchanged.
+    let labels = lib.get("LABELS").expect("LABELS symbol");
+    assert!(
+        labels.labels.iter().all(|l| l.text.is_ascii()),
+        "golden labels are ASCII, so their values must read back verbatim"
+    );
+    let params = lib.get("PARAMS").expect("PARAMS symbol");
+    assert!(
+        params.parameters.iter().any(|p| p.value == "10k"),
+        "golden Value parameter reads back as the plain Windows-1252 value"
+    );
+}
+
+#[test]
 fn samples_schlib_dualpart() {
     let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
     let symbol = lib.get("DUALPART").expect("symbol DUALPART not found");

@@ -86,16 +86,35 @@ fn parse_text_record(symbol: &mut Symbol, data: &[u8]) {
     // Remove null terminator if present
     let data = data.split(|&b| b == 0).next().unwrap_or(data);
 
-    let text = std::str::from_utf8(data).map_or_else(
-        |_| {
-            // Decode as Windows-1252 (legacy Altium encoding)
-            let (decoded, _, _) = encoding_rs::WINDOWS_1252.decode(data);
-            decoded.into_owned()
-        },
-        str::to_string,
-    );
+    // A record carrying a `%UTF8%`-prefixed key (e.g. `%UTF8%Text`) stores that
+    // value as raw UTF-8 bytes inside an otherwise Windows-1252 record. Decode
+    // the whole record as Windows-1252 so the UTF-8 value arrives as deterministic
+    // one-char-per-byte "mojibake"; the field parser then re-decodes it as UTF-8
+    // (see `decode_utf8_param_value`). Without the `%UTF8%` marker the record is
+    // decoded exactly as before: UTF-8 when valid, else Windows-1252.
+    let text = if contains_utf8_marker(data) {
+        crate::altium::decode_windows1252(data)
+    } else {
+        std::str::from_utf8(data).map_or_else(
+            |_| {
+                // Decode as Windows-1252 (legacy Altium encoding)
+                let (decoded, _, _) = encoding_rs::WINDOWS_1252.decode(data);
+                decoded.into_owned()
+            },
+            str::to_string,
+        )
+    };
 
     parse_text_record_from_string(symbol, &text);
+}
+
+/// Returns `true` when the raw record bytes contain a `%UTF8%` key prefix
+/// (case-insensitive), signalling that at least one value is stored as raw UTF-8
+/// bytes and the record must be decoded as Windows-1252 to recover it.
+fn contains_utf8_marker(data: &[u8]) -> bool {
+    const MARKER: &[u8; 6] = b"%UTF8%";
+    data.windows(MARKER.len())
+        .any(|w| w.eq_ignore_ascii_case(MARKER))
 }
 
 /// Parses a text record from a decoded string.
@@ -157,9 +176,10 @@ fn parse_text_record_from_string(symbol: &mut Symbol, text: &str) {
             }
         }
         34 => {
-            // Designator
-            if let Some(text) = props.get("text") {
-                symbol.designator.clone_from(text);
+            // Designator (a parameter record; its value uses the same
+            // `%UTF8%Text` convention as any other text field).
+            if let Some(text) = read_utf8_text_field(&props, "text") {
+                symbol.designator = text;
             }
         }
         41 => {
@@ -387,6 +407,22 @@ fn read_display_flags(props: &HashMap<String, String>) -> ShapeDisplayFlags {
     }
 }
 
+/// Reads a record's text value, preferring a `%UTF8%`-prefixed key when present.
+///
+/// Altium stores a text value that Windows-1252 cannot represent (Cyrillic, CJK,
+/// Greek `Ω`, …) under a `%UTF8%<Key>` key holding the raw UTF-8 bytes, instead
+/// of the lossy plain `<Key>`. When that key is present its value (mojibake from
+/// the Windows-1252 record decode) is re-decoded as UTF-8; otherwise the plain
+/// `<Key>` is read verbatim. `key` is the lower-cased field name (e.g. `"text"`),
+/// matching [`parse_properties`]'s lower-casing. Returns `None` when neither key
+/// is present so callers can distinguish an absent field from an empty one.
+fn read_utf8_text_field(props: &HashMap<String, String>, key: &str) -> Option<String> {
+    if let Some(raw) = props.get(&format!("%utf8%{key}")) {
+        return Some(crate::altium::decode_utf8_param_value(raw));
+    }
+    props.get(key).cloned()
+}
+
 /// Parses a rectangle from properties.
 #[allow(clippy::unnecessary_wraps)] // infallible (all coords default); Option kept for uniform parser dispatch
 fn parse_rectangle(props: &HashMap<String, String>) -> Option<Rectangle> {
@@ -477,7 +513,7 @@ fn parse_line(props: &HashMap<String, String>) -> Option<Line> {
 /// Parses a parameter from properties.
 fn parse_parameter(props: &HashMap<String, String>) -> Option<Parameter> {
     let name = props.get("name")?.clone();
-    let value = props.get("text").cloned().unwrap_or_default();
+    let value = read_utf8_text_field(props, "text").unwrap_or_default();
 
     let x = crate::altium::schlib::coord::read(props, "location.x");
     let y = crate::altium::schlib::coord::read(props, "location.y");
@@ -888,7 +924,7 @@ fn parse_elliptical_arc(props: &HashMap<String, String>) -> Option<EllipticalArc
 fn parse_label(props: &HashMap<String, String>) -> Option<Label> {
     let x = crate::altium::schlib::coord::read(props, "location.x");
     let y = crate::altium::schlib::coord::read(props, "location.y");
-    let text = props.get("text").cloned().unwrap_or_default();
+    let text = read_utf8_text_field(props, "text").unwrap_or_default();
 
     let font_id = props
         .get("fontid")
@@ -931,7 +967,7 @@ fn parse_label(props: &HashMap<String, String>) -> Option<Label> {
 fn parse_text(props: &HashMap<String, String>) -> Option<Text> {
     let x = crate::altium::schlib::coord::read(props, "location.x");
     let y = crate::altium::schlib::coord::read(props, "location.y");
-    let text = props.get("text").cloned().unwrap_or_default();
+    let text = read_utf8_text_field(props, "text").unwrap_or_default();
 
     let font_id = props
         .get("fontid")
@@ -1198,5 +1234,48 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(label.color, 0, "absent label Color must read as black");
+    }
+
+    #[test]
+    fn utf8_text_record_decodes_intact_from_raw_bytes() {
+        // Build the on-disk bytes for a Label whose value is Greek Ω (not in
+        // Windows-1252): the record is Windows-1252, with the Ω stored as its raw
+        // UTF-8 bytes behind `%UTF8%Text`. The reader must recover "10kΩ" exactly.
+        // A reader that only read a plain `Text=` (Windows-1252) would corrupt it.
+        let value = "10k\u{03A9}";
+        let utf8_form = crate::altium::encode_utf8_param_value(value);
+        let record = format!(
+            "|RECORD=4|Location.X=5|Location.Y=5|FontID=1|%UTF8%Text={utf8_form}|UniqueID=ABCD1234"
+        );
+        let bytes = crate::altium::encode_windows1252(&record);
+
+        let mut symbol = Symbol::new("L");
+        parse_text_record(&mut symbol, &bytes);
+        assert_eq!(
+            symbol.labels[0].text, value,
+            "%UTF8%Text label must decode to the true Unicode value, not ?-mangled"
+        );
+
+        // The same convention for a Parameter (RECORD=41).
+        let record = format!(
+            "|RECORD=41|Location.X=0|Location.Y=0|Color=0|FontID=1|%UTF8%Text={utf8_form}|Name=Value|UniqueID=ABCD1234"
+        );
+        let bytes = crate::altium::encode_windows1252(&record);
+        let mut symbol = Symbol::new("P");
+        parse_text_record(&mut symbol, &bytes);
+        assert_eq!(symbol.parameters[0].value, value);
+        assert_eq!(symbol.parameters[0].name, "Value");
+    }
+
+    #[test]
+    fn plain_win1252_text_record_reads_unchanged() {
+        // A record with no `%UTF8%` marker takes the unchanged decode path and
+        // reads the Windows-1252 value verbatim (here `µ`, byte 0xB5).
+        let bytes = crate::altium::encode_windows1252(
+            "|RECORD=41|Location.X=0|Location.Y=0|Color=0|FontID=1|Text=10\u{00B5}F|Name=Value|UniqueID=ABCD1234",
+        );
+        let mut symbol = Symbol::new("P");
+        parse_text_record(&mut symbol, &bytes);
+        assert_eq!(symbol.parameters[0].value, "10\u{00B5}F");
     }
 }

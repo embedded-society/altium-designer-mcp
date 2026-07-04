@@ -279,6 +279,27 @@ fn encode_component_header(symbol: &Symbol) -> String {
     format!("|{}", parts.join("|"))
 }
 
+/// Formats a text field as `<key>=<value>`, promoting it to `%UTF8%<key>` when
+/// the value carries characters Windows-1252 cannot represent.
+///
+/// A pure-Windows-1252 value emits the plain `<key>=<value>` — byte-identical to
+/// the pre-UTF-8 output, so the common case (and everything in the golden library)
+/// is unchanged. A value with non-Windows-1252 characters (Cyrillic, CJK, Greek
+/// `Ω`, …) would otherwise be silently corrupted to `?` by the record's
+/// Windows-1252 encoder; instead it is emitted as `%UTF8%<key>=<utf8-bytes>` so
+/// the true value survives, matching Altium / `AltiumSharp`. Only one of the two
+/// keys is ever written (never both), mirroring `AltiumSharp`'s writer.
+fn text_field(key: &str, value: &str) -> String {
+    if crate::altium::requires_utf8(value) {
+        format!(
+            "%UTF8%{key}={}",
+            crate::altium::encode_utf8_param_value(value)
+        )
+    } else {
+        format!("{key}={value}")
+    }
+}
+
 /// Returns `"|Key=value"` when `value` is non-zero, or an empty string when it
 /// is zero. Altium omits zero-valued integer parameters such as `Color` and
 /// `AreaColor` from a record's text (its `AddNonZero` helper); our reader
@@ -472,7 +493,7 @@ fn encode_parameter(param: &Parameter, index: usize) -> String {
         parts.push("IsConfigurable=T".to_string());
     }
     if !param.value.is_empty() {
-        parts.push(format!("Text={}", param.value));
+        parts.push(text_field("Text", &param.value));
     }
     if !param.description.is_empty() {
         parts.push(format!("Description={}", param.description));
@@ -489,8 +510,8 @@ fn encode_parameter(param: &Parameter, index: usize) -> String {
 /// Encodes a designator record.
 fn encode_designator(designator: &str) -> String {
     format!(
-        "|RECORD=34|IndexInSheet=-1|OwnerPartId=-1|Location.Y=-6|Color=8388608|FontID=1|Text={}|Name=Designator|ReadOnlyState=1|UniqueID={}",
-        designator,
+        "|RECORD=34|IndexInSheet=-1|OwnerPartId=-1|Location.Y=-6|Color=8388608|FontID=1|{}|Name=Designator|ReadOnlyState=1|UniqueID={}",
+        text_field("Text", designator),
         generate_unique_id()
     )
 }
@@ -736,7 +757,7 @@ fn encode_label(label: &Label, index: usize) -> String {
     };
     let is_hidden = if label.is_hidden { "|IsHidden=T" } else { "" };
     format!(
-        "|RECORD=4|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T{}{}{}|FontID={}|Orientation={}|Justification={}{}{}{}|Text={}|UniqueID={}",
+        "|RECORD=4|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T{}{}{}|FontID={}|Orientation={}|Justification={}{}{}{}|{}|UniqueID={}",
         index,
         label.owner_part_id,
         coord_param("Location.X", label.x),
@@ -748,7 +769,7 @@ fn encode_label(label: &Label, index: usize) -> String {
         is_mirrored,
         is_hidden,
         write_display_flags(label.display_flags),
-        label.text,
+        text_field("Text", &label.text),
         label.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
 }
@@ -766,7 +787,7 @@ fn encode_text(text: &Text, index: usize) -> String {
     };
     let is_hidden = if text.is_hidden { "|IsHidden=T" } else { "" };
     format!(
-        "|RECORD=4|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T{}{}{}|FontID={}|Orientation={}|Justification={}{}{}|Text={}|UniqueID={}",
+        "|RECORD=4|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T{}{}{}|FontID={}|Orientation={}|Justification={}{}{}|{}|UniqueID={}",
         index,
         text.owner_part_id,
         coord_param("Location.X", text.x),
@@ -777,7 +798,7 @@ fn encode_text(text: &Text, index: usize) -> String {
         justification,
         is_mirrored,
         is_hidden,
-        text.text,
+        text_field("Text", &text.text),
         text.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
 }
@@ -1661,5 +1682,129 @@ mod tests {
         );
         assert!(s.contains("|Location.Y=7|"), "Y integer part: {s}");
         assert!(s.contains("|Location.Y_Frac=50000|"), "Y fractional: {s}");
+    }
+
+    #[test]
+    fn win1252_text_stays_byte_identical_no_utf8_key() {
+        // A pure-Windows-1252 value (the common case, and everything in the golden
+        // library) must emit the plain `Text=` key exactly as before the UTF-8 fix
+        // — no `%UTF8%Text` key, so the record bytes are unchanged (oracle-clean).
+        // `µ` (U+00B5) is representable in Windows-1252, so it stays plain.
+        let mut p = Parameter::new("Value", "10\u{00B5}F"); // "10µF"
+        p.unique_id = Some("ABCD1234".to_string());
+        let s = encode_parameter(&p, 1);
+        assert!(s.contains("|Text=10\u{00B5}F|"), "plain Text key: {s}");
+        assert!(
+            !s.contains("%UTF8%"),
+            "no %UTF8% key for Win-1252 value: {s}"
+        );
+
+        let mut label = Label {
+            x: 0.0,
+            y: 0.0,
+            text: "caf\u{00E9}".to_string(), // "café" — all Windows-1252
+            font_id: 1,
+            color: 0,
+            justification: TextJustification::BottomLeft,
+            rotation: 0.0,
+            is_mirrored: false,
+            is_hidden: false,
+            owner_part_id: 1,
+            display_flags: ShapeDisplayFlags::default(),
+            unique_id: Some("ABCD1234".to_string()),
+        };
+        let s = encode_label(&label, 1);
+        assert!(s.contains("|Text=caf\u{00E9}|"), "plain Text key: {s}");
+        assert!(
+            !s.contains("%UTF8%"),
+            "no %UTF8% key for Win-1252 label: {s}"
+        );
+
+        // And an ASCII label is byte-identical to the pre-change output.
+        label.text = "R".to_string();
+        let s = encode_label(&label, 1);
+        assert!(s.contains("|Text=R|"), "plain ASCII Text: {s}");
+        assert!(!s.contains("%UTF8%"), "no %UTF8% key for ASCII: {s}");
+    }
+
+    #[test]
+    fn non_win1252_text_emits_only_utf8_key() {
+        // Greek Ω (U+03A9) is NOT in Windows-1252. The writer must emit the value
+        // behind `%UTF8%Text` (never a lossy plain `Text=10k?`), matching Altium.
+        let mut p = Parameter::new("Value", "10k\u{03A9}"); // "10kΩ"
+        p.unique_id = Some("ABCD1234".to_string());
+        let s = encode_parameter(&p, 1);
+        assert!(s.contains("|%UTF8%Text="), "emit %UTF8%Text key: {s}");
+        // Exactly one Text key, and no lossy plain `Text=...?`.
+        assert!(
+            !s.contains("|Text="),
+            "must not also emit a lossy plain Text: {s}"
+        );
+        // The stored value is the UTF-8 byte sequence mapped one-char-per-byte.
+        let expected = crate::altium::encode_utf8_param_value("10k\u{03A9}");
+        assert!(
+            s.contains(&format!("|%UTF8%Text={expected}|")),
+            "stored UTF-8 form: {s}"
+        );
+    }
+
+    #[test]
+    fn non_latin_text_round_trips_intact_through_library() {
+        // The headline correctness fix: a Label and a Parameter whose values are
+        // NOT representable in Windows-1252 survive a full write -> read round-trip
+        // with the exact Unicode string intact — not the `?`-mangled corruption
+        // that today's plain-Text-only path produces.
+        for value in [
+            "10k\u{03A9}",
+            "\u{041F}\u{0440}\u{0438}\u{0432}\u{0435}\u{0442}",
+            "\u{6284}\u{6297}\u{5668}",
+        ] {
+            let mut symbol = Symbol::new("R");
+            let mut p = Parameter::new("Value", value);
+            p.unique_id = Some("WXYZ7890".to_string());
+            symbol.add_parameter(p);
+            symbol.add_label(Label {
+                x: 0.0,
+                y: 0.0,
+                text: value.to_string(),
+                font_id: 1,
+                color: 0,
+                justification: TextJustification::BottomLeft,
+                rotation: 0.0,
+                is_mirrored: false,
+                is_hidden: false,
+                owner_part_id: 1,
+                display_flags: ShapeDisplayFlags::default(),
+                unique_id: Some("ABCD1234".to_string()),
+            });
+            symbol.designator = value.to_string();
+
+            let mut lib = crate::altium::schlib::SchLib::new();
+            lib.add(symbol);
+            let mut buf = std::io::Cursor::new(Vec::new());
+            lib.write(&mut buf).expect("library should serialise");
+            buf.set_position(0);
+            let back_lib =
+                crate::altium::schlib::SchLib::read(buf).expect("library should deserialise");
+            let sym = back_lib.get("R").expect("symbol R round-trips");
+
+            let param = sym
+                .parameters
+                .iter()
+                .find(|q| q.name == "Value")
+                .expect("Value parameter round-trips");
+            assert_eq!(
+                param.value, value,
+                "parameter value must survive UTF-8 round-trip intact, not be ?-mangled"
+            );
+            assert_eq!(
+                sym.labels[0].text, value,
+                "label text must survive UTF-8 round-trip intact"
+            );
+            assert_eq!(
+                sym.designator, value,
+                "designator must survive UTF-8 round-trip intact"
+            );
+        }
     }
 }

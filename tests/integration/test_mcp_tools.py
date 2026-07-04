@@ -20,6 +20,15 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from mcp_client import McpTestClient, TestRunner, find_binary  # noqa: E402
 
+# The UTF-8 round-trip test prints non-Latin values (Ω, Cyrillic, CJK); force
+# UTF-8 stdout so a legacy-code-page Windows console (e.g. cp1250) does not raise
+# UnicodeEncodeError while reporting results. No-op where stdout is already UTF-8.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
 
 def test_initialise(client, runner):
     print("\n=== Test: initialise ===")
@@ -1451,6 +1460,75 @@ def test_write_schlib_parameter_display_fields(client, runner, schlib_path):
     )
 
 
+def test_write_schlib_utf8_text(client, runner, schlib_path):
+    print("\n=== Test: write_schlib non-Latin (UTF-8) text round trip ===")
+    # Coverage PR-16 (correctness): a label / parameter / designator value with
+    # characters outside Windows-1252 (Greek Ω, Cyrillic, CJK) must survive a
+    # write -> read with the exact Unicode value intact. Before the fix the value
+    # was silently corrupted to '?' (Windows-1252 could not represent it); now the
+    # writer stores it behind `%UTF8%Text` and the reader decodes it back.
+    omega = "10kΩ"  # 10kΩ (Greek capital omega, not in Windows-1252)
+    cyrillic = "Привет"  # Привет
+    cjk = "抄抗器"  # CJK string
+    symbol = {
+        "name": "UTF8SYM",
+        "designator": cjk,
+        "pins": [
+            {
+                "designator": "1",
+                "name": "P1",
+                "x": -50,
+                "y": 0,
+                "length": 30,
+                "orientation": "left",
+            }
+        ],
+        "labels": [{"x": 0, "y": 40, "text": cyrillic}],
+        "parameters": [{"name": "Value", "value": omega}],
+    }
+
+    write = client.call_tool(
+        "write_schlib",
+        {"filepath": schlib_path, "symbols": [symbol], "append": False},
+    )
+    runner.check(
+        not write.get("_isError"),
+        "write_schlib (UTF-8 text) succeeded",
+        actual=write,
+    )
+
+    read = client.call_tool("read_schlib", {"filepath": schlib_path})
+    runner.check(not read.get("_isError"), "read_schlib succeeded", actual=read)
+
+    symbols = {s.get("name"): s for s in read.get("symbols", [])}
+    sym = symbols.get("UTF8SYM", {})
+    runner.check(bool(sym), "UTF8SYM symbol present", actual=list(symbols))
+
+    params = {p.get("name"): p for p in sym.get("parameters", [])}
+    val = params.get("Value", {})
+    runner.check(
+        val.get("value") == omega,
+        "parameter Ω value survives UTF-8 round-trip intact",
+        actual=val.get("value"),
+        expected=omega,
+    )
+
+    labels = sym.get("labels", [])
+    runner.check(
+        any(l.get("text") == cyrillic for l in labels),
+        "label Cyrillic value survives UTF-8 round-trip intact",
+        actual=[l.get("text") for l in labels],
+        expected=cyrillic,
+    )
+
+    runner.check(
+        sym.get("designator") == cjk,
+        "designator CJK value survives UTF-8 round-trip intact",
+        actual=sym.get("designator"),
+        expected=cjk,
+    )
+
+
 def test_write_pcblib_text_font_style(client, runner, lib_path):
     print("\n=== Test: write_pcblib text mirror/bold/font/kind/justification round trip ===")
     # Coverage PR-10: the text primitive's mirror/bold/font_name plus the
@@ -1545,6 +1623,7 @@ def main():
         test_write_schlib_fields(client, runner, schlib_path)
         test_write_schlib_display_flags(client, runner, schlib_path)
         test_write_schlib_parameter_display_fields(client, runner, schlib_path)
+        test_write_schlib_utf8_text(client, runner, schlib_path)
         test_read_pcblib_exposes_vias_fills(client, runner, sample_path)
         test_read_schlib_exposes_round_rects_polygons(client, runner, schlib_sample_path)
         test_unknown_tool(client, runner)
