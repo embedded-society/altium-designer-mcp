@@ -27,6 +27,9 @@ for _stream in (sys.stdout, sys.stderr):
     try:
         _stream.reconfigure(encoding="utf-8")
     except (AttributeError, ValueError):
+        # Stream is already UTF-8, or cannot be reconfigured (redirected / older
+        # Python): safe to ignore — this only affects console reporting of the
+        # non-Latin PASS lines, never the test results themselves.
         pass
 
 
