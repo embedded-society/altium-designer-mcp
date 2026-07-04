@@ -19,6 +19,7 @@ impl McpServer {
             // === Library Reading ===
             ToolDefinition {
                 name: "read_pcblib".to_string(),
+                example: Some(serde_json::json!({"name": "read_pcblib", "arguments": {"filepath": "./MyLibrary.PcbLib"}})),
                 description: Some(
                     "Read an Altium .PcbLib file and return its contents including footprints \
                      with their primitives (pads, tracks, arcs, regions, text). Returns structured \
@@ -57,6 +58,7 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "read_schlib".to_string(),
+                example: Some(serde_json::json!({"name": "read_schlib", "arguments": {"filepath": "./MySymbols.SchLib"}})),
                 description: Some(
                     "Read an Altium .SchLib file and return its contents including symbols \
                      with their primitives (pins, rectangles, lines, text). \
@@ -90,6 +92,7 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "list_components".to_string(),
+                example: Some(serde_json::json!({"name": "list_components", "arguments": {"filepath": "./MyLibrary.PcbLib", "limit": 50, "offset": 0, "include_metadata": true}})),
                 description: Some(
                     "List all component/footprint names in an Altium library file (.PcbLib or .SchLib). \
                      Supports pagination with limit/offset for large libraries. Use include_metadata \
@@ -122,6 +125,7 @@ impl McpServer {
             // === Style Extraction ===
             ToolDefinition {
                 name: "extract_style".to_string(),
+                example: Some(serde_json::json!({"name": "extract_style", "arguments": {"filepath": "./MyLibrary.PcbLib"}})),
                 description: Some(
                     "Extract style information from an existing Altium library file. Returns \
                      statistics about track widths, colours, pin lengths, layer usage, and other \
@@ -143,6 +147,7 @@ impl McpServer {
             // === Library Writing ===
             ToolDefinition {
                 name: "write_pcblib".to_string(),
+                example: Some(serde_json::json!({"name": "write_pcblib", "arguments": {"filepath": "./Passives.PcbLib", "footprints": [{"name": "RESC1608X55N", "description": "Chip resistor, 0603 (1608 metric)", "pads": [{"designator": "1", "x": -0.75, "y": 0, "width": 0.9, "height": 0.95}, {"designator": "2", "x": 0.75, "y": 0, "width": 0.9, "height": 0.95}], "tracks": [{"x1": -0.8, "y1": -0.425, "x2": 0.8, "y2": -0.425, "width": 0.12, "layer": "Top Overlay"}, {"x1": -0.8, "y1": 0.425, "x2": 0.8, "y2": 0.425, "width": 0.12, "layer": "Top Overlay"}], "regions": [{"vertices": [{"x": -1.45, "y": -0.73}, {"x": 1.45, "y": -0.73}, {"x": 1.45, "y": 0.73}, {"x": -1.45, "y": 0.73}], "layer": "Top Courtyard"}]}], "append": false}})),
                 description: Some(
                     "Write footprints to an Altium .PcbLib file. Each footprint is defined by \
                      its primitives: pads (with position, size, shape, layer), tracks, vias, \
@@ -399,6 +404,23 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "write_schlib".to_string(),
+                example: Some(serde_json::json!({
+                    "name": "write_schlib",
+                    "arguments": {
+                        "filepath": "./MyLibrary.SchLib",
+                        "symbols": [{
+                            "name": "R",
+                            "designator_prefix": "R",
+                            "pins": [
+                                {"designator": "1", "name": "1", "x": -50, "y": 0, "length": 20, "orientation": "left", "electrical_type": "passive"},
+                                {"designator": "2", "name": "2", "x": 50, "y": 0, "length": 20, "orientation": "right", "electrical_type": "passive"}
+                            ],
+                            "rectangles": [{"x1": -50, "y1": -20, "x2": 50, "y2": 20}],
+                            "parameters": [{"name": "Value", "value": "10k"}],
+                            "footprints": [{"name": "R0402", "library_path": "./MyLibrary.PcbLib"}]
+                        }]
+                    }
+                })),
                 description: Some(
                     "Write schematic symbols to an Altium .SchLib file. Each symbol is defined by \
                      its primitives: pins, rectangles, round_rects, lines, polylines, polygons, \
@@ -697,6 +719,13 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "write_libpkg".to_string(),
+                example: Some(serde_json::json!({
+                    "name": "write_libpkg",
+                    "arguments": {
+                        "filepath": "./MyLibrary.LibPkg",
+                        "documents": ["MyLibrary.SchLib", "MyLibrary.PcbLib"]
+                    }
+                })),
                 description: Some(
                     "Write an Altium Library Package (.LibPkg) project file that groups source \
                      library documents (.SchLib and .PcbLib) so they can be compiled into an \
@@ -725,6 +754,7 @@ impl McpServer {
             // === Library Management ===
             ToolDefinition {
                 name: "delete_component".to_string(),
+                example: Some(serde_json::json!({"name": "delete_component", "arguments": {"filepath": "./MyLibrary.PcbLib", "component_names": ["OLD_FOOTPRINT", "UNUSED_COMPONENT"], "dry_run": false}})),
                 description: Some(
                     "Delete one or more components from an Altium library file (.PcbLib or .SchLib). \
                      The file type is auto-detected from the extension. Returns status for each \
@@ -755,6 +785,7 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "validate_library".to_string(),
+                example: Some(serde_json::json!({"name": "validate_library", "arguments": {"filepath": "./MyLibrary.PcbLib"}})),
                 description: Some(
                     "Validate an Altium library file for common issues. Checks for: empty components \
                      (no pads/pins), duplicate designators, invalid coordinates, zero-size primitives, \
@@ -774,6 +805,7 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "export_library".to_string(),
+                example: Some(serde_json::json!({"name": "export_library", "arguments": {"filepath": "./MyLibrary.PcbLib", "format": "json", "compact": true}})),
                 description: Some(
                     "Export an Altium library to JSON or CSV format for version control, backup, \
                      or external processing. JSON includes full component data; CSV provides a \
@@ -802,6 +834,16 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "import_library".to_string(),
+                example: Some(serde_json::json!({
+                    "name": "import_library",
+                    "arguments": {
+                        "output_path": "./MyLibrary.PcbLib",
+                        "json_data": {
+                            "file_type": "PcbLib",
+                            "footprints": [{"name": "R0402", "pads": []}]
+                        }
+                    }
+                })),
                 description: Some(
                     "Import components from JSON data into an Altium library file. Accepts JSON \
                      in the format produced by export_library, enabling round-trip workflows. \
@@ -829,6 +871,7 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "extract_step_model".to_string(),
+                example: Some(serde_json::json!({"name": "extract_step_model", "arguments": {"filepath": "./MyLibrary.PcbLib", "output_path": "./extracted_model.step", "model": "RESC1005X04L.step", "mode": "auto"}})),
                 description: Some(
                     "Extract embedded STEP 3D models from an Altium .PcbLib file. \
                      Models are stored compressed inside the library and this tool extracts \
@@ -874,6 +917,7 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "diff_libraries".to_string(),
+                example: Some(serde_json::json!({"name": "diff_libraries", "arguments": {"filepath_a": "./OldLibrary.PcbLib", "filepath_b": "./NewLibrary.PcbLib"}})),
                 description: Some(
                     "Compare two Altium library files and report differences. Shows added, removed, \
                      and modified components. Both files must be the same type (.PcbLib or .SchLib)."
@@ -896,6 +940,7 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "batch_update".to_string(),
+                example: Some(serde_json::json!({"name": "batch_update", "arguments": {"filepath": "./MyLibrary.PcbLib", "operation": "update_track_width", "parameters": {"from_width": 0.2, "to_width": 0.25, "tolerance": 0.001}}})),
                 description: Some(
                     "Perform batch updates across all components in an Altium library file. \
                      For PcbLib: update track widths, rename layers. \
@@ -968,6 +1013,7 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "copy_component".to_string(),
+                example: Some(serde_json::json!({"name": "copy_component", "arguments": {"filepath": "./MyLibrary.PcbLib", "source_name": "RESC0603_IPC_MEDIUM", "target_name": "RESC0603_IPC_MEDIUM_V2", "description": "0603 resistor variant 2"}})),
                 description: Some(
                     "Copy/duplicate a component within an Altium library file. Creates a new component \
                      with a different name but identical primitives. Useful for creating variants."
@@ -1002,6 +1048,7 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "rename_component".to_string(),
+                example: Some(serde_json::json!({"name": "rename_component", "arguments": {"filepath": "./MyLibrary.PcbLib", "old_name": "RESC0603_OLD", "new_name": "RESC0603_NEW"}})),
                 description: Some(
                     "Rename a component within an Altium library file. This is an atomic operation \
                      that changes the component's name while preserving all primitives and properties. \
@@ -1033,6 +1080,7 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "copy_component_cross_library".to_string(),
+                example: Some(serde_json::json!({"name": "copy_component_cross_library", "arguments": {"source_filepath": "./SourceLibrary.PcbLib", "target_filepath": "./TargetLibrary.PcbLib", "component_name": "RESC0603_IPC_MEDIUM", "new_name": "RESC0603_COPIED", "description": "Copied from SourceLibrary", "ignore_missing_models": false, "preserve_external_paths": false}})),
                 description: Some(
                     "Copy a component from one Altium library to another. Both libraries must be \
                      the same type (PcbLib to PcbLib, or SchLib to SchLib). Useful for consolidating \
@@ -1076,6 +1124,7 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "merge_libraries".to_string(),
+                example: Some(serde_json::json!({"name": "merge_libraries", "arguments": {"source_filepaths": ["./LibraryA.PcbLib", "./LibraryB.PcbLib", "./LibraryC.PcbLib"], "target_filepath": "./MergedLibrary.PcbLib", "on_duplicate": "skip"}})),
                 description: Some(
                     "Merge multiple Altium libraries into a single library. All source libraries must \
                      be the same type (all PcbLib or all SchLib). Components are copied from each \
@@ -1110,6 +1159,7 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "reorder_components".to_string(),
+                example: Some(serde_json::json!({"name": "reorder_components", "arguments": {"filepath": "./MyLibrary.PcbLib", "component_order": ["RESC1608X55N", "RESC0805X40N", "RESC0402X20N"]}})),
                 description: Some(
                     "Reorder components in an Altium library file (.PcbLib or .SchLib). Specify the \
                      desired order as a list of component names. Components not in the list are placed \
@@ -1134,6 +1184,7 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "update_component".to_string(),
+                example: Some(serde_json::json!({"name": "update_component", "arguments": {"filepath": "./MyLibrary.PcbLib", "component_name": "RESC0402X20N", "footprint": {"name": "RESC0402X20N", "description": "Updated resistor 0402", "pads": [{"designator": "1", "x": -0.5, "y": 0, "width": 0.5, "height": 0.5, "layer": "TopLayer"}, {"designator": "2", "x": 0.5, "y": 0, "width": 0.5, "height": 0.5, "layer": "TopLayer"}]}}})),
                 description: Some(
                     "Update a component in-place within an Altium library file, preserving its position. \
                      For PcbLib, provide a footprint object. For SchLib, provide a symbol object. The \
@@ -1170,6 +1221,7 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "search_components".to_string(),
+                example: Some(serde_json::json!({"name": "search_components", "arguments": {"filepaths": ["./Resistors.PcbLib", "./Capacitors.PcbLib", "./ICs.PcbLib"], "pattern": "SOIC-*", "pattern_type": "glob"}})),
                 description: Some(
                     "Search for components across multiple Altium libraries using regex or glob patterns. \
                      Returns matching component names with their source library paths. Supports both \
@@ -1199,6 +1251,7 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "get_component".to_string(),
+                example: Some(serde_json::json!({"name": "get_component", "arguments": {"filepath": "./MyLibrary.PcbLib", "component_name": "SOIC-8"}})),
                 description: Some(
                     "Get a single component by name from an Altium library. Returns the full component \
                      data (footprint or symbol) without needing to read and filter the entire library. \
@@ -1222,6 +1275,7 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "component_exists".to_string(),
+                example: Some(serde_json::json!({"name": "component_exists", "arguments": {"filepath": "./MyLibrary.PcbLib", "component_names": ["RESC0603", "CAPC0402", "MISSING_COMPONENT"]}})),
                 description: Some(
                     "Check if one or more components exist in an Altium library. Use this to validate \
                      component names before operations like rename, copy, or delete. Supports both \
@@ -1246,6 +1300,7 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "render_footprint".to_string(),
+                example: Some(serde_json::json!({"name": "render_footprint", "arguments": {"filepath": "./MyLibrary.PcbLib", "component_name": "RESC0603_IPC_MEDIUM", "scale": 2.0, "max_width": 80, "max_height": 40}})),
                 description: Some(
                     "Render an ASCII art visualisation of a footprint from a PcbLib file. Shows pads, \
                      tracks, and other primitives in a simple text format for quick preview."
@@ -1280,6 +1335,7 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "render_symbol".to_string(),
+                example: Some(serde_json::json!({"name": "render_symbol", "arguments": {"filepath": "./MyLibrary.SchLib", "component_name": "LM358", "scale": 1.0, "max_width": 80, "max_height": 40, "part_id": 1}})),
                 description: Some(
                     "Render an ASCII art visualisation of a schematic symbol from a SchLib file. \
                      Shows pins, rectangles, lines, and other primitives in a simple text format \
@@ -1320,6 +1376,7 @@ impl McpServer {
             // manage_schlib_parameters - Manage symbol parameters (Value, Manufacturer, etc.)
             ToolDefinition {
                 name: "manage_schlib_parameters".to_string(),
+                example: Some(serde_json::json!({"name": "manage_schlib_parameters", "arguments": {"filepath": "./MyLibrary.SchLib", "component_name": "LM358", "operation": "set", "parameter_name": "Value", "value": "LM358D"}})),
                 description: Some(
                     "Manage component parameters in Altium SchLib files. Supports listing, \
                      getting, setting, adding, and deleting parameters like Value, Manufacturer, \
@@ -1369,6 +1426,7 @@ impl McpServer {
             // manage_schlib_footprints - Manage footprint links in symbols
             ToolDefinition {
                 name: "manage_schlib_footprints".to_string(),
+                example: Some(serde_json::json!({"name": "manage_schlib_footprints", "arguments": {"filepath": "./MyLibrary.SchLib", "component_name": "LM358", "operation": "add", "footprint_name": "SOIC-8_3.9x4.9mm"}})),
                 description: Some(
                     "Manage footprint links in Altium SchLib symbols. Supports listing, adding, \
                      and removing footprint references that link schematic symbols to PCB footprints."
@@ -1408,6 +1466,7 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "compare_components".to_string(),
+                example: Some(serde_json::json!({"name": "compare_components", "arguments": {"filepath_a": "./LibraryA.PcbLib", "component_a": "RESC0603_V1", "filepath_b": "./LibraryB.PcbLib", "component_b": "RESC0603_V2", "include_geometry": true, "tolerance": 0.001}})),
                 description: Some(
                     "Compare two specific components in detail, showing differences in primitives, \
                      parameters, and properties. Components can be from the same library or different \
@@ -1447,6 +1506,7 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "repair_library".to_string(),
+                example: Some(serde_json::json!({"name": "repair_library", "arguments": {"filepath": "./MyLibrary.PcbLib", "dry_run": true}})),
                 description: Some(
                     "Repair a library by removing orphaned references. For PcbLib files, this removes: \
                      (1) embedded models not referenced by any footprint, and \
@@ -1471,6 +1531,7 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "list_backups".to_string(),
+                example: Some(serde_json::json!({"name": "list_backups", "arguments": {"filepath": "./MyLibrary.PcbLib"}})),
                 description: Some(
                     "List available backup files for an Altium library. Shows timestamped .bak files \
                      that were automatically created before write operations."
@@ -1489,6 +1550,7 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "restore_backup".to_string(),
+                example: Some(serde_json::json!({"name": "restore_backup", "arguments": {"filepath": "./MyLibrary.PcbLib", "backup_path": "MyLibrary.PcbLib.20260125_091500.bak"}})),
                 description: Some(
                     "Restore an Altium library file from a backup. If no specific backup is specified, \
                      restores from the most recent backup."
@@ -1511,6 +1573,7 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "bulk_rename".to_string(),
+                example: Some(serde_json::json!({"name": "bulk_rename", "arguments": {"filepath": "./MyLibrary.PcbLib", "pattern": "^RESC(.*)$", "replacement": "RES_$1", "dry_run": true}})),
                 description: Some(
                     "Rename multiple components in a library using regex pattern matching. \
                      Supports capture groups for flexible renaming (e.g., 'RESC(.*)' -> 'RES_$1')."
@@ -1541,6 +1604,7 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "update_pad".to_string(),
+                example: Some(serde_json::json!({"name": "update_pad", "arguments": {"filepath": "./MyLibrary.PcbLib", "component_name": "RESC0603", "designator": "1", "updates": {"width": 1.0, "height": 0.9, "shape": "rectangle"}, "dry_run": false}})),
                 description: Some(
                     "Update specific properties of a pad in a PcbLib footprint without replacing \
                      the entire component. Find pad by designator and apply only the specified updates."
@@ -1584,6 +1648,7 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "update_primitive".to_string(),
+                example: Some(serde_json::json!({"name": "update_primitive", "arguments": {"filepath": "./MyLibrary.PcbLib", "component_name": "RESC0603", "primitive_type": "track", "index": 0, "updates": {"width": 0.15, "layer": "Top Overlay"}, "dry_run": false}})),
                 description: Some(
                     "Update specific properties of a primitive (track, arc, region, or text) in a \
                      PcbLib footprint. Find primitive by type and index, apply only specified updates."
