@@ -451,8 +451,9 @@ impl McpServer {
     /// `to_layer` fields and reuses [`crate::altium::pcblib::MaskExpansionMode`]
     /// string parsing for the mask mode. Optionals default exactly as
     /// [`crate::altium::pcblib::Via::new`] does when absent.
+    #[allow(clippy::too_many_lines)] // Via has many optional fields requiring individual parsing
     pub(crate) fn parse_via(json: &Value) -> Result<crate::altium::pcblib::Via, String> {
-        use crate::altium::pcblib::{Layer, MaskExpansionMode, Via};
+        use crate::altium::pcblib::{Layer, MaskExpansionMode, PowerPlaneConnectStyle, Via};
 
         let x = json
             .get("x")
@@ -536,6 +537,40 @@ impl McpServer {
         if let Some(v) = json.get("thermal_relief_width").and_then(Value::as_f64) {
             via.thermal_relief_width = v;
         }
+
+        // Power-plane connection (SubRecord-1 @31/@42/@46) + paste-mask @50 +
+        // net index @3. Absent keys keep the from-scratch defaults (= Altium's
+        // via template), so an unspecified via round-trips byte-identically.
+        if let Some(s) = json
+            .get("power_plane_connect_style")
+            .and_then(Value::as_str)
+        {
+            via.power_plane_connect_style = match s.to_lowercase().as_str() {
+                "direct" => PowerPlaneConnectStyle::Direct,
+                "no_connect" | "noconnect" => PowerPlaneConnectStyle::NoConnect,
+                _ => PowerPlaneConnectStyle::Relief,
+            };
+        }
+        if let Some(v) = json
+            .get("power_plane_relief_expansion")
+            .and_then(Value::as_f64)
+        {
+            via.power_plane_relief_expansion = v;
+        }
+        if let Some(v) = json.get("power_plane_clearance").and_then(Value::as_f64) {
+            via.power_plane_clearance = v;
+        }
+        if let Some(v) = json.get("paste_mask_expansion").and_then(Value::as_f64) {
+            via.paste_mask_expansion = v;
+        }
+        if let Some(v) = json
+            .get("net_index")
+            .and_then(Value::as_u64)
+            .and_then(|v| u16::try_from(v).ok())
+        {
+            via.net_index = v;
+        }
+        via.flags = json_flags(json);
 
         Ok(via)
     }
@@ -1365,6 +1400,51 @@ mod tests {
         assert!((pad.relief_air_gap - 0.254).abs() < 1e-9);
         assert!((pad.power_plane_relief_expansion - 0.508).abs() < 1e-9);
         assert!((pad.power_plane_clearance - 0.508).abs() < 1e-9);
+    }
+
+    #[test]
+    fn parse_via_reads_power_plane_and_flags() {
+        use crate::altium::pcblib::{PcbFlags, PowerPlaneConnectStyle};
+        // PR-7: power-plane connection, paste-mask, net index and flags parse in.
+        let via = McpServer::parse_via(&json!({
+            "x": 0.0, "y": 0.0, "diameter": 0.8, "hole_size": 0.4,
+            "power_plane_connect_style": "direct",
+            "power_plane_relief_expansion": 0.6,
+            "power_plane_clearance": 0.7,
+            "paste_mask_expansion": 0.05,
+            "net_index": 42,
+            "flags": "TENTING_TOP | LOCKED",
+        }))
+        .expect("via should parse");
+        assert_eq!(
+            via.power_plane_connect_style,
+            PowerPlaneConnectStyle::Direct
+        );
+        assert!((via.power_plane_relief_expansion - 0.6).abs() < 1e-9);
+        assert!((via.power_plane_clearance - 0.7).abs() < 1e-9);
+        assert!((via.paste_mask_expansion - 0.05).abs() < 1e-9);
+        assert_eq!(via.net_index, 42);
+        assert!(via.flags.contains(PcbFlags::TENTING_TOP));
+        assert!(via.flags.contains(PcbFlags::LOCKED));
+    }
+
+    #[test]
+    fn parse_via_defaults_match_template() {
+        use crate::altium::pcblib::{PcbFlags, PowerPlaneConnectStyle};
+        // Absent keys keep the from-scratch defaults (= Altium's via template).
+        let via = McpServer::parse_via(&json!({
+            "x": 0.0, "y": 0.0, "diameter": 0.8, "hole_size": 0.4,
+        }))
+        .expect("via should parse");
+        assert_eq!(
+            via.power_plane_connect_style,
+            PowerPlaneConnectStyle::Relief
+        );
+        assert!((via.power_plane_relief_expansion - 0.508).abs() < 1e-9);
+        assert!((via.power_plane_clearance - 0.508).abs() < 1e-9);
+        assert!((via.paste_mask_expansion - 0.0).abs() < 1e-9);
+        assert_eq!(via.net_index, 0xFFFF);
+        assert_eq!(via.flags, PcbFlags::empty());
     }
 
     #[test]

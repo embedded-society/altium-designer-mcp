@@ -441,11 +441,26 @@ pub(super) fn parse_via(data: &[u8], offset: usize) -> ParseResult<Via> {
     let from_layer = layer_from_id(block[29]);
     let to_layer = layer_from_id(block[30]);
 
-    // Extended SubRecord-1 fields (offsets 32-74). A short block falls back to
+    // Common-header flag word @1-2 (locked/keepout/tenting top+bottom). Tenting a
+    // via is the highest-value property here — it covers the pad with solder mask.
+    let flags = read_flags(block);
+    // Net index @3-4 (u16; 0xFFFF = no net). Read-only surface for footprint vias.
+    let net_index = read_u16(block, 3).unwrap_or(0xFFFF);
+
+    // Extended SubRecord-1 fields (offsets 31-74). A short block falls back to
     // the same defaults the Via struct uses.
+    // Power-plane connection style @31 (0=Relief, 1=Direct, 2=NoConnect).
+    let power_plane_connect_style = block.get(31).map_or(PowerPlaneConnectStyle::Relief, |&b| {
+        PowerPlaneConnectStyle::from_id(b)
+    });
     let thermal_relief_gap = read_i32(block, 32).map_or(0.254, to_mm);
     let thermal_relief_conductors = block.get(36).copied().unwrap_or(4);
     let thermal_relief_width = read_i32(block, 38).map_or(0.254, to_mm);
+    // Power-plane relief expansion @42, plane clearance @46 (i32 -> mm).
+    let power_plane_relief_expansion = read_i32(block, 42).map_or(0.508, to_mm);
+    let power_plane_clearance = read_i32(block, 46).map_or(0.508, to_mm);
+    // Paste-mask expansion @50 (i32 -> mm).
+    let paste_mask_expansion = read_i32(block, 50).map_or(0.0, to_mm);
     let solder_mask_expansion = read_i32(block, 54).map_or(0.0, to_mm);
     // Offset 66 is a tri-state mode byte (0=None, 1=FromRule, 2=Manual), not a bool.
     let solder_mask_expansion_mode = block.get(66).map_or(MaskExpansionMode::FromRule, |&b| {
@@ -484,11 +499,17 @@ pub(super) fn parse_via(data: &[u8], offset: usize) -> ParseResult<Via> {
         solder_mask_expansion,
         solder_mask_expansion_mode,
         solder_mask_expansion_back,
+        paste_mask_expansion,
+        power_plane_connect_style,
+        power_plane_relief_expansion,
+        power_plane_clearance,
+        net_index,
         thermal_relief_gap,
         thermal_relief_conductors,
         thermal_relief_width,
         diameter_stack_mode,
         per_layer_diameters,
+        flags,
         unique_id: None,
     };
 

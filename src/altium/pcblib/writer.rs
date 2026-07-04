@@ -732,10 +732,15 @@ const VIA_SR1_TEMPLATE: [u8; 321] = [
 fn encode_via(data: &mut Vec<u8>, via: &Via) {
     let mut block = VIA_SR1_TEMPLATE;
 
-    // Common header (offsets 0-12): MultiLayer + default (saved + unlocked) flags.
+    // Common header (offsets 0-12): MultiLayer + the via's flag word
+    // (locked/keepout/tenting top+bottom).
     let mut header = Vec::with_capacity(13);
-    write_common_header(&mut header, Layer::MultiLayer, PcbFlags::empty());
+    write_common_header(&mut header, Layer::MultiLayer, via.flags);
     block[0..13].copy_from_slice(&header);
+
+    // Net index @3-4 (u16; 0xFFFF = no net). Overlays the header's 0xFF bytes; a
+    // default via keeps 0xFFFF so the template bytes are reproduced unchanged.
+    block[3..5].copy_from_slice(&via.net_index.to_le_bytes());
 
     // Geometry (offsets 13-30).
     block[13..17].copy_from_slice(&from_mm(via.x).to_le_bytes());
@@ -745,10 +750,18 @@ fn encode_via(data: &mut Vec<u8>, via: &Via) {
     block[29] = layer_to_id(via.from_layer);
     block[30] = layer_to_id(via.to_layer);
 
+    // Power-plane connection style @31 (0=Relief, 1=Direct, 2=NoConnect).
+    block[31] = via.power_plane_connect_style.to_id();
+
     // Thermal relief (air gap @32, conductor count @36, conductor width @38).
     block[32..36].copy_from_slice(&from_mm(via.thermal_relief_gap).to_le_bytes());
     block[36] = via.thermal_relief_conductors;
     block[38..42].copy_from_slice(&from_mm(via.thermal_relief_width).to_le_bytes());
+
+    // Power-plane relief expansion @42, plane clearance @46, paste-mask @50.
+    block[42..46].copy_from_slice(&from_mm(via.power_plane_relief_expansion).to_le_bytes());
+    block[46..50].copy_from_slice(&from_mm(via.power_plane_clearance).to_le_bytes());
+    block[50..54].copy_from_slice(&from_mm(via.paste_mask_expansion).to_le_bytes());
 
     // Solder mask expansion @54, its mode @66, diameter stack mode @74.
     block[54..58].copy_from_slice(&from_mm(via.solder_mask_expansion).to_le_bytes());
