@@ -614,7 +614,20 @@ impl McpServer {
             // Parse regions
             if let Some(regions) = fp_json.get("regions").and_then(Value::as_array) {
                 for region_json in regions {
-                    check_keys!(region_json, &["layer", "vertices", "flags"]);
+                    check_keys!(
+                        region_json,
+                        &[
+                            "layer",
+                            "vertices",
+                            "flags",
+                            "kind",
+                            "name",
+                            "net_index",
+                            "cavity_height",
+                            "holes",
+                            "unique_id"
+                        ]
+                    );
                     if let Some(region) = Self::parse_region(region_json) {
                         footprint.add_region(region);
                     }

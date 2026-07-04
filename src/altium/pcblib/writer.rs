@@ -1037,11 +1037,25 @@ fn region_v7_layer_token(layer: Layer) -> String {
     }
 }
 
+/// Formats a length (mm) as an Altium mil-suffixed string with trailing zeros
+/// trimmed (e.g. `0mil`, `0.5mil`, `19.685mil`). Mirrors `AltiumSharp`
+/// `FormatMilCoord` (`ToMils().ToString("0.######") + "mil"`). A `0.0` input
+/// yields exactly `0mil`, keeping the from-scratch region byte-identical.
+fn format_mil_coord(mm: f64) -> String {
+    let mils = mm_to_mil(mm);
+    // Round to 6 decimals and strip trailing zeros / a lone trailing dot.
+    let mut s = format!("{mils:.6}");
+    if s.contains('.') {
+        s = s.trim_end_matches('0').trim_end_matches('.').to_string();
+    }
+    format!("{s}mil")
+}
+
 /// Encodes the properties block for a region.
 ///
 /// Format (matching Altium):
 /// ```text
-/// [common_header:13]       // Layer, flags, padding
+/// [common_header:13]       // Layer, flags, net/poly/comp indices
 /// [reserved:1]             // @13 reserved (0)
 /// [hole_count:2 u16]       // @14-15 number of interior hole contours
 /// [reserved:2]             // @16-17 reserved (0)
@@ -1057,20 +1071,40 @@ fn encode_region_properties(region: &Region) -> Vec<u8> {
 
     // Parameter string in Altium's canonical key order. Unlike other Altium param
     // blocks, a region's nested block has NO leading pipe and carries the full
-    // canonical key set (matching AltiumSharp `BuildRegionParamText`); the values are
-    // the from-scratch defaults. Our reader skips this block by length, so the format
-    // only affects byte-fidelity with genuine Altium output.
+    // canonical key set (matching AltiumSharp `BuildRegionParamText`). Each value is
+    // now taken from the typed field; a default region reproduces the historical
+    // hard-coded string byte-for-byte (KIND=0, NAME=, ARCRESOLUTION=0mil, ...).
     let layer_name = region_v7_layer_token(region.layer);
     let params = format!(
-        "V7_LAYER={layer_name}|NAME=|KIND=0|SUBPOLYINDEX=-1|UNIONINDEX=0\
-         |ARCRESOLUTION=0mil|ISSHAPEBASED=FALSE|CAVITYHEIGHT=0mil"
+        "V7_LAYER={layer_name}|NAME={name}|KIND={kind}|SUBPOLYINDEX={spi}|UNIONINDEX={uix}\
+         |ARCRESOLUTION={arc}|ISSHAPEBASED={shape}|CAVITYHEIGHT={cav}",
+        name = region.name,
+        kind = region.kind.to_id(),
+        spi = region.sub_poly_index,
+        uix = region.union_index,
+        arc = format_mil_coord(region.arc_resolution),
+        shape = if region.is_shape_based {
+            "TRUE"
+        } else {
+            "FALSE"
+        },
+        cav = format_mil_coord(region.cavity_height),
     );
     let params_bytes = crate::altium::encode_windows1252(&params);
 
     let mut block = Vec::with_capacity(22 + params_bytes.len() + 4 + vertex_count * 16);
 
-    // Common header (13 bytes)
+    // Common header (13 bytes): layer + flag word, then the net/polygon/component
+    // indices. `write_common_header` fills bytes 3-12 with 0xFF (a free primitive);
+    // we overlay the modelled indices. Defaults (net=0xFFFF, poly=0xFFFF,
+    // component=-1 -> 0xFFFF) leave the 0xFF bytes untouched, so a from-scratch
+    // region stays byte-identical.
     write_common_header(&mut block, region.layer, region.flags);
+    block[3..5].copy_from_slice(&region.net_index.to_le_bytes());
+    block[5..7].copy_from_slice(&region.polygon_index.to_le_bytes());
+    // -1 (free primitive) and any out-of-range value store as the 0xFFFF sentinel.
+    let component_word = u16::try_from(region.component_index).unwrap_or(0xFFFF);
+    block[7..9].copy_from_slice(&component_word.to_le_bytes());
 
     // @13 reserved | @14-15 hole_count (u16 LE) | @16-17 reserved. With no holes
     // this collapses to `00 00 00 00 00`, byte-identical to the previous output.
@@ -1828,10 +1862,8 @@ mod tests {
                 Vertex { x: 1.0, y: 1.0 },
                 Vertex { x: -1.0, y: 1.0 },
             ],
-            holes: Vec::new(),
             layer: Layer::TopCourtyard,
-            flags: PcbFlags::default(),
-            unique_id: None,
+            ..Region::default()
         };
         let props = encode_region_properties(&region);
         let s = String::from_utf8_lossy(&props);
@@ -1853,10 +1885,8 @@ mod tests {
                 Vertex { x: 1.0, y: 1.0 },
                 Vertex { x: -1.0, y: 1.0 },
             ],
-            holes: Vec::new(),
             layer: Layer::TopCourtyard,
-            flags: PcbFlags::default(),
-            unique_id: None,
+            ..Region::default()
         };
         let mut data = Vec::new();
         encode_region(&mut data, &region);
@@ -1882,10 +1912,8 @@ mod tests {
                 Vertex { x: 1.0, y: 1.0 },
                 Vertex { x: -1.0, y: 1.0 },
             ],
-            holes: Vec::new(),
             layer: Layer::TopCourtyard,
-            flags: PcbFlags::default(),
-            unique_id: None,
+            ..Region::default()
         };
         let props = encode_region_properties(&region);
         assert_eq!(
@@ -1893,6 +1921,92 @@ mod tests {
             &[0x00, 0x00, 0x00, 0x00, 0x00],
             "no-hole region must keep the reserved @13-17 slot zeroed (hole_count=0)"
         );
+    }
+
+    #[test]
+    fn default_region_param_string_is_byte_identical() {
+        use crate::altium::pcblib::primitives::Vertex;
+        // Oracle-safety: a from-scratch region must serialize the exact historical
+        // canonical parameter string, and the common-header net/polygon/component
+        // index bytes (@3-8) must all be 0xFF (a free primitive, no net).
+        let region = Region {
+            vertices: vec![
+                Vertex { x: -1.0, y: -1.0 },
+                Vertex { x: 1.0, y: -1.0 },
+                Vertex { x: 1.0, y: 1.0 },
+                Vertex { x: -1.0, y: 1.0 },
+            ],
+            layer: Layer::TopCourtyard,
+            ..Region::default()
+        };
+        let props = encode_region_properties(&region);
+
+        // Header bytes 3-8 (net + polygon + component indices) are all 0xFF.
+        assert_eq!(
+            &props[3..9],
+            &[0xFF; 6],
+            "default region header net/polygon/component indices must be 0xFF"
+        );
+
+        // The nested parameter string must match the historical hard-coded string
+        // exactly (only V7_LAYER varies with the layer).
+        let param_len = u32::from_le_bytes(props[18..22].try_into().unwrap()) as usize;
+        let params = &props[22..22 + param_len];
+        let expected = b"V7_LAYER=MECHANICAL4|NAME=|KIND=0|SUBPOLYINDEX=-1|UNIONINDEX=0\
+                         |ARCRESOLUTION=0mil|ISSHAPEBASED=FALSE|CAVITYHEIGHT=0mil\0";
+        assert_eq!(
+            params,
+            expected.as_slice(),
+            "default region param string drifted from the byte-identical canonical form: {}",
+            String::from_utf8_lossy(params)
+        );
+    }
+
+    #[test]
+    fn non_default_region_survives_roundtrip() {
+        use super::super::reader::parse_data_stream;
+        use crate::altium::pcblib::primitives::{RegionKind, Vertex};
+        // A region with non-default kind/name/cavity/arc values must survive an
+        // encode -> decode round-trip.
+        let mut fp = Footprint::new("R");
+        fp.add_region(Region {
+            vertices: vec![
+                Vertex { x: -1.0, y: -1.0 },
+                Vertex { x: 1.0, y: -1.0 },
+                Vertex { x: 1.0, y: 1.0 },
+                Vertex { x: -1.0, y: 1.0 },
+            ],
+            layer: Layer::TopCourtyard,
+            kind: RegionKind::Cutout,
+            name: "POUR1".to_string(),
+            cavity_height: 0.0254 * 10.0, // 10 mil in mm
+            arc_resolution: 0.0254 * 0.5, // 0.5 mil in mm
+            union_index: 3,
+            sub_poly_index: 2,
+            is_shape_based: true,
+            ..Region::default()
+        });
+
+        let data = encode_data_stream(&fp).expect("encode should succeed");
+        let mut decoded = Footprint::new("R");
+        parse_data_stream(&mut decoded, &data, None);
+        assert_eq!(decoded.regions.len(), 1);
+        let r = &decoded.regions[0];
+        assert_eq!(r.kind, RegionKind::Cutout);
+        assert_eq!(r.name, "POUR1");
+        assert!(
+            (r.cavity_height - 0.254).abs() < 1e-6,
+            "cav: {}",
+            r.cavity_height
+        );
+        assert!(
+            (r.arc_resolution - 0.0127).abs() < 1e-6,
+            "arc: {}",
+            r.arc_resolution
+        );
+        assert_eq!(r.union_index, 3);
+        assert_eq!(r.sub_poly_index, 2);
+        assert!(r.is_shape_based);
     }
 
     #[test]
@@ -2108,10 +2222,8 @@ mod tests {
                 Vertex { x: 1.0, y: 1.0 },
                 Vertex { x: -1.0, y: 1.0 },
             ],
-            holes: Vec::new(),
             layer: Layer::TopCourtyard,
-            flags: PcbFlags::default(),
-            unique_id: None,
+            ..Region::default()
         };
         let block = encode_region_properties(&region);
         let param_len = u32::from_le_bytes([block[18], block[19], block[20], block[21]]) as usize;

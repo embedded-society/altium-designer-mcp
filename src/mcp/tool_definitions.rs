@@ -329,7 +329,7 @@ impl McpServer {
                                     },
                                     "regions": {
                                         "type": "array",
-                                        "description": "Filled region definitions (courtyard, etc.)",
+                                        "description": "Filled region definitions (courtyard, copper pour, cutout, etc.)",
                                         "items": {
                                             "type": "object",
                                             "properties": {
@@ -344,6 +344,25 @@ impl McpServer {
                                                     }
                                                 },
                                                 "layer": { "type": "string", "description": "Layer name: Top Courtyard, Top Assembly, Mechanical 1, etc." },
+                                                "kind": { "type": ["string", "integer"], "description": "Region kind (optional). \"copper\" (default) for a copper pour/fill, \"cutout\" for a board/polygon cutout, or a raw Altium KIND integer. Default: copper" },
+                                                "name": { "type": "string", "description": "Region name (the NAME parameter, optional). Default: empty" },
+                                                "net_index": { "type": "integer", "description": "Net index into the board net list (optional). 65535 = no net. Default: 65535" },
+                                                "cavity_height": { "type": "number", "description": "Cavity height in mm for embedded components (optional). Default: 0" },
+                                                "holes": {
+                                                    "type": "array",
+                                                    "description": "Interior hole/cutout contours (optional). Each hole is an array of {x,y} vertices subtracted from the outline.",
+                                                    "items": {
+                                                        "type": "array",
+                                                        "items": {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "x": { "type": "number" },
+                                                                "y": { "type": "number" }
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                "unique_id": { "type": "string", "description": "Unique ID (optional, 8-char alphanumeric). Default: none" },
                                                 "flags": { "type": ["string", "integer"], "description": "Primitive flags (optional). Accepts the name string read_pcblib emits (e.g. \"LOCKED\" or \"LOCKED | KEEPOUT\") or a raw bitmask integer (1=locked, 2=polygon, 4=keepout, 8=tenting-top, 16=tenting-bottom). Default: none" }
                                             },
                                             "required": ["vertices", "layer"]

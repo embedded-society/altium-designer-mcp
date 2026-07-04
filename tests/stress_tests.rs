@@ -354,10 +354,8 @@ fn test_complex_region() {
             Vertex { x: 1.0, y: 2.0 },
             Vertex { x: 0.0, y: 2.0 },
         ],
-        holes: Vec::new(),
         layer: Layer::TopCourtyard,
-        flags: PcbFlags::default(),
-        unique_id: None,
+        ..Region::default()
     };
     fp.add_region(region);
 
@@ -393,10 +391,8 @@ fn test_region_with_many_vertices() {
 
     let region = Region {
         vertices,
-        holes: Vec::new(),
         layer: Layer::TopCourtyard,
-        flags: PcbFlags::default(),
-        unique_id: None,
+        ..Region::default()
     };
     fp.add_region(region);
 

@@ -49,7 +49,7 @@ pub use pads::{
     ViaStackMode,
 };
 mod shapes;
-pub use shapes::{Arc, Region, Track, Vertex};
+pub use shapes::{Arc, Region, RegionKind, Track, Vertex};
 mod text;
 pub use text::{Fill, StrokeFont, Text, TextJustification, TextKind};
 

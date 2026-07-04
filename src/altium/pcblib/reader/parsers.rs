@@ -1007,10 +1007,17 @@ pub(super) fn parse_region(data: &[u8], offset: usize) -> ParseResult<Region> {
         ));
     }
 
-    // Common header (13 bytes)
+    // Common header (13 bytes): @0 layer, @1-2 flags, @3-4 net index (u16),
+    // @5-6 polygon index (u16), @7-8 component index (u16, 0xFFFF -> -1), @9-12 reserved.
     let layer_id = props_block[0];
     let layer = layer_from_id(layer_id);
     let flags = read_flags(props_block);
+    let net_index = read_u16(props_block, 3).unwrap_or(0xFFFF);
+    let polygon_index = read_u16(props_block, 5).unwrap_or(0xFFFF);
+    let component_index = match read_u16(props_block, 7).unwrap_or(0xFFFF) {
+        0xFFFF => -1,
+        ci => i32::from(ci),
+    };
 
     // @13 reserved | @14-15 hole_count (u16) | @16-17 reserved. The trailing hole
     // contours (if any) follow the outline. A no-hole region reports 0 here.
@@ -1021,8 +1028,22 @@ pub(super) fn parse_region(data: &[u8], offset: usize) -> ParseResult<Region> {
         AltiumError::parse_error(offset + 18, "failed to read Region parameter string length")
     })? as usize;
 
-    // Skip parameter string, vertex data follows
-    let vertex_offset = 22 + param_len;
+    // Parse the nested C-string parameter block (offsets 22..22+param_len). It carries
+    // KIND, NAME, ARCRESOLUTION, CAVITYHEIGHT, etc. in the canonical `KEY=VALUE|...`
+    // form (no leading pipe, Windows-1252, null-terminated). Historically skipped by
+    // length; now decoded into the region's typed fields.
+    let param_end = 22 + param_len;
+    if props_block.len() < param_end {
+        return Err(AltiumError::parse_error(
+            offset + 22,
+            format!("Region parameter block truncated: needs {param_end} bytes"),
+        ));
+    }
+    let params_str = crate::altium::decode_windows1252(&props_block[22..param_end]);
+    let params = crate::altium::parse_pipe_params_raw(&params_str);
+
+    // Vertex data follows the parameter string.
+    let vertex_offset = param_end;
 
     if props_block.len() < vertex_offset + 4 {
         return Err(AltiumError::parse_error(
@@ -1050,11 +1071,48 @@ pub(super) fn parse_region(data: &[u8], offset: usize) -> ParseResult<Region> {
     // places the next record's type byte immediately after this block, so `current`
     // already points at the next record. (We previously read a spurious second block,
     // which against a real Altium region would mis-read the next record's bytes.)
+    // Extract typed properties from the parsed parameter block. Missing keys fall
+    // back to the from-scratch defaults so a minimal region still round-trips.
+    let kind = params
+        .get("KIND")
+        .and_then(|v| v.parse::<i32>().ok())
+        .map_or(RegionKind::Copper, RegionKind::from_id);
+    let name = params.get("NAME").cloned().unwrap_or_default();
+    let sub_poly_index = params
+        .get("SUBPOLYINDEX")
+        .and_then(|v| v.parse::<i32>().ok())
+        .unwrap_or(-1);
+    let union_index = params
+        .get("UNIONINDEX")
+        .and_then(|v| v.parse::<i32>().ok())
+        .unwrap_or(0);
+    let is_shape_based = params
+        .get("ISSHAPEBASED")
+        .is_some_and(|v| v.eq_ignore_ascii_case("TRUE"));
+    let arc_resolution = parse_mil_value(params.get("ARCRESOLUTION").map(String::as_str));
+    let cavity_height = parse_mil_value(params.get("CAVITYHEIGHT").map(String::as_str));
+    // The `NET` param, when present, carries the numeric net index; otherwise the
+    // common-header index (@3) is authoritative.
+    let net_index = params
+        .get("NET")
+        .and_then(|v| v.parse::<u16>().ok())
+        .unwrap_or(net_index);
+
     let region = Region {
         vertices,
         holes,
         layer,
         flags,
+        kind,
+        name,
+        net_index,
+        polygon_index,
+        component_index,
+        arc_resolution,
+        cavity_height,
+        sub_poly_index,
+        union_index,
+        is_shape_based,
         unique_id: None,
     };
 
