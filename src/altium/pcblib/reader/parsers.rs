@@ -141,6 +141,17 @@ pub(super) fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
         .filter(|d| d.len() >= 596)
         .map_or(HoleShape::Round, |d| hole_shape_from_id(d[262]));
 
+    // Slot length @263 (i32) and hole rotation @267 (f64) live in the same
+    // size/shape block; absent (plain simple pad) they default to 0.
+    let hole_slot_length = per_layer_data
+        .filter(|d| d.len() >= 596)
+        .and_then(|d| read_i32(d, 263))
+        .map_or(0.0, to_mm);
+    let hole_rotation = per_layer_data
+        .filter(|d| d.len() >= 596)
+        .and_then(|d| read_f64(d, 267))
+        .unwrap_or(0.0);
+
     // Stack mode - offset 62
     let stack_mode = if geometry.len() > 62 {
         pad_stack_mode_from_id(geometry[62])
@@ -188,6 +199,15 @@ pub(super) fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
     let relief_air_gap = read_i32(geometry, 74).map_or(0.254, to_mm);
     let power_plane_relief_expansion = read_i32(geometry, 78).map_or(0.508, to_mm);
     let power_plane_clearance = read_i32(geometry, 82).map_or(0.508, to_mm);
+
+    // Drill tolerances @162 / @166 (i32). The 0x7FFFFFFF ("unset") sentinel and
+    // any absent (short pad) value read back as None.
+    let hole_positive_tolerance = read_i32(geometry, 162)
+        .filter(|&t| t != i32::MAX)
+        .map(to_mm);
+    let hole_negative_tolerance = read_i32(geometry, 166)
+        .filter(|&t| t != i32::MAX)
+        .map(to_mm);
 
     // Parse per-layer data when stack mode is not Simple
     // Per-layer data format:
@@ -257,6 +277,10 @@ pub(super) fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
         layer,
         hole_size,
         hole_shape,
+        hole_slot_length,
+        hole_rotation,
+        hole_positive_tolerance,
+        hole_negative_tolerance,
         rotation,
         paste_mask_expansion,
         solder_mask_expansion,
@@ -477,6 +501,11 @@ pub(super) fn parse_via(data: &[u8], offset: usize) -> ParseResult<Via> {
         .get(74)
         .map_or(ViaStackMode::Simple, |&b| via_stack_mode_from_id(b));
 
+    // Drill tolerances @291 / @295 (i32). The 0x7FFFFFFF ("unset") sentinel and
+    // any absent (short block) value read back as None.
+    let hole_positive_tolerance = read_i32(block, 291).filter(|&t| t != i32::MAX).map(to_mm);
+    let hole_negative_tolerance = read_i32(block, 295).filter(|&t| t != i32::MAX).map(to_mm);
+
     // Per-layer diameters: 32 x i32 from offset 75, only for a non-simple stack.
     let per_layer_diameters =
         if diameter_stack_mode != ViaStackMode::Simple && block.len() >= 75 + 32 * 4 {
@@ -499,6 +528,8 @@ pub(super) fn parse_via(data: &[u8], offset: usize) -> ParseResult<Via> {
         solder_mask_expansion,
         solder_mask_expansion_mode,
         solder_mask_expansion_back,
+        hole_positive_tolerance,
+        hole_negative_tolerance,
         paste_mask_expansion,
         power_plane_connect_style,
         power_plane_relief_expansion,

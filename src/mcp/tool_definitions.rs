@@ -202,6 +202,15 @@ impl McpServer {
                                                 },
                                                 "layer": { "type": "string", "description": "Layer name: Top Layer, Bottom Layer, Multi-Layer (default for SMD)" },
                                                 "hole_size": { "type": "number", "description": "Hole diameter for through-hole pads (mm)" },
+                                                "hole_shape": {
+                                                    "type": "string",
+                                                    "enum": ["round", "square", "slot"],
+                                                    "description": "Drill hole shape. Default: round. Use slot for oblong holes (set hole_slot_length)"
+                                                },
+                                                "hole_slot_length": { "type": "number", "description": "Slot length in mm for a slot hole (hole_shape=slot). Default: 0" },
+                                                "hole_rotation": { "type": "number", "description": "Hole rotation in degrees (rotates a slot hole). Default: 0" },
+                                                "hole_positive_tolerance": { "type": "number", "description": "Positive drill tolerance in mm (optional; omit to leave unset)" },
+                                                "hole_negative_tolerance": { "type": "number", "description": "Negative drill tolerance in mm (optional; omit to leave unset)" },
                                                 "solder_mask_expansion": { "type": "number", "description": "Solder mask expansion in mm (optional; omit to use the rule default)" },
                                                 "solder_mask_expansion_mode": {
                                                     "type": "string",
@@ -272,6 +281,8 @@ impl McpServer {
                                                 "power_plane_clearance": { "type": "number", "description": "Power-plane (anti-pad) clearance in mm. Default: 0.508 (20 mil)" },
                                                 "paste_mask_expansion": { "type": "number", "description": "Paste-mask expansion in mm. Default: 0" },
                                                 "net_index": { "type": "integer", "description": "Net index into the board net list (0-65534; 65535 = no net). Default: 65535" },
+                                                "hole_positive_tolerance": { "type": "number", "description": "Positive drill tolerance in mm (optional; omit to leave unset)" },
+                                                "hole_negative_tolerance": { "type": "number", "description": "Negative drill tolerance in mm (optional; omit to leave unset)" },
                                                 "flags": { "type": ["string", "integer"], "description": "Primitive flags (optional). Accepts the name string read_pcblib emits (e.g. \"TENTING_TOP\" or \"LOCKED | KEEPOUT\") or a raw bitmask integer (1=locked, 2=polygon, 4=keepout, 8=tenting-top, 16=tenting-bottom). Tenting covers the via with solder mask. Default: none" }
                                             },
                                             "required": ["x", "y", "diameter", "hole_size"]

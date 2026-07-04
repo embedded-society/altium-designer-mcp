@@ -479,8 +479,8 @@ fn encode_pad_size_shape_block(pad: &Pad) -> Vec<u8> {
     }
     b.push(0); // 261: reserved
     b.push(hole_shape_to_id(pad.hole_shape)); // 262: hole type
-    write_i32(&mut b, 0); // 263-266: hole slot length (not modelled)
-    write_f64(&mut b, 0.0); // 267-274: hole rotation
+    write_i32(&mut b, from_mm(pad.hole_slot_length)); // 263-266: hole slot length
+    write_f64(&mut b, pad.hole_rotation); // 267-274: hole rotation
     for _ in 0..32 {
         write_i32(&mut b, 0); // 275-402: per-layer X offsets
     }
@@ -616,6 +616,14 @@ fn build_pad_extended_tail(pad: &Pad) -> [u8; 141] {
     // 126-141 / 142-157: two per-pad identity GUIDs
     tail[126 - START..142 - START].copy_from_slice(&generate_guid());
     tail[142 - START..158 - START].copy_from_slice(&generate_guid());
+    // 162-165 / 166-169: drill tolerances. `None` leaves the template's
+    // 0x7FFFFFFF "unset" sentinel (byte-identical); `Some(mm)` writes the raw.
+    if let Some(tol) = pad.hole_positive_tolerance {
+        tail[162 - START..166 - START].copy_from_slice(&from_mm(tol).to_le_bytes());
+    }
+    if let Some(tol) = pad.hole_negative_tolerance {
+        tail[166 - START..170 - START].copy_from_slice(&from_mm(tol).to_le_bytes());
+    }
     // 185: reserved marker (0x03 for a standard PcbLib pad)
     tail[185 - START] = 0x03;
 
@@ -774,6 +782,15 @@ fn encode_via(data: &mut Vec<u8>, via: &Via) {
         .solder_mask_expansion_back
         .unwrap_or(via.solder_mask_expansion);
     block[242..246].copy_from_slice(&from_mm(back).to_le_bytes());
+
+    // Drill tolerances @291 / @295. `None` leaves the template's 0x7FFFFFFF
+    // "unset" sentinel (byte-identical); `Some(mm)` writes the raw tolerance.
+    if let Some(tol) = via.hole_positive_tolerance {
+        block[291..295].copy_from_slice(&from_mm(tol).to_le_bytes());
+    }
+    if let Some(tol) = via.hole_negative_tolerance {
+        block[295..299].copy_from_slice(&from_mm(tol).to_le_bytes());
+    }
 
     // Per-layer diameters: 32 x i32 from offset 75. A real stack uses the
     // per-layer array; a simple via repeats its diameter on every layer so it

@@ -277,6 +277,25 @@ fn samples_pcblib_pad_holes() {
 
         assert_eq!(pad.hole_shape, hole_shape, "pad {designator} hole_shape");
     }
+
+    // The slot pad (designator "3") carries a non-zero slot length in its 651-byte
+    // size/shape block (@263 = 200000 raw = 0.508 mm); PR-8 now reads it. Round/square
+    // pads have a zero slot length.
+    let slot_pad = footprint.pads.iter().find(|p| p.designator == "3").unwrap();
+    assert!(
+        approx_eq(slot_pad.hole_slot_length, 0.508, 1e-3),
+        "slot pad hole_slot_length: expected ~0.508 mm, got {}",
+        slot_pad.hole_slot_length
+    );
+    assert!(
+        approx_eq(slot_pad.hole_rotation, 0.0, 1e-6),
+        "slot pad hole_rotation should be 0"
+    );
+    // Golden pads leave both drill tolerances at the 0x7FFFFFFF sentinel -> None.
+    for pad in &footprint.pads {
+        assert_eq!(pad.hole_positive_tolerance, None);
+        assert_eq!(pad.hole_negative_tolerance, None);
+    }
 }
 
 #[test]

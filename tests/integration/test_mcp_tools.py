@@ -815,6 +815,132 @@ def test_write_pcblib_via_thermal_power_plane(client, runner, lib_path):
         )
 
 
+def test_write_pcblib_pad_slot_hole(client, runner, lib_path):
+    print("\n=== Test: write_pcblib pad slot-hole / drill tolerances round trip ===")
+    # Coverage PR-8: a slot hole (length + rotation) and drill tolerances must be
+    # authorable via write_pcblib and round-trip through read_pcblib.
+    footprint = {
+        "name": "PAD_SLOT_RT",
+        "pads": [
+            {
+                "designator": "1",
+                "x": 0.0,
+                "y": 0.0,
+                "width": 2.0,
+                "height": 1.2,
+                "hole_size": 0.8,
+                "layer": "Multi-Layer",
+                "hole_shape": "slot",
+                "hole_slot_length": 1.5,
+                "hole_rotation": 45.0,
+                "hole_positive_tolerance": 0.05,
+                "hole_negative_tolerance": 0.02,
+            }
+        ],
+    }
+    write = client.call_tool(
+        "write_pcblib",
+        {"filepath": lib_path, "footprints": [footprint], "append": False},
+    )
+    runner.check(
+        not write.get("_isError"), "write_pcblib (pad slot) succeeded", actual=write
+    )
+
+    read = client.call_tool("read_pcblib", {"filepath": lib_path})
+    runner.check(not read.get("_isError"), "read_pcblib succeeded", actual=read)
+    footprints = {fp.get("name"): fp for fp in read.get("footprints", [])}
+    fp = footprints.get("PAD_SLOT_RT", {})
+    runner.check(bool(fp), "PAD_SLOT_RT footprint present", actual=list(footprints))
+
+    # Coord fields carry sub-micron fixed-point quantisation; 1e-4 mm is well
+    # below any meaningful PCB tolerance.
+    tol = 1e-4
+    pads = fp.get("pads", [])
+    runner.check(len(pads) == 1, "1 pad survived", actual=len(pads))
+    if pads:
+        p = pads[0]
+        runner.check(
+            p.get("hole_shape") == "slot",
+            "pad hole_shape",
+            actual=p.get("hole_shape"),
+            expected="slot",
+        )
+        runner.check(
+            abs(p.get("hole_slot_length", 0) - 1.5) < tol,
+            "pad hole_slot_length",
+            actual=p.get("hole_slot_length"),
+            expected=1.5,
+        )
+        runner.check(
+            abs(p.get("hole_rotation", 0) - 45.0) < tol,
+            "pad hole_rotation",
+            actual=p.get("hole_rotation"),
+            expected=45.0,
+        )
+        runner.check(
+            abs(p.get("hole_positive_tolerance", 0) - 0.05) < tol,
+            "pad hole_positive_tolerance",
+            actual=p.get("hole_positive_tolerance"),
+            expected=0.05,
+        )
+        runner.check(
+            abs(p.get("hole_negative_tolerance", 0) - 0.02) < tol,
+            "pad hole_negative_tolerance",
+            actual=p.get("hole_negative_tolerance"),
+            expected=0.02,
+        )
+
+
+def test_write_pcblib_via_slot_tolerances(client, runner, lib_path):
+    print("\n=== Test: write_pcblib via drill tolerances round trip ===")
+    # Coverage PR-8: via drill tolerances must round-trip; vias carry no slot
+    # geometry.
+    footprint = {
+        "name": "VIA_TOL_RT",
+        "vias": [
+            {
+                "x": 1.0,
+                "y": 2.0,
+                "diameter": 0.8,
+                "hole_size": 0.4,
+                "hole_positive_tolerance": 0.05,
+                "hole_negative_tolerance": 0.02,
+            }
+        ],
+    }
+    write = client.call_tool(
+        "write_pcblib",
+        {"filepath": lib_path, "footprints": [footprint], "append": False},
+    )
+    runner.check(
+        not write.get("_isError"), "write_pcblib (via tol) succeeded", actual=write
+    )
+
+    read = client.call_tool("read_pcblib", {"filepath": lib_path})
+    runner.check(not read.get("_isError"), "read_pcblib succeeded", actual=read)
+    footprints = {fp.get("name"): fp for fp in read.get("footprints", [])}
+    fp = footprints.get("VIA_TOL_RT", {})
+    runner.check(bool(fp), "VIA_TOL_RT footprint present", actual=list(footprints))
+
+    tol = 1e-4
+    vias = fp.get("vias", [])
+    runner.check(len(vias) == 1, "1 via survived", actual=len(vias))
+    if vias:
+        v = vias[0]
+        runner.check(
+            abs(v.get("hole_positive_tolerance", 0) - 0.05) < tol,
+            "via hole_positive_tolerance",
+            actual=v.get("hole_positive_tolerance"),
+            expected=0.05,
+        )
+        runner.check(
+            abs(v.get("hole_negative_tolerance", 0) - 0.02) < tol,
+            "via hole_negative_tolerance",
+            actual=v.get("hole_negative_tolerance"),
+            expected=0.02,
+        )
+
+
 def test_write_schlib_fields(client, runner, schlib_path):
     print("\n=== Test: write_schlib field-completeness round trip ===")
     # Coverage PR-12/PR-13: every primitive field the read tool round-trips must
@@ -989,6 +1115,8 @@ def main():
         test_write_pcblib_flags_mask_keepout(client, runner, lib_path)
         test_write_pcblib_pad_thermal_relief(client, runner, lib_path)
         test_write_pcblib_via_thermal_power_plane(client, runner, lib_path)
+        test_write_pcblib_pad_slot_hole(client, runner, lib_path)
+        test_write_pcblib_via_slot_tolerances(client, runner, lib_path)
         test_write_schlib_shapes(client, runner, schlib_path)
         test_write_schlib_fields(client, runner, schlib_path)
         test_read_pcblib_exposes_vias_fills(client, runner, sample_path)
