@@ -2039,6 +2039,25 @@ mod tests {
     }
 
     #[test]
+    fn unique_id_via_survives_stream_round_trip() {
+        // PR-R1: a Via's identity GUID survives the UniqueIDs stream encode ->
+        // decode -> apply round-trip (the write-tool path now passes it through).
+        use crate::altium::pcblib::Via;
+        let mut fp = Footprint::new("RT_VIA_UID");
+        let mut via = Via::new(0.0, 0.0, 0.6, 0.3);
+        via.unique_id = Some("VIAUID42".to_string());
+        fp.add_via(via);
+
+        let entries =
+            reader::parse_unique_id_stream(&writer::encode_unique_id_stream(&fp).unwrap());
+        // Apply onto a fresh, id-less footprint of identical shape.
+        let mut fresh = Footprint::new("RT_VIA_UID");
+        fresh.add_via(Via::new(0.0, 0.0, 0.6, 0.3));
+        reader::apply_unique_ids(&mut fresh, &entries);
+        assert_eq!(fresh.vias[0].unique_id.as_deref(), Some("VIAUID42"));
+    }
+
+    #[test]
     fn unique_id_no_primitives_with_ids() {
         // Create a footprint without unique IDs
         let mut footprint = Footprint::new("TEST_NO_IDS");

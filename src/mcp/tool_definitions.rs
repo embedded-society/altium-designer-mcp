@@ -227,6 +227,7 @@ impl McpServer {
                                                 "relief_air_gap": { "type": "number", "description": "Thermal-relief air-gap width in mm. Default: 0.254 (10 mil)" },
                                                 "power_plane_relief_expansion": { "type": "number", "description": "Power-plane relief expansion in mm. Default: 0.508 (20 mil)" },
                                                 "power_plane_clearance": { "type": "number", "description": "Power-plane (anti-pad) clearance to the plane in mm. Default: 0.508 (20 mil)" },
+                                                "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" },
                                                 "flags": { "type": ["string", "integer"], "description": "Primitive flags (optional). Accepts the name string read_pcblib emits (e.g. \"LOCKED\" or \"LOCKED | KEEPOUT\") or a raw bitmask integer (1=locked, 2=polygon, 4=keepout, 8=tenting-top, 16=tenting-bottom). Default: none" }
                                             },
                                             "required": ["designator", "x", "y", "width", "height"]
@@ -246,6 +247,7 @@ impl McpServer {
                                                 "layer": { "type": "string", "description": "Layer name: Top Overlay, Top Assembly, Top Courtyard, Mechanical 1, etc." },
                                                 "solder_mask_expansion": { "type": "number", "description": "Solder mask expansion override in mm (optional; omit to use the rule default)" },
                                                 "keepout_restrictions": { "type": "integer", "description": "Keepout restriction bitmask (optional; defaults to 0)" },
+                                                "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" },
                                                 "flags": { "type": ["string", "integer"], "description": "Primitive flags (optional). Accepts the name string read_pcblib emits (e.g. \"LOCKED\" or \"LOCKED | KEEPOUT\") or a raw bitmask integer (1=locked, 2=polygon, 4=keepout, 8=tenting-top, 16=tenting-bottom). Default: none" }
                                             },
                                             "required": ["x1", "y1", "x2", "y2", "width", "layer"]
@@ -283,6 +285,7 @@ impl McpServer {
                                                 "net_index": { "type": "integer", "description": "Net index into the board net list (0-65534; 65535 = no net). Default: 65535" },
                                                 "hole_positive_tolerance": { "type": "number", "description": "Positive drill tolerance in mm (optional; omit to leave unset)" },
                                                 "hole_negative_tolerance": { "type": "number", "description": "Negative drill tolerance in mm (optional; omit to leave unset)" },
+                                                "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" },
                                                 "flags": { "type": ["string", "integer"], "description": "Primitive flags (optional). Accepts the name string read_pcblib emits (e.g. \"TENTING_TOP\" or \"LOCKED | KEEPOUT\") or a raw bitmask integer (1=locked, 2=polygon, 4=keepout, 8=tenting-top, 16=tenting-bottom). Tenting covers the via with solder mask. Default: none" }
                                             },
                                             "required": ["x", "y", "diameter", "hole_size"]
@@ -302,6 +305,7 @@ impl McpServer {
                                                 "rotation": { "type": "number", "description": "Rotation in degrees. Default: 0" },
                                                 "solder_mask_expansion": { "type": "number", "description": "Solder mask expansion override in mm (optional; omit to use the rule default)" },
                                                 "keepout_restrictions": { "type": "integer", "description": "Keepout restriction bitmask (optional; defaults to 0)" },
+                                                "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" },
                                                 "flags": { "type": ["string", "integer"], "description": "Primitive flags (optional). Accepts the name string read_pcblib emits (e.g. \"LOCKED\" or \"LOCKED | KEEPOUT\") or a raw bitmask integer (1=locked, 2=polygon, 4=keepout, 8=tenting-top, 16=tenting-bottom). Default: none" }
                                             },
                                             "required": ["x1", "y1", "x2", "y2"]
@@ -322,6 +326,7 @@ impl McpServer {
                                                 "layer": { "type": "string", "description": "Layer name: Top Overlay, Top Assembly, Mechanical 1, etc." },
                                                 "solder_mask_expansion": { "type": "number", "description": "Solder mask expansion override in mm (optional; omit to use the rule default)" },
                                                 "keepout_restrictions": { "type": "integer", "description": "Keepout restriction bitmask (optional; defaults to 0)" },
+                                                "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" },
                                                 "flags": { "type": ["string", "integer"], "description": "Primitive flags (optional). Accepts the name string read_pcblib emits (e.g. \"LOCKED\" or \"LOCKED | KEEPOUT\") or a raw bitmask integer (1=locked, 2=polygon, 4=keepout, 8=tenting-top, 16=tenting-bottom). Default: none" }
                                             },
                                             "required": ["x", "y", "radius", "start_angle", "end_angle", "width", "layer"]
@@ -388,6 +393,7 @@ impl McpServer {
                                                 "mirror": { "type": "boolean", "description": "Mirror the text (bottom-side silkscreen). Default: false" },
                                                 "justification": { "type": "string", "enum": ["bottom_left", "bottom_center", "bottom_right", "middle_left", "middle_center", "middle_right", "top_left", "top_center", "top_right"], "description": "Text anchor / justification within its frame. Default: bottom_left" },
                                                 "stroke_width": { "type": "number", "description": "Stroke line width in mm (optional; defaults to Altium's ~4 mil)" },
+                                                "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" },
                                                 "flags": { "type": ["string", "integer"], "description": "Primitive flags (optional). Accepts the name string read_pcblib emits (e.g. \"LOCKED\" or \"LOCKED | KEEPOUT\") or a raw bitmask integer (1=locked, 2=polygon, 4=keepout, 8=tenting-top, 16=tenting-bottom). Default: none" }
                                             },
                                             "required": ["x", "y", "text", "height", "layer"]
@@ -440,7 +446,8 @@ impl McpServer {
                                                 "model_2d_rotation": { "type": "number", "description": "2D placement rotation in degrees (Altium MODEL.2D.ROTATION). Default: 0" },
                                                 "model_id": { "type": "string", "description": "Model GUID referencing an embedded model (Altium MODELID). Default: \"\" (none)" },
                                                 "model_name": { "type": "string", "description": "Model filename or external path (Altium MODEL.NAME). Default: \"\" (none)" },
-                                                "embedded": { "type": "boolean", "description": "Whether the model is embedded in the library (Altium MODEL.EMBED). Default: false" }
+                                                "embedded": { "type": "boolean", "description": "Whether the model is embedded in the library (Altium MODEL.EMBED). Default: false" },
+                                                "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" }
                                             },
                                             "required": ["overall_height"]
                                         }
@@ -555,7 +562,8 @@ impl McpServer {
                                                 "graphically_locked": { "type": "boolean", "description": "Whether the shape is graphically locked. Default: false" },
                                                 "disabled": { "type": "boolean", "description": "Whether the shape is disabled. Default: false" },
                                                 "dimmed": { "type": "boolean", "description": "Whether the shape is dimmed. Default: false" },
-                                                "owner_part_display_mode": { "type": "integer", "description": "Display mode this shape belongs to (0=Normal, 1=first alternate/de-Morgan, ...). Default: 0" }
+                                                "owner_part_display_mode": { "type": "integer", "description": "Display mode this shape belongs to (0=Normal, 1=first alternate/de-Morgan, ...). Default: 0" },
+                                                "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" }
                                             },
                                             "required": ["x1", "y1", "x2", "y2"]
                                         }
@@ -582,7 +590,8 @@ impl McpServer {
                                                 "graphically_locked": { "type": "boolean", "description": "Whether the shape is graphically locked. Default: false" },
                                                 "disabled": { "type": "boolean", "description": "Whether the shape is disabled. Default: false" },
                                                 "dimmed": { "type": "boolean", "description": "Whether the shape is dimmed. Default: false" },
-                                                "owner_part_display_mode": { "type": "integer", "description": "Display mode this shape belongs to (0=Normal, 1=first alternate/de-Morgan, ...). Default: 0" }
+                                                "owner_part_display_mode": { "type": "integer", "description": "Display mode this shape belongs to (0=Normal, 1=first alternate/de-Morgan, ...). Default: 0" },
+                                                "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" }
                                             },
                                             "required": ["x1", "y1", "x2", "y2", "corner_x_radius", "corner_y_radius"]
                                         }
@@ -604,7 +613,8 @@ impl McpServer {
                                                 "graphically_locked": { "type": "boolean", "description": "Whether the shape is graphically locked. Default: false" },
                                                 "disabled": { "type": "boolean", "description": "Whether the shape is disabled. Default: false" },
                                                 "dimmed": { "type": "boolean", "description": "Whether the shape is dimmed. Default: false" },
-                                                "owner_part_display_mode": { "type": "integer", "description": "Display mode this shape belongs to (0=Normal, 1=first alternate/de-Morgan, ...). Default: 0" }
+                                                "owner_part_display_mode": { "type": "integer", "description": "Display mode this shape belongs to (0=Normal, 1=first alternate/de-Morgan, ...). Default: 0" },
+                                                "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" }
                                             },
                                             "required": ["x1", "y1", "x2", "y2"]
                                         }
@@ -638,7 +648,8 @@ impl McpServer {
                                                 "graphically_locked": { "type": "boolean", "description": "Whether the shape is graphically locked. Default: false" },
                                                 "disabled": { "type": "boolean", "description": "Whether the shape is disabled. Default: false" },
                                                 "dimmed": { "type": "boolean", "description": "Whether the shape is dimmed. Default: false" },
-                                                "owner_part_display_mode": { "type": "integer", "description": "Display mode this shape belongs to (0=Normal, 1=first alternate/de-Morgan, ...). Default: 0" }
+                                                "owner_part_display_mode": { "type": "integer", "description": "Display mode this shape belongs to (0=Normal, 1=first alternate/de-Morgan, ...). Default: 0" },
+                                                "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" }
                                             },
                                             "required": ["points"]
                                         }
@@ -669,7 +680,8 @@ impl McpServer {
                                                 "graphically_locked": { "type": "boolean", "description": "Whether the shape is graphically locked. Default: false" },
                                                 "disabled": { "type": "boolean", "description": "Whether the shape is disabled. Default: false" },
                                                 "dimmed": { "type": "boolean", "description": "Whether the shape is dimmed. Default: false" },
-                                                "owner_part_display_mode": { "type": "integer", "description": "Display mode this shape belongs to (0=Normal, 1=first alternate/de-Morgan, ...). Default: 0" }
+                                                "owner_part_display_mode": { "type": "integer", "description": "Display mode this shape belongs to (0=Normal, 1=first alternate/de-Morgan, ...). Default: 0" },
+                                                "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" }
                                             },
                                             "required": ["points"]
                                         }
@@ -692,7 +704,8 @@ impl McpServer {
                                                 "graphically_locked": { "type": "boolean", "description": "Whether the shape is graphically locked. Default: false" },
                                                 "disabled": { "type": "boolean", "description": "Whether the shape is disabled. Default: false" },
                                                 "dimmed": { "type": "boolean", "description": "Whether the shape is dimmed. Default: false" },
-                                                "owner_part_display_mode": { "type": "integer", "description": "Display mode this shape belongs to (0=Normal, 1=first alternate/de-Morgan, ...). Default: 0" }
+                                                "owner_part_display_mode": { "type": "integer", "description": "Display mode this shape belongs to (0=Normal, 1=first alternate/de-Morgan, ...). Default: 0" },
+                                                "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" }
                                             },
                                             "required": ["x", "y", "radius"]
                                         }
@@ -716,7 +729,8 @@ impl McpServer {
                                                 "graphically_locked": { "type": "boolean", "description": "Whether the shape is graphically locked. Default: false" },
                                                 "disabled": { "type": "boolean", "description": "Whether the shape is disabled. Default: false" },
                                                 "dimmed": { "type": "boolean", "description": "Whether the shape is dimmed. Default: false" },
-                                                "owner_part_display_mode": { "type": "integer", "description": "Display mode this shape belongs to (0=Normal, 1=first alternate/de-Morgan, ...). Default: 0" }
+                                                "owner_part_display_mode": { "type": "integer", "description": "Display mode this shape belongs to (0=Normal, 1=first alternate/de-Morgan, ...). Default: 0" },
+                                                "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" }
                                             },
                                             "required": ["x", "y", "radius_x", "radius_y"]
                                         }
@@ -740,7 +754,8 @@ impl McpServer {
                                                 "graphically_locked": { "type": "boolean", "description": "Whether the shape is graphically locked. Default: false" },
                                                 "disabled": { "type": "boolean", "description": "Whether the shape is disabled. Default: false" },
                                                 "dimmed": { "type": "boolean", "description": "Whether the shape is dimmed. Default: false" },
-                                                "owner_part_display_mode": { "type": "integer", "description": "Display mode this shape belongs to (0=Normal, 1=first alternate/de-Morgan, ...). Default: 0" }
+                                                "owner_part_display_mode": { "type": "integer", "description": "Display mode this shape belongs to (0=Normal, 1=first alternate/de-Morgan, ...). Default: 0" },
+                                                "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" }
                                             },
                                             "required": ["x", "y", "text"]
                                         }
@@ -760,7 +775,8 @@ impl McpServer {
                                                 "rotation": { "type": "number", "description": "Rotation in degrees. Default: 0" },
                                                 "is_mirrored": { "type": "boolean", "description": "Mirrored. Default: false" },
                                                 "is_hidden": { "type": "boolean", "description": "Hidden. Default: false" },
-                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" }
+                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" },
+                                                "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" }
                                             },
                                             "required": ["x", "y", "text"]
                                         }

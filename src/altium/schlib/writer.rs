@@ -1427,6 +1427,30 @@ mod tests {
     }
 
     #[test]
+    fn test_rectangle_unique_id_roundtrip() {
+        // PR-R1: a SchLib shape's identity GUID (`unique_id`) survives a full
+        // write -> read round-trip, so a read-modify-write keeps stable primitive
+        // identity instead of regenerating a fresh GUID.
+        let mut symbol = Symbol::new("R");
+        let mut rect = Rectangle::new(-10, -5, 10, 5);
+        rect.unique_id = Some("RECTUID7".to_string());
+        symbol.add_rectangle(rect);
+
+        let mut lib = crate::altium::schlib::SchLib::new();
+        lib.add(symbol);
+        let mut buf = std::io::Cursor::new(Vec::new());
+        lib.write(&mut buf).expect("library should serialise");
+        buf.set_position(0);
+        let back_lib =
+            crate::altium::schlib::SchLib::read(buf).expect("library should deserialise");
+        let back_sym = back_lib.get("R").expect("symbol R round-trips");
+        assert_eq!(
+            back_sym.rectangles[0].unique_id.as_deref(),
+            Some("RECTUID7")
+        );
+    }
+
+    #[test]
     fn test_label_booleans_only_when_true() {
         let mut label = Label {
             x: 0.0,
