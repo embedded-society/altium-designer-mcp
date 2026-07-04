@@ -1284,7 +1284,11 @@ impl McpServer {
                             "x1",
                             "x2",
                             "y1",
-                            "y2"
+                            "y2",
+                            "graphically_locked",
+                            "disabled",
+                            "dimmed",
+                            "owner_part_display_mode"
                         ]
                     );
                     if let Some(rect) = Self::parse_schlib_rectangle(rect_json) {
@@ -1311,7 +1315,11 @@ impl McpServer {
                             "x1",
                             "x2",
                             "y1",
-                            "y2"
+                            "y2",
+                            "graphically_locked",
+                            "disabled",
+                            "dimmed",
+                            "owner_part_display_mode"
                         ]
                     );
                     if let Some(round_rect) = Self::parse_schlib_round_rect(round_rect_json) {
@@ -1333,7 +1341,11 @@ impl McpServer {
                             "x1",
                             "x2",
                             "y1",
-                            "y2"
+                            "y2",
+                            "graphically_locked",
+                            "disabled",
+                            "dimmed",
+                            "owner_part_display_mode"
                         ]
                     );
                     if let Some(line) = Self::parse_schlib_line(line_json) {
@@ -1357,7 +1369,11 @@ impl McpServer {
                             "points",
                             "start_line_shape",
                             "transparent",
-                            "vertices"
+                            "vertices",
+                            "graphically_locked",
+                            "disabled",
+                            "dimmed",
+                            "owner_part_display_mode"
                         ]
                     );
                     if let Some(polyline) = Self::parse_schlib_polyline(polyline_json) {
@@ -1378,7 +1394,11 @@ impl McpServer {
                             "line_width",
                             "owner_part_id",
                             "points",
-                            "vertices"
+                            "vertices",
+                            "graphically_locked",
+                            "disabled",
+                            "dimmed",
+                            "owner_part_display_mode"
                         ]
                     );
                     if let Some(polygon) = Self::parse_schlib_polygon(polygon_json) {
@@ -1404,7 +1424,11 @@ impl McpServer {
                             "radius",
                             "start_angle",
                             "x",
-                            "y"
+                            "y",
+                            "graphically_locked",
+                            "disabled",
+                            "dimmed",
+                            "owner_part_display_mode"
                         ]
                     );
                     if let Some(arc) = Self::parse_schlib_arc(arc_json) {
@@ -1428,7 +1452,11 @@ impl McpServer {
                             "radius_y",
                             "transparent",
                             "x",
-                            "y"
+                            "y",
+                            "graphically_locked",
+                            "disabled",
+                            "dimmed",
+                            "owner_part_display_mode"
                         ]
                     );
                     if let Some(ellipse) = Self::parse_schlib_ellipse(ellipse_json) {
@@ -1453,7 +1481,11 @@ impl McpServer {
                             "rotation",
                             "text",
                             "x",
-                            "y"
+                            "y",
+                            "graphically_locked",
+                            "disabled",
+                            "dimmed",
+                            "owner_part_display_mode"
                         ]
                     );
                     if let Some(label) = Self::parse_schlib_label(label_json) {
@@ -1500,7 +1532,11 @@ impl McpServer {
                             "hidden",
                             "font_id",
                             "color",
-                            "owner_part_id"
+                            "owner_part_id",
+                            "graphically_locked",
+                            "disabled",
+                            "dimmed",
+                            "owner_part_display_mode"
                         ]
                     );
                     if let Some(param) = Self::parse_schlib_parameter(param_json) {

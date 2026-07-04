@@ -22,7 +22,7 @@
 use super::coord;
 use super::primitives::{
     Arc, Bezier, Ellipse, EllipticalArc, FootprintModel, Label, Line, Parameter, Pin, Polygon,
-    Polyline, Rectangle, RoundRect, Text, TextJustification,
+    Polyline, Rectangle, RoundRect, ShapeDisplayFlags, Text, TextJustification,
 };
 use super::Symbol;
 use crate::altium::framing::{write_cstring_param_block, write_pascal_string};
@@ -318,6 +318,54 @@ fn push_point(parts: &mut Vec<String>, n: usize, x: f64, y: f64) {
     }
 }
 
+/// Emits the four universal display/lock flags as `|KEY=VALUE` tokens, each
+/// only when non-default. Matching Altium's omit-when-default behaviour, a shape
+/// carrying only defaults emits nothing here (so its record stays byte-identical
+/// to pre-flag output). Bool flags emit `=T` when set; `OwnerPartDisplayMode`
+/// emits its integer when non-zero.
+fn write_display_flags(flags: ShapeDisplayFlags) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    if flags.graphically_locked {
+        out.push_str("|GraphicallyLocked=T");
+    }
+    if flags.disabled {
+        out.push_str("|Disabled=T");
+    }
+    if flags.dimmed {
+        out.push_str("|Dimmed=T");
+    }
+    if flags.owner_part_display_mode != 0 {
+        let _ = write!(
+            out,
+            "|OwnerPartDisplayMode={}",
+            flags.owner_part_display_mode
+        );
+    }
+    out
+}
+
+/// Pushes the universal display/lock flags into a `parts` vector that is later
+/// joined by `|` (the list-style encoders: parameter, polyline, polygon). Each
+/// key is pushed only when non-default, mirroring [`write_display_flags`].
+fn push_display_flags(parts: &mut Vec<String>, flags: ShapeDisplayFlags) {
+    if flags.graphically_locked {
+        parts.push("GraphicallyLocked=T".to_string());
+    }
+    if flags.disabled {
+        parts.push("Disabled=T".to_string());
+    }
+    if flags.dimmed {
+        parts.push("Dimmed=T".to_string());
+    }
+    if flags.owner_part_display_mode != 0 {
+        parts.push(format!(
+            "OwnerPartDisplayMode={}",
+            flags.owner_part_display_mode
+        ));
+    }
+}
+
 /// Encodes a rectangle record.
 fn encode_rectangle(rect: &Rectangle, index: usize) -> String {
     let transparent = if rect.transparent { "T" } else { "F" };
@@ -329,7 +377,7 @@ fn encode_rectangle(rect: &Rectangle, index: usize) -> String {
     format!(
         "|RECORD=14|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T\
          {}{}{}{}\
-         |LineWidth={}{}{}{}{}|Transparent={}|UniqueID={}",
+         |LineWidth={}{}{}{}{}|Transparent={}{}|UniqueID={}",
         index,
         rect.owner_part_id,
         coord_param("Location.X", rect.x1),
@@ -342,6 +390,7 @@ fn encode_rectangle(rect: &Rectangle, index: usize) -> String {
         line_style,
         is_solid,
         transparent,
+        write_display_flags(rect.display_flags),
         rect.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
 }
@@ -356,7 +405,7 @@ fn encode_line(line: &Line, index: usize) -> String {
     };
     let line_style = nonzero("LineStyle", u32::from(line.line_style));
     format!(
-        "|RECORD=13|IndexInSheet={}|OwnerPartId={}{}{}{}{}{}|LineWidth={}{}{}|UniqueID={}",
+        "|RECORD=13|IndexInSheet={}|OwnerPartId={}{}{}{}{}{}|LineWidth={}{}{}{}|UniqueID={}",
         index,
         line.owner_part_id,
         not_accessible,
@@ -367,6 +416,7 @@ fn encode_line(line: &Line, index: usize) -> String {
         line.line_width,
         nonzero("Color", line.color),
         line_style,
+        write_display_flags(line.display_flags),
         line.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
 }
@@ -409,6 +459,7 @@ fn encode_parameter(param: &Parameter, index: usize) -> String {
         parts.push(format!("Text={}", param.value));
     }
     parts.push(format!("Name={}", param.name));
+    push_display_flags(&mut parts, param.display_flags);
     parts.push(format!(
         "UniqueID={}",
         param.unique_id.clone().unwrap_or_else(generate_unique_id)
@@ -453,6 +504,8 @@ fn encode_polyline(polyline: &Polyline, index: usize) -> String {
         parts.push("Transparent=T".to_string());
     }
 
+    push_display_flags(&mut parts, polyline.display_flags);
+
     parts.push(format!(
         "UniqueID={}",
         polyline
@@ -490,6 +543,8 @@ fn encode_polygon(polygon: &Polygon, index: usize) -> String {
         push_point(&mut parts, i + 1, *x, *y);
     }
 
+    push_display_flags(&mut parts, polygon.display_flags);
+
     parts.push(format!(
         "UniqueID={}",
         polygon.unique_id.clone().unwrap_or_else(generate_unique_id)
@@ -507,7 +562,7 @@ fn encode_arc(arc: &Arc, index: usize) -> String {
         ""
     };
     format!(
-        "|RECORD=12|IndexInSheet={}|OwnerPartId={}{}{}{}{}|StartAngle={}|EndAngle={}|LineWidth={}{}{}|UniqueID={}",
+        "|RECORD=12|IndexInSheet={}|OwnerPartId={}{}{}{}{}|StartAngle={}|EndAngle={}|LineWidth={}{}{}{}|UniqueID={}",
         index,
         arc.owner_part_id,
         not_accessible,
@@ -519,6 +574,7 @@ fn encode_arc(arc: &Arc, index: usize) -> String {
         arc.line_width,
         nonzero("Color", arc.color),
         nonzero("AreaColor", arc.fill_color),
+        write_display_flags(arc.display_flags),
         arc.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
 }
@@ -561,7 +617,7 @@ fn encode_ellipse(ellipse: &Ellipse, index: usize) -> String {
         ""
     };
     format!(
-        "|RECORD=8|IndexInSheet={}|OwnerPartId={}{}{}{}{}|LineWidth={}{}{}{}{}|UniqueID={}",
+        "|RECORD=8|IndexInSheet={}|OwnerPartId={}{}{}{}{}|LineWidth={}{}{}{}{}{}|UniqueID={}",
         index,
         ellipse.owner_part_id,
         coord_param("Location.X", ellipse.x),
@@ -573,6 +629,7 @@ fn encode_ellipse(ellipse: &Ellipse, index: usize) -> String {
         nonzero("AreaColor", ellipse.fill_color),
         is_solid,
         transparent,
+        write_display_flags(ellipse.display_flags),
         ellipse.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
 }
@@ -592,7 +649,7 @@ fn encode_round_rect(round_rect: &RoundRect, index: usize) -> String {
         "|RECORD=10|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T\
          {}{}{}{}\
          {}{}\
-         |LineWidth={}{}{}{}{}{}|UniqueID={}",
+         |LineWidth={}{}{}{}{}{}{}|UniqueID={}",
         index,
         round_rect.owner_part_id,
         coord_param("Location.X", round_rect.x1),
@@ -607,6 +664,7 @@ fn encode_round_rect(round_rect: &RoundRect, index: usize) -> String {
         line_style,
         is_solid,
         transparent,
+        write_display_flags(round_rect.display_flags),
         round_rect
             .unique_id
             .clone()
@@ -659,7 +717,7 @@ fn encode_label(label: &Label, index: usize) -> String {
     };
     let is_hidden = if label.is_hidden { "|IsHidden=T" } else { "" };
     format!(
-        "|RECORD=4|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T{}{}{}|FontID={}|Orientation={}|Justification={}{}{}|Text={}|UniqueID={}",
+        "|RECORD=4|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T{}{}{}|FontID={}|Orientation={}|Justification={}{}{}{}|Text={}|UniqueID={}",
         index,
         label.owner_part_id,
         coord_param("Location.X", label.x),
@@ -670,6 +728,7 @@ fn encode_label(label: &Label, index: usize) -> String {
         justification,
         is_mirrored,
         is_hidden,
+        write_display_flags(label.display_flags),
         label.text,
         label.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
@@ -1266,6 +1325,7 @@ mod tests {
             is_mirrored: false,
             is_hidden: false,
             owner_part_id: 1,
+            display_flags: ShapeDisplayFlags::default(),
             unique_id: Some("ABCD1234".to_string()),
         };
         let s = encode_label(&label, 1);
@@ -1296,6 +1356,7 @@ mod tests {
             color: 0,
             fill_color: 0,
             owner_part_id: 1,
+            display_flags: ShapeDisplayFlags::default(),
             unique_id: Some("ABCD1234".to_string()),
         };
         let s = encode_arc(&arc, 1);
@@ -1319,6 +1380,7 @@ mod tests {
             color: 0,
             fill_color: 0,
             owner_part_id: 1,
+            display_flags: ShapeDisplayFlags::default(),
             unique_id: Some("ABCD1234".to_string()),
         };
         assert!(
@@ -1365,6 +1427,129 @@ mod tests {
         assert!(
             !s.contains("_Frac"),
             "an integer-grid line must emit no _Frac token: {s}"
+        );
+    }
+
+    #[test]
+    fn display_flags_default_shapes_are_byte_identical() {
+        // A default shape (all four universal flags at their defaults) must emit
+        // NO new key — Altium omits them when default, so the encoded record is
+        // unchanged from pre-flag output. Covers all nine graphic shapes.
+        use crate::altium::schlib::primitives::{
+            Ellipse, Label, Parameter, Polygon, Polyline, RoundRect,
+        };
+
+        let rect = encode_rectangle(&Rectangle::new(-5, -5, 5, 5), 1);
+        let round = encode_round_rect(&RoundRect::new(-5, -5, 5, 5, 1, 1), 1);
+        let ell = encode_ellipse(&Ellipse::new(0, 0, 5, 5), 1);
+        let line = encode_line(&Line::new(-5, 0, 5, 0), 1);
+        let poly_line = encode_polyline(
+            &Polyline {
+                points: vec![(0.0, 0.0), (5.0, 5.0)],
+                line_width: 1,
+                color: 0,
+                line_style: 0,
+                start_line_shape: 0,
+                end_line_shape: 0,
+                line_shape_size: 0,
+                transparent: false,
+                owner_part_id: 1,
+                display_flags: ShapeDisplayFlags::default(),
+                unique_id: Some("ABCD1234".to_string()),
+            },
+            1,
+        );
+        let poly = encode_polygon(
+            &Polygon {
+                points: vec![(0.0, 0.0), (5.0, 0.0), (2.5, 5.0)],
+                line_width: 1,
+                line_color: 0,
+                fill_color: 0,
+                filled: true,
+                owner_part_id: 1,
+                display_flags: ShapeDisplayFlags::default(),
+                unique_id: Some("ABCD1234".to_string()),
+            },
+            1,
+        );
+        let arc = encode_arc(
+            &Arc {
+                x: 0.0,
+                y: 0.0,
+                radius: 10.0,
+                is_not_accessible: true,
+                start_angle: 0.0,
+                end_angle: 360.0,
+                line_width: 1,
+                color: 0,
+                fill_color: 0,
+                owner_part_id: 1,
+                display_flags: ShapeDisplayFlags::default(),
+                unique_id: Some("ABCD1234".to_string()),
+            },
+            1,
+        );
+        let label = encode_label(
+            &Label {
+                x: 0.0,
+                y: 0.0,
+                text: "R".to_string(),
+                font_id: 1,
+                color: 0,
+                justification: TextJustification::BottomLeft,
+                rotation: 0.0,
+                is_mirrored: false,
+                is_hidden: false,
+                owner_part_id: 1,
+                display_flags: ShapeDisplayFlags::default(),
+                unique_id: Some("ABCD1234".to_string()),
+            },
+            1,
+        );
+        let param = encode_parameter(&Parameter::new("Value", ""), 1);
+
+        for (name, s) in [
+            ("rectangle", rect),
+            ("round_rect", round),
+            ("ellipse", ell),
+            ("line", line),
+            ("polyline", poly_line),
+            ("polygon", poly),
+            ("arc", arc),
+            ("label", label),
+            ("parameter", param),
+        ] {
+            assert!(
+                !s.contains("GraphicallyLocked")
+                    && !s.contains("Disabled")
+                    && !s.contains("Dimmed")
+                    && !s.contains("OwnerPartDisplayMode"),
+                "{name} with default display flags must emit no flag key: {s}"
+            );
+        }
+    }
+
+    #[test]
+    fn display_flags_emitted_only_when_non_default() {
+        let mut rect = Rectangle::new(-5, -5, 5, 5);
+        rect.display_flags.graphically_locked = true;
+        rect.display_flags.disabled = true;
+        rect.display_flags.dimmed = true;
+        rect.display_flags.owner_part_display_mode = 1;
+        let s = encode_rectangle(&rect, 1);
+        assert!(s.contains("|GraphicallyLocked=T"), "emit locked: {s}");
+        assert!(s.contains("|Disabled=T"), "emit disabled: {s}");
+        assert!(s.contains("|Dimmed=T"), "emit dimmed: {s}");
+        assert!(
+            s.contains("|OwnerPartDisplayMode=1"),
+            "emit display mode: {s}"
+        );
+        // Never a `=F` for the three display booleans (matches omit-when-default).
+        assert!(
+            !s.contains("GraphicallyLocked=F")
+                && !s.contains("Disabled=F")
+                && !s.contains("Dimmed=F"),
+            "never emit a display-flag boolean =F: {s}"
         );
     }
 

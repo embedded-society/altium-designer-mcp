@@ -551,7 +551,11 @@ impl McpServer {
                                                 "line_style": { "type": "integer", "description": "Border line style: 0=Solid, 1=Dashed, 2=Dotted. Default: 0" },
                                                 "filled": { "type": "boolean", "description": "Whether filled. Default: true" },
                                                 "transparent": { "type": "boolean", "description": "Whether the fill is transparent. Default: false" },
-                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" }
+                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" },
+                                                "graphically_locked": { "type": "boolean", "description": "Whether the shape is graphically locked. Default: false" },
+                                                "disabled": { "type": "boolean", "description": "Whether the shape is disabled. Default: false" },
+                                                "dimmed": { "type": "boolean", "description": "Whether the shape is dimmed. Default: false" },
+                                                "owner_part_display_mode": { "type": "integer", "description": "Display mode this shape belongs to (0=Normal, 1=first alternate/de-Morgan, ...). Default: 0" }
                                             },
                                             "required": ["x1", "y1", "x2", "y2"]
                                         }
@@ -574,7 +578,11 @@ impl McpServer {
                                                 "line_style": { "type": "integer", "description": "Border line style: 0=Solid, 1=Dashed, 2=Dotted. Default: 0" },
                                                 "filled": { "type": "boolean", "description": "Whether filled. Default: true" },
                                                 "transparent": { "type": "boolean", "description": "Whether the fill is transparent. Default: false" },
-                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" }
+                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" },
+                                                "graphically_locked": { "type": "boolean", "description": "Whether the shape is graphically locked. Default: false" },
+                                                "disabled": { "type": "boolean", "description": "Whether the shape is disabled. Default: false" },
+                                                "dimmed": { "type": "boolean", "description": "Whether the shape is dimmed. Default: false" },
+                                                "owner_part_display_mode": { "type": "integer", "description": "Display mode this shape belongs to (0=Normal, 1=first alternate/de-Morgan, ...). Default: 0" }
                                             },
                                             "required": ["x1", "y1", "x2", "y2", "corner_x_radius", "corner_y_radius"]
                                         }
@@ -592,7 +600,11 @@ impl McpServer {
                                                 "line_width": { "type": "integer", "description": "Line width. Default: 1" },
                                                 "color": { "type": "integer", "description": "Line BGR colour. Default: 0x000080" },
                                                 "line_style": { "type": "integer", "description": "Line style: 0=Solid, 1=Dashed, 2=Dotted. Default: 0" },
-                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" }
+                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" },
+                                                "graphically_locked": { "type": "boolean", "description": "Whether the shape is graphically locked. Default: false" },
+                                                "disabled": { "type": "boolean", "description": "Whether the shape is disabled. Default: false" },
+                                                "dimmed": { "type": "boolean", "description": "Whether the shape is dimmed. Default: false" },
+                                                "owner_part_display_mode": { "type": "integer", "description": "Display mode this shape belongs to (0=Normal, 1=first alternate/de-Morgan, ...). Default: 0" }
                                             },
                                             "required": ["x1", "y1", "x2", "y2"]
                                         }
@@ -622,7 +634,11 @@ impl McpServer {
                                                 "end_line_shape": { "type": "integer", "description": "End endpoint (arrowhead) shape id. Default: 0 (none)" },
                                                 "line_shape_size": { "type": "integer", "description": "Size of the endpoint shapes. Default: 0" },
                                                 "transparent": { "type": "boolean", "description": "Whether the polyline is transparent. Default: false" },
-                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" }
+                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" },
+                                                "graphically_locked": { "type": "boolean", "description": "Whether the shape is graphically locked. Default: false" },
+                                                "disabled": { "type": "boolean", "description": "Whether the shape is disabled. Default: false" },
+                                                "dimmed": { "type": "boolean", "description": "Whether the shape is dimmed. Default: false" },
+                                                "owner_part_display_mode": { "type": "integer", "description": "Display mode this shape belongs to (0=Normal, 1=first alternate/de-Morgan, ...). Default: 0" }
                                             },
                                             "required": ["points"]
                                         }
@@ -649,7 +665,11 @@ impl McpServer {
                                                 "line_color": { "type": "integer", "description": "Border BGR colour. Default: 0x000080" },
                                                 "fill_color": { "type": "integer", "description": "Fill BGR colour. Default: 0xB0FFFF (Altium light yellow)" },
                                                 "filled": { "type": "boolean", "description": "Whether filled. Default: true" },
-                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" }
+                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" },
+                                                "graphically_locked": { "type": "boolean", "description": "Whether the shape is graphically locked. Default: false" },
+                                                "disabled": { "type": "boolean", "description": "Whether the shape is disabled. Default: false" },
+                                                "dimmed": { "type": "boolean", "description": "Whether the shape is dimmed. Default: false" },
+                                                "owner_part_display_mode": { "type": "integer", "description": "Display mode this shape belongs to (0=Normal, 1=first alternate/de-Morgan, ...). Default: 0" }
                                             },
                                             "required": ["points"]
                                         }
@@ -668,7 +688,11 @@ impl McpServer {
                                                 "line_width": { "type": "integer", "description": "Line width. Default: 1" },
                                                 "color": { "type": "integer", "description": "Line BGR colour. Default: 0x000080" },
                                                 "fill_color": { "type": "integer", "description": "Fill BGR colour (maps to AreaColor). Default: 0 (no fill)" },
-                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" }
+                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" },
+                                                "graphically_locked": { "type": "boolean", "description": "Whether the shape is graphically locked. Default: false" },
+                                                "disabled": { "type": "boolean", "description": "Whether the shape is disabled. Default: false" },
+                                                "dimmed": { "type": "boolean", "description": "Whether the shape is dimmed. Default: false" },
+                                                "owner_part_display_mode": { "type": "integer", "description": "Display mode this shape belongs to (0=Normal, 1=first alternate/de-Morgan, ...). Default: 0" }
                                             },
                                             "required": ["x", "y", "radius"]
                                         }
@@ -688,7 +712,11 @@ impl McpServer {
                                                 "fill_color": { "type": "integer", "description": "Fill BGR colour. Default: 0xB0FFFF (Altium light yellow)" },
                                                 "filled": { "type": "boolean", "description": "Whether filled. Default: true" },
                                                 "transparent": { "type": "boolean", "description": "Whether the fill is transparent. Default: false" },
-                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" }
+                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" },
+                                                "graphically_locked": { "type": "boolean", "description": "Whether the shape is graphically locked. Default: false" },
+                                                "disabled": { "type": "boolean", "description": "Whether the shape is disabled. Default: false" },
+                                                "dimmed": { "type": "boolean", "description": "Whether the shape is dimmed. Default: false" },
+                                                "owner_part_display_mode": { "type": "integer", "description": "Display mode this shape belongs to (0=Normal, 1=first alternate/de-Morgan, ...). Default: 0" }
                                             },
                                             "required": ["x", "y", "radius_x", "radius_y"]
                                         }
@@ -708,7 +736,11 @@ impl McpServer {
                                                 "rotation": { "type": "number", "description": "Rotation in degrees. Default: 0" },
                                                 "is_mirrored": { "type": "boolean", "description": "Mirrored. Default: false" },
                                                 "is_hidden": { "type": "boolean", "description": "Hidden. Default: false" },
-                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" }
+                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" },
+                                                "graphically_locked": { "type": "boolean", "description": "Whether the shape is graphically locked. Default: false" },
+                                                "disabled": { "type": "boolean", "description": "Whether the shape is disabled. Default: false" },
+                                                "dimmed": { "type": "boolean", "description": "Whether the shape is dimmed. Default: false" },
+                                                "owner_part_display_mode": { "type": "integer", "description": "Display mode this shape belongs to (0=Normal, 1=first alternate/de-Morgan, ...). Default: 0" }
                                             },
                                             "required": ["x", "y", "text"]
                                         }
@@ -746,7 +778,11 @@ impl McpServer {
                                                 "font_id": { "type": "integer", "description": "Font ID. Default: 1" },
                                                 "color": { "type": "integer", "description": "BGR colour. Default: 0x800000 (dark red)" },
                                                 "hidden": { "type": "boolean", "description": "Whether hidden. Default: false" },
-                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" }
+                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" },
+                                                "graphically_locked": { "type": "boolean", "description": "Whether the shape is graphically locked. Default: false" },
+                                                "disabled": { "type": "boolean", "description": "Whether the shape is disabled. Default: false" },
+                                                "dimmed": { "type": "boolean", "description": "Whether the shape is dimmed. Default: false" },
+                                                "owner_part_display_mode": { "type": "integer", "description": "Display mode this shape belongs to (0=Normal, 1=first alternate/de-Morgan, ...). Default: 0" }
                                             },
                                             "required": ["name"]
                                         }

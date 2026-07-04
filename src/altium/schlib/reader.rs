@@ -22,8 +22,8 @@
 
 use super::primitives::{
     Arc, Bezier, Ellipse, EllipticalArc, FootprintModel, Label, Line, Parameter, Pin,
-    PinElectricalType, PinOrientation, PinSymbol, Polygon, Polyline, Rectangle, RoundRect, Text,
-    TextJustification,
+    PinElectricalType, PinOrientation, PinSymbol, Polygon, Polyline, Rectangle, RoundRect,
+    ShapeDisplayFlags, Text, TextJustification,
 };
 use super::Symbol;
 use crate::altium::bytes::{
@@ -371,6 +371,22 @@ fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
     })
 }
 
+/// Reads the four universal display/lock flags shared by every graphic shape
+/// (`GRAPHICALLYLOCKED` / `DISABLED` / `DIMMED` / `OWNERPARTDISPLAYMODE`).
+/// Altium omits each key when it holds its default, so an absent key defaults to
+/// `false` / `0` — matching `AltiumSharp`'s `TryGetBool` / `TryGetInt`.
+fn read_display_flags(props: &HashMap<String, String>) -> ShapeDisplayFlags {
+    ShapeDisplayFlags {
+        graphically_locked: props.get("graphicallylocked").is_some_and(|s| s == "T"),
+        disabled: props.get("disabled").is_some_and(|s| s == "T"),
+        dimmed: props.get("dimmed").is_some_and(|s| s == "T"),
+        owner_part_display_mode: props
+            .get("ownerpartdisplaymode")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0),
+    }
+}
+
 /// Parses a rectangle from properties.
 #[allow(clippy::unnecessary_wraps)] // infallible (all coords default); Option kept for uniform parser dispatch
 fn parse_rectangle(props: &HashMap<String, String>) -> Option<Rectangle> {
@@ -412,6 +428,7 @@ fn parse_rectangle(props: &HashMap<String, String>) -> Option<Rectangle> {
         filled: props.get("issolid").is_some_and(|s| s == "T"),
         transparent,
         owner_part_id,
+        display_flags: read_display_flags(props),
         unique_id: props.get("uniqueid").cloned(),
     })
 }
@@ -452,6 +469,7 @@ fn parse_line(props: &HashMap<String, String>) -> Option<Line> {
         line_style,
         is_not_accessible,
         owner_part_id,
+        display_flags: read_display_flags(props),
         unique_id: props.get("uniqueid").cloned(),
     })
 }
@@ -496,6 +514,7 @@ fn parse_parameter(props: &HashMap<String, String>) -> Option<Parameter> {
         read_only_state,
         param_type,
         owner_part_id,
+        display_flags: read_display_flags(props),
         unique_id: props.get("uniqueid").cloned(),
     })
 }
@@ -558,6 +577,7 @@ fn parse_polyline(props: &HashMap<String, String>) -> Option<Polyline> {
         line_shape_size,
         transparent,
         owner_part_id,
+        display_flags: read_display_flags(props),
         unique_id: props.get("uniqueid").cloned(),
     })
 }
@@ -605,6 +625,7 @@ fn parse_polygon(props: &HashMap<String, String>) -> Option<Polygon> {
         fill_color,
         filled,
         owner_part_id,
+        display_flags: read_display_flags(props),
         unique_id: props.get("uniqueid").cloned(),
     })
 }
@@ -649,6 +670,7 @@ fn parse_ellipse(props: &HashMap<String, String>) -> Option<Ellipse> {
         filled,
         transparent,
         owner_part_id,
+        display_flags: read_display_flags(props),
         unique_id: props.get("uniqueid").cloned(),
     })
 }
@@ -694,6 +716,7 @@ fn parse_arc(props: &HashMap<String, String>) -> Option<Arc> {
         color,
         fill_color,
         owner_part_id,
+        display_flags: read_display_flags(props),
         unique_id: props.get("uniqueid").cloned(),
     })
 }
@@ -787,6 +810,7 @@ fn parse_round_rect(props: &HashMap<String, String>) -> Option<RoundRect> {
         filled,
         transparent,
         owner_part_id,
+        display_flags: read_display_flags(props),
         unique_id: props.get("uniqueid").cloned(),
     })
 }
@@ -884,6 +908,7 @@ fn parse_label(props: &HashMap<String, String>) -> Option<Label> {
         is_mirrored,
         is_hidden,
         owner_part_id,
+        display_flags: read_display_flags(props),
         unique_id: props.get("uniqueid").cloned(),
     })
 }
@@ -987,6 +1012,63 @@ mod tests {
         assert_eq!(parsed.swap_id_group, "GRP");
         assert_eq!(parsed.part_and_sequence, "A|&|B");
         assert_eq!(parsed.default_value, "5V");
+    }
+
+    #[test]
+    fn display_flags_round_trip_through_text_record() {
+        // A rectangle carrying all four non-default flags survives a
+        // parse of an Altium-style record; absent keys default to false/0.
+        let rect = parse_rectangle(&parse_properties(
+            "|RECORD=14|Location.X=-5|Location.Y=-5|Corner.X=5|Corner.Y=5|LineWidth=1\
+             |GraphicallyLocked=T|Disabled=T|Dimmed=T|OwnerPartDisplayMode=1",
+        ))
+        .unwrap();
+        assert!(rect.display_flags.graphically_locked);
+        assert!(rect.display_flags.disabled);
+        assert!(rect.display_flags.dimmed);
+        assert_eq!(rect.display_flags.owner_part_display_mode, 1);
+
+        // A record omitting them reads all defaults.
+        let plain = parse_rectangle(&parse_properties(
+            "|RECORD=14|Location.X=-5|Location.Y=-5|Corner.X=5|Corner.Y=5|LineWidth=1",
+        ))
+        .unwrap();
+        assert_eq!(plain.display_flags, ShapeDisplayFlags::default());
+    }
+
+    #[test]
+    fn display_flags_encode_decode_round_trip() {
+        // encode -> decode via the writer/reader keeps the four flags on a shape.
+        use crate::altium::schlib::writer;
+        let mut label = Label {
+            x: 0.0,
+            y: 0.0,
+            text: "L".to_string(),
+            font_id: 1,
+            color: 0,
+            justification: TextJustification::BottomLeft,
+            rotation: 0.0,
+            is_mirrored: false,
+            is_hidden: false,
+            owner_part_id: 1,
+            display_flags: ShapeDisplayFlags {
+                graphically_locked: true,
+                disabled: true,
+                dimmed: true,
+                owner_part_display_mode: 1,
+            },
+            unique_id: Some("ABCD1234".to_string()),
+        };
+        let mut symbol = Symbol::new("FLAGS");
+        symbol.add_label(label.clone());
+        let data = writer::encode_data_stream(&symbol).unwrap();
+        let mut round = Symbol::new("FLAGS");
+        parse_data_stream(&mut round, &data);
+        let parsed = &round.labels[0];
+        assert_eq!(parsed.display_flags, label.display_flags);
+        // Sanity: also exercise a defaulted label to prove absence reads default.
+        label.display_flags = ShapeDisplayFlags::default();
+        assert_eq!(label.display_flags, ShapeDisplayFlags::default());
     }
 
     #[test]

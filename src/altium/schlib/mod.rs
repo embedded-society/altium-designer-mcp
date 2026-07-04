@@ -816,6 +816,7 @@ mod tests {
             fill_color: 0xFF_00_00, // Blue fill
             filled: true,
             owner_part_id: 1,
+            display_flags: ShapeDisplayFlags::default(),
             unique_id: None,
         };
         symbol.add_polygon(polygon.clone());
@@ -828,6 +829,7 @@ mod tests {
             fill_color: 0,
             filled: false,
             owner_part_id: 1,
+            display_flags: ShapeDisplayFlags::default(),
             unique_id: None,
         };
         symbol.add_polygon(polygon);
@@ -1001,6 +1003,7 @@ mod tests {
             color: 0,
             fill_color: 0x11_22_33,
             owner_part_id: 1,
+            display_flags: ShapeDisplayFlags::default(),
             unique_id: None,
         };
         symbol.add_arc(arc);
@@ -1269,6 +1272,7 @@ mod tests {
             color: 0,
             fill_color: 0,
             owner_part_id: 1,
+            display_flags: ShapeDisplayFlags::default(),
             unique_id: None,
         };
         sym.add_arc(arc);
@@ -1283,6 +1287,7 @@ mod tests {
             line_shape_size: 0,
             transparent: false,
             owner_part_id: 1,
+            display_flags: ShapeDisplayFlags::default(),
             unique_id: None,
         });
         sym.add_polygon(Polygon {
@@ -1292,6 +1297,7 @@ mod tests {
             fill_color: 0,
             filled: true,
             owner_part_id: 1,
+            display_flags: ShapeDisplayFlags::default(),
             unique_id: None,
         });
         let label = Label {
@@ -1305,6 +1311,7 @@ mod tests {
             is_mirrored: false,
             is_hidden: false,
             owner_part_id: 1,
+            display_flags: ShapeDisplayFlags::default(),
             unique_id: None,
         };
         sym.add_label(label);

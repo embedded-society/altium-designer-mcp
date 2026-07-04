@@ -8,7 +8,7 @@
 
 use altium_designer_mcp::altium::schlib::{
     Ellipse, Label, Parameter, Pin, PinElectricalType, PinOrientation, PinSymbol, Polygon,
-    Rectangle, RoundRect, SchLib, Symbol, TextJustification,
+    Rectangle, RoundRect, SchLib, ShapeDisplayFlags, Symbol, TextJustification,
 };
 use std::path::PathBuf;
 
@@ -437,6 +437,44 @@ fn samples_schlib_rects() {
     assert!(!unfilled.filled, "unfilled rect is not filled");
     assert_eq!(unfilled.fill_color, 65535, "unfilled rect fill_color");
     assert_eq!(unfilled.line_color, 0, "unfilled rect line_color");
+}
+
+#[test]
+fn samples_schlib_display_flags_default_on_golden_shapes() {
+    // The Altium-authored golden library carries no GraphicallyLocked / Disabled
+    // / Dimmed / OwnerPartDisplayMode on its graphic shapes, so the reader must
+    // decode each as its default (false / 0) — the read half of the
+    // omit-when-default contract. Exercises one shape per graphic family.
+    let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
+    let def = ShapeDisplayFlags::default();
+
+    for r in &lib.get("RECTS").unwrap().rectangles {
+        assert_eq!(r.display_flags, def, "golden rectangle flags default");
+    }
+    for r in &lib.get("ROUNDRECTS").unwrap().round_rects {
+        assert_eq!(r.display_flags, def, "golden round_rect flags default");
+    }
+    for e in &lib.get("ELLIPSES").unwrap().ellipses {
+        assert_eq!(e.display_flags, def, "golden ellipse flags default");
+    }
+    for l in &lib.get("LINES").unwrap().lines {
+        assert_eq!(l.display_flags, def, "golden line flags default");
+    }
+    for p in &lib.get("POLYLINES").unwrap().polylines {
+        assert_eq!(p.display_flags, def, "golden polyline flags default");
+    }
+    for p in &lib.get("POLYGONS").unwrap().polygons {
+        assert_eq!(p.display_flags, def, "golden polygon flags default");
+    }
+    for a in &lib.get("ARCS").unwrap().arcs {
+        assert_eq!(a.display_flags, def, "golden arc flags default");
+    }
+    for l in &lib.get("LABELS").unwrap().labels {
+        assert_eq!(l.display_flags, def, "golden label flags default");
+    }
+    for p in &lib.get("PARAMS").unwrap().parameters {
+        assert_eq!(p.display_flags, def, "golden parameter flags default");
+    }
 }
 
 #[test]

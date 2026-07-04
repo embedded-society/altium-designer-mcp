@@ -1358,6 +1358,7 @@ fn test_schlib_rename_component() {
         filled: true,
         transparent: false,
         owner_part_id: 1,
+        display_flags: altium_designer_mcp::altium::schlib::ShapeDisplayFlags::default(),
         unique_id: None,
     });
     sym.pins.push(Pin {
@@ -1584,6 +1585,7 @@ fn test_schlib_copy_cross_library() {
         filled: true,
         transparent: false,
         owner_part_id: 1,
+        display_flags: altium_designer_mcp::altium::schlib::ShapeDisplayFlags::default(),
         unique_id: None,
     });
     sym.pins.push(Pin {
@@ -1732,6 +1734,7 @@ fn test_schlib_json_roundtrip() {
         filled: true,
         transparent: false,
         owner_part_id: 1,
+        display_flags: altium_designer_mcp::altium::schlib::ShapeDisplayFlags::default(),
         unique_id: None,
     });
     sym.pins.push(Pin {
@@ -1997,6 +2000,7 @@ fn test_schlib_merge_libraries() {
         filled: true,
         transparent: false,
         owner_part_id: 1,
+        display_flags: altium_designer_mcp::altium::schlib::ShapeDisplayFlags::default(),
         unique_id: None,
     });
     lib1.add(sym1);
@@ -2182,6 +2186,7 @@ fn test_schlib_search() {
         filled: false,
         transparent: false,
         owner_part_id: 1,
+        display_flags: altium_designer_mcp::altium::schlib::ShapeDisplayFlags::default(),
         unique_id: None,
     });
     lib.add(sym1);
@@ -2199,6 +2204,7 @@ fn test_schlib_search() {
         filled: false,
         transparent: false,
         owner_part_id: 1,
+        display_flags: altium_designer_mcp::altium::schlib::ShapeDisplayFlags::default(),
         unique_id: None,
     });
     lib.add(sym2);
@@ -2216,6 +2222,7 @@ fn test_schlib_search() {
         filled: false,
         transparent: false,
         owner_part_id: 1,
+        display_flags: altium_designer_mcp::altium::schlib::ShapeDisplayFlags::default(),
         unique_id: None,
     });
     lib.add(sym3);
@@ -2314,6 +2321,7 @@ fn test_schlib_get_component() {
         filled: false,
         transparent: false,
         owner_part_id: 1,
+        display_flags: altium_designer_mcp::altium::schlib::ShapeDisplayFlags::default(),
         unique_id: None,
     });
     sym1.pins.push(Pin {
