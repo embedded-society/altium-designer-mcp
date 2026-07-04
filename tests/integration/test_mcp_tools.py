@@ -1580,6 +1580,159 @@ def test_write_pcblib_text_font_style(client, runner, lib_path):
         runner.check(ref.get("justification") == "top_right", "text justification", actual=ref.get("justification"), expected="top_right")
 
 
+def test_write_pcblib_unique_id_roundtrip(client, runner, lib_path):
+    print("\n=== Test: write_pcblib unique_id round trip ===")
+    # Coverage PR-R1: a primitive's identity GUID (unique_id) written via the tool
+    # must survive read_pcblib unchanged, so a read-modify-write keeps stable
+    # primitive identity instead of regenerating a fresh GUID. Also proves the
+    # write-tool parsers/allow-lists now accept unique_id. Covers a via (parser +
+    # UniqueIDs stream), a region and a text.
+    footprint = {
+        "name": "UID_RT",
+        "pads": [
+            {"designator": "1", "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0},
+        ],
+        "vias": [
+            {
+                "x": 1.5,
+                "y": 2.5,
+                "diameter": 0.6,
+                "hole_size": 0.3,
+                "unique_id": "VIAUID01",
+            }
+        ],
+        "regions": [
+            {
+                "vertices": [
+                    {"x": -1.0, "y": -1.0},
+                    {"x": 1.0, "y": -1.0},
+                    {"x": 1.0, "y": 1.0},
+                ],
+                "layer": "Top Layer",
+                "unique_id": "REGUID02",
+            }
+        ],
+        "text": [
+            {
+                "x": 0.0,
+                "y": 3.0,
+                "text": "REF",
+                "height": 1.0,
+                "layer": "Top Overlay",
+                "unique_id": "TXTUID03",
+            }
+        ],
+    }
+    write = client.call_tool(
+        "write_pcblib",
+        {"filepath": lib_path, "footprints": [footprint], "append": False},
+    )
+    runner.check(
+        not write.get("_isError"), "write_pcblib (unique_id) succeeded", actual=write
+    )
+
+    read = client.call_tool("read_pcblib", {"filepath": lib_path})
+    runner.check(not read.get("_isError"), "read_pcblib succeeded", actual=read)
+    footprints = {fp.get("name"): fp for fp in read.get("footprints", [])}
+    fp = footprints.get("UID_RT", {})
+    runner.check(bool(fp), "UID_RT footprint present", actual=list(footprints))
+
+    vias = fp.get("vias", [])
+    runner.check(len(vias) == 1, "1 via survived", actual=len(vias))
+    if vias:
+        runner.check(
+            vias[0].get("unique_id") == "VIAUID01",
+            "via unique_id preserved",
+            actual=vias[0].get("unique_id"),
+            expected="VIAUID01",
+        )
+
+    regions = fp.get("regions", [])
+    runner.check(len(regions) == 1, "1 region survived", actual=len(regions))
+    if regions:
+        runner.check(
+            regions[0].get("unique_id") == "REGUID02",
+            "region unique_id preserved",
+            actual=regions[0].get("unique_id"),
+            expected="REGUID02",
+        )
+
+    # Match the text we wrote by content (an auto .Designator string may also be
+    # present) and assert its unique_id round-tripped.
+    texts = fp.get("text", [])
+    ref = next((t for t in texts if t.get("text") == "REF"), None)
+    runner.check(ref is not None, "REF text survived", actual=texts)
+    if ref is not None:
+        runner.check(
+            ref.get("unique_id") == "TXTUID03",
+            "text unique_id preserved",
+            actual=ref.get("unique_id"),
+            expected="TXTUID03",
+        )
+
+
+def test_write_schlib_unique_id_roundtrip(client, runner, schlib_path):
+    print("\n=== Test: write_schlib unique_id round trip ===")
+    # Coverage PR-R1: a SchLib shape's identity GUID (unique_id) written via the
+    # tool must survive read_schlib unchanged. Also proves the SchLib shape
+    # allow-lists/parsers now accept unique_id. Covers a rectangle and a label.
+    symbol = {
+        "name": "UID_SYM",
+        "designator_prefix": "U",
+        "pins": [
+            {
+                "designator": "1",
+                "name": "1",
+                "x": -50,
+                "y": 0,
+                "length": 20,
+                "orientation": "left",
+                "electrical_type": "passive",
+            }
+        ],
+        "rectangles": [
+            {"x1": -30, "y1": -20, "x2": 30, "y2": 20, "unique_id": "RECTUID4"}
+        ],
+        "labels": [
+            {"x": 0, "y": 25, "text": "LBL", "unique_id": "LBLUID05"}
+        ],
+    }
+    write = client.call_tool(
+        "write_schlib",
+        {"filepath": schlib_path, "symbols": [symbol], "append": False},
+    )
+    runner.check(
+        not write.get("_isError"), "write_schlib (unique_id) succeeded", actual=write
+    )
+
+    read = client.call_tool("read_schlib", {"filepath": schlib_path})
+    runner.check(not read.get("_isError"), "read_schlib succeeded", actual=read)
+    symbols = {s.get("name"): s for s in read.get("symbols", [])}
+    sym = symbols.get("UID_SYM", {})
+    runner.check(bool(sym), "UID_SYM symbol present", actual=list(symbols))
+
+    rects = sym.get("rectangles", [])
+    runner.check(len(rects) >= 1, "rectangle survived", actual=len(rects))
+    if rects:
+        runner.check(
+            rects[0].get("unique_id") == "RECTUID4",
+            "rectangle unique_id preserved",
+            actual=rects[0].get("unique_id"),
+            expected="RECTUID4",
+        )
+
+    labels = sym.get("labels", [])
+    lbl = next((l for l in labels if l.get("text") == "LBL"), None)
+    runner.check(lbl is not None, "LBL label survived", actual=labels)
+    if lbl is not None:
+        runner.check(
+            lbl.get("unique_id") == "LBLUID05",
+            "label unique_id preserved",
+            actual=lbl.get("unique_id"),
+            expected="LBLUID05",
+        )
+
+
 def main():
     binary = find_binary()
     print(f"Using binary: {binary}")
@@ -1622,11 +1775,13 @@ def main():
         test_write_pcblib_region_kind_net_name(client, runner, lib_path)
         test_write_pcblib_component_body_fields(client, runner, lib_path)
         test_write_pcblib_text_font_style(client, runner, lib_path)
+        test_write_pcblib_unique_id_roundtrip(client, runner, lib_path)
         test_write_schlib_shapes(client, runner, schlib_path)
         test_write_schlib_fields(client, runner, schlib_path)
         test_write_schlib_display_flags(client, runner, schlib_path)
         test_write_schlib_parameter_display_fields(client, runner, schlib_path)
         test_write_schlib_utf8_text(client, runner, schlib_path)
+        test_write_schlib_unique_id_roundtrip(client, runner, schlib_path)
         test_read_pcblib_exposes_vias_fills(client, runner, sample_path)
         test_read_schlib_exposes_round_rects_polygons(client, runner, schlib_sample_path)
         test_unknown_tool(client, runner)

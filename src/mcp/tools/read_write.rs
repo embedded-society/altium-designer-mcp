@@ -653,6 +653,7 @@ impl McpServer {
                             "stroke_font",
                             "stroke_width",
                             "text",
+                            "unique_id",
                             "x",
                             "y"
                         ]
@@ -796,7 +797,10 @@ impl McpServer {
                         standoff_height: f("standoff_height"),
                         layer,
                         outline,
-                        unique_id: None,
+                        unique_id: body_json
+                            .get("unique_id")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
                         // Preserve a checksum carried through from a read (read -> write
                         // round-trip); 0 for genuinely fresh extruded bodies.
                         model_checksum: body_json
@@ -1285,6 +1289,7 @@ impl McpServer {
                             "x2",
                             "y1",
                             "y2",
+                            "unique_id",
                             "graphically_locked",
                             "disabled",
                             "dimmed",
@@ -1316,6 +1321,7 @@ impl McpServer {
                             "x2",
                             "y1",
                             "y2",
+                            "unique_id",
                             "graphically_locked",
                             "disabled",
                             "dimmed",
@@ -1342,6 +1348,7 @@ impl McpServer {
                             "x2",
                             "y1",
                             "y2",
+                            "unique_id",
                             "graphically_locked",
                             "disabled",
                             "dimmed",
@@ -1370,6 +1377,7 @@ impl McpServer {
                             "start_line_shape",
                             "transparent",
                             "vertices",
+                            "unique_id",
                             "graphically_locked",
                             "disabled",
                             "dimmed",
@@ -1395,6 +1403,7 @@ impl McpServer {
                             "owner_part_id",
                             "points",
                             "vertices",
+                            "unique_id",
                             "graphically_locked",
                             "disabled",
                             "dimmed",
@@ -1425,6 +1434,7 @@ impl McpServer {
                             "start_angle",
                             "x",
                             "y",
+                            "unique_id",
                             "graphically_locked",
                             "disabled",
                             "dimmed",
@@ -1453,6 +1463,7 @@ impl McpServer {
                             "transparent",
                             "x",
                             "y",
+                            "unique_id",
                             "graphically_locked",
                             "disabled",
                             "dimmed",
@@ -1482,6 +1493,7 @@ impl McpServer {
                             "text",
                             "x",
                             "y",
+                            "unique_id",
                             "graphically_locked",
                             "disabled",
                             "dimmed",
@@ -1510,7 +1522,8 @@ impl McpServer {
                             "rotation",
                             "text",
                             "x",
-                            "y"
+                            "y",
+                            "unique_id"
                         ]
                     );
                     if let Some(text) = Self::parse_schlib_text(text_json) {

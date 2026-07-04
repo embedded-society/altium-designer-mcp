@@ -81,6 +81,19 @@ fn json_keepout(json: &Value) -> Option<u8> {
         .and_then(|v| u8::try_from(v).ok())
 }
 
+/// Reads the optional `unique_id` (identity GUID) of any primitive.
+///
+/// `read_pcblib` / `read_schlib` surface each primitive's 8-char Altium unique
+/// ID via serde, so an AI doing a read-modify-write can pass it straight back
+/// here to preserve stable primitive identity across saves (Altium tracks
+/// primitives by this GUID for ECO). An absent value yields `None`, letting the
+/// writer auto-generate a fresh GUID exactly as it does for from-scratch output.
+fn json_unique_id(json: &Value) -> Option<String> {
+    json.get("unique_id")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
 impl McpServer {
     // ==================== Primitive Parsing Helpers ====================
 
@@ -307,7 +320,7 @@ impl McpServer {
             per_layer_corner_radii: None,
             per_layer_offsets: None,
             flags: json_flags(json),
-            unique_id: None,
+            unique_id: json_unique_id(json),
         })
     }
 
@@ -353,6 +366,7 @@ impl McpServer {
         track.flags = json_flags(json);
         track.solder_mask_expansion = json_f64(json, "solder_mask_expansion");
         track.keepout_restrictions = json_keepout(json);
+        track.unique_id = json_unique_id(json);
         Ok(track)
     }
 
@@ -405,7 +419,7 @@ impl McpServer {
             width,
             layer,
             flags: json_flags(json),
-            unique_id: None,
+            unique_id: json_unique_id(json),
             // Optional EE tail (mirrors the modelled optionals; absent keys keep
             // the default `None` so a from-scratch arc is byte-identical).
             solder_mask_expansion: json_f64(json, "solder_mask_expansion"),
@@ -571,7 +585,7 @@ impl McpServer {
             font_name,
             justification,
             flags: json_flags(json),
-            unique_id: None,
+            unique_id: json_unique_id(json),
         })
     }
 
@@ -712,6 +726,7 @@ impl McpServer {
         }
 
         via.flags = json_flags(json);
+        via.unique_id = json_unique_id(json);
 
         Ok(via)
     }
@@ -761,6 +776,7 @@ impl McpServer {
         fill.flags = json_flags(json);
         fill.solder_mask_expansion = json.get("solder_mask_expansion").and_then(Value::as_f64);
         fill.keepout_restrictions = json_keepout(json);
+        fill.unique_id = json_unique_id(json);
 
         Ok(fill)
     }
@@ -961,7 +977,7 @@ impl McpServer {
             transparent,
             owner_part_id,
             display_flags: parse_schlib_display_flags(json),
-            unique_id: None,
+            unique_id: json_unique_id(json),
         })
     }
 
@@ -1017,7 +1033,7 @@ impl McpServer {
             transparent,
             owner_part_id,
             display_flags: parse_schlib_display_flags(json),
-            unique_id: None,
+            unique_id: json_unique_id(json),
         })
     }
 
@@ -1054,7 +1070,7 @@ impl McpServer {
             is_not_accessible: true,
             owner_part_id,
             display_flags: parse_schlib_display_flags(json),
-            unique_id: None,
+            unique_id: json_unique_id(json),
         })
     }
 
@@ -1195,7 +1211,7 @@ impl McpServer {
             transparent,
             owner_part_id,
             display_flags: parse_schlib_display_flags(json),
-            unique_id: None,
+            unique_id: json_unique_id(json),
         })
     }
 
@@ -1246,7 +1262,7 @@ impl McpServer {
             filled,
             owner_part_id,
             display_flags: parse_schlib_display_flags(json),
-            unique_id: None,
+            unique_id: json_unique_id(json),
         })
     }
 
@@ -1288,7 +1304,7 @@ impl McpServer {
             fill_color,
             owner_part_id,
             display_flags: parse_schlib_display_flags(json),
-            unique_id: None,
+            unique_id: json_unique_id(json),
         })
     }
 
@@ -1332,7 +1348,7 @@ impl McpServer {
             transparent,
             owner_part_id,
             display_flags: parse_schlib_display_flags(json),
-            unique_id: None,
+            unique_id: json_unique_id(json),
         })
     }
 
@@ -1393,7 +1409,7 @@ impl McpServer {
             is_hidden,
             owner_part_id,
             display_flags: parse_schlib_display_flags(json),
-            unique_id: None,
+            unique_id: json_unique_id(json),
         })
     }
 
@@ -1453,7 +1469,7 @@ impl McpServer {
             is_mirrored,
             is_hidden,
             owner_part_id,
-            unique_id: None,
+            unique_id: json_unique_id(json),
         })
     }
 }
@@ -1882,5 +1898,57 @@ mod tests {
         }))
         .expect("ellipse should parse");
         assert!(el.transparent);
+    }
+
+    // --- PR-R1: round-trip preservation of a primitive's `unique_id` (identity
+    // GUID). The write-tool parsers previously hard-coded `unique_id: None`,
+    // dropping whatever the reader surfaced; these lock the accept-fix. Absent
+    // `unique_id` MUST stay `None` (the writer then auto-generates, keeping
+    // from-scratch output byte-identical).
+
+    #[test]
+    fn json_unique_id_reads_and_defaults() {
+        assert_eq!(
+            super::json_unique_id(&json!({ "unique_id": "QHHMRSCB" })).as_deref(),
+            Some("QHHMRSCB")
+        );
+        // Absent -> None, so the writer auto-generates exactly as before.
+        assert_eq!(super::json_unique_id(&json!({})), None);
+    }
+
+    #[test]
+    fn parse_via_preserves_provided_unique_id() {
+        let via = McpServer::parse_via(&json!({
+            "x": 0.0, "y": 0.0, "diameter": 0.6, "hole_size": 0.3,
+            "unique_id": "VIAUID01",
+        }))
+        .expect("via should parse");
+        assert_eq!(via.unique_id.as_deref(), Some("VIAUID01"));
+    }
+
+    #[test]
+    fn parse_via_without_unique_id_defaults_none() {
+        // From-scratch: no unique_id -> None (writer auto-generates; byte-identical).
+        let via = McpServer::parse_via(&json!({
+            "x": 0.0, "y": 0.0, "diameter": 0.6, "hole_size": 0.3,
+        }))
+        .expect("via should parse");
+        assert_eq!(via.unique_id, None);
+    }
+
+    #[test]
+    fn parse_schlib_rectangle_preserves_provided_unique_id() {
+        let rect = McpServer::parse_schlib_rectangle(&json!({
+            "x1": 0.0, "y1": 0.0, "x2": 10.0, "y2": 10.0,
+            "unique_id": "RECTUID1",
+        }))
+        .expect("rectangle should parse");
+        assert_eq!(rect.unique_id.as_deref(), Some("RECTUID1"));
+        // From-scratch -> None (writer auto-generates; byte-identical).
+        let plain = McpServer::parse_schlib_rectangle(&json!({
+            "x1": 0.0, "y1": 0.0, "x2": 10.0, "y2": 10.0,
+        }))
+        .expect("rectangle should parse");
+        assert_eq!(plain.unique_id, None);
     }
 }
