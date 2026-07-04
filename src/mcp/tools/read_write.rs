@@ -769,10 +769,25 @@ impl McpServer {
                         })
                         .unwrap_or_default();
                     let f = |k: &str| body_json.get(k).and_then(Value::as_f64).unwrap_or(0.0);
+                    // Read each field from JSON, defaulting to the exact value the
+                    // handler used to hard-code, so a from-scratch body (none of these
+                    // keys supplied) is byte-identical to before (oracle 0 regressions).
+                    // These are all already modelled by `ComponentBody`, the reader and
+                    // the writer — only the tool boundary dropped them.
+                    let str_or = |k: &str, d: &str| {
+                        body_json
+                            .get(k)
+                            .and_then(Value::as_str)
+                            .unwrap_or(d)
+                            .to_string()
+                    };
                     footprint.add_component_body(ComponentBody {
-                        model_id: String::new(),
-                        model_name: String::new(),
-                        embedded: false,
+                        model_id: str_or("model_id", ""),
+                        model_name: str_or("model_name", ""),
+                        embedded: body_json
+                            .get("embedded")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
                         rotation_x: f("rotation_x"),
                         rotation_y: f("rotation_y"),
                         rotation_z: f("rotation_z"),
@@ -788,15 +803,44 @@ impl McpServer {
                             .get("model_checksum")
                             .and_then(Value::as_i64)
                             .unwrap_or(0),
-                        name: " ".to_string(),
-                        kind: 0,
-                        sub_poly_index: -1,
-                        union_index: 0,
-                        is_shape_based: false,
-                        body_projection: 0,
-                        body_color_3d: 8_421_504,
-                        body_opacity_3d: 1.0,
-                        model_2d_rotation: 0.0,
+                        name: str_or("name", " "),
+                        kind: body_json
+                            .get("kind")
+                            .and_then(Value::as_u64)
+                            .and_then(|v| u8::try_from(v).ok())
+                            .unwrap_or(0),
+                        sub_poly_index: body_json
+                            .get("sub_poly_index")
+                            .and_then(Value::as_i64)
+                            .and_then(|v| i32::try_from(v).ok())
+                            .unwrap_or(-1),
+                        union_index: body_json
+                            .get("union_index")
+                            .and_then(Value::as_u64)
+                            .and_then(|v| u32::try_from(v).ok())
+                            .unwrap_or(0),
+                        is_shape_based: body_json
+                            .get("is_shape_based")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                        body_projection: body_json
+                            .get("body_projection")
+                            .and_then(Value::as_u64)
+                            .and_then(|v| u8::try_from(v).ok())
+                            .unwrap_or(0),
+                        body_color_3d: body_json
+                            .get("body_color_3d")
+                            .and_then(Value::as_u64)
+                            .and_then(|v| u32::try_from(v).ok())
+                            .unwrap_or(8_421_504),
+                        body_opacity_3d: body_json
+                            .get("body_opacity_3d")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(1.0),
+                        model_2d_rotation: body_json
+                            .get("model_2d_rotation")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(0.0),
                     });
                 }
             }

@@ -998,6 +998,102 @@ def test_write_pcblib_region_kind_net_name(client, runner, lib_path):
         )
 
 
+def test_write_pcblib_component_body_fields(client, runner, lib_path):
+    print("\n=== Test: write_pcblib component body fields round trip ===")
+    # Coverage PR-11: the ComponentBody struct/reader/writer already model
+    # body_color_3d / body_opacity_3d / body_projection / model_2d_rotation /
+    # is_shape_based / kind / name, but the write handler used to hard-code them,
+    # so a caller could not author them. They must now be settable via
+    # component_bodies[] and round-trip through read_pcblib (proving the tool no
+    # longer resets them). The body is authored on Mechanical 13 to also exercise
+    # the layer-reader fix (header layer byte, not just the V7_LAYER string).
+    tol = 1e-4
+    footprint = {
+        "name": "BODY_FIELDS_RT",
+        "pads": [
+            {"designator": "1", "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0},
+        ],
+        "component_bodies": [
+            {
+                "overall_height": 1.5,
+                "standoff_height": 0.2,
+                "layer": "Mechanical 13",
+                "outline": [
+                    {"x": -1.0, "y": -1.0},
+                    {"x": 1.0, "y": -1.0},
+                    {"x": 1.0, "y": 1.0},
+                    {"x": -1.0, "y": 1.0},
+                ],
+                "body_color_3d": 16711680,  # 0xFF0000 (red) — non-default
+                "body_opacity_3d": 0.5,
+                "body_projection": 1,
+                "model_2d_rotation": 90.0,
+                "is_shape_based": True,
+                "kind": 2,
+                "name": "BODY_A",
+            }
+        ],
+    }
+    write = client.call_tool(
+        "write_pcblib",
+        {"filepath": lib_path, "footprints": [footprint], "append": False},
+    )
+    runner.check(not write.get("_isError"), "write_pcblib (component body) succeeded", actual=write)
+
+    read = client.call_tool("read_pcblib", {"filepath": lib_path})
+    runner.check(not read.get("_isError"), "read_pcblib succeeded", actual=read)
+    footprints = {fp.get("name"): fp for fp in read.get("footprints", [])}
+    fp = footprints.get("BODY_FIELDS_RT", {})
+    runner.check(bool(fp), "BODY_FIELDS_RT footprint present", actual=list(footprints))
+
+    bodies = fp.get("component_bodies", [])
+    runner.check(len(bodies) == 1, "1 component body survived", actual=len(bodies))
+    if bodies:
+        b = bodies[0]
+        runner.check(
+            b.get("layer") == "Mechanical 13",
+            "body layer (layer-reader fix)",
+            actual=b.get("layer"),
+            expected="Mechanical 13",
+        )
+        runner.check(
+            b.get("body_color_3d") == 16711680,
+            "body_color_3d",
+            actual=b.get("body_color_3d"),
+            expected=16711680,
+        )
+        runner.check(
+            abs(b.get("body_opacity_3d", 0) - 0.5) < tol,
+            "body_opacity_3d",
+            actual=b.get("body_opacity_3d"),
+            expected=0.5,
+        )
+        runner.check(
+            b.get("body_projection") == 1,
+            "body_projection",
+            actual=b.get("body_projection"),
+            expected=1,
+        )
+        runner.check(
+            abs(b.get("model_2d_rotation", 0) - 90.0) < tol,
+            "model_2d_rotation",
+            actual=b.get("model_2d_rotation"),
+            expected=90.0,
+        )
+        runner.check(
+            b.get("is_shape_based") is True,
+            "is_shape_based",
+            actual=b.get("is_shape_based"),
+            expected=True,
+        )
+        runner.check(
+            b.get("kind") == 2, "body kind", actual=b.get("kind"), expected=2
+        )
+        runner.check(
+            b.get("name") == "BODY_A", "body name", actual=b.get("name"), expected="BODY_A"
+        )
+
+
 def test_write_schlib_fields(client, runner, schlib_path):
     print("\n=== Test: write_schlib field-completeness round trip ===")
     # Coverage PR-12/PR-13: every primitive field the read tool round-trips must
@@ -1223,6 +1319,7 @@ def main():
         test_write_pcblib_pad_slot_hole(client, runner, lib_path)
         test_write_pcblib_via_slot_tolerances(client, runner, lib_path)
         test_write_pcblib_region_kind_net_name(client, runner, lib_path)
+        test_write_pcblib_component_body_fields(client, runner, lib_path)
         test_write_pcblib_text_font_style(client, runner, lib_path)
         test_write_schlib_shapes(client, runner, schlib_path)
         test_write_schlib_fields(client, runner, schlib_path)

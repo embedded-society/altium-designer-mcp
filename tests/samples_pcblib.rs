@@ -652,8 +652,9 @@ fn samples_pcblib_body3d() {
         "BODY3D has 1 component body",
     );
 
-    // A simple extruded 3D component body: a 100x60 mil rectangle authored on the
-    // top 3D-body layer, ~1 mm (40 mil) tall, sitting flush on the board (standoff 0).
+    // A simple extruded 3D component body: a 100x60 mil rectangle authored on
+    // Mechanical 13 (LayerUtils.MechanicalLayer(13) in the sample generator), ~1 mm
+    // (40 mil) tall, sitting flush on the board (standoff 0).
     let body = &footprint.component_bodies[0];
     assert!(
         approx_eq(body.overall_height, 1.016, 1e-2),
@@ -665,7 +666,12 @@ fn samples_pcblib_body3d() {
         "standoff_height: expected ~0, got {}",
         body.standoff_height,
     );
-    assert_eq!(body.layer, Layer::Top3DBody, "body layer");
+    // Layer-reader regression (PR-11): the body is authored on Mechanical 13
+    // (layer id 69). It was previously collapsed to Top3DBody because the reader
+    // decoded only the V7_LAYER string via an incomplete map (MECHANICAL2-7) and
+    // ignored the CommonPrimitiveData header layer byte. The reader now reads the
+    // header byte, so the true layer survives.
+    assert_eq!(body.layer, Layer::Mechanical13, "body layer");
 
     // Altium reorders the contour vertices on save, so we assert the vertex count
     // and the axis-aligned bounding box rather than an exact vertex order.
