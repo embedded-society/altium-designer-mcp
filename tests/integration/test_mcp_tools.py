@@ -1138,7 +1138,11 @@ def test_write_pcblib_additional_parameters_roundtrip(client, runner, lib_path):
     # additional_parameters (an array of [key, value] pairs) and round-trip through
     # read_pcblib so a read-modify-write does not silently drop them.
     region_extra = [["LAYER", "TOP"], ["ISBOARDCUTOUT", "FALSE"], ["LAYERSTACKID", "7"]]
-    body_extra = [["TEXTURE", "wood"], ["MODEL.2D.X", "5mil"]]
+    # Use keys the writer does NOT emit itself. TEXTURE / MODEL.2D.X are canonical
+    # keys build_component_body_params always emits, so a custom value cannot survive
+    # (the writer's own emission wins and the captured copy is deduped) — asserting
+    # otherwise expected data that never round-trips faithfully.
+    body_extra = [["WELDINGSPOT", "42"], ["CUSTOMTAG", "xyz"]]
     footprint = {
         "name": "ADDL_PARAMS_RT",
         "pads": [
@@ -1197,13 +1201,23 @@ def test_write_pcblib_additional_parameters_roundtrip(client, runner, lib_path):
     bodies = fp.get("component_bodies", [])
     runner.check(len(bodies) == 1, "1 component body survived", actual=len(bodies))
     if bodies:
-        got = {(k, v) for k, v in bodies[0].get("additional_parameters", [])}
+        pairs = bodies[0].get("additional_parameters", [])
+        got = {(k, v) for k, v in pairs}
         want = {tuple(pair) for pair in body_extra}
         runner.check(
             want.issubset(got),
-            "body additional_parameters preserved",
+            "body additional_parameters (unmodelled keys) preserved",
             actual=sorted(got),
             expected=sorted(want),
+        )
+        # Regression (bug sweep 2026-07): a canonical key the writer emits itself
+        # must never appear twice after a read-modify-write.
+        keys = [k for k, _ in pairs]
+        dupes = {k for k in keys if keys.count(k) > 1}
+        runner.check(
+            not dupes,
+            "no canonical body key is duplicated on round-trip",
+            actual=sorted(dupes),
         )
 
 

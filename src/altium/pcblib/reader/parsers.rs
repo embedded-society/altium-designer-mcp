@@ -1515,27 +1515,48 @@ pub(super) fn parse_component_body(data: &[u8], offset: usize) -> ParseResult<Co
 /// `TEXTURE*`, `MODEL.2D.X/Y`, `MODEL.MODELTYPE`, `MODEL.MODELSOURCE`,
 /// `MODEL.EXTRUDED.*`) — is captured verbatim into
 /// [`ComponentBody::additional_parameters`] so a read-modify-write does not drop it.
+// Every key `build_component_body_params` (writer) emits unconditionally belongs
+// here, or the reader captures it into `additional_parameters` and it round-trips
+// as a spurious extra entry — and for the deliberately-repeated ARCRESOLUTION,
+// captured TWICE. (The writer also dedupes captured canonical keys as a safety
+// net, but excluding them here keeps `additional_parameters` clean. Region's
+// `REGION_MODELLED_PARAM_KEYS` follows the same discipline.)
 const BODY_MODELLED_PARAM_KEYS: &[&str] = &[
     "V7_LAYER",
     "NAME",
     "KIND",
     "SUBPOLYINDEX",
     "UNIONINDEX",
+    "ARCRESOLUTION",
     "ISSHAPEBASED",
+    "CAVITYHEIGHT",
     "STANDOFFHEIGHT",
     "OVERALLHEIGHT",
     "BODYPROJECTION",
     "BODYCOLOR3D",
     "BODYOPACITY3D",
+    "IDENTIFIER",
+    "TEXTURE",
+    "TEXTURECENTERX",
+    "TEXTURECENTERY",
+    "TEXTURESIZEX",
+    "TEXTURESIZEY",
+    "TEXTUREROTATION",
     "MODELID",
     "MODEL.CHECKSUM",
     "MODEL.EMBED",
     "MODEL.NAME",
+    "MODEL.2D.X",
+    "MODEL.2D.Y",
     "MODEL.2D.ROTATION",
     "MODEL.3D.ROTX",
     "MODEL.3D.ROTY",
     "MODEL.3D.ROTZ",
     "MODEL.3D.DZ",
+    "MODEL.MODELTYPE",
+    "MODEL.MODELSOURCE",
+    "MODEL.EXTRUDED.MINZ",
+    "MODEL.EXTRUDED.MAXZ",
 ];
 
 /// Parses the 2D outline polygon from a `ComponentBody` block.

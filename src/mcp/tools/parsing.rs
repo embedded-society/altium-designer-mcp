@@ -941,7 +941,7 @@ impl McpServer {
                 "activelowinput" | "lowinput" => PinSymbol::ActiveLowInput,
                 "activelowoutput" | "lowoutput" => PinSymbol::ActiveLowOutput,
                 "rightleftsignalflow" | "rightleft" => PinSymbol::RightLeftSignalFlow,
-                "leftrrightsignalflow" | "leftright" => PinSymbol::LeftRightSignalFlow,
+                "leftrightsignalflow" | "leftright" => PinSymbol::LeftRightSignalFlow,
                 "bidirectionalsignalflow" | "bidirectional" => PinSymbol::BidirectionalSignalFlow,
                 "analogsignalin" | "analog" => PinSymbol::AnalogSignalIn,
                 "digitalsignalin" | "digital" => PinSymbol::DigitalSignalIn,
@@ -1021,6 +1021,19 @@ impl McpServer {
             };
             (!pf.is_zero()).then_some(pf)
         });
+        // Both fields are always serialised by read_schlib (no skip_serializing_if),
+        // so a read-modify-write round-trip must accept and preserve them rather than
+        // reset them to a hard-coded default. `is_not_accessible` defaults false (the
+        // pin conglomerate `0x20` bit); `formal_type` defaults 1 (Altium's normal pin).
+        let is_not_accessible = json
+            .get("is_not_accessible")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let formal_type = json
+            .get("formal_type")
+            .and_then(Value::as_u64)
+            .and_then(|v| u8::try_from(v).ok())
+            .unwrap_or(1);
 
         Some(Pin {
             name: name.to_string(),
@@ -1042,8 +1055,8 @@ impl McpServer {
             symbol_outer_edge,
             symbol_inside,
             symbol_outside,
-            is_not_accessible: false,
-            formal_type: 1,
+            is_not_accessible,
+            formal_type,
             swap_id_group,
             part_and_sequence,
             default_value,

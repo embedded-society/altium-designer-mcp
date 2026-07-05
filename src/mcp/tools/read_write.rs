@@ -1319,7 +1319,9 @@ impl McpServer {
                             "default_value",
                             "owner_part_display_mode",
                             "symbol_line_width",
-                            "frac"
+                            "frac",
+                            "is_not_accessible",
+                            "formal_type"
                         ]
                     );
                     if let Some(pin) = Self::parse_schlib_pin(pin_json) {
