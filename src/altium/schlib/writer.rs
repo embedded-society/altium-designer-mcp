@@ -802,7 +802,9 @@ fn encode_text(text: &Text, index: usize) -> String {
     };
     let is_hidden = if text.is_hidden { "|IsHidden=T" } else { "" };
     format!(
-        "|RECORD=4|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T{}{}{}|FontID={}|Orientation={}|Justification={}{}{}|{}|UniqueID={}",
+        // RECORD=3 is the Text-annotation id (the reader dispatches 3 -> parse_text,
+        // 4 -> parse_label); emitting 4 here made a Text round-trip back as a Label.
+        "|RECORD=3|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T{}{}{}|FontID={}|Orientation={}|Justification={}{}{}|{}|UniqueID={}",
         index,
         text.owner_part_id,
         coord_param("Location.X", text.x),
