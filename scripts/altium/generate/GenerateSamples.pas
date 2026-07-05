@@ -478,6 +478,14 @@ begin
     except
     end;
 
+    // NOTE: PcbLib coverage-enrichment footprints (styled TrueType text, filled
+    // arc, cutout region) were removed after a first on-site run: their
+    // best-effort IPCB_* property names (Arc.AreaColor, Text.UseTTFonts/Bold/…,
+    // Region.Kind) are UNDECLARED IDENTIFIERS that fail at DelphiScript COMPILE
+    // time, which aborts the whole script (try/except cannot catch a compile
+    // error). They must be re-added only with property names verified against a
+    // live AD24 object model.
+
     Lib.CurrentComponent := Comp;
 
     // Delete Altium's empty auto-created default footprint. Unlike SchLib, the PCB
@@ -805,6 +813,82 @@ begin
                                        SCHM_PrimitiveRegistration, Pin.I_ObjectAddress);
 end;
 
+{ ==== COVERAGE-ENRICHMENT HELPERS ==========================================
+  These author NON-default property values so the Rust read tests can verify
+  them against a real Altium file. LineStyle/Transparent/IsSolid/AreaColor are
+  PROVEN (used by AddLine/AddRect/etc. above). GraphicallyLocked/Disabled/Dimmed,
+  pin SymbolLineWidth, and the Bezier factory are BEST-EFFORT AD24 names — if one
+  is wrong the caller's try/except drops just that symbol. }
+
+{ Line with an explicit LineStyle (eLineStyleSolid/Dashed/Dotted — proven enum). }
+procedure AddLineStyled(Comp : ISch_Component; X1 : Integer; Y1 : Integer;
+                        X2 : Integer; Y2 : Integer; Style : TLineStyle);
+var Lin : ISch_Line;
+begin
+    Lin := SchServer.SchObjectFactory(eLine, eCreate_Default);
+    if Lin = nil then Exit;
+    Lin.Location             := Point(MilsToCoord(X1), MilsToCoord(Y1));
+    Lin.Corner               := Point(MilsToCoord(X2), MilsToCoord(Y2));
+    Lin.LineWidth            := eSmall;
+    Lin.LineStyle            := Style;
+    Lin.Color                := $000000;
+    Lin.OwnerPartId          := 1;
+    Lin.OwnerPartDisplayMode := Comp.DisplayMode;
+    Comp.AddSchObject(Lin);
+    SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast,
+                                       SCHM_PrimitiveRegistration, Lin.I_ObjectAddress);
+end;
+
+{ Rectangle with Transparent := True (proven property, non-default value). }
+procedure AddRectTransparent(Comp : ISch_Component; X1 : Integer; Y1 : Integer;
+                             X2 : Integer; Y2 : Integer);
+var R : ISch_Rectangle;
+begin
+    R := SchServer.SchObjectFactory(eRectangle, eCreate_Default);
+    if R = nil then Exit;
+    R.Location    := Point(MilsToCoord(X1), MilsToCoord(Y1));
+    R.Corner      := Point(MilsToCoord(X2), MilsToCoord(Y2));
+    R.LineWidth   := eSmall;
+    R.Color       := $000000;
+    R.AreaColor   := $B0FFFF;
+    R.IsSolid     := True;
+    R.Transparent := True;         { non-default (default False) }
+    R.OwnerPartId := 1;
+    R.OwnerPartDisplayMode := Comp.DisplayMode;
+    Comp.AddSchObject(R);
+    SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast, SCHM_PrimitiveRegistration, R.I_ObjectAddress);
+end;
+
+{ Pin whose (X,Y) is off the integer grid (fractional-mils location), to exercise
+  the PinFrac auxiliary stream. Location is set in raw Coord units so we can add a
+  sub-mil offset (1 mil = 10000 Coord). }
+procedure AddPinFractional(Comp : ISch_Component; X : Integer; Y : Integer; Len : Integer;
+                           Orient : TRotationBy90; Elec : TPinElectrical;
+                           Desig : String; Nm : String);
+var Pin : ISch_Pin;
+begin
+    Pin := SchServer.SchObjectFactory(ePin, eCreate_Default);
+    if Pin = nil then Exit;
+    { MilsToCoord(X) + 5000 puts the pin half a mil off-grid -> a non-zero PinFrac. }
+    Pin.Location             := Point(MilsToCoord(X) + 5000, MilsToCoord(Y) + 3000);
+    Pin.Orientation          := Orient;
+    Pin.PinLength            := MilsToCoord(Len);
+    Pin.Electrical           := Elec;
+    Pin.Designator           := Desig;
+    Pin.Name                 := Nm;
+    Pin.OwnerPartId          := 1;
+    Pin.OwnerPartDisplayMode := Comp.DisplayMode;
+    Comp.AddSchObject(Pin);
+    SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast, SCHM_PrimitiveRegistration, Pin.I_ObjectAddress);
+end;
+
+{ NOTE: helpers for polygon LineStyle/Transparent, rectangle display/lock flags
+  (GraphicallyLocked/Disabled/Dimmed), pin SymbolLineWidth, and Bezier curves were
+  removed after a first on-site run — their property/factory names are best-effort
+  and an undeclared identifier is a DelphiScript COMPILE error that aborts the
+  whole script (try/except cannot catch it). Re-add only with names verified
+  against a live AD24 object model. }
+
 { ---- SchLib authoring -------------------------------------------------------
 
   Build order step 1: PINS_ETYPE — one pin per PinElectricalType, the densest
@@ -1026,6 +1110,60 @@ begin
             AddPinEx(Comp, -500, -300, 200, eRotate180, eElectricPassive, '2', 'NEG', True, True, False);
             AddPinEx(Comp,    0,  200, 200, eRotate180, eElectricPassive, '3',
                      'VERY_LONG_PIN_NAME_0123456789ABCDEF', True, True, False);
+        end;
+    except
+    end;
+
+    { ======================================================================
+      COVERAGE ENRICHMENT (docs/FIXTURE_COVERAGE.md): exercise the non-default
+      property values that the plain symbols above never set, so the Rust
+      READ tests verify them against a REAL Altium file rather than only via a
+      self-round-trip. Each symbol is in its own try/except: an unverified AD24
+      property name fails ONLY that symbol, the rest of the library still saves.
+      Property names not already proven by a helper above are best-effort (from
+      AltiumSharp DTOs); on-site failures are expected to be iterated.
+      ====================================================================== }
+
+    { ---- SHAPESTYLE — shapes with non-default LineStyle + a transparent fill.
+      LineStyle / Transparent / IsSolid / AreaColor are all PROVEN by AddLine /
+      AddRect above; here they carry non-default values. ---- }
+    try
+        Comp := NewSymbol(Lib, 'SHAPESTYLE', 'Non-default line style + transparent fill', 1);
+        if Comp <> nil then
+        begin
+            AddLineStyled(Comp, -200, 0, 0, 0, eLineStyleDashed);    { dashed line }
+            AddLineStyled(Comp, 0, 0, 200, 0, eLineStyleDotted);     { dotted line }
+            AddRect(Comp, -100, -100, 100, -50, True, $00FFFF);      { solid yellow fill }
+            AddRectTransparent(Comp, -100, 50, 100, 100);            { transparent rect }
+        end;
+    except
+    end;
+
+    { ---- JUSTIFY — labels/params at the two PROVEN justifications + a rotation.
+      Only eJustify_BottomLeft / eJustify_TopRight are used elsewhere in this file
+      and known to compile; the mid-row constant names (eJustify_CenterCenter etc.)
+      are NOT declared in AD24 under that spelling and abort the compile. ---- }
+    try
+        Comp := NewSymbol(Lib, 'JUSTIFY', 'Label / parameter justification + rotation', 1);
+        if Comp <> nil then
+        begin
+            AddLabel(Comp, -100,  100, 'BL',    eJustify_BottomLeft, eRotate0);
+            AddLabel(Comp, -100,    0, 'TR',    eJustify_TopRight,   eRotate0);
+            AddLabel(Comp, -100,  -50, 'ROT90', eJustify_BottomLeft, eRotate90);
+            AddParameter(Comp, 'Value', '1k', 100, 100, True,  eJustify_TopRight,   eRotate0);
+            AddParameter(Comp, 'Tol',   '5%', 100,  50, False, eJustify_BottomLeft, eRotate90);
+        end;
+    except
+    end;
+
+    { ---- FRACPINS — off-grid pin coords (exercise the PinFrac aux stream). Uses
+      only the PROVEN .Location property with a sub-mil offset. ---- }
+    try
+        Comp := NewSymbol(Lib, 'FRACPINS', 'Off-grid pins (PinFrac stream)', 1);
+        if Comp <> nil then
+        begin
+            AddPinFractional(Comp, 5, 3, 200, eRotate180, eElectricPassive, '1', 'FRAC');
+            AddPinFractional(Comp, 0, 97, 200, eRotate180, eElectricPassive, '2', 'FRAC2');
         end;
     except
     end;
