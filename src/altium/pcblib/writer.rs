@@ -1130,6 +1130,29 @@ pub fn encode_text_geometry(text: &Text) -> Vec<u8> {
     // column-major text-box encoding.
     block[132] = pcb_justification_to_id(text.justification);
 
+    // Inverted (knockout) text-box descriptor. Defaults reproduce the template
+    // bytes exactly (@110/123 = 0x00, @111/133 = 0, @124/128 = the template's
+    // precomputed text-box size), so a from-scratch plain text stays byte-identical.
+    //   @110 IsInverted (bool)   @111 InvertedBorder (i32 coord)
+    //   @123 UseInvertedRectangle (bool)   @124 InvertedRectWidth (i32 coord)
+    //   @128 InvertedRectHeight (i32 coord)   @133 InvertedRectTextOffset (i32 coord)
+    block[110] = u8::from(text.is_inverted);
+    if let Some(border) = text.inverted_border {
+        block[111..115].copy_from_slice(&from_mm(border).to_le_bytes());
+    }
+    block[123] = u8::from(text.use_inverted_rectangle);
+    // `None` leaves the template's precomputed width/height in place (byte-identity
+    // for plain text); a framed inverted text overlays its explicit dimensions.
+    if let Some(width) = text.inverted_rect_width {
+        block[124..128].copy_from_slice(&from_mm(width).to_le_bytes());
+    }
+    if let Some(height) = text.inverted_rect_height {
+        block[128..132].copy_from_slice(&from_mm(height).to_le_bytes());
+    }
+    if let Some(offset) = text.inverted_rect_text_offset {
+        block[133..137].copy_from_slice(&from_mm(offset).to_le_bytes());
+    }
+
     // v7 layer id (offsets 226-229), derived from the layer.
     block[226..230].copy_from_slice(&v7_layer_id(layer_to_id(text.layer)).to_le_bytes());
 
@@ -1974,6 +1997,12 @@ mod tests {
             mirror: false,
             font_name: "Arial".to_string(),
             justification: TextJustification::BottomLeft,
+            is_inverted: false,
+            inverted_border: None,
+            use_inverted_rectangle: false,
+            inverted_rect_width: None,
+            inverted_rect_height: None,
+            inverted_rect_text_offset: None,
             flags: PcbFlags::empty(),
             net_index: 0xFFFF,
             polygon_index: 0xFFFF,
@@ -1985,6 +2014,81 @@ mod tests {
             &geom[3..9],
             &[0xFF; 6],
             "from-scratch text must keep the 0xFF net/polygon/component bytes"
+        );
+
+        // The inverted (knockout) descriptor stays at the template bytes for a
+        // from-scratch plain text: @110/@123 booleans are 0x00, the border/
+        // text-offset i32s are 0, and the width/height keep the template's
+        // precomputed text-box size (verified against AltiumSharp offsets).
+        assert_eq!(geom[110], 0x00, "IsInverted @110 default 0");
+        assert_eq!(&geom[111..115], &[0x00; 4], "InvertedBorder @111 default 0");
+        assert_eq!(geom[123], 0x00, "UseInvertedRectangle @123 default 0");
+        assert_eq!(
+            &geom[124..128],
+            &TEXT_SR1_TEMPLATE[124..128],
+            "InvertedRectWidth @124 keeps the template bytes"
+        );
+        assert_eq!(
+            &geom[128..132],
+            &TEXT_SR1_TEMPLATE[128..132],
+            "InvertedRectHeight @128 keeps the template bytes"
+        );
+        assert_eq!(
+            &geom[133..137],
+            &[0x00; 4],
+            "InvertedRectTextOffset @133 default 0"
+        );
+    }
+
+    #[test]
+    fn text_inverted_rect_fields_encode_at_offsets() {
+        use crate::altium::TextJustification;
+        // A framed inverted text overlays every descriptor field at its offset.
+        let text = Text {
+            x: 0.0,
+            y: 0.0,
+            text: "X".to_string(),
+            height: 1.0,
+            layer: Layer::TopOverlay,
+            rotation: 0.0,
+            kind: TextKind::Stroke,
+            stroke_font: None,
+            stroke_width: None,
+            italic: false,
+            bold: false,
+            mirror: false,
+            font_name: "Arial".to_string(),
+            justification: TextJustification::BottomLeft,
+            is_inverted: true,
+            inverted_border: Some(0.0254), // 1 mil = 10000 units
+            use_inverted_rectangle: true,
+            inverted_rect_width: Some(0.254), // 10 mil = 100000 units
+            inverted_rect_height: Some(0.127),
+            inverted_rect_text_offset: Some(0.0508),
+            flags: PcbFlags::empty(),
+            net_index: 0xFFFF,
+            polygon_index: 0xFFFF,
+            component_index: -1,
+            unique_id: None,
+        };
+        let geom = encode_text_geometry(&text);
+        assert_eq!(geom[110], 0x01, "IsInverted @110");
+        assert_eq!(
+            &geom[111..115],
+            &from_mm(0.0254).to_le_bytes(),
+            "border @111"
+        );
+        assert_eq!(geom[123], 0x01, "UseInvertedRectangle @123");
+        assert_eq!(&geom[124..128], &from_mm(0.254).to_le_bytes(), "width @124");
+        assert_eq!(
+            &geom[128..132],
+            &from_mm(0.127).to_le_bytes(),
+            "height @128"
+        );
+        assert_eq!(
+            &geom[133..137],
+            &from_mm(0.0508).to_le_bytes(),
+            "text offset @133"
         );
     }
 
@@ -2692,6 +2796,12 @@ mod tests {
             mirror: false,
             font_name: "Arial".to_string(),
             justification: TextJustification::MiddleCenter,
+            is_inverted: false,
+            inverted_border: None,
+            use_inverted_rectangle: false,
+            inverted_rect_width: None,
+            inverted_rect_height: None,
+            inverted_rect_text_offset: None,
             flags: PcbFlags::empty(),
             net_index: 0xFFFF,
             polygon_index: 0xFFFF,

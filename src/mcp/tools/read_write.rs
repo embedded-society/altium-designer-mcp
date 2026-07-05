@@ -648,6 +648,11 @@ impl McpServer {
                             "flags",
                             "font_name",
                             "height",
+                            "inverted_border",
+                            "inverted_rect_height",
+                            "inverted_rect_text_offset",
+                            "inverted_rect_width",
+                            "is_inverted",
                             "italic",
                             "justification",
                             "kind",
@@ -660,6 +665,7 @@ impl McpServer {
                             "stroke_width",
                             "text",
                             "unique_id",
+                            "use_inverted_rectangle",
                             "x",
                             "y"
                         ]
@@ -916,6 +922,12 @@ impl McpServer {
                     // @132, so keep the auto-designator on the template default to stay
                     // byte-identical (and oracle-safe).
                     justification: TextJustification::BottomLeft,
+                    is_inverted: false,
+                    inverted_border: None,
+                    use_inverted_rectangle: false,
+                    inverted_rect_width: None,
+                    inverted_rect_height: None,
+                    inverted_rect_text_offset: None,
                     flags: PcbFlags::empty(),
                     net_index: 0xFFFF,
                     polygon_index: 0xFFFF,
