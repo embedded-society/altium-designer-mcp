@@ -51,9 +51,10 @@ fn pin_by_designator<'a>(symbol: &'a Symbol, designator: &str) -> &'a Pin {
 fn samples_schlib_structure() {
     let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
 
-    // The library now contains fifteen Altium-authored symbols (one per
-    // primitive family plus a boundary-case `EDGE` symbol).
-    assert_eq!(lib.len(), 15, "expected exactly fifteen symbols");
+    // Eighteen Altium-authored symbols: the fifteen per-primitive-family symbols
+    // plus the three coverage-enrichment symbols (SHAPESTYLE, JUSTIFY, FRACPINS)
+    // added to GenerateSamples.pas and regenerated on-site.
+    assert_eq!(lib.len(), 18, "expected exactly eighteen symbols");
 
     let names = lib.names();
     for expected in [
@@ -72,6 +73,9 @@ fn samples_schlib_structure() {
         "ROUNDRECTS",
         "POLYGONS",
         "EDGE",
+        "SHAPESTYLE",
+        "JUSTIFY",
+        "FRACPINS",
     ] {
         assert!(
             names.iter().any(|n| n == expected),
@@ -642,4 +646,90 @@ fn samples_schlib_polygons() {
         "right polygon points",
     );
     assert!(right.filled, "right polygon is filled");
+}
+
+// ---------------------------------------------------------------------------
+// Coverage-enrichment tests (docs/FIXTURE_COVERAGE.md).
+//
+// These assert the NON-default property values authored by the enrichment block
+// in GenerateSamples.pas, read from the real Altium-regenerated fixture. This is
+// the whole point of the enrichment: values that were previously only
+// self-round-trip-tested (line style, transparency, non-default justification,
+// off-grid PinFrac coordinates) are now verified against a genuine Altium file.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn samples_schlib_shapestyle() {
+    let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
+    let sym = lib.get("SHAPESTYLE").expect("SHAPESTYLE symbol not found");
+
+    // Two lines, one dashed (line_style 1) and one dotted (line_style 2).
+    assert_eq!(sym.lines.len(), 2, "SHAPESTYLE has two lines");
+    let styles: Vec<u8> = sym.lines.iter().map(|l| l.line_style).collect();
+    assert!(
+        styles.contains(&1) && styles.contains(&2),
+        "SHAPESTYLE must carry a dashed (1) and a dotted (2) line, got {styles:?}"
+    );
+
+    // Two rectangles: one solid-opaque, one transparent.
+    assert_eq!(sym.rectangles.len(), 2, "SHAPESTYLE has two rectangles");
+    assert_eq!(
+        sym.rectangles.iter().filter(|r| r.transparent).count(),
+        1,
+        "exactly one SHAPESTYLE rectangle is transparent"
+    );
+}
+
+#[test]
+fn samples_schlib_justify() {
+    let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
+    let sym = lib.get("JUSTIFY").expect("JUSTIFY symbol not found");
+
+    // A TopRight label proves a non-default justification round-trips from a real
+    // Altium file (the default is BottomLeft). (The SchLib `Parameter` struct does
+    // not model justification, so this is asserted on the labels only.)
+    assert!(
+        sym.labels
+            .iter()
+            .any(|l| l.justification == TextJustification::TopRight),
+        "JUSTIFY must carry a TopRight-justified label, got {:?}",
+        sym.labels
+            .iter()
+            .map(|l| l.justification)
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        sym.labels
+            .iter()
+            .any(|l| l.justification == TextJustification::BottomLeft),
+        "JUSTIFY must also carry a BottomLeft-justified label"
+    );
+}
+
+#[test]
+fn samples_schlib_fracpins() {
+    let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
+    let sym = lib.get("FRACPINS").expect("FRACPINS symbol not found");
+
+    // Both pins are off the integer grid, so each carries a PinFrac stream entry.
+    // This is the FIRST real-Altium ground truth for the PinFrac read path (it was
+    // previously only exercised by a self-round-trip). The generator offsets each
+    // pin by +0.5 mil X (+50000) and +0.3 mil Y (+30000) in 1/100000 DXP units on
+    // top of its integer-mil position; the reader surfaces the sub-DXP-unit
+    // remainder, so the exact frac values below are the authored ground truth.
+    assert_eq!(sym.pins.len(), 2, "FRACPINS has two pins");
+    let by_desig = |d: &str| -> altium_designer_mcp::altium::schlib::PinFrac {
+        sym.pins
+            .iter()
+            .find(|p| p.designator == d)
+            .unwrap_or_else(|| panic!("pin {d} not found"))
+            .frac
+            .unwrap_or_else(|| panic!("pin {d} has no PinFrac"))
+    };
+    // Pin 1 authored at (5, 3) mil + (0.5, 0.3) mil => frac (55000, 33000).
+    let f1 = by_desig("1");
+    assert_eq!((f1.x, f1.y), (55_000, 33_000), "pin 1 PinFrac");
+    // Pin 2 authored at (0, 97) mil + (0.5, 0.3) mil => frac (5000, 73000).
+    let f2 = by_desig("2");
+    assert_eq!((f2.x, f2.y), (5_000, 73_000), "pin 2 PinFrac");
 }
