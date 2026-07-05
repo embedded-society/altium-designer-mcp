@@ -509,6 +509,12 @@ impl McpServer {
             .and_then(Value::as_str)
             .map(str::to_string);
 
+        // Round-trip unmodelled board-region keys captured on read (a `read_pcblib`
+        // emits `additional_parameters` as an array of `[key, value]` pairs; accept
+        // that verbatim so a modify-write preserves them). Absent -> empty -> the
+        // writer appends nothing (byte-identical to a from-scratch region).
+        let additional_parameters = Self::parse_additional_parameters(json);
+
         Some(Region {
             vertices,
             holes,
@@ -519,8 +525,30 @@ impl McpServer {
             net_index,
             cavity_height,
             unique_id,
+            additional_parameters,
             ..Region::default()
         })
+    }
+
+    /// Parses an `additional_parameters` catch-all from a primitive's JSON: an
+    /// array of `[key, value]` string pairs (the shape `read_pcblib` emits for the
+    /// `Vec<(String, String)>` field). Missing/malformed entries yield an empty
+    /// vector, so a from-scratch primitive re-emits nothing.
+    pub(crate) fn parse_additional_parameters(json: &Value) -> Vec<(String, String)> {
+        json.get("additional_parameters")
+            .and_then(Value::as_array)
+            .map(|pairs| {
+                pairs
+                    .iter()
+                    .filter_map(|pair| {
+                        let arr = pair.as_array()?;
+                        let key = arr.first()?.as_str()?;
+                        let value = arr.get(1)?.as_str()?;
+                        Some((key.to_string(), value.to_string()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Parses text from JSON.
@@ -1700,6 +1728,36 @@ mod tests {
         }))
         .expect("region should parse");
         assert!(region.flags.contains(PcbFlags::KEEPOUT));
+    }
+
+    #[test]
+    fn parse_region_reads_additional_parameters() {
+        // PR-R5: the read DTO's `additional_parameters` (an array of [key, value]
+        // pairs) must land on the struct so a read-modify-write preserves them.
+        let region = McpServer::parse_region(&json!({
+            "layer": "Top Courtyard",
+            "vertices": [{"x": 0.0, "y": 0.0}, {"x": 1.0, "y": 0.0}, {"x": 0.0, "y": 1.0}],
+            "additional_parameters": [["LAYER", "TOP"], ["LAYERSTACKID", "7"]],
+        }))
+        .expect("region should parse");
+        assert_eq!(
+            region.additional_parameters,
+            vec![
+                ("LAYER".to_string(), "TOP".to_string()),
+                ("LAYERSTACKID".to_string(), "7".to_string()),
+            ],
+        );
+    }
+
+    #[test]
+    fn parse_region_additional_parameters_default_empty() {
+        // Absent -> empty, so a from-scratch region re-emits nothing (byte-identical).
+        let region = McpServer::parse_region(&json!({
+            "layer": "Top Courtyard",
+            "vertices": [{"x": 0.0, "y": 0.0}, {"x": 1.0, "y": 0.0}, {"x": 0.0, "y": 1.0}],
+        }))
+        .expect("region should parse");
+        assert!(region.additional_parameters.is_empty());
     }
 
     #[test]

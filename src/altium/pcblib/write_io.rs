@@ -170,6 +170,7 @@ impl PcbLib {
                 body_color_3d: 8_421_504,
                 body_opacity_3d: 1.0,
                 model_2d_rotation: 0.0,
+                additional_parameters: Vec::new(),
             });
 
             tracing::debug!(

@@ -1106,6 +1106,82 @@ def test_write_pcblib_component_body_fields(client, runner, lib_path):
         )
 
 
+def test_write_pcblib_additional_parameters_roundtrip(client, runner, lib_path):
+    print("\n=== Test: write_pcblib region/body additional_parameters round trip ===")
+    # Coverage PR-R5: Region and ComponentBody carry unmodelled |KEY=VAL| keys the
+    # typed model does not recognise. They must be authorable via
+    # additional_parameters (an array of [key, value] pairs) and round-trip through
+    # read_pcblib so a read-modify-write does not silently drop them.
+    region_extra = [["LAYER", "TOP"], ["ISBOARDCUTOUT", "FALSE"], ["LAYERSTACKID", "7"]]
+    body_extra = [["TEXTURE", "wood"], ["MODEL.2D.X", "5mil"]]
+    footprint = {
+        "name": "ADDL_PARAMS_RT",
+        "pads": [
+            {"designator": "1", "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0},
+        ],
+        "regions": [
+            {
+                "vertices": [
+                    {"x": -1.0, "y": -1.0},
+                    {"x": 1.0, "y": -1.0},
+                    {"x": 1.0, "y": 1.0},
+                    {"x": -1.0, "y": 1.0},
+                ],
+                "layer": "Top Layer",
+                "additional_parameters": region_extra,
+            }
+        ],
+        "component_bodies": [
+            {
+                "overall_height": 1.0,
+                "layer": "Top 3D Body",
+                "additional_parameters": body_extra,
+            }
+        ],
+    }
+    write = client.call_tool(
+        "write_pcblib",
+        {"filepath": lib_path, "footprints": [footprint], "append": False},
+    )
+    runner.check(
+        not write.get("_isError"),
+        "write_pcblib (additional_parameters) succeeded",
+        actual=write,
+    )
+
+    read = client.call_tool("read_pcblib", {"filepath": lib_path})
+    runner.check(not read.get("_isError"), "read_pcblib succeeded", actual=read)
+    footprints = {fp.get("name"): fp for fp in read.get("footprints", [])}
+    fp = footprints.get("ADDL_PARAMS_RT", {})
+    runner.check(bool(fp), "ADDL_PARAMS_RT footprint present", actual=list(footprints))
+
+    # The value is not DROPPING the keys; order/interleaving with Altium's own keys
+    # is not asserted (Altium's reader is order-independent), so we compare as sets.
+    regions = fp.get("regions", [])
+    runner.check(len(regions) == 1, "1 region survived", actual=len(regions))
+    if regions:
+        got = {(k, v) for k, v in regions[0].get("additional_parameters", [])}
+        want = {tuple(pair) for pair in region_extra}
+        runner.check(
+            want.issubset(got),
+            "region additional_parameters preserved",
+            actual=sorted(got),
+            expected=sorted(want),
+        )
+
+    bodies = fp.get("component_bodies", [])
+    runner.check(len(bodies) == 1, "1 component body survived", actual=len(bodies))
+    if bodies:
+        got = {(k, v) for k, v in bodies[0].get("additional_parameters", [])}
+        want = {tuple(pair) for pair in body_extra}
+        runner.check(
+            want.issubset(got),
+            "body additional_parameters preserved",
+            actual=sorted(got),
+            expected=sorted(want),
+        )
+
+
 def test_write_schlib_fields(client, runner, schlib_path):
     print("\n=== Test: write_schlib field-completeness round trip ===")
     # Coverage PR-12/PR-13: every primitive field the read tool round-trips must
@@ -1774,6 +1850,7 @@ def main():
         test_write_pcblib_via_slot_tolerances(client, runner, lib_path)
         test_write_pcblib_region_kind_net_name(client, runner, lib_path)
         test_write_pcblib_component_body_fields(client, runner, lib_path)
+        test_write_pcblib_additional_parameters_roundtrip(client, runner, lib_path)
         test_write_pcblib_text_font_style(client, runner, lib_path)
         test_write_pcblib_unique_id_roundtrip(client, runner, lib_path)
         test_write_schlib_shapes(client, runner, schlib_path)

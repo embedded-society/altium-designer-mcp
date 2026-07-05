@@ -447,6 +447,13 @@ fn samples_pcblib_regions() {
         );
         assert_eq!(region.sub_poly_index, -1, "golden SUBPOLYINDEX=-1");
         assert!(!region.is_shape_based, "golden ISSHAPEBASED=FALSE");
+        // These simple copper regions carry only the modelled keys, so the
+        // unmodelled-parameter catch-all is empty (PR-R5).
+        assert!(
+            region.additional_parameters.is_empty(),
+            "golden copper region has no unmodelled keys, got {:?}",
+            region.additional_parameters
+        );
     }
 
     assert!(
@@ -714,4 +721,30 @@ fn samples_pcblib_body3d() {
         approx_eq(max_y, 0.762, 1e-2),
         "outline max y: expected ~0.762 mm, got {max_y}",
     );
+
+    // PR-R5: the body's unmodelled keys (TEXTURE*, IDENTIFIER, the repeated
+    // ARCRESOLUTION, etc.) are captured verbatim into `additional_parameters` so a
+    // read-modify-write does not drop them. The golden carries these, so the map is
+    // non-empty and the keys the typed model consumes are NOT present in it.
+    let extra = &body.additional_parameters;
+    assert!(
+        !extra.is_empty(),
+        "golden body carries unmodelled keys; additional_parameters must not be empty",
+    );
+    let keys: Vec<&str> = extra.iter().map(|(k, _)| k.as_str()).collect();
+    assert!(
+        keys.contains(&"TEXTURE"),
+        "expected TEXTURE captured, got {keys:?}"
+    );
+    assert!(
+        keys.contains(&"IDENTIFIER"),
+        "expected IDENTIFIER captured, got {keys:?}"
+    );
+    // Modelled keys must be excluded from the catch-all (they round-trip via fields).
+    for modelled in ["V7_LAYER", "NAME", "OVERALLHEIGHT", "MODELID", "MODEL.NAME"] {
+        assert!(
+            !keys.contains(&modelled),
+            "modelled key {modelled} must not appear in additional_parameters, got {keys:?}"
+        );
+    }
 }
