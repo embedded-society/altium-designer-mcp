@@ -1531,6 +1531,60 @@ mod tests {
     }
 
     #[test]
+    fn each_via_gets_a_unique_identity_guid() {
+        // PR-R6: every via must carry its OWN in-record identity GUIDs @259
+        // (IdentityGuid) and @275 (IdentityGuidB) — like the pad, which generates
+        // fresh unique GUIDs per primitive. The template previously reused one
+        // fixed GUID for every via, so two vias in one footprint collided.
+        let mut fp = Footprint::new("VIA_GUIDS");
+        fp.add_via(Via::new(0.0, 0.0, 0.6, 0.3));
+        fp.add_via(Via::new(2.0, 0.0, 0.6, 0.3));
+        let data = writer::encode_data_stream(&fp).expect("encode");
+
+        // Locate both 321-byte via blocks by their `[0x03][len: u32 LE]` signature.
+        let sig = [0x03u8, 0x41, 0x01, 0x00, 0x00];
+        let first = data
+            .windows(sig.len())
+            .position(|w| w == sig)
+            .expect("first via block");
+        let second_rel = data[first + 5..]
+            .windows(sig.len())
+            .position(|w| w == sig)
+            .expect("second via block");
+        let second = first + 5 + second_rel;
+        assert_ne!(first, second, "expected two distinct via blocks");
+
+        let via1 = &data[first + 5..first + 5 + 321];
+        let via2 = &data[second + 5..second + 5 + 321];
+
+        // Uniqueness: the two vias must NOT share an IdentityGuid @259-274.
+        assert_ne!(
+            &via1[259..275],
+            &via2[259..275],
+            "two vias share an IdentityGuid — GUID is not per-primitive-unique"
+        );
+        // IdentityGuidB @275-290 must likewise differ between vias.
+        assert_ne!(
+            &via1[275..291],
+            &via2[275..291],
+            "two vias share an IdentityGuidB"
+        );
+
+        // Well-formedness: each emitted GUID is a non-zero 16-byte value, and a
+        // via's GUID-A differs from its own GUID-B (mirrors the pad's two
+        // independent generate_guid() calls).
+        for via in [via1, via2] {
+            assert_ne!(&via[259..275], &[0u8; 16], "IdentityGuid is all-zero");
+            assert_ne!(&via[275..291], &[0u8; 16], "IdentityGuidB is all-zero");
+            assert_ne!(
+                &via[259..275],
+                &via[275..291],
+                "a via's IdentityGuid equals its IdentityGuidB"
+            );
+        }
+    }
+
+    #[test]
     fn binary_roundtrip_via_tolerances() {
         // PR-8: a via with non-default drill tolerances must survive encode -> decode.
         // Vias carry no slot geometry.
@@ -1619,7 +1673,7 @@ mod tests {
         asym.solder_mask_expansion_back = Some(0.2); // back 0.2 mm
         original.add_via(asym);
 
-        let data = writer::encode_data_stream(&original).expect("encode");
+        let mut data = writer::encode_data_stream(&original).expect("encode");
         let mut decoded = Footprint::new("VIA_SMASK");
         reader::parse_data_stream(&mut decoded, &data, None);
 
@@ -1629,9 +1683,26 @@ mod tests {
         // Front face unaffected.
         assert!((decoded.vias[1].solder_mask_expansion - 0.1).abs() < 1e-6);
 
-        // Idempotent re-encode proves a byte-stable round-trip for vias.
-        let data2 = writer::encode_data_stream(&decoded).expect("re-encode");
-        assert_eq!(data, data2);
+        // Idempotent re-encode proves a byte-stable round-trip for vias — apart
+        // from the two per-via identity GUIDs @259/@275, which are freshly random
+        // on every encode (PR-R6, matching the pad). Zero those ranges in each via
+        // block so the comparison covers every deterministic byte.
+        let mut data2 = writer::encode_data_stream(&decoded).expect("re-encode");
+        let mask_via_guids = |bytes: &mut [u8]| {
+            let sig = [0x03u8, 0x41, 0x01, 0x00, 0x00]; // via record: [0x03][len=321]
+            let mut search = 0;
+            while let Some(rel) = bytes[search..].windows(sig.len()).position(|w| w == sig) {
+                let block = search + rel + 5;
+                bytes[block + 259..block + 291].fill(0);
+                search = block + 321;
+            }
+        };
+        mask_via_guids(&mut data);
+        mask_via_guids(&mut data2);
+        assert_eq!(
+            data, data2,
+            "via encode is not byte-stable outside the identity GUIDs"
+        );
     }
 
     #[test]

@@ -705,8 +705,10 @@ fn encode_pad_geometry(pad: &Pad) -> Vec<u8> {
 
 /// Canonical 321-byte via `SubRecord-1` (offsets 0-320) captured from a standard
 /// Altium via. [`encode_via`] clones it and overlays the typed fields we model;
-/// the reserved/cache/identity regions keep their template defaults so the via
-/// stays Altium-readable (matches `PcbLibWriter.BuildViaExtended`).
+/// the reserved/cache regions keep their template defaults so the via stays
+/// Altium-readable (matches `PcbLibWriter.BuildViaExtended`). The two identity
+/// GUIDs @259/@275 are overwritten per-via with fresh unique values (see
+/// [`encode_via`]) — the template's GUID bytes are placeholders only.
 const VIA_SR1_TEMPLATE: [u8; 321] = [
     0x4A, 0x0C, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0x93, 0x04, 0x00, 0xF0, 0x49, 0x02, 0x00, 0x02, 0x20, 0x00,
@@ -782,6 +784,16 @@ fn encode_via(data: &mut Vec<u8>, via: &Via) {
         .solder_mask_expansion_back
         .unwrap_or(via.solder_mask_expansion);
     block[242..246].copy_from_slice(&from_mm(back).to_le_bytes());
+
+    // Two per-via identity GUIDs @259 (IdentityGuid / GUID-A) and @275
+    // (IdentityGuidB / GUID-B). Altium expects each primitive to carry its OWN
+    // identity; the template's fixed GUID bytes were reused for every via, so
+    // multiple vias in one footprint collided on a single GUID. Mirror the pad
+    // encoder (`build_pad_extended_tail`), which writes two independent fresh
+    // GUIDs per primitive. The reader never reads these back, so they are a pure
+    // write-side identity (distinct from the UniqueIDPrimitiveInformation stream).
+    block[259..275].copy_from_slice(&generate_guid());
+    block[275..291].copy_from_slice(&generate_guid());
 
     // Drill tolerances @291 / @295. `None` leaves the template's 0x7FFFFFFF
     // "unset" sentinel (byte-identical); `Some(mm)` writes the raw tolerance.
