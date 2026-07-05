@@ -845,7 +845,10 @@ mod tests {
             line_width: 2,
             line_color: 0x00_00_FF, // Red border
             fill_color: 0xFF_00_00, // Blue fill
+            line_style: 2,          // Dotted border (non-default)
             filled: true,
+            transparent: true,        // Transparent fill (non-default)
+            is_not_accessible: false, // Non-default (Altium omits the key)
             owner_part_id: 1,
             display_flags: ShapeDisplayFlags::default(),
             unique_id: None,
@@ -858,7 +861,10 @@ mod tests {
             line_width: 1,
             line_color: 0x00_80_00, // Green border
             fill_color: 0,
+            line_style: 0,
             filled: false,
+            transparent: false,
+            is_not_accessible: true,
             owner_part_id: 1,
             display_flags: ShapeDisplayFlags::default(),
             unique_id: None,
@@ -889,11 +895,57 @@ mod tests {
         assert_eq!(p1.line_color, 0x00_00_FF);
         assert_eq!(p1.fill_color, 0xFF_00_00);
         assert!(p1.filled);
+        assert_eq!(p1.line_style, 2, "dotted border round-trips");
+        assert!(p1.transparent, "transparent fill round-trips");
+        assert!(
+            !p1.is_not_accessible,
+            "false IsNotAccesible round-trips as false (Altium omits the key)"
+        );
 
         // Verify second polygon (rectangle)
         let p2 = &read_symbol.polygons[1];
         assert_eq!(p2.points.len(), 4);
         assert!(!p2.filled);
+        // The rectangle polygon left the new fields at their defaults.
+        assert_eq!(p2.line_style, 0, "default line_style");
+        assert!(!p2.transparent, "default opaque");
+        assert!(p2.is_not_accessible, "default IsNotAccesible=T round-trips");
+    }
+
+    #[test]
+    fn polygon_default_is_byte_identical() {
+        // Byte-identity guard: a default polygon (is_not_accessible=true,
+        // line_style=0, transparent=false) must emit exactly the pre-change
+        // record shape — IsNotAccesible=T right after OwnerPartId, and NO
+        // LineStyle / Transparent tokens.
+        let mut sym = Symbol::new("POLY_DEFAULT");
+        sym.add_polygon(Polygon {
+            points: vec![(0.0, 0.0), (5.0, 0.0), (2.5, 5.0)],
+            line_width: 1,
+            line_color: 0,
+            fill_color: 0,
+            line_style: 0,
+            filled: true,
+            transparent: false,
+            is_not_accessible: true,
+            owner_part_id: 1,
+            display_flags: ShapeDisplayFlags::default(),
+            unique_id: Some("ABCD1234".to_string()),
+        });
+        let data = writer::encode_data_stream(&sym).expect("encode");
+        let text = String::from_utf8_lossy(&data);
+        assert!(
+            text.contains("|OwnerPartId=1|IsNotAccesible=T|LineWidth=1"),
+            "default polygon keeps IsNotAccesible=T in position: {text}"
+        );
+        assert!(
+            !text.contains("LineStyle"),
+            "default line_style emits no LineStyle token: {text}"
+        );
+        assert!(
+            !text.contains("Transparent"),
+            "default opaque polygon emits no Transparent token: {text}"
+        );
     }
 
     #[test]
@@ -1326,7 +1378,10 @@ mod tests {
             line_width: 1,
             line_color: 0,
             fill_color: 0,
+            line_style: 0,
             filled: true,
+            transparent: false,
+            is_not_accessible: true,
             owner_part_id: 1,
             display_flags: ShapeDisplayFlags::default(),
             unique_id: None,
