@@ -286,7 +286,17 @@ def test_write_schlib_shapes(client, runner, schlib_path):
             {"x": 60, "y": 60, "radius_x": 15, "radius_y": 10, "fill_color": 0x778899}
         ],
         "arcs": [
-            {"x": 80, "y": 80, "radius": 25, "start_angle": 30, "end_angle": 270}
+            {
+                "x": 80,
+                "y": 80,
+                "radius": 25,
+                "start_angle": 30,
+                "end_angle": 270,
+                "is_not_accessible": False,
+            }
+        ],
+        "lines": [
+            {"x1": 0, "y1": 0, "x2": 30, "y2": 0, "is_not_accessible": False}
         ],
         "labels": [{"x": 5, "y": 45, "text": "HELLO"}],
     }
@@ -331,13 +341,21 @@ def test_write_schlib_shapes(client, runner, schlib_path):
         el = ellipses[0]
         runner.check(el.get("radius_x") == 15 and el.get("radius_y") == 10, "ellipse radii", actual=el)
 
-    # arc: count + angle range
+    # arc: count + angle range + is_not_accessible=false round-trips
     arcs = sym.get("arcs", [])
     runner.check(len(arcs) == 1, "1 arc survived", actual=len(arcs))
     if arcs:
         ar = arcs[0]
         runner.check(ar.get("radius") == 25, "arc radius", actual=ar.get("radius"), expected=25)
         runner.check(ar.get("start_angle") == 30 and ar.get("end_angle") == 270, "arc angles", actual=ar)
+        runner.check(ar.get("is_not_accessible") is False, "arc is_not_accessible=false round-trips", actual=ar.get("is_not_accessible"))
+
+    # line: is_not_accessible=false round-trips (was hard-coded true on write)
+    lines = sym.get("lines", [])
+    runner.check(len(lines) == 1, "1 line survived", actual=len(lines))
+    if lines:
+        ln = lines[0]
+        runner.check(ln.get("is_not_accessible") is False, "line is_not_accessible=false round-trips", actual=ln.get("is_not_accessible"))
 
     # label: count + text
     labels = sym.get("labels", [])
