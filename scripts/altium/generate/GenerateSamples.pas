@@ -553,6 +553,12 @@ begin
     except
     end;
 
+    // NOTE: a PAD_ROUNDED footprint using CRPercentage[eTopLayer] was tried but the
+    // indexed corner-radius setter on a freshly-created Simple pad causes a native
+    // ACCESS VIOLATION in ScriptingSystem.DLL (runtime, not compile — escapes
+    // try/except). The per-layer corner-radius array is likely not allocated until
+    // the pad has a proper stack; deferred until the correct init sequence is known.
+
     Lib.CurrentComponent := Comp;
 
     // Delete Altium's empty auto-created default footprint. Unlike SchLib, the PCB
@@ -750,6 +756,27 @@ begin
     E.AreaColor       := FillCol;
     E.IsSolid         := Solid;
     E.Transparent     := False;
+    E.OwnerPartId     := 1;
+    E.OwnerPartDisplayMode := Comp.DisplayMode;
+    Comp.AddSchObject(E);
+    SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast, SCHM_PrimitiveRegistration, E.I_ObjectAddress);
+end;
+
+{ Coverage: a solid ellipse with Transparent := True (proven ISch_Ellipse member,
+  non-default value — the plain AddEllipse always sets False). }
+procedure AddEllipseTransparent(Comp : ISch_Component; CX : Integer; CY : Integer; RX : Integer; RY : Integer);
+var E : ISch_Ellipse;
+begin
+    E := SchServer.SchObjectFactory(eEllipse, eCreate_Default);
+    if E = nil then Exit;
+    E.Location        := Point(MilsToCoord(CX), MilsToCoord(CY));
+    E.Radius          := MilsToCoord(RX);
+    E.SecondaryRadius := MilsToCoord(RY);
+    E.LineWidth       := eSmall;
+    E.Color           := $000000;
+    E.AreaColor       := $B0FFFF;
+    E.IsSolid         := True;
+    E.Transparent     := True;
     E.OwnerPartId     := 1;
     E.OwnerPartDisplayMode := Comp.DisplayMode;
     Comp.AddSchObject(E);
@@ -1288,6 +1315,9 @@ begin
             AddRect(Comp, -100, -100, 100, -50, True, $00FFFF);      { solid yellow fill }
             AddRectTransparent(Comp, -100, 50, 100, 100);            { transparent rect }
             AddPolygonTransparent(Comp, -50, 120, 50, 170);          { transparent polygon }
+            AddEllipseTransparent(Comp, 150, 100, 30, 20);           { transparent ellipse }
+            { RoundRect Transparent is NOT persisted by Altium on a lib round-rect
+              (reads back False), so it is not authored here — honest coverage only. }
         end;
     except
     end;
