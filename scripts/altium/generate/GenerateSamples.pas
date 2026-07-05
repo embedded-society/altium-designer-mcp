@@ -306,6 +306,56 @@ begin
                                   PCBM_BoardRegisteration, Body.I_ObjectAddress);
 end;
 
+{ ==== PcbLib COVERAGE-ENRICHMENT HELPERS (verified AD24 names) ============== }
+
+{ TrueType text with Bold + Italic + Mirror. VERIFIED IPCB_Text members:
+  UseTTFonts (True=TrueType), FontName, Bold, Italic, MirrorFlag. }
+procedure AddTextStyled(Comp : IPCB_LibComponent; X : Integer; Y : Integer;
+                        Content : String; Height : Integer; Lyr : TLayer);
+var Txt : IPCB_Text;
+begin
+    Txt := PCBServer.PCBObjectFactory(eTextObject, eNoDimension, eCreate_Default);
+    if Txt = nil then Exit;
+    Txt.XLocation := MilsToCoord(X);
+    Txt.YLocation := MilsToCoord(Y);
+    Txt.Layer     := Lyr;
+    Txt.Size      := MilsToCoord(Height);
+    Txt.Rotation  := 0.0;
+    Txt.Text      := Content;
+    Txt.UseTTFonts := True;
+    Txt.FontName   := 'Arial';
+    Txt.Bold       := True;
+    Txt.Italic     := True;
+    Txt.MirrorFlag := True;
+    Comp.AddPCBObject(Txt);
+    PCBServer.SendMessageToRobots(Comp.I_ObjectAddress, c_Broadcast,
+                                  PCBM_BoardRegisteration, Txt.I_ObjectAddress);
+end;
+
+{ A board-cutout region. VERIFIED: IPCB_Region.Kind : TRegionKind, direct
+  assignment, constant eRegionKind_BoardCutout. }
+procedure AddRegionCutout(Comp : IPCB_LibComponent; X1 : Integer; Y1 : Integer;
+                          X2 : Integer; Y2 : Integer);
+var
+    Rgn  : IPCB_Region;
+    Cont : IPCB_Contour;
+begin
+    Rgn := PCBServer.PCBObjectFactory(eRegionObject, eNoDimension, eCreate_Default);
+    if Rgn = nil then Exit;
+    Cont := Rgn.MainContour.Replicate;
+    Rgn.Layer := eTopLayer;
+    Rgn.Kind  := eRegionKind_BoardCutout;
+    Cont.Count := 4;
+    Cont.X[1] := MilsToCoord(X1);  Cont.Y[1] := MilsToCoord(Y1);
+    Cont.X[2] := MilsToCoord(X2);  Cont.Y[2] := MilsToCoord(Y1);
+    Cont.X[3] := MilsToCoord(X2);  Cont.Y[3] := MilsToCoord(Y2);
+    Cont.X[4] := MilsToCoord(X1);  Cont.Y[4] := MilsToCoord(Y2);
+    Rgn.SetOutlineContour(Cont);
+    Comp.AddPCBObject(Rgn);
+    PCBServer.SendMessageToRobots(Comp.I_ObjectAddress, c_Broadcast,
+                                  PCBM_BoardRegisteration, Rgn.I_ObjectAddress);
+end;
+
 { ---- PcbLib authoring -------------------------------------------------------
 
   Footprints: PAD_SHAPES, PAD_HOLES, VIAS, TRACKS, ARCS, REGIONS, FILLS, TEXT_STROKE,
@@ -478,13 +528,30 @@ begin
     except
     end;
 
-    // NOTE: PcbLib coverage-enrichment footprints (styled TrueType text, filled
-    // arc, cutout region) were removed after a first on-site run: their
-    // best-effort IPCB_* property names (Arc.AreaColor, Text.UseTTFonts/Bold/…,
-    // Region.Kind) are UNDECLARED IDENTIFIERS that fail at DelphiScript COMPILE
-    // time, which aborts the whole script (try/except cannot catch a compile
-    // error). They must be re-added only with property names verified against a
-    // live AD24 object model.
+    // COVERAGE ENRICHMENT (verified AD24 names). Arc fill was dropped for good:
+    // IPCB_Arc has no area/fill colour (arcs are stroked open curves).
+
+    // TEXT_STYLE: a TrueType text with Bold + Italic + Mirror set.
+    try
+        Comp := PCBServer.CreatePCBLibComp;
+        Comp.Name := 'TEXT_STYLE';
+        Lib.RegisterComponent(Comp);
+        PCBServer.PreProcess;
+        AddTextStyled(Comp, 0, 0, 'TTF', 60, eTopOverlay);
+        PCBServer.PostProcess;
+    except
+    end;
+
+    // REGION_CUTOUT: a board-cutout region (KIND != copper).
+    try
+        Comp := PCBServer.CreatePCBLibComp;
+        Comp.Name := 'REGION_CUTOUT';
+        Lib.RegisterComponent(Comp);
+        PCBServer.PreProcess;
+        AddRegionCutout(Comp, -50, -50, 50, 50);
+        PCBServer.PostProcess;
+    except
+    end;
 
     Lib.CurrentComponent := Comp;
 
@@ -882,12 +949,97 @@ begin
     SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast, SCHM_PrimitiveRegistration, Pin.I_ObjectAddress);
 end;
 
-{ NOTE: helpers for polygon LineStyle/Transparent, rectangle display/lock flags
-  (GraphicallyLocked/Disabled/Dimmed), pin SymbolLineWidth, and Bezier curves were
-  removed after a first on-site run — their property/factory names are best-effort
-  and an undeclared identifier is a DelphiScript COMPILE error that aborts the
-  whole script (try/except cannot catch it). Re-add only with names verified
-  against a live AD24 object model. }
+{ Rectangle with the universal display/lock flags set. Names VERIFIED against the
+  AD24 IDE object-model dump: GraphicallyLocked / Disabled / Dimmed are Boolean
+  members of ISch_GraphicalObject (inherited by every graphic shape). }
+procedure AddRectFlagged(Comp : ISch_Component; X1 : Integer; Y1 : Integer;
+                         X2 : Integer; Y2 : Integer);
+var R : ISch_Rectangle;
+begin
+    R := SchServer.SchObjectFactory(eRectangle, eCreate_Default);
+    if R = nil then Exit;
+    R.Location          := Point(MilsToCoord(X1), MilsToCoord(Y1));
+    R.Corner            := Point(MilsToCoord(X2), MilsToCoord(Y2));
+    R.LineWidth         := eSmall;
+    R.Color             := $000000;
+    R.AreaColor         := $B0FFFF;
+    R.IsSolid           := False;
+    R.GraphicallyLocked := True;
+    R.Disabled          := True;
+    R.Dimmed            := True;
+    R.OwnerPartId       := 1;
+    R.OwnerPartDisplayMode := Comp.DisplayMode;
+    Comp.AddSchObject(R);
+    SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast, SCHM_PrimitiveRegistration, R.I_ObjectAddress);
+end;
+
+{ Filled polygon (box) with Transparent := True. VERIFIED: ISch_Polygon HAS
+  Transparent (Boolean) but has NO LineStyle — do not set LineStyle on a polygon. }
+procedure AddPolygonTransparent(Comp : ISch_Component; X1 : Integer; Y1 : Integer;
+                                X2 : Integer; Y2 : Integer);
+var Pol : ISch_Polygon;
+begin
+    Pol := SchServer.SchObjectFactory(ePolygon, eCreate_Default);
+    if Pol = nil then Exit;
+    Pol.ClearAllVertices;
+    Pol.InsertVertex(1);  Pol.Vertex[1] := Point(MilsToCoord(X1), MilsToCoord(Y1));
+    Pol.InsertVertex(2);  Pol.Vertex[2] := Point(MilsToCoord(X2), MilsToCoord(Y1));
+    Pol.InsertVertex(3);  Pol.Vertex[3] := Point(MilsToCoord(X2), MilsToCoord(Y2));
+    Pol.LineWidth            := eSmall;
+    Pol.Color                := $000000;
+    Pol.AreaColor            := $00FF00;
+    Pol.IsSolid              := True;
+    Pol.Transparent          := True;
+    Pol.OwnerPartId          := 1;
+    Pol.OwnerPartDisplayMode := Comp.DisplayMode;
+    Comp.AddSchObject(Pol);
+    SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast, SCHM_PrimitiveRegistration, Pol.I_ObjectAddress);
+end;
+
+{ Pin with a non-default symbol line width (VERIFIED: ISch_Pin.Symbol_LineWidth,
+  with the underscore — TSize), to exercise the PinSymbolLineWidth aux stream. }
+procedure AddPinLineWidth(Comp : ISch_Component; X : Integer; Y : Integer; Len : Integer;
+                          Orient : TRotationBy90; Elec : TPinElectrical;
+                          Desig : String; Nm : String; W : TSize);
+var Pin : ISch_Pin;
+begin
+    Pin := SchServer.SchObjectFactory(ePin, eCreate_Default);
+    if Pin = nil then Exit;
+    Pin.Location             := Point(MilsToCoord(X), MilsToCoord(Y));
+    Pin.Orientation          := Orient;
+    Pin.PinLength            := MilsToCoord(Len);
+    Pin.Electrical           := Elec;
+    Pin.Designator           := Desig;
+    Pin.Name                 := Nm;
+    Pin.Symbol_LineWidth     := W;
+    Pin.OwnerPartId          := 1;
+    Pin.OwnerPartDisplayMode := Comp.DisplayMode;
+    Comp.AddSchObject(Pin);
+    SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast, SCHM_PrimitiveRegistration, Pin.I_ObjectAddress);
+end;
+
+{ Cubic Bezier via 4 control points. VERIFIED: factory eBezier; control points via
+  the polyline vertex model — InsertVertex(i) then SetState_Vertex(i, Point) (NOT
+  Point1..4), 1-based. }
+procedure AddBezier4(Comp : ISch_Component; X1 : Integer; Y1 : Integer;
+                     X2 : Integer; Y2 : Integer; X3 : Integer; Y3 : Integer;
+                     X4 : Integer; Y4 : Integer);
+var Bez : ISch_Bezier;
+begin
+    Bez := SchServer.SchObjectFactory(eBezier, eCreate_Default);
+    if Bez = nil then Exit;
+    Bez.LineWidth := eSmall;
+    Bez.Color     := $000000;
+    Bez.ClearAllVertices;
+    Bez.InsertVertex(1);  Bez.SetState_Vertex(1, Point(MilsToCoord(X1), MilsToCoord(Y1)));
+    Bez.InsertVertex(2);  Bez.SetState_Vertex(2, Point(MilsToCoord(X2), MilsToCoord(Y2)));
+    Bez.InsertVertex(3);  Bez.SetState_Vertex(3, Point(MilsToCoord(X3), MilsToCoord(Y3)));
+    Bez.InsertVertex(4);  Bez.SetState_Vertex(4, Point(MilsToCoord(X4), MilsToCoord(Y4)));
+    Bez.OwnerPartId          := 1;
+    Bez.OwnerPartDisplayMode := Comp.DisplayMode;
+    Comp.AddSchObject(Bez);
+    SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast, SCHM_PrimitiveRegistration, Bez.I_ObjectAddress);
+end;
 
 { ---- SchLib authoring -------------------------------------------------------
 
@@ -1124,47 +1276,65 @@ begin
       AltiumSharp DTOs); on-site failures are expected to be iterated.
       ====================================================================== }
 
-    { ---- SHAPESTYLE — shapes with non-default LineStyle + a transparent fill.
-      LineStyle / Transparent / IsSolid / AreaColor are all PROVEN by AddLine /
-      AddRect above; here they carry non-default values. ---- }
+    { ---- SHAPESTYLE — non-default LineStyle lines + a transparent rectangle + a
+      transparent polygon. LineStyle (line/rect), Transparent (rect/polygon) are
+      VERIFIED against the AD24 object model. ---- }
     try
-        Comp := NewSymbol(Lib, 'SHAPESTYLE', 'Non-default line style + transparent fill', 1);
+        Comp := NewSymbol(Lib, 'SHAPESTYLE', 'Non-default line style + transparent fills', 1);
         if Comp <> nil then
         begin
             AddLineStyled(Comp, -200, 0, 0, 0, eLineStyleDashed);    { dashed line }
             AddLineStyled(Comp, 0, 0, 200, 0, eLineStyleDotted);     { dotted line }
             AddRect(Comp, -100, -100, 100, -50, True, $00FFFF);      { solid yellow fill }
             AddRectTransparent(Comp, -100, 50, 100, 100);            { transparent rect }
+            AddPolygonTransparent(Comp, -50, 120, 50, 170);          { transparent polygon }
         end;
     except
     end;
 
-    { ---- JUSTIFY — labels/params at the two PROVEN justifications + a rotation.
-      Only eJustify_BottomLeft / eJustify_TopRight are used elsewhere in this file
-      and known to compile; the mid-row constant names (eJustify_CenterCenter etc.)
-      are NOT declared in AD24 under that spelling and abort the compile. ---- }
+    { ---- LOCKFLAGS — a rectangle with the universal display/lock flags set
+      (GraphicallyLocked / Disabled / Dimmed — VERIFIED ISch_GraphicalObject). ---- }
+    try
+        Comp := NewSymbol(Lib, 'LOCKFLAGS', 'Graphically locked / disabled / dimmed shape', 1);
+        if Comp <> nil then
+            AddRectFlagged(Comp, -100, -50, 100, 50);
+    except
+    end;
+
+    { ---- JUSTIFY — labels at BottomLeft / Center / TopRight + a rotation. The
+      mid-row constant is eJustify_Center (value 4), NOT eJustify_CenterCenter. ---- }
     try
         Comp := NewSymbol(Lib, 'JUSTIFY', 'Label / parameter justification + rotation', 1);
         if Comp <> nil then
         begin
             AddLabel(Comp, -100,  100, 'BL',    eJustify_BottomLeft, eRotate0);
+            AddLabel(Comp, -100,   50, 'CC',    eJustify_Center,     eRotate0);
             AddLabel(Comp, -100,    0, 'TR',    eJustify_TopRight,   eRotate0);
             AddLabel(Comp, -100,  -50, 'ROT90', eJustify_BottomLeft, eRotate90);
             AddParameter(Comp, 'Value', '1k', 100, 100, True,  eJustify_TopRight,   eRotate0);
-            AddParameter(Comp, 'Tol',   '5%', 100,  50, False, eJustify_BottomLeft, eRotate90);
+            AddParameter(Comp, 'Tol',   '5%', 100,  50, False, eJustify_Center,     eRotate90);
         end;
     except
     end;
 
-    { ---- FRACPINS — off-grid pin coords (exercise the PinFrac aux stream). Uses
-      only the PROVEN .Location property with a sub-mil offset. ---- }
+    { ---- FRACPINS — off-grid pins (PinFrac aux stream) + a pin with a non-default
+      Symbol_LineWidth (PinSymbolLineWidth aux stream). ---- }
     try
-        Comp := NewSymbol(Lib, 'FRACPINS', 'Off-grid pins (PinFrac stream)', 1);
+        Comp := NewSymbol(Lib, 'FRACPINS', 'Off-grid pins + symbol line width', 1);
         if Comp <> nil then
         begin
             AddPinFractional(Comp, 5, 3, 200, eRotate180, eElectricPassive, '1', 'FRAC');
             AddPinFractional(Comp, 0, 97, 200, eRotate180, eElectricPassive, '2', 'FRAC2');
+            AddPinLineWidth(Comp, 0, -100, 200, eRotate180, eElectricPassive, '3', 'WIDE', eLarge);
         end;
+    except
+    end;
+
+    { ---- BEZIERSYM — a Bezier curve (not authored by any other symbol). ---- }
+    try
+        Comp := NewSymbol(Lib, 'BEZIERSYM', 'Bezier curve', 1);
+        if Comp <> nil then
+            AddBezier4(Comp, -100, 0, -50, 80, 50, 80, 100, 0);
     except
     end;
 
