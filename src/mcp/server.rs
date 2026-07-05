@@ -343,6 +343,7 @@ impl McpServer {
             name,
             "write_pcblib"
                 | "write_schlib"
+                | "write_libpkg"
                 | "delete_component"
                 | "import_library"
                 | "batch_update"
@@ -953,6 +954,7 @@ mod tests {
         for t in [
             "write_pcblib",
             "write_schlib",
+            "write_libpkg",
             "delete_component",
             "import_library",
             "batch_update",

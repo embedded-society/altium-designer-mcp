@@ -199,11 +199,19 @@ impl McpServer {
                 return ToolCallResult::error(e);
             }
 
+            // Two-phase remove-then-add (see the SchLib path): `add` overwrites on
+            // key collision, so a one-pass loop loses a footprint on a chained
+            // rename like A->B, B->C.
+            let mut pending: Vec<crate::altium::pcblib::Footprint> =
+                Vec::with_capacity(renames.len());
             for (old_name, new_name) in &renames {
                 if let Some(mut footprint) = library.remove(old_name) {
                     footprint.name.clone_from(new_name);
-                    library.add(footprint);
+                    pending.push(footprint);
                 }
+            }
+            for footprint in pending {
+                library.add(footprint);
             }
 
             if let Err(e) = library.save(filepath) {
@@ -290,11 +298,21 @@ impl McpServer {
                 return ToolCallResult::error(e);
             }
 
+            // Two-phase: remove EVERY source before adding ANY target. `add` is
+            // IndexMap::insert (overwrites on key collision), so a one-pass
+            // remove-then-add loses a symbol on a chained rename like A->B, B->C —
+            // adding B (still present) clobbers the original B before B->C removes
+            // it. The conflict check permits such chains (target is itself being
+            // renamed), so the application must be collision-safe.
+            let mut pending: Vec<crate::altium::schlib::Symbol> = Vec::with_capacity(renames.len());
             for (old_name, new_name) in &renames {
                 if let Some(mut symbol) = library.remove(old_name) {
                     symbol.name.clone_from(new_name);
-                    library.add(symbol);
+                    pending.push(symbol);
                 }
+            }
+            for symbol in pending {
+                library.add(symbol);
             }
 
             if let Err(e) = library.save(filepath) {
@@ -359,8 +377,13 @@ impl McpServer {
                 .extension()
                 .is_some_and(|ext| ext.eq_ignore_ascii_case("bak"));
             if name.starts_with(&backup_pattern) && is_bak {
-                // Extract timestamp from filename
-                let middle = &name[backup_pattern.len()..name.len() - 4]; // Remove prefix and ".bak"
+                // Extract timestamp from filename. A file such as `<lib>.bak` (no
+                // timestamp segment) still matches the prefix + `.bak` suffix but is
+                // shorter than `<pattern><15-char stamp>.bak`, so a raw slice would
+                // panic (start > end). `get` yields None and we skip it.
+                let Some(middle) = name.get(backup_pattern.len()..name.len() - 4) else {
+                    continue;
+                };
 
                 // Validate timestamp format (YYYYMMDD_HHMMSS)
                 if middle.len() == 15 && middle.chars().nth(8) == Some('_') {
@@ -445,7 +468,12 @@ impl McpServer {
                     .extension()
                     .is_some_and(|ext| ext.eq_ignore_ascii_case("bak"));
                 if name.starts_with(&backup_pattern) && is_bak {
-                    let middle = &name[backup_pattern.len()..name.len() - 4];
+                    // `get` (not a raw slice) so a timestamp-less `<lib>.bak` — which
+                    // still matches prefix + `.bak` but is shorter than the stamped
+                    // form — is skipped instead of panicking (start > end).
+                    let Some(middle) = name.get(backup_pattern.len()..name.len() - 4) else {
+                        continue;
+                    };
                     if middle.len() == 15 && middle.chars().nth(8) == Some('_') {
                         let entry_path = entry.path().to_string_lossy().into_owned();
                         if most_recent
