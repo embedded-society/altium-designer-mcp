@@ -297,7 +297,11 @@ fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
     let owner_part_id = read_i16(data, offset)?;
     offset += 2;
 
-    // owner_part_display_mode (1 byte)
+    // owner_part_display_mode (1 byte): the pin's own alternate-view index,
+    // stored in the binary record (AltiumSharp reads it here). Preserved so a
+    // pin authored on a non-default display mode round-trips; the golden pins
+    // carry 0, so a from-scratch pin stays byte-identical.
+    let owner_part_display_mode = i32::from(data.get(offset).copied().unwrap_or(0));
     offset += 1;
 
     // symbol flags (4 bytes: inner_edge, outer_edge, inside, outside)
@@ -377,6 +381,7 @@ fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
         show_designator,
         description,
         owner_part_id: owner_part_id.into(),
+        owner_part_display_mode,
         colour,
         graphically_locked,
         is_not_accessible,
@@ -388,6 +393,10 @@ fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
         swap_id_group,
         part_and_sequence,
         default_value,
+        // Aux-stream fields, filled by apply_pin_frac / apply_pin_symbol_line_widths
+        // after the whole Data stream is parsed (they are keyed by pin ordinal).
+        symbol_line_width: 0,
+        frac: None,
     })
 }
 
@@ -1049,6 +1058,7 @@ mod tests {
         pin.swap_id_group = "GRP".to_string();
         pin.part_and_sequence = "A|&|B".to_string();
         pin.default_value = "5V".to_string();
+        pin.owner_part_display_mode = 3;
 
         let mut data = Vec::new();
         write_binary_pin(&mut data, &pin).unwrap();
@@ -1061,6 +1071,28 @@ mod tests {
         assert_eq!(parsed.swap_id_group, "GRP");
         assert_eq!(parsed.part_and_sequence, "A|&|B");
         assert_eq!(parsed.default_value, "5V");
+        assert_eq!(
+            parsed.owner_part_display_mode, 3,
+            "OwnerPartDisplayMode byte (offset 7) must round-trip"
+        );
+    }
+
+    #[test]
+    fn pin_owner_part_display_mode_default_byte_is_zero() {
+        // Byte-identity: a from-scratch pin must leave the OwnerPartDisplayMode
+        // byte at 0x00 (the value every golden pin carries). The record layout is
+        // [len:3][flag:1] frame, then payload: i32 rectype(2), u8 unknown,
+        // i16 owner_part_id, then this byte at payload offset 7 => data offset 11.
+        use crate::altium::schlib::primitives::Pin;
+        use crate::altium::schlib::writer::write_binary_pin;
+        let pin = Pin::new("VCC", "1", 0, 0, 100, PinOrientation::Right);
+        let mut data = Vec::new();
+        write_binary_pin(&mut data, &pin).unwrap();
+        assert_eq!(
+            data[4 + 7],
+            0x00,
+            "default pin OwnerPartDisplayMode byte must be 0x00 (byte-identical to Altium)"
+        );
     }
 
     #[test]

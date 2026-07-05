@@ -561,7 +561,10 @@ impl McpServer {
                                                 "symbol_inner_edge": { "type": "string", "description": "Decoration on the INNER edge (nearest the body), e.g. 'dot' (inversion bubble), 'clock'. Default: none" },
                                                 "symbol_outer_edge": { "type": "string", "description": "Decoration on the OUTER edge (furthest from the body), e.g. 'dot', 'clock'. Default: none" },
                                                 "symbol_inside": { "type": "string", "description": "Decoration drawn inside the pin line, e.g. 'postponed_output', 'open_collector'. Default: none" },
-                                                "symbol_outside": { "type": "string", "description": "Decoration drawn outside the pin line, e.g. 'right_left_signal_flow', 'analog_signal_in'. Default: none" }
+                                                "symbol_outside": { "type": "string", "description": "Decoration drawn outside the pin line, e.g. 'right_left_signal_flow', 'analog_signal_in'. Default: none" },
+                                                "owner_part_display_mode": { "type": "integer", "description": "Pin's alternate-view (display-mode) index in the binary pin record. Default: 0" },
+                                                "symbol_line_width": { "type": "integer", "description": "Pin symbol line-width index. Non-zero writes a PinSymbolLineWidth auxiliary stream; 0 (default) writes none." },
+                                                "frac": { "type": "object", "description": "Fractional pin coordinates for off-grid pins, in 1/100000 schematic-unit steps. Non-zero writes a PinFrac auxiliary stream; omit for on-grid pins.", "properties": { "x": { "type": "integer" }, "y": { "type": "integer" }, "length": { "type": "integer" } } }
                                             },
                                             "required": ["designator", "name", "x", "y", "length", "orientation"]
                                         }

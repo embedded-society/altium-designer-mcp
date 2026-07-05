@@ -47,6 +47,7 @@
 //! | 45 | Model | Footprint model reference |
 
 pub(crate) mod coord;
+pub(crate) mod pin_aux;
 pub mod primitives;
 pub mod reader;
 pub mod writer;
@@ -164,6 +165,21 @@ impl SchLib {
                 .unwrap_or_default();
 
             reader::parse_data_stream(&mut symbol, &data);
+
+            // Apply the optional per-component pin auxiliary streams. They sit
+            // alongside `Data` in the same storage and are keyed by pin ordinal,
+            // so they must be applied AFTER the pins are parsed. Absent streams
+            // (the common case, incl. the whole golden) leave the pins untouched.
+            if let Some(frac) =
+                crate::altium::read_stream_opt(&mut cfb, format!("{comp_name}/PinFrac"))
+            {
+                pin_aux::apply_pin_frac(&mut symbol.pins, &frac);
+            }
+            if let Some(widths) =
+                crate::altium::read_stream_opt(&mut cfb, format!("{comp_name}/PinSymbolLineWidth"))
+            {
+                pin_aux::apply_pin_symbol_line_widths(&mut symbol.pins, &widths);
+            }
 
             // Use the symbol's actual name (from LibReference) as the key
             // This handles long names that were truncated in the OLE storage path
@@ -298,6 +314,21 @@ impl SchLib {
             crate::altium::create_storage(&mut cfb, &format!("/{ole_name}"))?;
             let data = writer::encode_data_stream(symbol)?;
             crate::altium::write_stream(&mut cfb, &format!("/{ole_name}/Data"), &data)?;
+
+            // Optional per-component pin auxiliary streams, written into the same
+            // storage. Each is emitted ONLY when at least one pin carries a
+            // non-default value; an all-default symbol (the common case, incl.
+            // the golden) writes neither, keeping its storage byte-identical.
+            if let Some(frac) = pin_aux::encode_pin_frac(&symbol.pins)? {
+                crate::altium::write_stream(&mut cfb, &format!("/{ole_name}/PinFrac"), &frac)?;
+            }
+            if let Some(widths) = pin_aux::encode_pin_symbol_line_widths(&symbol.pins)? {
+                crate::altium::write_stream(
+                    &mut cfb,
+                    &format!("/{ole_name}/PinSymbolLineWidth"),
+                    &widths,
+                )?;
+            }
         }
 
         // Root Storage stream (Altium's icon storage). Always present; for a

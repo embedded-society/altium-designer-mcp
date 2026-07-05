@@ -149,6 +149,23 @@ fn samples_schlib_pins_etype() {
         assert_eq!(pin.length, 20, "pin[{i}] ({designator}) length");
         assert_eq!(pin.x, 0, "pin[{i}] ({designator}) x");
         assert_eq!(pin.y, y, "pin[{i}] ({designator}) y");
+        // PR-R3 pin auxiliary data. The Altium-authored golden pins are on-grid
+        // with a default symbol line width and display mode, so all three read
+        // back at their defaults — the byte-identity anchor for the aux streams
+        // (a from-scratch default pin therefore writes no PinFrac /
+        // PinSymbolLineWidth stream, keeping the storage identical).
+        assert_eq!(
+            pin.owner_part_display_mode, 0,
+            "pin[{i}] ({designator}) OwnerPartDisplayMode reads the golden byte (0)"
+        );
+        assert_eq!(
+            pin.symbol_line_width, 0,
+            "pin[{i}] ({designator}) has default symbol line width"
+        );
+        assert_eq!(
+            pin.frac, None,
+            "pin[{i}] ({designator}) is on-grid (no PinFrac remainder)"
+        );
     }
 
     // One Altium-default parameter (a `Comment` = "*").

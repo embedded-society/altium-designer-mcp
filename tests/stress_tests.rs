@@ -1399,6 +1399,9 @@ fn test_schlib_rename_component() {
         swap_id_group: String::new(),
         part_and_sequence: "|&|".to_string(),
         default_value: String::new(),
+        owner_part_display_mode: 0,
+        symbol_line_width: 0,
+        frac: None,
     });
     lib.add(sym);
     lib.save(&file_path).expect("Failed to write");
@@ -1626,6 +1629,9 @@ fn test_schlib_copy_cross_library() {
         swap_id_group: String::new(),
         part_and_sequence: "|&|".to_string(),
         default_value: String::new(),
+        owner_part_display_mode: 0,
+        symbol_line_width: 0,
+        frac: None,
     });
     source_lib.add(sym);
     source_lib
@@ -1775,6 +1781,9 @@ fn test_schlib_json_roundtrip() {
         swap_id_group: String::new(),
         part_and_sequence: "|&|".to_string(),
         default_value: String::new(),
+        owner_part_display_mode: 0,
+        symbol_line_width: 0,
+        frac: None,
     });
     lib.add(sym);
     lib.save(&original_path).expect("Failed to write original");
@@ -2049,6 +2058,9 @@ fn test_schlib_merge_libraries() {
         swap_id_group: String::new(),
         part_and_sequence: "|&|".to_string(),
         default_value: String::new(),
+        owner_part_display_mode: 0,
+        symbol_line_width: 0,
+        frac: None,
     });
     lib2.add(sym2);
     lib2.save(&source2_path).expect("Failed to write source2");
@@ -2362,6 +2374,9 @@ fn test_schlib_get_component() {
         swap_id_group: String::new(),
         part_and_sequence: "|&|".to_string(),
         default_value: String::new(),
+        owner_part_display_mode: 0,
+        symbol_line_width: 0,
+        frac: None,
     });
     lib.add(sym1);
 

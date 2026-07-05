@@ -176,8 +176,10 @@ pub(crate) fn write_binary_pin(
     let owner_part = pin.owner_part_id as i16;
     record.extend_from_slice(&owner_part.to_le_bytes());
 
-    // Owner part display mode (1 byte)
-    record.push(0x00);
+    // Owner part display mode (1 byte). Round-tripped from the pin; a from-scratch
+    // pin defaults to 0, matching Altium's output byte-for-byte.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    record.push(pin.owner_part_display_mode as u8);
 
     // Symbol flags (4 bytes: inner_edge, outer_edge, inside, outside)
     record.push(pin.symbol_inner_edge.to_id());
