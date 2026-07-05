@@ -999,6 +999,12 @@ def test_write_pcblib_region_kind_net_name(client, runner, lib_path):
                 "name": "POUR_A",
                 "net_index": 7,
                 "cavity_height": 0.254,  # 10 mil in mm
+                # Bug sweep 2026-07: these four are always serialised by read_pcblib
+                # but were missing from the write allow-list (and unread by
+                # parse_region), so a read-modify-write of a region was rejected.
+                "sub_poly_index": 3,
+                "union_index": 2,
+                "is_shape_based": True,
             }
         ],
     }
@@ -1032,6 +1038,23 @@ def test_write_pcblib_region_kind_net_name(client, runner, lib_path):
             "region cavity_height",
             actual=rg.get("cavity_height"),
             expected=0.254,
+        )
+        runner.check(
+            rg.get("sub_poly_index") == 3,
+            "region sub_poly_index round-trips (was rejected by allow-list)",
+            actual=rg.get("sub_poly_index"),
+            expected=3,
+        )
+        runner.check(
+            rg.get("union_index") == 2,
+            "region union_index round-trips",
+            actual=rg.get("union_index"),
+            expected=2,
+        )
+        runner.check(
+            rg.get("is_shape_based") is True,
+            "region is_shape_based round-trips",
+            actual=rg.get("is_shape_based"),
         )
 
 

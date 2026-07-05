@@ -625,7 +625,11 @@ impl McpServer {
                             "net_index",
                             "polygon_index",
                             "component_index",
+                            "arc_resolution",
                             "cavity_height",
+                            "sub_poly_index",
+                            "union_index",
+                            "is_shape_based",
                             "holes",
                             "unique_id",
                             "additional_parameters"
