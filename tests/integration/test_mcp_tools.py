@@ -1894,6 +1894,95 @@ def test_write_schlib_unique_id_roundtrip(client, runner, schlib_path):
         )
 
 
+def test_write_schlib_pin_aux_data(client, runner, schlib_path):
+    print("\n=== Test: write_schlib pin auxiliary data round trip ===")
+    # Coverage PR-R3: the three pin auxiliary fields must be authorable via
+    # write_schlib and survive read_schlib.
+    #   - owner_part_display_mode: the pin binary record's own byte (Part 1).
+    #   - symbol_line_width: per-component PinSymbolLineWidth stream (Part 2).
+    #   - frac: per-component PinFrac stream, fractional off-grid coords (Part 3).
+    # A default pin (P0) sets none of them, proving the omit-when-default path
+    # (which writes no aux stream, keeping the golden byte-identical); the aux
+    # pin (PA) sets all three and must read them back keyed by pin ordinal.
+    symbol = {
+        "name": "PINAUX",
+        "pins": [
+            {
+                "designator": "0",
+                "name": "P0",
+                "x": -50,
+                "y": 0,
+                "length": 30,
+                "orientation": "left",
+            },
+            {
+                "designator": "1",
+                "name": "PA",
+                "x": -50,
+                "y": 20,
+                "length": 30,
+                "orientation": "left",
+                "owner_part_display_mode": 2,
+                "symbol_line_width": 3,
+                "frac": {"x": 50000, "y": -25000, "length": 12345},
+            },
+        ],
+    }
+
+    write = client.call_tool(
+        "write_schlib",
+        {"filepath": schlib_path, "symbols": [symbol], "append": False},
+    )
+    runner.check(
+        not write.get("_isError"), "write_schlib (pin aux) succeeded", actual=write
+    )
+
+    read = client.call_tool("read_schlib", {"filepath": schlib_path})
+    runner.check(not read.get("_isError"), "read_schlib succeeded", actual=read)
+
+    symbols = {s.get("name"): s for s in read.get("symbols", [])}
+    sym = symbols.get("PINAUX", {})
+    runner.check(bool(sym), "PINAUX symbol present", actual=list(symbols))
+
+    pins = {p.get("name"): p for p in sym.get("pins", [])}
+    p0 = pins.get("P0", {})
+    pa = pins.get("PA", {})
+
+    # Default pin: every aux field stays at its default (serde omits them).
+    runner.check(
+        p0.get("owner_part_display_mode", 0) == 0,
+        "default pin owner_part_display_mode",
+        actual=p0.get("owner_part_display_mode", 0),
+    )
+    runner.check(
+        p0.get("symbol_line_width", 0) == 0,
+        "default pin symbol_line_width",
+        actual=p0.get("symbol_line_width", 0),
+    )
+    runner.check(p0.get("frac") is None, "default pin has no frac", actual=p0.get("frac"))
+
+    # Aux pin: all three survive, keyed by pin ordinal.
+    runner.check(
+        pa.get("owner_part_display_mode") == 2,
+        "aux pin owner_part_display_mode",
+        actual=pa.get("owner_part_display_mode"),
+        expected=2,
+    )
+    runner.check(
+        pa.get("symbol_line_width") == 3,
+        "aux pin symbol_line_width",
+        actual=pa.get("symbol_line_width"),
+        expected=3,
+    )
+    frac = pa.get("frac") or {}
+    runner.check(
+        frac.get("x") == 50000 and frac.get("y") == -25000 and frac.get("length") == 12345,
+        "aux pin frac (x, y, length) round-trip",
+        actual=frac,
+        expected={"x": 50000, "y": -25000, "length": 12345},
+    )
+
+
 def main():
     binary = find_binary()
     print(f"Using binary: {binary}")
@@ -1945,6 +2034,7 @@ def main():
         test_write_schlib_parameter_display_fields(client, runner, schlib_path)
         test_write_schlib_utf8_text(client, runner, schlib_path)
         test_write_schlib_unique_id_roundtrip(client, runner, schlib_path)
+        test_write_schlib_pin_aux_data(client, runner, schlib_path)
         test_read_pcblib_exposes_vias_fills(client, runner, sample_path)
         test_read_schlib_exposes_round_rects_polygons(client, runner, schlib_sample_path)
         test_unknown_tool(client, runner)

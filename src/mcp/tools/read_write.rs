@@ -1304,7 +1304,10 @@ impl McpServer {
                             "graphically_locked",
                             "swap_id_group",
                             "part_and_sequence",
-                            "default_value"
+                            "default_value",
+                            "owner_part_display_mode",
+                            "symbol_line_width",
+                            "frac"
                         ]
                     );
                     if let Some(pin) = Self::parse_schlib_pin(pin_json) {

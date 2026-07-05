@@ -477,6 +477,161 @@ fn schlib_preserves_unique_id_and_pin_accessibility() {
     );
 }
 
+/// Returns the set of OLE stream paths (lower-cased) in a written library file,
+/// used to assert whether the optional pin auxiliary streams were emitted.
+fn ole_stream_paths(path: &std::path::Path) -> Vec<String> {
+    let file = File::open(path).expect("open written SchLib");
+    let cfb = cfb::CompoundFile::open(file).expect("parse OLE");
+    cfb.walk()
+        .filter(cfb::Entry::is_stream)
+        .map(|e| e.path().to_string_lossy().to_lowercase())
+        .collect()
+}
+
+#[test]
+fn schlib_pin_owner_part_display_mode_roundtrips() {
+    // PR-R3 Part 1: the pin binary record's own OwnerPartDisplayMode byte (offset
+    // 7) is preserved. A from-scratch pin defaults to 0 (byte-identical to
+    // Altium); a non-default value survives write -> read.
+    let temp_dir = test_temp_dir();
+    let file_path = temp_dir.path().join("test_pin_odm.SchLib");
+
+    let mut lib = SchLib::new();
+    let mut sym = Symbol::new("MODE");
+    let mut pin = Pin::new("1", "1", -20, 0, 10, PinOrientation::Left);
+    pin.owner_part_display_mode = 2;
+    sym.add_pin(pin);
+    sym.add_pin(Pin::new("2", "2", 20, 0, 10, PinOrientation::Right)); // default 0
+    lib.add(sym);
+    lib.save(&file_path).expect("write SchLib");
+
+    let read_lib = SchLib::open(&file_path).expect("read SchLib");
+    let read_sym = read_lib.get("MODE").expect("symbol not found");
+    assert_eq!(
+        read_sym.pins[0].owner_part_display_mode, 2,
+        "non-default pin OwnerPartDisplayMode must survive round-trip"
+    );
+    assert_eq!(
+        read_sym.pins[1].owner_part_display_mode, 0,
+        "default pin OwnerPartDisplayMode stays 0"
+    );
+}
+
+#[test]
+fn schlib_pin_symbol_line_width_roundtrips_and_omits_when_default() {
+    // PR-R3 Part 2: a non-default SymbolLineWidth survives a full library
+    // write -> read via the per-component PinSymbolLineWidth stream, keyed by
+    // pin ordinal. There is no golden for this stream, so this self round-trip
+    // (we control both compress and decompress) is the verification.
+    let temp_dir = test_temp_dir();
+
+    // Non-default: pin[1] carries width 5.
+    let path_nondefault = temp_dir.path().join("test_pin_slw.SchLib");
+    let mut lib = SchLib::new();
+    let mut sym = Symbol::new("SLW");
+    sym.add_pin(Pin::new("1", "1", -20, 0, 10, PinOrientation::Left)); // default 0
+    let mut pin = Pin::new("2", "2", 20, 0, 10, PinOrientation::Right);
+    pin.symbol_line_width = 5;
+    sym.add_pin(pin);
+    lib.add(sym);
+    lib.save(&path_nondefault).expect("write SchLib");
+
+    let streams = ole_stream_paths(&path_nondefault);
+    assert!(
+        streams.iter().any(|s| s.ends_with("pinsymbollinewidth")),
+        "a non-default symbol line width must emit a PinSymbolLineWidth stream; streams: {streams:?}"
+    );
+
+    let read_lib = SchLib::open(&path_nondefault).expect("read SchLib");
+    let read_sym = read_lib.get("SLW").expect("symbol not found");
+    assert_eq!(
+        read_sym.pins[0].symbol_line_width, 0,
+        "default pin[0] line width stays 0"
+    );
+    assert_eq!(
+        read_sym.pins[1].symbol_line_width, 5,
+        "non-default pin[1] line width survives round-trip, keyed by ordinal"
+    );
+
+    // Default: all pins width 0 -> no stream (byte-identity anchor).
+    let path_default = temp_dir.path().join("test_pin_slw_default.SchLib");
+    let mut lib = SchLib::new();
+    let mut sym = Symbol::new("PLAIN");
+    sym.add_pin(Pin::new("1", "1", -20, 0, 10, PinOrientation::Left));
+    sym.add_pin(Pin::new("2", "2", 20, 0, 10, PinOrientation::Right));
+    lib.add(sym);
+    lib.save(&path_default).expect("write SchLib");
+    let streams = ole_stream_paths(&path_default);
+    assert!(
+        !streams.iter().any(|s| s.ends_with("pinsymbollinewidth")),
+        "all-default pins must write NO PinSymbolLineWidth stream; streams: {streams:?}"
+    );
+}
+
+#[test]
+fn schlib_pin_frac_roundtrips_and_omits_when_default() {
+    // PR-R3 Part 3: a fractional (off-grid) pin survives a full library
+    // write -> read via the per-component PinFrac stream, keyed by pin ordinal.
+    // No golden exists for this stream, so this self round-trip is the check.
+    use altium_designer_mcp::altium::schlib::PinFrac;
+    let temp_dir = test_temp_dir();
+
+    // Off-grid: pin[0] carries a fractional remainder.
+    let path_frac = temp_dir.path().join("test_pin_frac.SchLib");
+    let mut lib = SchLib::new();
+    let mut sym = Symbol::new("FRAC");
+    let mut pin = Pin::new("1", "1", -20, 0, 10, PinOrientation::Left);
+    pin.frac = Some(PinFrac {
+        x: 50_000,
+        y: -25_000,
+        length: 12_345,
+    });
+    sym.add_pin(pin);
+    sym.add_pin(Pin::new("2", "2", 20, 0, 10, PinOrientation::Right)); // on-grid
+    lib.add(sym);
+    lib.save(&path_frac).expect("write SchLib");
+
+    let streams = ole_stream_paths(&path_frac);
+    assert!(
+        streams.iter().any(|s| s.ends_with("pinfrac")),
+        "a fractional pin must emit a PinFrac stream; streams: {streams:?}"
+    );
+
+    let read_lib = SchLib::open(&path_frac).expect("read SchLib");
+    let read_sym = read_lib.get("FRAC").expect("symbol not found");
+    assert_eq!(
+        read_sym.pins[0].frac,
+        Some(PinFrac {
+            x: 50_000,
+            y: -25_000,
+            length: 12_345,
+        }),
+        "off-grid pin[0] fractional coords survive round-trip, keyed by ordinal"
+    );
+    assert_eq!(
+        read_sym.pins[1].frac, None,
+        "on-grid pin[1] carries no PinFrac remainder"
+    );
+    // The integer part of the coordinates is untouched by the PinFrac layer.
+    assert_eq!(
+        read_sym.pins[0].x, -20,
+        "integer X preserved alongside frac"
+    );
+
+    // Default: all pins on-grid -> no stream (byte-identity anchor).
+    let path_default = temp_dir.path().join("test_pin_frac_default.SchLib");
+    let mut lib = SchLib::new();
+    let mut sym = Symbol::new("GRID");
+    sym.add_pin(Pin::new("1", "1", -20, 0, 10, PinOrientation::Left));
+    lib.add(sym);
+    lib.save(&path_default).expect("write SchLib");
+    let streams = ole_stream_paths(&path_default);
+    assert!(
+        !streams.iter().any(|s| s.ends_with("pinfrac")),
+        "all-on-grid pins must write NO PinFrac stream; streams: {streams:?}"
+    );
+}
+
 #[test]
 fn schlib_file_roundtrip_multiple_symbols() {
     let temp_dir = test_temp_dir();

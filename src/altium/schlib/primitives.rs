@@ -87,6 +87,13 @@ pub struct Pin {
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,
 
+    /// Owner part display mode (alternate-view index). Stored in the binary pin
+    /// record's own byte at offset 7 — distinct from the `OwnerPartDisplayMode`
+    /// that `PR-14` put on the `SchLib` *shapes* (a text-record parameter). Altium
+    /// emits `0` for a normal pin; preserved on round-trip.
+    #[serde(default)]
+    pub owner_part_display_mode: i32,
+
     /// Pin colour (BGR format).
     #[serde(default)]
     pub colour: u32,
@@ -132,6 +139,50 @@ pub struct Pin {
     /// Pin default value (empty for a from-scratch pin).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub default_value: String,
+
+    /// Symbol line width index. Lives in the per-component `PinSymbolLineWidth`
+    /// auxiliary OLE stream (a `SYMBOL_LINEWIDTH=N` parameter, one entry per
+    /// non-default pin), NOT in the binary pin record. `0` is the default and
+    /// causes no stream entry to be written, so a from-scratch pin is
+    /// byte-identical to Altium's output.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub symbol_line_width: i32,
+
+    /// Fractional companion of `x` / `y` / `length`, in 1/100000-DXP units,
+    /// preserved from the per-component `PinFrac` auxiliary OLE stream. The
+    /// binary pin record stores only the integer DXP part (i16); a pin sitting
+    /// off the integer grid carries its sub-unit remainder here so it
+    /// round-trips. `None` for an on-grid pin (the common case, incl. the whole
+    /// golden), which writes no `PinFrac` entry → byte-identical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frac: Option<PinFrac>,
+}
+
+/// Fractional companion coordinates for a [`Pin`].
+///
+/// Mirrors the three little-endian `i32` values in a `PinFrac` auxiliary-stream
+/// entry (`frac_x`, `frac_y`, `frac_length`). Each is a sub-DXP-unit remainder
+/// in 1/100000 units, matching Altium's `raw = num * 100000 + frac` convention.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct PinFrac {
+    /// Fractional part of the pin's X coordinate (1/100000 DXP units).
+    #[serde(default)]
+    pub x: i32,
+    /// Fractional part of the pin's Y coordinate (1/100000 DXP units).
+    #[serde(default)]
+    pub y: i32,
+    /// Fractional part of the pin's length (1/100000 DXP units).
+    #[serde(default)]
+    pub length: i32,
+}
+
+impl PinFrac {
+    /// Returns `true` when every fractional part is zero (an on-grid pin that
+    /// needs no `PinFrac` stream entry).
+    #[must_use]
+    pub const fn is_zero(self) -> bool {
+        self.x == 0 && self.y == 0 && self.length == 0
+    }
 }
 
 const fn default_true() -> bool {
@@ -174,6 +225,7 @@ impl Pin {
             show_designator: true,
             description: String::new(),
             owner_part_id: 1,
+            owner_part_display_mode: 0,
             colour: 0,
             graphically_locked: false,
             is_not_accessible: false,
@@ -185,6 +237,8 @@ impl Pin {
             swap_id_group: String::new(),
             part_and_sequence: "|&|".to_string(),
             default_value: String::new(),
+            symbol_line_width: 0,
+            frac: None,
         }
     }
 }

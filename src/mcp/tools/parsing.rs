@@ -983,6 +983,20 @@ impl McpServer {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string();
+        // Pin binary-record display mode (own byte, distinct from the shape flag).
+        let owner_part_display_mode = json_i32(json, "owner_part_display_mode").unwrap_or(0);
+        // Symbol line width; 0 (default) writes no PinSymbolLineWidth aux stream.
+        let symbol_line_width = json_i32(json, "symbol_line_width").unwrap_or(0);
+        // Fractional pin coordinates ({x,y,length} in 1/100000 DXP units); an
+        // all-zero or absent object writes no PinFrac aux stream.
+        let frac = json.get("frac").and_then(|f| {
+            let pf = crate::altium::schlib::PinFrac {
+                x: json_i32(f, "x").unwrap_or(0),
+                y: json_i32(f, "y").unwrap_or(0),
+                length: json_i32(f, "length").unwrap_or(0),
+            };
+            (!pf.is_zero()).then_some(pf)
+        });
 
         Some(Pin {
             name: name.to_string(),
@@ -997,6 +1011,7 @@ impl McpServer {
             show_designator,
             description,
             owner_part_id,
+            owner_part_display_mode,
             colour,
             graphically_locked,
             symbol_inner_edge,
@@ -1008,6 +1023,8 @@ impl McpServer {
             swap_id_group,
             part_and_sequence,
             default_value,
+            symbol_line_width,
+            frac,
         })
     }
 
@@ -1893,6 +1910,9 @@ mod tests {
             "swap_id_group": "grpA",
             "part_and_sequence": "|1&2|",
             "default_value": "0",
+            "owner_part_display_mode": 2,
+            "symbol_line_width": 3,
+            "frac": { "x": 50000, "y": -25000, "length": 0 },
         }))
         .expect("pin should parse");
         assert_eq!(pin.description, "clock input");
@@ -1901,6 +1921,16 @@ mod tests {
         assert_eq!(pin.swap_id_group, "grpA");
         assert_eq!(pin.part_and_sequence, "|1&2|");
         assert_eq!(pin.default_value, "0");
+        assert_eq!(pin.owner_part_display_mode, 2);
+        assert_eq!(pin.symbol_line_width, 3);
+        assert_eq!(
+            pin.frac,
+            Some(crate::altium::schlib::PinFrac {
+                x: 50000,
+                y: -25000,
+                length: 0
+            })
+        );
     }
 
     #[test]
@@ -1918,6 +1948,10 @@ mod tests {
         assert_eq!(pin.swap_id_group, "");
         assert_eq!(pin.part_and_sequence, "|&|");
         assert_eq!(pin.default_value, "");
+        // PR-R3 aux fields default so no aux stream is written for a plain pin.
+        assert_eq!(pin.owner_part_display_mode, 0);
+        assert_eq!(pin.symbol_line_width, 0);
+        assert_eq!(pin.frac, None);
     }
 
     #[test]
