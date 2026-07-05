@@ -556,6 +556,9 @@ fn test_text_special_strings() {
         font_name: "Arial".to_string(),
         justification: TextJustification::default(),
         flags: PcbFlags::default(),
+        net_index: 0xFFFF,
+        polygon_index: 0xFFFF,
+        component_index: -1,
         unique_id: None,
     };
     fp.add_text(text1);
@@ -577,6 +580,9 @@ fn test_text_special_strings() {
         font_name: "Arial".to_string(),
         justification: TextJustification::default(),
         flags: PcbFlags::default(),
+        net_index: 0xFFFF,
+        polygon_index: 0xFFFF,
+        component_index: -1,
         unique_id: None,
     };
     fp.add_text(text2);
@@ -843,6 +849,9 @@ fn test_component_body_roundtrip() {
         body_color_3d: 8_421_504,
         body_opacity_3d: 1.0,
         model_2d_rotation: 0.0,
+        net_index: 0xFFFF,
+        polygon_index: 0xFFFF,
+        component_index: -1,
         additional_parameters: Vec::new(),
     };
     fp.component_bodies.push(body);
@@ -899,6 +908,9 @@ fn test_component_body_with_rotation() {
         body_color_3d: 8_421_504,
         body_opacity_3d: 1.0,
         model_2d_rotation: 0.0,
+        net_index: 0xFFFF,
+        polygon_index: 0xFFFF,
+        component_index: -1,
         additional_parameters: Vec::new(),
     };
     fp.component_bodies.push(body);
@@ -2710,6 +2722,9 @@ fn test_component_body_external_model_reference() {
         body_color_3d: 8_421_504,
         body_opacity_3d: 1.0,
         model_2d_rotation: 0.0,
+        net_index: 0xFFFF,
+        polygon_index: 0xFFFF,
+        component_index: -1,
         additional_parameters: Vec::new(),
     };
     fp.component_bodies.push(body);

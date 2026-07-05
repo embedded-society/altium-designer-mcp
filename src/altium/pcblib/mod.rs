@@ -811,6 +811,9 @@ mod tests {
             font_name: "Arial".to_string(),
             justification: TextJustification::MiddleCenter,
             flags: PcbFlags::empty(),
+            net_index: 0xFFFF,
+            polygon_index: 0xFFFF,
+            component_index: -1,
             unique_id: None,
         });
         original.add_text(Text {
@@ -829,6 +832,9 @@ mod tests {
             font_name: "Arial".to_string(),
             justification: TextJustification::TopLeft,
             flags: PcbFlags::empty(),
+            net_index: 0xFFFF,
+            polygon_index: 0xFFFF,
+            component_index: -1,
             unique_id: None,
         });
 
@@ -875,6 +881,9 @@ mod tests {
             font_name: "Arial".to_string(),
             justification: TextJustification::MiddleCenter,
             flags: PcbFlags::empty(),
+            net_index: 0xFFFF,
+            polygon_index: 0xFFFF,
+            component_index: -1,
             unique_id: None,
         });
 
@@ -909,6 +918,9 @@ mod tests {
             font_name: "Arial".to_string(),
             justification: TextJustification::MiddleCenter,
             flags: PcbFlags::empty(),
+            net_index: 0xFFFF,
+            polygon_index: 0xFFFF,
+            component_index: -1,
             unique_id: None,
         });
 
@@ -943,6 +955,9 @@ mod tests {
             // BottomLeft is the from-scratch default; it encodes to the template's 0x03.
             justification: TextJustification::BottomLeft,
             flags: PcbFlags::empty(),
+            net_index: 0xFFFF,
+            polygon_index: 0xFFFF,
+            component_index: -1,
             unique_id: None,
         });
         assert_eq!(
@@ -989,6 +1004,9 @@ mod tests {
             font_name: "Times New Roman".to_string(),
             justification: TextJustification::TopRight,
             flags: PcbFlags::empty(),
+            net_index: 0xFFFF,
+            polygon_index: 0xFFFF,
+            component_index: -1,
             unique_id: None,
         });
 
@@ -1031,6 +1049,9 @@ mod tests {
             font_name: "Arial".to_string(),
             justification: TextJustification::MiddleCenter,
             flags: PcbFlags::LOCKED | PcbFlags::TENTING_TOP,
+            net_index: 0xFFFF,
+            polygon_index: 0xFFFF,
+            component_index: -1,
             unique_id: None,
         });
 
@@ -1041,6 +1062,80 @@ mod tests {
         assert_eq!(decoded.text.len(), 1);
         assert!(decoded.text[0].flags.contains(PcbFlags::LOCKED));
         assert!(decoded.text[0].flags.contains(PcbFlags::TENTING_TOP));
+    }
+
+    #[test]
+    fn binary_roundtrip_common_indices() {
+        // A board-context Track and Text carrying a net/component association must
+        // survive encode -> decode via the common-header indices (@3 net, @5
+        // polygon, @7 component). Previously these header bytes were dropped on
+        // read and hard-coded to 0xFF on write, so the association was lost.
+        let mut original = Footprint::new("ROUNDTRIP_INDICES");
+
+        let mut track = Track::new(-1.0, 0.0, 1.0, 0.0, 0.25, Layer::TopLayer);
+        track.net_index = 5;
+        track.polygon_index = 2;
+        track.component_index = 3;
+        original.add_track(track);
+
+        original.add_text(Text {
+            x: 0.0,
+            y: 1.0,
+            text: "NET".to_string(),
+            height: 0.8,
+            layer: Layer::TopOverlay,
+            rotation: 0.0,
+            kind: TextKind::Stroke,
+            stroke_font: None,
+            stroke_width: None,
+            italic: false,
+            bold: false,
+            mirror: false,
+            font_name: "Arial".to_string(),
+            justification: TextJustification::MiddleCenter,
+            flags: PcbFlags::empty(),
+            net_index: 9,
+            polygon_index: 0xFFFF,
+            component_index: 4,
+            unique_id: None,
+        });
+
+        let data = writer::encode_data_stream(&original).expect("encoding should succeed");
+        let mut decoded = Footprint::new("ROUNDTRIP_INDICES");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        assert_eq!(decoded.tracks.len(), 1);
+        assert_eq!(decoded.tracks[0].net_index, 5, "track net index");
+        assert_eq!(decoded.tracks[0].polygon_index, 2, "track polygon index");
+        assert_eq!(
+            decoded.tracks[0].component_index, 3,
+            "track component index"
+        );
+
+        assert_eq!(decoded.text.len(), 1);
+        assert_eq!(decoded.text[0].net_index, 9, "text net index");
+        assert_eq!(
+            decoded.text[0].polygon_index, 0xFFFF,
+            "text polygon stays none"
+        );
+        assert_eq!(decoded.text[0].component_index, 4, "text component index");
+    }
+
+    #[test]
+    fn binary_roundtrip_default_indices_are_none() {
+        // A from-scratch primitive reads back the "none" defaults (net/polygon
+        // 0xFFFF, component -1), confirming the 0xFF header bytes decode correctly.
+        let mut original = Footprint::new("DEFAULT_INDICES");
+        original.add_track(Track::new(0.0, 0.0, 1.0, 0.0, 0.2, Layer::TopOverlay));
+
+        let data = writer::encode_data_stream(&original).expect("encode");
+        let mut decoded = Footprint::new("DEFAULT_INDICES");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        assert_eq!(decoded.tracks.len(), 1);
+        assert_eq!(decoded.tracks[0].net_index, 0xFFFF);
+        assert_eq!(decoded.tracks[0].polygon_index, 0xFFFF);
+        assert_eq!(decoded.tracks[0].component_index, -1);
     }
 
     #[test]
@@ -1107,6 +1202,9 @@ mod tests {
             layer: Layer::BottomPaste,
             rotation: 45.0,
             flags: PcbFlags::empty(),
+            net_index: 0xFFFF,
+            polygon_index: 0xFFFF,
+            component_index: -1,
             solder_mask_expansion: None,
             keepout_restrictions: None,
             unique_id: None,
@@ -1194,6 +1292,9 @@ mod tests {
             body_color_3d: 8_421_504,
             body_opacity_3d: 1.0,
             model_2d_rotation: 0.0,
+            net_index: 0xFFFF,
+            polygon_index: 0xFFFF,
+            component_index: -1,
             additional_parameters: Vec::new(),
         };
         original.add_component_body(body);
@@ -1259,6 +1360,9 @@ mod tests {
                 body_color_3d: 8_421_504,
                 body_opacity_3d: 1.0,
                 model_2d_rotation: 0.0,
+                net_index: 0xFFFF,
+                polygon_index: 0xFFFF,
+                component_index: -1,
                 additional_parameters: Vec::new(),
             });
         }

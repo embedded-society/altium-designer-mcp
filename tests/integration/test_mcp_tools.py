@@ -1747,6 +1747,91 @@ def test_write_pcblib_unique_id_roundtrip(client, runner, lib_path):
         )
 
 
+def test_write_pcblib_common_indices_roundtrip(client, runner, lib_path):
+    print("\n=== Test: write_pcblib net/polygon/component index round trip ===")
+    # Coverage PR-R4: the common-header connectivity indices (net_index @3,
+    # polygon_index @5, component_index @7) must be authorable via write_pcblib
+    # and round-trip through read_pcblib for every primitive that carries them.
+    # These are marginal for netless library footprints but complete round-trip
+    # fidelity for a board-context primitive read into a library.
+    footprint = {
+        "name": "INDICES_RT",
+        "pads": [
+            {
+                "designator": "1",
+                "x": 0.0,
+                "y": 0.0,
+                "width": 0.6,
+                "height": 0.5,
+                "layer": "Top Layer",
+                "net_index": 11,
+                "polygon_index": 3,
+                "component_index": 5,
+            }
+        ],
+        "tracks": [
+            {
+                "x1": -1.0,
+                "y1": 0.0,
+                "x2": 1.0,
+                "y2": 0.0,
+                "width": 0.25,
+                "layer": "Top Layer",
+                "net_index": 11,
+                "component_index": 5,
+            }
+        ],
+        "text": [
+            {
+                "x": 0.0,
+                "y": 1.5,
+                "text": "NET",
+                "height": 1.0,
+                "layer": "Top Overlay",
+                "net_index": 22,
+                "component_index": 5,
+            }
+        ],
+    }
+    write = client.call_tool(
+        "write_pcblib",
+        {"filepath": lib_path, "footprints": [footprint], "append": False},
+    )
+    runner.check(
+        not write.get("_isError"), "write_pcblib (indices) succeeded", actual=write
+    )
+
+    read = client.call_tool("read_pcblib", {"filepath": lib_path})
+    runner.check(not read.get("_isError"), "read_pcblib succeeded", actual=read)
+    footprints = {fp.get("name"): fp for fp in read.get("footprints", [])}
+    fp = footprints.get("INDICES_RT", {})
+    runner.check(bool(fp), "INDICES_RT footprint present", actual=list(footprints))
+
+    pads = fp.get("pads", [])
+    pad = next((p for p in pads if p.get("designator") == "1"), None)
+    runner.check(pad is not None, "pad 1 survived", actual=[p.get("designator") for p in pads])
+    if pad is not None:
+        runner.check(pad.get("net_index") == 11, "pad net_index", actual=pad.get("net_index"), expected=11)
+        runner.check(pad.get("polygon_index") == 3, "pad polygon_index", actual=pad.get("polygon_index"), expected=3)
+        runner.check(pad.get("component_index") == 5, "pad component_index", actual=pad.get("component_index"), expected=5)
+
+    tracks = fp.get("tracks", [])
+    runner.check(len(tracks) == 1, "1 track survived", actual=len(tracks))
+    if tracks:
+        t = tracks[0]
+        runner.check(t.get("net_index") == 11, "track net_index", actual=t.get("net_index"), expected=11)
+        runner.check(t.get("component_index") == 5, "track component_index", actual=t.get("component_index"), expected=5)
+        # An unset polygon_index round-trips as the 65535 "none" default.
+        runner.check(t.get("polygon_index") == 65535, "track polygon_index default", actual=t.get("polygon_index"), expected=65535)
+
+    texts = fp.get("text", [])
+    ref = next((t for t in texts if t.get("text") == "NET"), None)
+    runner.check(ref is not None, "NET text survived", actual=[t.get("text") for t in texts])
+    if ref is not None:
+        runner.check(ref.get("net_index") == 22, "text net_index", actual=ref.get("net_index"), expected=22)
+        runner.check(ref.get("component_index") == 5, "text component_index", actual=ref.get("component_index"), expected=5)
+
+
 def test_write_schlib_unique_id_roundtrip(client, runner, schlib_path):
     print("\n=== Test: write_schlib unique_id round trip ===")
     # Coverage PR-R1: a SchLib shape's identity GUID (unique_id) written via the
@@ -1853,6 +1938,7 @@ def main():
         test_write_pcblib_additional_parameters_roundtrip(client, runner, lib_path)
         test_write_pcblib_text_font_style(client, runner, lib_path)
         test_write_pcblib_unique_id_roundtrip(client, runner, lib_path)
+        test_write_pcblib_common_indices_roundtrip(client, runner, lib_path)
         test_write_schlib_shapes(client, runner, schlib_path)
         test_write_schlib_fields(client, runner, schlib_path)
         test_write_schlib_display_flags(client, runner, schlib_path)

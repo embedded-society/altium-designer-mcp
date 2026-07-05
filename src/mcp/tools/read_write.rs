@@ -623,6 +623,8 @@ impl McpServer {
                             "kind",
                             "name",
                             "net_index",
+                            "polygon_index",
+                            "component_index",
                             "cavity_height",
                             "holes",
                             "unique_id",
@@ -642,6 +644,7 @@ impl McpServer {
                         text_json,
                         &[
                             "bold",
+                            "component_index",
                             "flags",
                             "font_name",
                             "height",
@@ -650,6 +653,8 @@ impl McpServer {
                             "kind",
                             "layer",
                             "mirror",
+                            "net_index",
+                            "polygon_index",
                             "rotation",
                             "stroke_font",
                             "stroke_width",
@@ -737,6 +742,10 @@ impl McpServer {
                             body_color_3d: 8_421_504,
                             body_opacity_3d: 1.0,
                             model_2d_rotation: 0.0,
+                            // External reference: no board association (free primitive).
+                            net_index: 0xFFFF,
+                            polygon_index: 0xFFFF,
+                            component_index: -1,
                             additional_parameters: Vec::new(),
                         });
                     }
@@ -847,6 +856,24 @@ impl McpServer {
                             .get("model_2d_rotation")
                             .and_then(Value::as_f64)
                             .unwrap_or(0.0),
+                        // Common-header connectivity indices. Absent keys default to
+                        // "none" (net/polygon 0xFFFF, component -1), byte-identical to
+                        // a from-scratch body; a modify-write preserves a read value.
+                        net_index: body_json
+                            .get("net_index")
+                            .and_then(Value::as_u64)
+                            .and_then(|v| u16::try_from(v).ok())
+                            .unwrap_or(0xFFFF),
+                        polygon_index: body_json
+                            .get("polygon_index")
+                            .and_then(Value::as_u64)
+                            .and_then(|v| u16::try_from(v).ok())
+                            .unwrap_or(0xFFFF),
+                        component_index: body_json
+                            .get("component_index")
+                            .and_then(Value::as_i64)
+                            .and_then(|v| i32::try_from(v).ok())
+                            .unwrap_or(-1),
                         // Round-trip unmodelled body keys (TEXTURE*, MODEL.2D.X/Y,
                         // etc.) captured on read. Absent -> empty -> the writer
                         // appends nothing (byte-identical to a from-scratch body).
@@ -890,6 +917,9 @@ impl McpServer {
                     // byte-identical (and oracle-safe).
                     justification: TextJustification::BottomLeft,
                     flags: PcbFlags::empty(),
+                    net_index: 0xFFFF,
+                    polygon_index: 0xFFFF,
+                    component_index: -1,
                     unique_id: None,
                 });
             }
@@ -928,6 +958,10 @@ impl McpServer {
                     body_color_3d: 8_421_504,
                     body_opacity_3d: 1.0,
                     model_2d_rotation: 0.0,
+                    // Synthesised body: no board association (free primitive).
+                    net_index: 0xFFFF,
+                    polygon_index: 0xFFFF,
+                    component_index: -1,
                     additional_parameters: Vec::new(),
                 });
                 true
@@ -2208,6 +2242,9 @@ mod tests {
             body_color_3d: 8_421_504,
             body_opacity_3d: 1.0,
             model_2d_rotation: 0.0,
+            net_index: 0xFFFF,
+            polygon_index: 0xFFFF,
+            component_index: -1,
             additional_parameters: Vec::new(),
         };
 

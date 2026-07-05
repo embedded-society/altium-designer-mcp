@@ -81,6 +81,35 @@ fn json_keepout(json: &Value) -> Option<u8> {
         .and_then(|v| u8::try_from(v).ok())
 }
 
+/// Reads the optional common-header net index (u16) of a `PcbLib` primitive,
+/// defaulting to `0xFFFF` ("no net") — the from-scratch value the writer's
+/// header fill emits. Mirrors how `read_pcblib` serialises the `net_index` field.
+fn json_net_index(json: &Value) -> u16 {
+    json.get("net_index")
+        .and_then(Value::as_u64)
+        .and_then(|v| u16::try_from(v).ok())
+        .unwrap_or(0xFFFF)
+}
+
+/// Reads the optional common-header polygon index (u16) of a `PcbLib` primitive,
+/// defaulting to `0xFFFF` (none) — the from-scratch value.
+fn json_polygon_index(json: &Value) -> u16 {
+    json.get("polygon_index")
+        .and_then(Value::as_u64)
+        .and_then(|v| u16::try_from(v).ok())
+        .unwrap_or(0xFFFF)
+}
+
+/// Reads the optional common-header component index (i32) of a `PcbLib`
+/// primitive, defaulting to `-1` (free primitive; stored as the `0xFFFF`
+/// sentinel) — the from-scratch value.
+fn json_component_index(json: &Value) -> i32 {
+    json.get("component_index")
+        .and_then(Value::as_i64)
+        .and_then(|v| i32::try_from(v).ok())
+        .unwrap_or(-1)
+}
+
 /// Reads the optional `unique_id` (identity GUID) of any primitive.
 ///
 /// `read_pcblib` / `read_schlib` surface each primitive's 8-char Altium unique
@@ -319,6 +348,9 @@ impl McpServer {
             per_layer_shapes: None,
             per_layer_corner_radii: None,
             per_layer_offsets: None,
+            net_index: json_net_index(json),
+            polygon_index: json_polygon_index(json),
+            component_index: json_component_index(json),
             flags: json_flags(json),
             unique_id: json_unique_id(json),
         })
@@ -364,6 +396,9 @@ impl McpServer {
         // Optional EE tail (mirrors the modelled optionals; absent keys keep the
         // `Track::new` defaults so a from-scratch track is byte-identical).
         track.flags = json_flags(json);
+        track.net_index = json_net_index(json);
+        track.polygon_index = json_polygon_index(json);
+        track.component_index = json_component_index(json);
         track.solder_mask_expansion = json_f64(json, "solder_mask_expansion");
         track.keepout_restrictions = json_keepout(json);
         track.unique_id = json_unique_id(json);
@@ -419,6 +454,9 @@ impl McpServer {
             width,
             layer,
             flags: json_flags(json),
+            net_index: json_net_index(json),
+            polygon_index: json_polygon_index(json),
+            component_index: json_component_index(json),
             unique_id: json_unique_id(json),
             // Optional EE tail (mirrors the modelled optionals; absent keys keep
             // the default `None` so a from-scratch arc is byte-identical).
@@ -472,11 +510,9 @@ impl McpServer {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string();
-        let net_index = json
-            .get("net_index")
-            .and_then(Value::as_u64)
-            .and_then(|n| u16::try_from(n).ok())
-            .unwrap_or(0xFFFF);
+        let net_index = json_net_index(json);
+        let polygon_index = json_polygon_index(json);
+        let component_index = json_component_index(json);
         let cavity_height = json
             .get("cavity_height")
             .and_then(Value::as_f64)
@@ -523,6 +559,8 @@ impl McpServer {
             kind,
             name,
             net_index,
+            polygon_index,
+            component_index,
             cavity_height,
             unique_id,
             additional_parameters,
@@ -613,6 +651,9 @@ impl McpServer {
             font_name,
             justification,
             flags: json_flags(json),
+            net_index: json_net_index(json),
+            polygon_index: json_polygon_index(json),
+            component_index: json_component_index(json),
             unique_id: json_unique_id(json),
         })
     }
@@ -742,6 +783,10 @@ impl McpServer {
         {
             via.net_index = v;
         }
+        // Polygon @5 / component @7 connectivity indices. Absent keys keep the
+        // from-scratch defaults (none / free primitive), byte-identical.
+        via.polygon_index = json_polygon_index(json);
+        via.component_index = json_component_index(json);
 
         // Drill tolerances (SubRecord-1 @291/@295). Absent keys keep the
         // from-scratch defaults (tolerances unset), so an unspecified via
@@ -802,6 +847,9 @@ impl McpServer {
         }
         // Optional flags + mask/keepout tail (mirrors the modelled optionals).
         fill.flags = json_flags(json);
+        fill.net_index = json_net_index(json);
+        fill.polygon_index = json_polygon_index(json);
+        fill.component_index = json_component_index(json);
         fill.solder_mask_expansion = json.get("solder_mask_expansion").and_then(Value::as_f64);
         fill.keepout_restrictions = json_keepout(json);
         fill.unique_id = json_unique_id(json);

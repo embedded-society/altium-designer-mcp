@@ -219,6 +219,21 @@ pub struct Pad {
     #[serde(default, skip_serializing_if = "PcbFlags::is_empty")]
     pub flags: PcbFlags,
 
+    /// Net index into the board's net list — common-header u16 @3. `0xFFFF`
+    /// (65535) means "no net", the from-scratch default (round-trip fidelity).
+    #[serde(default = "default_net_index")]
+    pub net_index: u16,
+
+    /// Polygon index this pad belongs to — common-header u16 @5. `0xFFFF`
+    /// (none) from scratch, matching the historical writer output.
+    #[serde(default = "default_polygon_index")]
+    pub polygon_index: u16,
+
+    /// Component index into the board's component list — common-header u16 @7
+    /// (`0xFFFF` stored, exposed as `-1`). `-1` (free primitive) from scratch.
+    #[serde(default = "default_component_index")]
+    pub component_index: i32,
+
     /// Unique ID assigned by Altium (8-character alphanumeric string).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unique_id: Option<String>,
@@ -228,6 +243,24 @@ pub struct Pad {
 #[allow(clippy::trivially_copy_pass_by_ref)] // serde requires reference
 fn is_default_hole_shape(shape: &HoleShape) -> bool {
     *shape == HoleShape::default()
+}
+
+/// Default net index for a from-scratch pad/via (`0xFFFF` = no net). The
+/// common-header connectivity indices default to "none" so a free library
+/// primitive writes the same `0xFF` header bytes as before (byte-identity).
+const fn default_net_index() -> u16 {
+    0xFFFF
+}
+
+/// Default polygon index for a from-scratch pad/via (`0xFFFF` = none).
+const fn default_polygon_index() -> u16 {
+    0xFFFF
+}
+
+/// Default component index for a from-scratch pad/via (`-1` = free primitive,
+/// stored as the `0xFFFF` common-header sentinel).
+const fn default_component_index() -> i32 {
+    -1
 }
 
 /// Default pad thermal-relief conductor width (10 mil = 0.254mm; raw 100000).
@@ -291,6 +324,9 @@ impl Pad {
             per_layer_corner_radii: None,
             per_layer_offsets: None,
             flags: PcbFlags::empty(),
+            net_index: default_net_index(),
+            polygon_index: default_polygon_index(),
+            component_index: default_component_index(),
             unique_id: None,
         }
     }
@@ -337,6 +373,9 @@ impl Pad {
             per_layer_corner_radii: None,
             per_layer_offsets: None,
             flags: PcbFlags::empty(),
+            net_index: default_net_index(),
+            polygon_index: default_polygon_index(),
+            component_index: default_component_index(),
             unique_id: None,
         }
     }
@@ -554,6 +593,16 @@ pub struct Via {
     #[serde(default = "default_via_net_index")]
     pub net_index: u16,
 
+    /// Polygon index this via belongs to — common-header u16 @5. `0xFFFF`
+    /// (none) from scratch, matching the historical writer output.
+    #[serde(default = "default_polygon_index")]
+    pub polygon_index: u16,
+
+    /// Component index into the board's component list — common-header u16 @7
+    /// (`0xFFFF` stored, exposed as `-1`). `-1` (free primitive) from scratch.
+    #[serde(default = "default_component_index")]
+    pub component_index: i32,
+
     /// Bottom-face solder-mask expansion in mm (Altium geometry offset 242). `None`
     /// mirrors the front-face `solder_mask_expansion` (Altium's template encodes both
     /// faces equally), so a default via round-trips byte-identically.
@@ -680,6 +729,8 @@ impl Via {
             power_plane_relief_expansion: 0.508, // 20 mils
             power_plane_clearance: 0.508,        // 20 mils
             net_index: 0xFFFF,                   // no net
+            polygon_index: 0xFFFF,               // none
+            component_index: -1,                 // free primitive
             thermal_relief_gap: 0.254,           // 10 mils
             thermal_relief_conductors: 4,
             thermal_relief_width: 0.254, // 10 mils
@@ -717,6 +768,8 @@ impl Via {
             power_plane_relief_expansion: 0.508, // 20 mils
             power_plane_clearance: 0.508,        // 20 mils
             net_index: 0xFFFF,                   // no net
+            polygon_index: 0xFFFF,               // none
+            component_index: -1,                 // free primitive
             thermal_relief_gap: 0.254,           // 10 mils
             thermal_relief_conductors: 4,
             thermal_relief_width: 0.254, // 10 mils

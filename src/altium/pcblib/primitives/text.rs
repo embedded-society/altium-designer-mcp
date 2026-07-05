@@ -57,6 +57,24 @@ fn default_font_name() -> String {
     "Arial".to_string()
 }
 
+/// Default net index for a from-scratch text/fill (`0xFFFF` = no net). The
+/// common-header connectivity indices default to "none" so a free library
+/// primitive writes the same `0xFF` header bytes as before (byte-identity).
+const fn default_net_index() -> u16 {
+    0xFFFF
+}
+
+/// Default polygon index for a from-scratch text/fill (`0xFFFF` = none).
+const fn default_polygon_index() -> u16 {
+    0xFFFF
+}
+
+/// Default component index for a from-scratch text/fill (`-1` = free primitive,
+/// stored as the `0xFFFF` common-header sentinel).
+const fn default_component_index() -> i32 {
+    -1
+}
+
 /// A text string on a layer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Text {
@@ -119,6 +137,18 @@ pub struct Text {
     /// Primitive flags (locked, keepout, etc.).
     #[serde(default, skip_serializing_if = "PcbFlags::is_empty")]
     pub flags: PcbFlags,
+    /// Net index into the board's net list — common-header u16 @3. `0xFFFF`
+    /// (65535) means "no net", the from-scratch default (round-trip fidelity).
+    #[serde(default = "default_net_index")]
+    pub net_index: u16,
+    /// Polygon index this text belongs to — common-header u16 @5. `0xFFFF`
+    /// (none) from scratch, matching the historical writer output.
+    #[serde(default = "default_polygon_index")]
+    pub polygon_index: u16,
+    /// Component index into the board's component list — common-header u16 @7
+    /// (`0xFFFF` stored, exposed as `-1`). `-1` (free primitive) from scratch.
+    #[serde(default = "default_component_index")]
+    pub component_index: i32,
     /// Unique ID assigned by Altium (8-character alphanumeric string).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unique_id: Option<String>,
@@ -147,6 +177,18 @@ pub struct Fill {
     /// Primitive flags (locked, keepout, etc.).
     #[serde(default, skip_serializing_if = "PcbFlags::is_empty")]
     pub flags: PcbFlags,
+    /// Net index into the board's net list — common-header u16 @3. `0xFFFF`
+    /// (65535) means "no net", the from-scratch default (round-trip fidelity).
+    #[serde(default = "default_net_index")]
+    pub net_index: u16,
+    /// Polygon index this fill belongs to — common-header u16 @5. `0xFFFF`
+    /// (none) from scratch, matching the historical writer output.
+    #[serde(default = "default_polygon_index")]
+    pub polygon_index: u16,
+    /// Component index into the board's component list — common-header u16 @7
+    /// (`0xFFFF` stored, exposed as `-1`). `-1` (free primitive) from scratch.
+    #[serde(default = "default_component_index")]
+    pub component_index: i32,
     /// Solder-mask expansion override in mm (geometry offset 37). `None` uses the
     /// rule default; round-trips like the Track/Arc extended tail.
     #[serde(
@@ -175,6 +217,9 @@ impl Fill {
             layer,
             rotation: 0.0,
             flags: PcbFlags::empty(),
+            net_index: default_net_index(),
+            polygon_index: default_polygon_index(),
+            component_index: default_component_index(),
             solder_mask_expansion: None,
             keepout_restrictions: None,
             unique_id: None,
@@ -194,6 +239,9 @@ impl Fill {
             layer,
             rotation: 0.0,
             flags: PcbFlags::empty(),
+            net_index: default_net_index(),
+            polygon_index: default_polygon_index(),
+            component_index: default_component_index(),
             solder_mask_expansion: None,
             keepout_restrictions: None,
             unique_id: None,

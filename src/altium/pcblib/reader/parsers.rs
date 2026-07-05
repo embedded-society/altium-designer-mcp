@@ -3,6 +3,25 @@
 #[allow(clippy::wildcard_imports)] // tightly-coupled reader split
 use super::*;
 
+/// Reads the common-header connectivity indices from a primitive block/header:
+/// net index (u16 @3-4), polygon index (u16 @5-6) and component index (u16 @7-8,
+/// exposed as `i32` with the `0xFFFF` sentinel mapped to `-1`).
+///
+/// These live in the `CommonPrimitiveData` header shared by every `PcbLib`
+/// primitive. A missing byte (short header) or the `0xFFFF` sentinel reads back as the
+/// from-scratch "none" default (`0xFFFF` / `0xFFFF` / `-1`). Inverse of
+/// [`super::super::writer`]'s `write_common_indices`; factored so every parser
+/// shares one implementation (mirrors how `parse_region` already reads @3/@5/@7).
+fn read_common_indices(header: &[u8]) -> (u16, u16, i32) {
+    let net_index = read_u16(header, 3).unwrap_or(0xFFFF);
+    let polygon_index = read_u16(header, 5).unwrap_or(0xFFFF);
+    let component_index = match read_u16(header, 7).unwrap_or(0xFFFF) {
+        0xFFFF => -1,
+        ci => i32::from(ci),
+    };
+    (net_index, polygon_index, component_index)
+}
+
 /// Parses a Pad primitive.
 /// Returns the parsed `Pad` and the new offset on success.
 ///
@@ -86,6 +105,8 @@ pub(super) fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
     let layer_id = geometry[0];
     let layer = layer_from_id(layer_id);
     let flags = read_flags(geometry);
+    // Common-header connectivity indices @3-8 (net/polygon/component).
+    let (net_index, polygon_index, component_index) = read_common_indices(geometry);
 
     // Location (X, Y) - offsets 13-20
     let x =
@@ -298,6 +319,9 @@ pub(super) fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
         per_layer_shapes,
         per_layer_corner_radii,
         per_layer_offsets,
+        net_index,
+        polygon_index,
+        component_index,
         flags,
         unique_id: None,
     };
@@ -468,8 +492,9 @@ pub(super) fn parse_via(data: &[u8], offset: usize) -> ParseResult<Via> {
     // Common-header flag word @1-2 (locked/keepout/tenting top+bottom). Tenting a
     // via is the highest-value property here — it covers the pad with solder mask.
     let flags = read_flags(block);
-    // Net index @3-4 (u16; 0xFFFF = no net). Read-only surface for footprint vias.
-    let net_index = read_u16(block, 3).unwrap_or(0xFFFF);
+    // Common-header connectivity indices @3-8 (net/polygon/component). Read-only
+    // surface for footprint vias (a free via keeps the 0xFFFF/none defaults).
+    let (net_index, polygon_index, component_index) = read_common_indices(block);
 
     // Extended SubRecord-1 fields (offsets 31-74). A short block falls back to
     // the same defaults the Via struct uses.
@@ -535,6 +560,8 @@ pub(super) fn parse_via(data: &[u8], offset: usize) -> ParseResult<Via> {
         power_plane_relief_expansion,
         power_plane_clearance,
         net_index,
+        polygon_index,
+        component_index,
         thermal_relief_gap,
         thermal_relief_conductors,
         thermal_relief_width,
@@ -577,6 +604,8 @@ pub(super) fn parse_track(data: &[u8], offset: usize) -> ParseResult<Track> {
     let layer_id = block[0];
     let layer = layer_from_id(layer_id);
     let flags = read_flags(block);
+    // Common-header connectivity indices @3-8 (net/polygon/component).
+    let (net_index, polygon_index, component_index) = read_common_indices(block);
 
     // Start coordinates (X, Y) - offsets 13-20
     let x1 = to_mm(read_i32(block, 13).ok_or_else(|| {
@@ -614,6 +643,9 @@ pub(super) fn parse_track(data: &[u8], offset: usize) -> ParseResult<Track> {
         width,
         layer,
         flags,
+        net_index,
+        polygon_index,
+        component_index,
         unique_id: None,
         solder_mask_expansion,
         keepout_restrictions,
@@ -643,6 +675,8 @@ pub(super) fn parse_arc(data: &[u8], offset: usize) -> ParseResult<Arc> {
     let layer_id = block[0];
     let layer = layer_from_id(layer_id);
     let flags = read_flags(block);
+    // Common-header connectivity indices @3-8 (net/polygon/component).
+    let (net_index, polygon_index, component_index) = read_common_indices(block);
 
     // Centre coordinates (X, Y) - offsets 13-20
     let x =
@@ -683,6 +717,9 @@ pub(super) fn parse_arc(data: &[u8], offset: usize) -> ParseResult<Arc> {
         width,
         layer,
         flags,
+        net_index,
+        polygon_index,
+        component_index,
         unique_id: None,
         solder_mask_expansion,
         keepout_restrictions,
@@ -738,6 +775,8 @@ pub(super) fn parse_text(
     // Decode the lock/tenting/keepout flag word like every other primitive does,
     // rather than discarding it (the write side already encodes these correctly).
     let flags = read_flags(geometry_block);
+    // Common-header connectivity indices @3-8 (net/polygon/component).
+    let (net_index, polygon_index, component_index) = read_common_indices(geometry_block);
 
     // The authoritative text kind lives at offset 160 in the 252-byte record
     // (0 = Stroke, 1 = TrueType, 2 = BarCode).
@@ -841,6 +880,9 @@ pub(super) fn parse_text(
         font_name,
         justification,
         flags,
+        net_index,
+        polygon_index,
+        component_index,
         unique_id: None,
     };
 
@@ -1068,12 +1110,7 @@ pub(super) fn parse_region(data: &[u8], offset: usize) -> ParseResult<Region> {
     let layer_id = props_block[0];
     let layer = layer_from_id(layer_id);
     let flags = read_flags(props_block);
-    let net_index = read_u16(props_block, 3).unwrap_or(0xFFFF);
-    let polygon_index = read_u16(props_block, 5).unwrap_or(0xFFFF);
-    let component_index = match read_u16(props_block, 7).unwrap_or(0xFFFF) {
-        0xFFFF => -1,
-        ci => i32::from(ci),
-    };
+    let (net_index, polygon_index, component_index) = read_common_indices(props_block);
 
     // @13 reserved | @14-15 hole_count (u16) | @16-17 reserved. The trailing hole
     // contours (if any) follow the outline. A no-hole region reports 0 here.
@@ -1245,6 +1282,8 @@ pub(super) fn parse_fill(data: &[u8], offset: usize) -> ParseResult<Fill> {
     let layer_id = block[0];
     let layer = layer_from_id(layer_id);
     let flags = read_flags(block);
+    // Common-header connectivity indices @3-8 (net/polygon/component).
+    let (net_index, polygon_index, component_index) = read_common_indices(block);
 
     // Coordinates at offset 13
     let x1 = to_mm(read_i32(block, 13).ok_or_else(|| {
@@ -1277,6 +1316,9 @@ pub(super) fn parse_fill(data: &[u8], offset: usize) -> ParseResult<Fill> {
         layer,
         rotation,
         flags,
+        net_index,
+        polygon_index,
+        component_index,
         solder_mask_expansion,
         keepout_restrictions,
         unique_id: None,
@@ -1366,6 +1408,11 @@ pub(super) fn parse_component_body(data: &[u8], offset: usize) -> ParseResult<Co
         .or_else(|| params.get("V7_LAYER").and_then(|v| parse_v7_layer(v)))
         .unwrap_or(Layer::Top3DBody);
 
+    // Common-header connectivity indices @3-8 (net/polygon/component). The body's
+    // block starts with the layer byte @0, the 0x0C/0x00 record-type marker @1-2,
+    // then the net/polygon/component words @3-8 (0xFF padding for a free body).
+    let (net_index, polygon_index, component_index) = read_common_indices(block0);
+
     // Additive fields previously discarded. Each default matches the writer's
     // hard-coded literal default so a default body round-trips byte-identically.
     let name = params
@@ -1422,6 +1469,9 @@ pub(super) fn parse_component_body(data: &[u8], offset: usize) -> ParseResult<Co
         body_color_3d,
         body_opacity_3d,
         model_2d_rotation,
+        net_index,
+        polygon_index,
+        component_index,
         additional_parameters,
     };
 
