@@ -39,9 +39,9 @@ fn samples_exist() {
 fn samples_pcblib_pad_shapes() {
     let lib = PcbLib::open(sample("footprints.PcbLib")).expect("failed to open footprints.PcbLib");
 
-    // The library contains twelve footprints, one per primitive family plus a
-    // boundary-case `EDGE` footprint.
-    assert_eq!(lib.len(), 12, "expected exactly twelve footprints");
+    // Fourteen footprints: twelve per-primitive-family footprints plus the two
+    // coverage-enrichment footprints (TEXT_STYLE, REGION_CUTOUT).
+    assert_eq!(lib.len(), 14, "expected exactly fourteen footprints");
     let names = lib.names();
     for expected in [
         "PAD_SHAPES",
@@ -56,6 +56,8 @@ fn samples_pcblib_pad_shapes() {
         "TEXT_WIN1252",
         "BODY3D",
         "EDGE",
+        "TEXT_STYLE",
+        "REGION_CUTOUT",
     ] {
         assert!(
             names.iter().any(|n| n == expected),
@@ -762,4 +764,57 @@ fn samples_pcblib_body3d() {
             "additional_parameters key {k} captured more than once"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// Coverage-enrichment tests (docs/FIXTURE_COVERAGE.md): non-default PcbLib
+// property values authored by GenerateSamples.pas, verified against the real
+// Altium-regenerated fixture.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn samples_pcblib_text_style() {
+    let lib = PcbLib::open(sample("footprints.PcbLib")).expect("failed to open footprints.PcbLib");
+    let fp = lib
+        .get("TEXT_STYLE")
+        .expect("TEXT_STYLE footprint not found");
+
+    // A single TrueType text authored with Bold + Italic + Mirror + FontName —
+    // the first real-Altium ground truth for these IPCB_Text style fields (they
+    // were previously exercised only by a self-round-trip / oracle default).
+    assert_eq!(fp.text.len(), 1, "TEXT_STYLE has one text");
+    let t = &fp.text[0];
+    assert_eq!(t.kind, TextKind::TrueType, "text kind is TrueType");
+    assert!(t.bold, "text is bold");
+    assert!(t.italic, "text is italic");
+    assert!(t.mirror, "text is mirrored");
+    assert_eq!(t.font_name, "Arial", "TrueType font name round-trips");
+}
+
+#[test]
+fn samples_pcblib_region_cutout() {
+    let lib = PcbLib::open(sample("footprints.PcbLib")).expect("failed to open footprints.PcbLib");
+    let fp = lib
+        .get("REGION_CUTOUT")
+        .expect("REGION_CUTOUT footprint not found");
+
+    // Authored via eRegionKind_BoardCutout. Altium stores a board cutout NOT as a
+    // distinct KIND integer but as a copper region (KIND=0) carrying
+    // ISBOARDCUTOUT=TRUE in its parameter block. Our reader therefore reads it as
+    // `Copper` and preserves the cutout state verbatim in `additional_parameters`
+    // (round-trip-safe). This documents the real on-disk representation.
+    assert_eq!(fp.regions.len(), 1, "REGION_CUTOUT has one region");
+    let r = &fp.regions[0];
+    assert_eq!(
+        r.kind,
+        RegionKind::Copper,
+        "on disk a board cutout is KIND=0"
+    );
+    assert!(
+        r.additional_parameters
+            .iter()
+            .any(|(k, v)| k == "ISBOARDCUTOUT" && v == "TRUE"),
+        "the board-cutout flag is preserved in additional_parameters, got {:?}",
+        r.additional_parameters
+    );
 }
