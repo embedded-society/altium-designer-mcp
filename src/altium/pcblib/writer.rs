@@ -1566,11 +1566,24 @@ fn build_component_body_params(body: &ComponentBody) -> String {
         params.push("MODEL.MODELSOURCE=Undefined".to_string());
     }
 
-    // Re-emit any unmodelled keys captured on read (TEXTURE*, MODEL.2D.X/Y,
-    // IDENTIFIER, MODEL.MODELTYPE, the extrusion range, etc.), verbatim and in read
-    // order, so a read-modify-write does not drop them. Empty for a from-scratch
-    // body, so nothing is appended and the output stays byte-identical.
+    // Re-emit any unmodelled keys captured on read, verbatim and in read order, so
+    // a read-modify-write does not drop them. Empty for a from-scratch body, so
+    // nothing is appended and the output stays byte-identical.
+    //
+    // Skip any captured key we already emitted above: the writer unconditionally
+    // emits several canonical keys (ARCRESOLUTION, CAVITYHEIGHT, IDENTIFIER,
+    // TEXTURE*, MODEL.2D.X/Y, MODEL.MODELTYPE, the extrusion range, ...) that are
+    // NOT in BODY_MODELLED_PARAM_KEYS, so the reader captures them too. Appending
+    // them again produced a DUPLICATE token (e.g. two CAVITYHEIGHT=) on every
+    // read-modify-write. Our canonical emission wins; the captured copy is dropped.
+    let emitted: std::collections::HashSet<String> = params
+        .iter()
+        .filter_map(|p| p.split_once('=').map(|(k, _)| k.to_string()))
+        .collect();
     for (key, value) in &body.additional_parameters {
+        if emitted.contains(key) {
+            continue;
+        }
         params.push(format!("{key}={value}"));
     }
 
@@ -2481,16 +2494,15 @@ mod tests {
     #[test]
     fn body_additional_params_are_reemitted_and_roundtrip() {
         use super::super::reader;
-        // A body carrying unmodelled keys (TEXTURE, MODEL.2D.X) must re-emit them and
-        // survive encode -> decode into additional_parameters.
+        // A body carrying a genuinely UNMODELLED key (one the writer does not emit
+        // itself) must re-emit it and survive encode -> decode into
+        // additional_parameters. TEXTURE / MODEL.2D.X are NOT valid here: the writer
+        // emits them canonically, so a captured copy is (correctly) deduped away.
         let mut model = ComponentBody::new("{G}", "part.step");
         model.embedded = true;
-        model.additional_parameters = vec![
-            ("TEXTURE".to_string(), "wood".to_string()),
-            ("MODEL.2D.X".to_string(), "5mil".to_string()),
-        ];
+        model.additional_parameters = vec![("WELDINGSPOT".to_string(), "42".to_string())];
         let s = build_component_body_params(&model);
-        assert!(s.ends_with("|TEXTURE=wood|MODEL.2D.X=5mil"), "got: {s}");
+        assert!(s.ends_with("|WELDINGSPOT=42"), "got: {s}");
 
         let mut fp = Footprint::new("B");
         fp.add_component_body(model);
@@ -2499,13 +2511,34 @@ mod tests {
         reader::parse_data_stream(&mut decoded, &data, None);
         let extra = &decoded.component_bodies[0].additional_parameters;
         assert!(
-            extra.contains(&("TEXTURE".to_string(), "wood".to_string())),
-            "TEXTURE must round-trip, got: {extra:?}"
+            extra.contains(&("WELDINGSPOT".to_string(), "42".to_string())),
+            "an unmodelled key must round-trip, got: {extra:?}"
         );
-        assert!(
-            extra.contains(&("MODEL.2D.X".to_string(), "5mil".to_string())),
-            "MODEL.2D.X must round-trip, got: {extra:?}"
-        );
+    }
+
+    #[test]
+    fn body_canonical_key_captured_on_read_is_not_duplicated_on_write() {
+        // Regression (bug sweep 2026-07): the writer emits ARCRESOLUTION,
+        // CAVITYHEIGHT, IDENTIFIER, TEXTURE*, MODEL.2D.X/Y, MODEL.MODELTYPE and the
+        // extrusion range unconditionally, yet none are in BODY_MODELLED_PARAM_KEYS,
+        // so the reader ALSO captures them into additional_parameters. Appending them
+        // again produced a duplicate token on every read-modify-write. The writer now
+        // dedupes: its canonical emission wins and the captured copy is dropped.
+        let mut model = ComponentBody::new("", "");
+        // Simulate what the reader captures from a real Altium body.
+        model.additional_parameters = vec![
+            ("CAVITYHEIGHT".to_string(), "0mil".to_string()),
+            ("TEXTURE".to_string(), String::new()),
+            ("MODEL.2D.X".to_string(), "0mil".to_string()),
+        ];
+        let s = build_component_body_params(&model);
+        for key in ["CAVITYHEIGHT", "TEXTURE", "MODEL.2D.X"] {
+            let hits = s
+                .split('|')
+                .filter(|t| t.starts_with(&format!("{key}=")))
+                .count();
+            assert_eq!(hits, 1, "canonical key {key} must appear exactly once: {s}");
+        }
     }
 
     #[test]

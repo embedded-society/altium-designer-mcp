@@ -999,6 +999,12 @@ def test_write_pcblib_region_kind_net_name(client, runner, lib_path):
                 "name": "POUR_A",
                 "net_index": 7,
                 "cavity_height": 0.254,  # 10 mil in mm
+                # Bug sweep 2026-07: these four are always serialised by read_pcblib
+                # but were missing from the write allow-list (and unread by
+                # parse_region), so a read-modify-write of a region was rejected.
+                "sub_poly_index": 3,
+                "union_index": 2,
+                "is_shape_based": True,
             }
         ],
     }
@@ -1032,6 +1038,23 @@ def test_write_pcblib_region_kind_net_name(client, runner, lib_path):
             "region cavity_height",
             actual=rg.get("cavity_height"),
             expected=0.254,
+        )
+        runner.check(
+            rg.get("sub_poly_index") == 3,
+            "region sub_poly_index round-trips (was rejected by allow-list)",
+            actual=rg.get("sub_poly_index"),
+            expected=3,
+        )
+        runner.check(
+            rg.get("union_index") == 2,
+            "region union_index round-trips",
+            actual=rg.get("union_index"),
+            expected=2,
+        )
+        runner.check(
+            rg.get("is_shape_based") is True,
+            "region is_shape_based round-trips",
+            actual=rg.get("is_shape_based"),
         )
 
 
@@ -1138,7 +1161,11 @@ def test_write_pcblib_additional_parameters_roundtrip(client, runner, lib_path):
     # additional_parameters (an array of [key, value] pairs) and round-trip through
     # read_pcblib so a read-modify-write does not silently drop them.
     region_extra = [["LAYER", "TOP"], ["ISBOARDCUTOUT", "FALSE"], ["LAYERSTACKID", "7"]]
-    body_extra = [["TEXTURE", "wood"], ["MODEL.2D.X", "5mil"]]
+    # Use keys the writer does NOT emit itself. TEXTURE / MODEL.2D.X are canonical
+    # keys build_component_body_params always emits, so a custom value cannot survive
+    # (the writer's own emission wins and the captured copy is deduped) — asserting
+    # otherwise expected data that never round-trips faithfully.
+    body_extra = [["WELDINGSPOT", "42"], ["CUSTOMTAG", "xyz"]]
     footprint = {
         "name": "ADDL_PARAMS_RT",
         "pads": [
@@ -1197,14 +1224,90 @@ def test_write_pcblib_additional_parameters_roundtrip(client, runner, lib_path):
     bodies = fp.get("component_bodies", [])
     runner.check(len(bodies) == 1, "1 component body survived", actual=len(bodies))
     if bodies:
-        got = {(k, v) for k, v in bodies[0].get("additional_parameters", [])}
+        pairs = bodies[0].get("additional_parameters", [])
+        got = {(k, v) for k, v in pairs}
         want = {tuple(pair) for pair in body_extra}
         runner.check(
             want.issubset(got),
-            "body additional_parameters preserved",
+            "body additional_parameters (unmodelled keys) preserved",
             actual=sorted(got),
             expected=sorted(want),
         )
+        # Regression (bug sweep 2026-07): a canonical key the writer emits itself
+        # must never appear twice after a read-modify-write.
+        keys = [k for k, _ in pairs]
+        dupes = {k for k in keys if keys.count(k) > 1}
+        runner.check(
+            not dupes,
+            "no canonical body key is duplicated on round-trip",
+            actual=sorted(dupes),
+        )
+
+
+def test_update_pcblib_preserves_vias_fills(client, runner, lib_path):
+    print("\n=== Test: update_component preserves vias/fills (bug sweep) ===")
+    # Regression (bug sweep 2026-07): update_pcblib_component parsed only
+    # pads/tracks/arcs/regions/text, so a read-modify-write via update_component
+    # silently DROPPED any via, fill or 3D body. Author a footprint with a via and
+    # a fill, then update_component it (change description only, resubmitting the
+    # via + fill) and assert both survive.
+    footprint = {
+        "name": "UPD_VIA_FILL",
+        "description": "before",
+        "pads": [{"designator": "1", "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0}],
+        "vias": [{"x": 2.0, "y": 0.0, "diameter": 0.6, "hole_size": 0.3}],
+        "fills": [{"x1": -1.0, "y1": -1.0, "x2": 1.0, "y2": 1.0, "layer": "Top Layer"}],
+    }
+    write = client.call_tool(
+        "write_pcblib",
+        {"filepath": lib_path, "footprints": [footprint], "append": False},
+    )
+    runner.check(not write.get("_isError"), "write_pcblib (via+fill) succeeded", actual=write)
+
+    footprint["description"] = "after"
+    upd = client.call_tool(
+        "update_component",
+        {"filepath": lib_path, "component_name": "UPD_VIA_FILL", "footprint": footprint},
+    )
+    runner.check(not upd.get("_isError"), "update_component succeeded", actual=upd)
+
+    read = client.call_tool("read_pcblib", {"filepath": lib_path})
+    fps = {fp.get("name"): fp for fp in read.get("footprints", [])}
+    fp = fps.get("UPD_VIA_FILL", {})
+    runner.check(len(fp.get("vias", [])) == 1, "via survived update_component", actual=len(fp.get("vias", [])))
+    runner.check(len(fp.get("fills", [])) == 1, "fill survived update_component", actual=len(fp.get("fills", [])))
+    runner.check(fp.get("description") == "after", "description was updated", actual=fp.get("description"))
+
+
+def test_bulk_rename_chained_no_loss(client, runner, schlib_path):
+    print("\n=== Test: bulk_rename chained rename loses no symbol (bug sweep) ===")
+    # Regression (bug sweep 2026-07): applying renames one-pass (remove-then-add)
+    # loses a symbol when a rename target collides with another symbol that is
+    # itself being renamed, because `add` (IndexMap::insert) overwrites on a key
+    # collision. Author AA and AAA; stripping the leading 'A' maps AA->A and
+    # AAA->AA — so AAA's new name (AA) collides with the still-present original AA
+    # before AA->A removes it. Both must survive.
+    symbols = [{"name": "AA"}, {"name": "AAA"}]
+    write = client.call_tool(
+        "write_schlib",
+        {"filepath": schlib_path, "symbols": symbols, "append": False},
+    )
+    runner.check(not write.get("_isError"), "write_schlib (AA, AAA) succeeded", actual=write)
+
+    rn = client.call_tool(
+        "bulk_rename",
+        {"filepath": schlib_path, "pattern": "^A", "replacement": ""},
+    )
+    runner.check(not rn.get("_isError"), "bulk_rename succeeded", actual=rn)
+
+    read = client.call_tool("read_schlib", {"filepath": schlib_path})
+    names = {s.get("name") for s in read.get("symbols", [])}
+    # AA->A and AAA->AA: two distinct symbols, neither clobbered.
+    runner.check(
+        names == {"A", "AA"},
+        "both symbols survive the chained rename (A and AA)",
+        actual=sorted(names),
+    )
 
 
 def test_write_schlib_fields(client, runner, schlib_path):
@@ -2102,6 +2205,8 @@ def main():
         test_write_pcblib_text_inverted_rect(client, runner, lib_path)
         test_write_pcblib_unique_id_roundtrip(client, runner, lib_path)
         test_write_pcblib_common_indices_roundtrip(client, runner, lib_path)
+        test_update_pcblib_preserves_vias_fills(client, runner, lib_path)
+        test_bulk_rename_chained_no_loss(client, runner, schlib_path)
         test_write_schlib_shapes(client, runner, schlib_path)
         test_write_schlib_fields(client, runner, schlib_path)
         test_write_schlib_display_flags(client, runner, schlib_path)

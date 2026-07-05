@@ -707,6 +707,37 @@ mod tests {
     }
 
     #[test]
+    fn roundtrip_text_annotation_stays_text_not_label() {
+        // Regression: encode_text emitted RECORD=4 (the Label id), so a Text
+        // annotation round-tripped back as a Label (reader: 3 => Text, 4 => Label).
+        let mut symbol = Symbol::new("TXT");
+        symbol.add_text(Text {
+            x: 5.0,
+            y: 7.0,
+            text: "NOTE".to_string(),
+            font_id: 1,
+            color: 0,
+            justification: TextJustification::BottomLeft,
+            rotation: 0.0,
+            is_mirrored: false,
+            is_hidden: false,
+            owner_part_id: 1,
+            unique_id: None,
+        });
+
+        let data = writer::encode_data_stream(&symbol).expect("encode");
+        let mut decoded = Symbol::new("TXT");
+        reader::parse_data_stream(&mut decoded, &data);
+
+        assert_eq!(decoded.text.len(), 1, "the Text survives as a Text");
+        assert_eq!(decoded.text[0].text, "NOTE");
+        assert!(
+            decoded.labels.is_empty(),
+            "the Text must NOT be mis-read as a Label"
+        );
+    }
+
+    #[test]
     fn roundtrip_multi_part_symbol() {
         // Create a multi-part symbol (like a dual op-amp)
         let mut symbol = Symbol::new("OPAMP_DUAL");

@@ -722,29 +722,44 @@ fn samples_pcblib_body3d() {
         "outline max y: expected ~0.762 mm, got {max_y}",
     );
 
-    // PR-R5: the body's unmodelled keys (TEXTURE*, IDENTIFIER, the repeated
-    // ARCRESOLUTION, etc.) are captured verbatim into `additional_parameters` so a
-    // read-modify-write does not drop them. The golden carries these, so the map is
-    // non-empty and the keys the typed model consumes are NOT present in it.
-    let extra = &body.additional_parameters;
-    assert!(
-        !extra.is_empty(),
-        "golden body carries unmodelled keys; additional_parameters must not be empty",
-    );
-    let keys: Vec<&str> = extra.iter().map(|(k, _)| k.as_str()).collect();
-    assert!(
-        keys.contains(&"TEXTURE"),
-        "expected TEXTURE captured, got {keys:?}"
-    );
-    assert!(
-        keys.contains(&"IDENTIFIER"),
-        "expected IDENTIFIER captured, got {keys:?}"
-    );
-    // Modelled keys must be excluded from the catch-all (they round-trip via fields).
-    for modelled in ["V7_LAYER", "NAME", "OVERALLHEIGHT", "MODELID", "MODEL.NAME"] {
+    // Every key `build_component_body_params` emits itself is now in
+    // BODY_MODELLED_PARAM_KEYS, so the reader does NOT capture any of them into
+    // `additional_parameters` (bug sweep 2026-07: capturing a writer-emitted key
+    // duplicated it on read-modify-write, and the deliberately-repeated
+    // ARCRESOLUTION was captured twice). Only genuinely-unmodelled keys survive
+    // here — and no canonical key may.
+    let keys: Vec<&str> = body
+        .additional_parameters
+        .iter()
+        .map(|(k, _)| k.as_str())
+        .collect();
+    for canonical in [
+        "V7_LAYER",
+        "NAME",
+        "KIND",
+        "OVERALLHEIGHT",
+        "MODELID",
+        "MODEL.NAME",
+        "TEXTURE",
+        "IDENTIFIER",
+        "ARCRESOLUTION",
+        "CAVITYHEIGHT",
+        "MODEL.2D.X",
+        "MODEL.MODELTYPE",
+        "MODEL.EXTRUDED.MINZ",
+    ] {
         assert!(
-            !keys.contains(&modelled),
-            "modelled key {modelled} must not appear in additional_parameters, got {keys:?}"
+            !keys.contains(&canonical),
+            "canonical key {canonical} must NOT be captured into additional_parameters \
+             (the writer emits it), got {keys:?}"
+        );
+    }
+    // No key may appear twice (the ARCRESOLUTION double-capture regression).
+    for (k, _) in &body.additional_parameters {
+        let count = keys.iter().filter(|&&x| x == k.as_str()).count();
+        assert_eq!(
+            count, 1,
+            "additional_parameters key {k} captured more than once"
         );
     }
 }

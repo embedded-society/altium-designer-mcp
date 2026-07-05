@@ -129,6 +129,32 @@ impl McpServer {
             }
         }
 
+        // Parse vias, fills and component bodies. The create path (call_write_pcblib)
+        // handles these, but this update path used to omit them entirely, so a
+        // read-modify-write of a footprint carrying any via / fill / 3D body silently
+        // DROPPED it. Mirror the create path exactly.
+        if let Some(vias) = fp_json.get("vias").and_then(Value::as_array) {
+            for (i, via_json) in vias.iter().enumerate() {
+                match Self::parse_via(via_json) {
+                    Ok(via) => footprint.add_via(via),
+                    Err(e) => return ToolCallResult::error(format!("Via {i}: {e}")),
+                }
+            }
+        }
+        if let Some(fills) = fp_json.get("fills").and_then(Value::as_array) {
+            for (i, fill_json) in fills.iter().enumerate() {
+                match Self::parse_fill(fill_json) {
+                    Ok(fill) => footprint.add_fill(fill),
+                    Err(e) => return ToolCallResult::error(format!("Fill {i}: {e}")),
+                }
+            }
+        }
+        if let Some(bodies) = fp_json.get("component_bodies").and_then(Value::as_array) {
+            for body_json in bodies {
+                footprint.add_component_body(Self::parse_component_body_json(body_json));
+            }
+        }
+
         // Parse text. Accept both "text" (the create-path key) and the legacy
         // "texts" so reusing the create schema for an update no longer silently
         // drops text primitives.
@@ -263,6 +289,27 @@ impl McpServer {
                     new.text.len()
                 ));
             }
+            if old.vias.len() != new.vias.len() {
+                changes.push(format!(
+                    "via_count: {} -> {}",
+                    old.vias.len(),
+                    new.vias.len()
+                ));
+            }
+            if old.fills.len() != new.fills.len() {
+                changes.push(format!(
+                    "fill_count: {} -> {}",
+                    old.fills.len(),
+                    new.fills.len()
+                ));
+            }
+            if old.component_bodies.len() != new.component_bodies.len() {
+                changes.push(format!(
+                    "component_body_count: {} -> {}",
+                    old.component_bodies.len(),
+                    new.component_bodies.len()
+                ));
+            }
         } else {
             changes.push("component will be created".to_string());
         }
@@ -374,6 +421,39 @@ impl McpServer {
             for param_json in params {
                 if let Some(param) = Self::parse_schlib_parameter(param_json) {
                     symbol.parameters.push(param);
+                }
+            }
+        }
+
+        // Parse round_rects, polygons, labels and text. The create path
+        // (call_write_schlib) handles all of these; this update path omitted them,
+        // so a read-modify-write of a symbol carrying any of them silently DROPPED
+        // it. Mirror the create path.
+        if let Some(round_rects) = sym_json.get("round_rects").and_then(Value::as_array) {
+            for rr_json in round_rects {
+                if let Some(rr) = Self::parse_schlib_round_rect(rr_json) {
+                    symbol.round_rects.push(rr);
+                }
+            }
+        }
+        if let Some(polygons) = sym_json.get("polygons").and_then(Value::as_array) {
+            for polygon_json in polygons {
+                if let Some(polygon) = Self::parse_schlib_polygon(polygon_json) {
+                    symbol.polygons.push(polygon);
+                }
+            }
+        }
+        if let Some(labels) = sym_json.get("labels").and_then(Value::as_array) {
+            for label_json in labels {
+                if let Some(label) = Self::parse_schlib_label(label_json) {
+                    symbol.labels.push(label);
+                }
+            }
+        }
+        if let Some(texts) = sym_json.get("text").and_then(Value::as_array) {
+            for text_json in texts {
+                if let Some(text) = Self::parse_schlib_text(text_json) {
+                    symbol.text.push(text);
                 }
             }
         }

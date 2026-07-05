@@ -377,6 +377,10 @@ impl McpServer {
                                                 "polygon_index": { "type": "integer", "description": "Polygon index (common header; 65535 = none). Normally omitted; preserved on a read-modify-write. Default: 65535" },
                                                 "component_index": { "type": "integer", "description": "Component index into the board component list (common header; -1 = free primitive). Normally omitted; preserved on a read-modify-write. Default: -1" },
                                                 "cavity_height": { "type": "number", "description": "Cavity height in mm for embedded components (optional). Default: 0" },
+                                                "arc_resolution": { "type": "number", "description": "Altium ARCRESOLUTION (arc-to-line tolerance, optional). Normally omitted; preserved on a read-modify-write. Default: 0" },
+                                                "sub_poly_index": { "type": "integer", "description": "Altium SUBPOLYINDEX; -1 when not a polygon sub-shape. Preserved on a read-modify-write. Default: -1" },
+                                                "union_index": { "type": "integer", "description": "Altium UNIONINDEX for grouped primitives. Preserved on a read-modify-write. Default: 0" },
+                                                "is_shape_based": { "type": "boolean", "description": "Altium ISSHAPEBASED. Preserved on a read-modify-write. Default: false" },
                                                 "holes": {
                                                     "type": "array",
                                                     "description": "Interior hole/cutout contours (optional). Each hole is an array of {x,y} vertices subtracted from the outline.",

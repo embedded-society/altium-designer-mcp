@@ -517,6 +517,19 @@ impl McpServer {
             .get("cavity_height")
             .and_then(Value::as_f64)
             .unwrap_or(0.0);
+        // These four are always serialised by read_pcblib (no skip_serializing_if),
+        // so a read-modify-write must accept AND preserve them, not reset to default.
+        // Their defaults mirror Region::default() so a from-scratch region is unchanged.
+        let arc_resolution = json
+            .get("arc_resolution")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0);
+        let sub_poly_index = json_i32(json, "sub_poly_index").unwrap_or(-1);
+        let union_index = json_i32(json, "union_index").unwrap_or(0);
+        let is_shape_based = json
+            .get("is_shape_based")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
 
         // Optional interior hole contours: an array of vertex arrays (each >= 3 pts).
         let holes: Vec<Vec<Vertex>> = json
@@ -561,10 +574,13 @@ impl McpServer {
             net_index,
             polygon_index,
             component_index,
+            arc_resolution,
             cavity_height,
+            sub_poly_index,
+            union_index,
+            is_shape_based,
             unique_id,
             additional_parameters,
-            ..Region::default()
         })
     }
 
@@ -685,6 +701,125 @@ impl McpServer {
     /// Parses a via from JSON.
     ///
     /// Mirrors [`Self::parse_pad`]'s layer-name parsing for the `from_layer` /
+    /// Parses a `ComponentBody` (3D body) from JSON. Shared by the write-tool
+    /// create path (`call_write_pcblib`) and the in-place update path
+    /// (`update_pcblib_component`) so neither can silently drop bodies or drift.
+    /// Every field defaults to the exact value the create handler used to
+    /// hard-code, so a from-scratch body stays byte-identical (oracle 0).
+    #[allow(clippy::too_many_lines)] // ComponentBody has many optional fields
+    pub(crate) fn parse_component_body_json(
+        body_json: &Value,
+    ) -> crate::altium::pcblib::ComponentBody {
+        use crate::altium::pcblib::{ComponentBody, Layer};
+
+        let layer = body_json
+            .get("layer")
+            .and_then(Value::as_str)
+            .and_then(Layer::parse)
+            .unwrap_or(Layer::Top3DBody);
+        let outline = body_json
+            .get("outline")
+            .and_then(Value::as_array)
+            .map(|verts| {
+                verts
+                    .iter()
+                    .filter_map(|v| {
+                        Some((
+                            v.get("x").and_then(Value::as_f64)?,
+                            v.get("y").and_then(Value::as_f64)?,
+                        ))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let f = |k: &str| body_json.get(k).and_then(Value::as_f64).unwrap_or(0.0);
+        let str_or = |k: &str, d: &str| {
+            body_json
+                .get(k)
+                .and_then(Value::as_str)
+                .unwrap_or(d)
+                .to_string()
+        };
+        ComponentBody {
+            model_id: str_or("model_id", ""),
+            model_name: str_or("model_name", ""),
+            embedded: body_json
+                .get("embedded")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            rotation_x: f("rotation_x"),
+            rotation_y: f("rotation_y"),
+            rotation_z: f("rotation_z"),
+            z_offset: f("z_offset"),
+            overall_height: f("overall_height"),
+            standoff_height: f("standoff_height"),
+            layer,
+            outline,
+            unique_id: body_json
+                .get("unique_id")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            model_checksum: body_json
+                .get("model_checksum")
+                .and_then(Value::as_i64)
+                .unwrap_or(0),
+            name: str_or("name", " "),
+            kind: body_json
+                .get("kind")
+                .and_then(Value::as_u64)
+                .and_then(|v| u8::try_from(v).ok())
+                .unwrap_or(0),
+            sub_poly_index: body_json
+                .get("sub_poly_index")
+                .and_then(Value::as_i64)
+                .and_then(|v| i32::try_from(v).ok())
+                .unwrap_or(-1),
+            union_index: body_json
+                .get("union_index")
+                .and_then(Value::as_u64)
+                .and_then(|v| u32::try_from(v).ok())
+                .unwrap_or(0),
+            is_shape_based: body_json
+                .get("is_shape_based")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            body_projection: body_json
+                .get("body_projection")
+                .and_then(Value::as_u64)
+                .and_then(|v| u8::try_from(v).ok())
+                .unwrap_or(0),
+            body_color_3d: body_json
+                .get("body_color_3d")
+                .and_then(Value::as_u64)
+                .and_then(|v| u32::try_from(v).ok())
+                .unwrap_or(8_421_504),
+            body_opacity_3d: body_json
+                .get("body_opacity_3d")
+                .and_then(Value::as_f64)
+                .unwrap_or(1.0),
+            model_2d_rotation: body_json
+                .get("model_2d_rotation")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0),
+            net_index: body_json
+                .get("net_index")
+                .and_then(Value::as_u64)
+                .and_then(|v| u16::try_from(v).ok())
+                .unwrap_or(0xFFFF),
+            polygon_index: body_json
+                .get("polygon_index")
+                .and_then(Value::as_u64)
+                .and_then(|v| u16::try_from(v).ok())
+                .unwrap_or(0xFFFF),
+            component_index: body_json
+                .get("component_index")
+                .and_then(Value::as_i64)
+                .and_then(|v| i32::try_from(v).ok())
+                .unwrap_or(-1),
+            additional_parameters: Self::parse_additional_parameters(body_json),
+        }
+    }
+
     /// `to_layer` fields and reuses [`crate::altium::pcblib::MaskExpansionMode`]
     /// string parsing for the mask mode. Optionals default exactly as
     /// [`crate::altium::pcblib::Via::new`] does when absent.
@@ -941,7 +1076,7 @@ impl McpServer {
                 "activelowinput" | "lowinput" => PinSymbol::ActiveLowInput,
                 "activelowoutput" | "lowoutput" => PinSymbol::ActiveLowOutput,
                 "rightleftsignalflow" | "rightleft" => PinSymbol::RightLeftSignalFlow,
-                "leftrrightsignalflow" | "leftright" => PinSymbol::LeftRightSignalFlow,
+                "leftrightsignalflow" | "leftright" => PinSymbol::LeftRightSignalFlow,
                 "bidirectionalsignalflow" | "bidirectional" => PinSymbol::BidirectionalSignalFlow,
                 "analogsignalin" | "analog" => PinSymbol::AnalogSignalIn,
                 "digitalsignalin" | "digital" => PinSymbol::DigitalSignalIn,
@@ -1021,6 +1156,19 @@ impl McpServer {
             };
             (!pf.is_zero()).then_some(pf)
         });
+        // Both fields are always serialised by read_schlib (no skip_serializing_if),
+        // so a read-modify-write round-trip must accept and preserve them rather than
+        // reset them to a hard-coded default. `is_not_accessible` defaults false (the
+        // pin conglomerate `0x20` bit); `formal_type` defaults 1 (Altium's normal pin).
+        let is_not_accessible = json
+            .get("is_not_accessible")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let formal_type = json
+            .get("formal_type")
+            .and_then(Value::as_u64)
+            .and_then(|v| u8::try_from(v).ok())
+            .unwrap_or(1);
 
         Some(Pin {
             name: name.to_string(),
@@ -1042,8 +1190,8 @@ impl McpServer {
             symbol_outer_edge,
             symbol_inside,
             symbol_outside,
-            is_not_accessible: false,
-            formal_type: 1,
+            is_not_accessible,
+            formal_type,
             swap_id_group,
             part_and_sequence,
             default_value,
