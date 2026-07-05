@@ -1150,6 +1150,12 @@ impl McpServer {
         // `line_style` previously hard-coded; read from JSON (matches the name
         // `read_schlib` exposes). 0=Solid, 1=Dashed, 2=Dotted.
         let line_style = json.get("line_style").and_then(Value::as_u64).unwrap_or(0) as u8;
+        // `is_not_accessible` previously hard-coded true; read from JSON (matches
+        // the name `read_schlib` exposes). Altium tags every line, so default true.
+        let is_not_accessible = json
+            .get("is_not_accessible")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
         let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
 
         Some(Line {
@@ -1160,7 +1166,7 @@ impl McpServer {
             line_width,
             color,
             line_style,
-            is_not_accessible: true,
+            is_not_accessible,
             owner_part_id,
             display_flags: parse_schlib_display_flags(json),
             unique_id: json_unique_id(json),
@@ -1395,13 +1401,19 @@ impl McpServer {
         // `fill_color` previously hard-coded to 0; read from JSON (matches the name
         // `read_schlib` exposes). Maps to the `AreaColor` param; 0 = no fill.
         let fill_color = json.get("fill_color").and_then(Value::as_u64).unwrap_or(0) as u32;
+        // `is_not_accessible` previously hard-coded true; read from JSON (matches
+        // the name `read_schlib` exposes). Altium tags every arc, so default true.
+        let is_not_accessible = json
+            .get("is_not_accessible")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
         let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
 
         Some(Arc {
             x,
             y,
             radius,
-            is_not_accessible: true,
+            is_not_accessible,
             start_angle,
             end_angle,
             line_width,
