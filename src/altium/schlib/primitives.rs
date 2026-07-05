@@ -1045,18 +1045,18 @@ impl EllipticalArc {
     pub fn new(
         x: impl Into<f64>,
         y: impl Into<f64>,
-        radius: f64,
-        secondary_radius: f64,
-        start_angle: f64,
-        end_angle: f64,
+        radius: impl Into<f64>,
+        secondary_radius: impl Into<f64>,
+        start_angle: impl Into<f64>,
+        end_angle: impl Into<f64>,
     ) -> Self {
         Self {
             x: x.into(),
             y: y.into(),
-            radius,
-            secondary_radius,
-            start_angle,
-            end_angle,
+            radius: radius.into(),
+            secondary_radius: secondary_radius.into(),
+            start_angle: start_angle.into(),
+            end_angle: end_angle.into(),
             line_width: 1,
             color: 0x00_00_80, // Dark red (BGR)
             fill_color: 0,
@@ -1070,8 +1070,8 @@ impl EllipticalArc {
     pub fn full_ellipse(
         x: impl Into<f64>,
         y: impl Into<f64>,
-        radius: f64,
-        secondary_radius: f64,
+        radius: impl Into<f64>,
+        secondary_radius: impl Into<f64>,
     ) -> Self {
         Self::new(x, y, radius, secondary_radius, 0.0, 360.0)
     }

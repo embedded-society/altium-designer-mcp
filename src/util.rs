@@ -34,11 +34,15 @@ pub fn redact_absolute_paths(message: &str) -> String {
     static WINDOWS: OnceLock<Regex> = OnceLock::new();
     static UNIX: OnceLock<Regex> = OnceLock::new();
 
-    // Group 1 is a leading boundary (start, whitespace, quote, paren, `=`) so a
-    // drive letter preceded by other letters — e.g. the `s:` in `https://` — is
-    // not mistaken for `C:\`.
-    let windows = WINDOWS
-        .get_or_init(|| Regex::new(r#"(^|[\s"'(=])((?:[A-Za-z]:[\\/]|\\\\)[^\s"'<>|]*)"#).unwrap());
+    // Group 1 is a leading boundary (start, whitespace, quote, paren, `=`, `:`) so a
+    // drive letter preceded by other letters — e.g. the `s:` in `https://` — is not
+    // mistaken for `C:\`, while a path glued straight after a colon (`detail:C:\…`)
+    // is still redacted. The false-positive guard holds: in `https://` the drive
+    // candidate `s:/` is preceded by `p` (a letter, not in the class), so it never
+    // matches.
+    let windows = WINDOWS.get_or_init(|| {
+        Regex::new(r#"(^|[\s"'(=:])((?:[A-Za-z]:[\\/]|\\\\)[^\s"'<>|]*)"#).unwrap()
+    });
     let unix = UNIX.get_or_init(|| Regex::new(r"(^|\s)(/[^\s/]+(?:/[^\s/]+)+)").unwrap());
 
     let redact = |caps: &regex::Captures| format!("{}{}", &caps[1], basename(&caps[2]));
@@ -137,6 +141,16 @@ mod tests {
         assert_eq!(
             redact_absolute_paths("at C:/Users/me/Lib.PcbLib here"),
             "at Lib.PcbLib here"
+        );
+        // A drive path glued straight after a colon (no space) must still redact.
+        assert_eq!(
+            redact_absolute_paths("detail:C:\\Users\\me\\secret\\Lib.PcbLib"),
+            "detail:Lib.PcbLib"
+        );
+        // The `https://` guard still holds — no drive-letter false positive.
+        assert_eq!(
+            redact_absolute_paths("see https://example.com/x"),
+            "see https://example.com/x"
         );
     }
 
