@@ -684,6 +684,12 @@ fn samples_schlib_shapestyle() {
     // One transparent polygon (ISch_Polygon.Transparent round-trips from Altium).
     assert_eq!(sym.polygons.len(), 1, "SHAPESTYLE has one polygon");
     assert!(sym.polygons[0].transparent, "the polygon is transparent");
+
+    // One transparent ellipse (ISch_Ellipse.Transparent round-trips). Note:
+    // RoundRectangle.Transparent is deliberately NOT authored — Altium does not
+    // persist it on a library round-rect (reads back false), so it is not testable.
+    assert_eq!(sym.ellipses.len(), 1, "SHAPESTYLE has one ellipse");
+    assert!(sym.ellipses[0].transparent, "the ellipse is transparent");
 }
 
 #[test]
