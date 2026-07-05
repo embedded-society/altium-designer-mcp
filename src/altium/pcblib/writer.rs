@@ -258,6 +258,31 @@ fn write_common_header(data: &mut Vec<u8>, layer: Layer, flags: PcbFlags) {
     data.extend_from_slice(&[0xFF; 10]);
 }
 
+/// Overlays the common-header connectivity indices onto the `0xFF` fill
+/// [`write_common_header`] writes: net index (u16 @3-4), polygon index
+/// (u16 @5-6) and component index (i32 modelled, stored as u16 @7-8 with
+/// `-1` -> the `0xFFFF` sentinel).
+///
+/// The from-scratch "none" defaults — `net = 0xFFFF`, `polygon = 0xFFFF`,
+/// `component = -1` (-> `0xFFFF`) — reproduce the header's `0xFF FF` bytes exactly,
+/// so a default primitive stays byte-identical to the previous hard-coded output
+/// (the oracle depends on this). `block` must be at least 9 bytes long.
+///
+/// Mirrors how [`encode_region_properties`] / [`encode_via`] already overlay these
+/// bytes; factored so every primitive encoder shares one implementation.
+fn write_common_indices(
+    block: &mut [u8],
+    net_index: u16,
+    polygon_index: u16,
+    component_index: i32,
+) {
+    block[3..5].copy_from_slice(&net_index.to_le_bytes());
+    block[5..7].copy_from_slice(&polygon_index.to_le_bytes());
+    // -1 (free primitive) and any out-of-range value store as the 0xFFFF sentinel.
+    let component_word = u16::try_from(component_index).unwrap_or(0xFFFF);
+    block[7..9].copy_from_slice(&component_word.to_le_bytes());
+}
+
 /// Encodes footprint primitives to binary format.
 ///
 /// # Errors
@@ -638,8 +663,14 @@ fn build_pad_extended_tail(pad: &Pad) -> [u8; 141] {
 fn encode_pad_geometry(pad: &Pad) -> Vec<u8> {
     let mut block = Vec::with_capacity(PAD_MAIN_BLOCK_LEN);
 
-    // Common header (13 bytes) - offsets 0-12
+    // Common header (13 bytes) - offsets 0-12 + connectivity indices @3-8.
     write_common_header(&mut block, pad.layer, pad.flags);
+    write_common_indices(
+        &mut block,
+        pad.net_index,
+        pad.polygon_index,
+        pad.component_index,
+    );
 
     // Location (X, Y) - offsets 13-20
     write_i32(&mut block, from_mm(pad.x));
@@ -748,9 +779,15 @@ fn encode_via(data: &mut Vec<u8>, via: &Via) {
     write_common_header(&mut header, Layer::MultiLayer, via.flags);
     block[0..13].copy_from_slice(&header);
 
-    // Net index @3-4 (u16; 0xFFFF = no net). Overlays the header's 0xFF bytes; a
-    // default via keeps 0xFFFF so the template bytes are reproduced unchanged.
-    block[3..5].copy_from_slice(&via.net_index.to_le_bytes());
+    // Connectivity indices @3-8 (net/polygon/component). Overlays the header's
+    // 0xFF bytes; a default via keeps 0xFFFF/none so the template bytes are
+    // reproduced unchanged (byte-identity).
+    write_common_indices(
+        &mut block,
+        via.net_index,
+        via.polygon_index,
+        via.component_index,
+    );
 
     // Geometry (offsets 13-30).
     block[13..17].copy_from_slice(&from_mm(via.x).to_le_bytes());
@@ -904,8 +941,14 @@ const fn stroke_font_to_id(font: StrokeFont) -> u16 {
 fn encode_track(data: &mut Vec<u8>, track: &Track) {
     let mut block = Vec::with_capacity(64);
 
-    // Common header (13 bytes)
+    // Common header (13 bytes) + connectivity indices @3-8 (net/polygon/component).
     write_common_header(&mut block, track.layer, track.flags);
+    write_common_indices(
+        &mut block,
+        track.net_index,
+        track.polygon_index,
+        track.component_index,
+    );
 
     // Start coordinates (X, Y) - offsets 13-20
     write_i32(&mut block, from_mm(track.x1));
@@ -937,8 +980,14 @@ fn encode_track(data: &mut Vec<u8>, track: &Track) {
 fn encode_arc(data: &mut Vec<u8>, arc: &Arc) {
     let mut block = Vec::with_capacity(64);
 
-    // Common header (13 bytes)
+    // Common header (13 bytes) + connectivity indices @3-8 (net/polygon/component).
     write_common_header(&mut block, arc.layer, arc.flags);
+    write_common_indices(
+        &mut block,
+        arc.net_index,
+        arc.polygon_index,
+        arc.component_index,
+    );
 
     // Centre coordinates (X, Y) - offsets 13-20
     write_i32(&mut block, from_mm(arc.x));
@@ -1024,6 +1073,16 @@ pub fn encode_text_geometry(text: &Text) -> Vec<u8> {
     let mut header = Vec::with_capacity(13);
     write_common_header(&mut header, text.layer, text.flags);
     block[..13].copy_from_slice(&header);
+
+    // Connectivity indices @3-8 (net/polygon/component). Overlays the header's
+    // 0xFF bytes; defaults keep 0xFFFF/none so a from-scratch text stays
+    // byte-identical to the template.
+    write_common_indices(
+        &mut block,
+        text.net_index,
+        text.polygon_index,
+        text.component_index,
+    );
 
     // Position and height (offsets 13-24).
     block[13..17].copy_from_slice(&from_mm(text.x).to_le_bytes());
@@ -1171,15 +1230,16 @@ fn encode_region_properties(region: &Region) -> Vec<u8> {
 
     // Common header (13 bytes): layer + flag word, then the net/polygon/component
     // indices. `write_common_header` fills bytes 3-12 with 0xFF (a free primitive);
-    // we overlay the modelled indices. Defaults (net=0xFFFF, poly=0xFFFF,
-    // component=-1 -> 0xFFFF) leave the 0xFF bytes untouched, so a from-scratch
-    // region stays byte-identical.
+    // `write_common_indices` overlays the modelled indices. Defaults (net=0xFFFF,
+    // poly=0xFFFF, component=-1 -> 0xFFFF) leave the 0xFF bytes untouched, so a
+    // from-scratch region stays byte-identical.
     write_common_header(&mut block, region.layer, region.flags);
-    block[3..5].copy_from_slice(&region.net_index.to_le_bytes());
-    block[5..7].copy_from_slice(&region.polygon_index.to_le_bytes());
-    // -1 (free primitive) and any out-of-range value store as the 0xFFFF sentinel.
-    let component_word = u16::try_from(region.component_index).unwrap_or(0xFFFF);
-    block[7..9].copy_from_slice(&component_word.to_le_bytes());
+    write_common_indices(
+        &mut block,
+        region.net_index,
+        region.polygon_index,
+        region.component_index,
+    );
 
     // @13 reserved | @14-15 hole_count (u16 LE) | @16-17 reserved. With no holes
     // this collapses to `00 00 00 00 00`, byte-identical to the previous output.
@@ -1240,8 +1300,14 @@ fn encode_fill_block(fill: &Fill) -> Vec<u8> {
     // Total block size: 13 + 16 + 8 + 13 = 50 bytes
     let mut block = Vec::with_capacity(50);
 
-    // Common header (13 bytes)
+    // Common header (13 bytes) + connectivity indices @3-8 (net/polygon/component).
     write_common_header(&mut block, fill.layer, fill.flags);
+    write_common_indices(
+        &mut block,
+        fill.net_index,
+        fill.polygon_index,
+        fill.component_index,
+    );
 
     // Corner coordinates (16 bytes)
     write_i32(&mut block, from_mm(fill.x1));
@@ -1301,8 +1367,18 @@ fn encode_component_body_block(body: &ComponentBody, outline: &[(f64, f64)]) -> 
     block.push(0x0C);
     block.push(0x00);
 
-    // 0xFF padding (10 bytes)
+    // 0xFF padding (10 bytes) @3-12: net/polygon/component indices + reserved.
     block.extend_from_slice(&[0xFF; 10]);
+
+    // Connectivity indices @3-8 (net/polygon/component). Overlays the 0xFF
+    // padding; defaults keep 0xFFFF/none so a from-scratch body's header bytes
+    // are reproduced unchanged (byte-identity).
+    write_common_indices(
+        &mut block,
+        body.net_index,
+        body.polygon_index,
+        body.component_index,
+    );
 
     // Zeros (5 bytes)
     block.extend_from_slice(&[0x00; 5]);
@@ -1832,6 +1908,99 @@ mod tests {
         assert_eq!(&b[628..632], &1i32.to_le_bytes(), "tail entry count = 1");
         assert_eq!(&b[632..636], &15i32.to_le_bytes(), "tail entry stride = 15");
         assert_eq!(b[649], 50, "tail entry corner is a fixed 50");
+    }
+
+    #[test]
+    fn common_indices_default_to_ff_bytes() {
+        // Byte-identity guard (oracle): a from-scratch primitive's connectivity
+        // indices default to "none" (net=0xFFFF, polygon=0xFFFF, component=-1 ->
+        // 0xFFFF), which must reproduce the header fill's `0xFF FF` bytes @3-8
+        // exactly. Any drift here re-introduces a byte diff the oracle would flag.
+        let mut block = vec![0u8; 13];
+        write_common_header(&mut block, Layer::TopLayer, PcbFlags::empty());
+        // A from-scratch track/arc/etc. uses these defaults.
+        write_common_indices(&mut block, 0xFFFF, 0xFFFF, -1);
+        assert_eq!(
+            &block[3..9],
+            &[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF],
+            "default indices must reproduce the 0xFF header fill @3-8"
+        );
+    }
+
+    #[test]
+    fn common_indices_overlay_modelled_values() {
+        // A set net/polygon/component overlays the header fill at the right offsets
+        // in LE, with component `-1` mapping to the 0xFFFF sentinel.
+        let mut block = vec![0u8; 13];
+        write_common_header(&mut block, Layer::TopLayer, PcbFlags::empty());
+        write_common_indices(&mut block, 0x1234, 0x5678, 42);
+        assert_eq!(&block[3..5], &0x1234u16.to_le_bytes(), "net @3-4");
+        assert_eq!(&block[5..7], &0x5678u16.to_le_bytes(), "polygon @5-6");
+        assert_eq!(&block[7..9], &42u16.to_le_bytes(), "component @7-8");
+    }
+
+    #[test]
+    fn track_from_scratch_header_bytes_byte_identical() {
+        // A default Track encodes the same 0xFF header bytes @3-8 as before the
+        // indices were modelled (byte-identity for the oracle).
+        let track = Track::new(0.0, 0.0, 1.0, 0.0, 0.2, Layer::TopOverlay);
+        let mut data = Vec::new();
+        encode_track(&mut data, &track);
+        // Skip the 4-byte block length prefix; header is @0 of the block body.
+        let block = &data[4..];
+        assert_eq!(
+            &block[3..9],
+            &[0xFF; 6],
+            "from-scratch track must keep the 0xFF net/polygon/component bytes"
+        );
+    }
+
+    #[test]
+    fn text_from_scratch_header_bytes_byte_identical() {
+        use crate::altium::TextJustification;
+        // A default Text's geometry block keeps the template's 0xFF header bytes @3-8.
+        let text = Text {
+            x: 0.0,
+            y: 0.0,
+            text: "X".to_string(),
+            height: 1.0,
+            layer: Layer::TopOverlay,
+            rotation: 0.0,
+            kind: TextKind::Stroke,
+            stroke_font: None,
+            stroke_width: None,
+            italic: false,
+            bold: false,
+            mirror: false,
+            font_name: "Arial".to_string(),
+            justification: TextJustification::BottomLeft,
+            flags: PcbFlags::empty(),
+            net_index: 0xFFFF,
+            polygon_index: 0xFFFF,
+            component_index: -1,
+            unique_id: None,
+        };
+        let geom = encode_text_geometry(&text);
+        assert_eq!(
+            &geom[3..9],
+            &[0xFF; 6],
+            "from-scratch text must keep the 0xFF net/polygon/component bytes"
+        );
+    }
+
+    #[test]
+    fn track_indices_encode_into_header() {
+        // A track carrying a net/component association writes those indices into
+        // the common header @3-8 (round-trip fidelity for a board-context primitive).
+        let mut track = Track::new(0.0, 0.0, 1.0, 0.0, 0.2, Layer::TopLayer);
+        track.net_index = 7;
+        track.component_index = 3;
+        let mut data = Vec::new();
+        encode_track(&mut data, &track);
+        let block = &data[4..];
+        assert_eq!(&block[3..5], &7u16.to_le_bytes(), "net @3-4");
+        assert_eq!(&block[5..7], &0xFFFFu16.to_le_bytes(), "polygon stays none");
+        assert_eq!(&block[7..9], &3u16.to_le_bytes(), "component @7-8");
     }
 
     #[test]
@@ -2524,6 +2693,9 @@ mod tests {
             font_name: "Arial".to_string(),
             justification: TextJustification::MiddleCenter,
             flags: PcbFlags::empty(),
+            net_index: 0xFFFF,
+            polygon_index: 0xFFFF,
+            component_index: -1,
             unique_id: None,
         };
         let mut fp = Footprint::new("WS");

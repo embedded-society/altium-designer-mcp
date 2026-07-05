@@ -161,6 +161,9 @@ fn pcblib_file_roundtrip_all_primitives() {
         font_name: "Arial".to_string(),
         justification: TextJustification::default(),
         flags: PcbFlags::default(),
+        net_index: 0xFFFF,
+        polygon_index: 0xFFFF,
+        component_index: -1,
         unique_id: None,
     };
     fp.add_text(text);

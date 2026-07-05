@@ -177,6 +177,21 @@ pub struct ComponentBody {
     #[serde(default)]
     pub model_2d_rotation: f64,
 
+    /// Net index into the board's net list — common-header u16 @3. `0xFFFF`
+    /// (65535) means "no net", the from-scratch default (round-trip fidelity).
+    #[serde(default = "default_net_index")]
+    pub net_index: u16,
+
+    /// Polygon index this body belongs to — common-header u16 @5. `0xFFFF`
+    /// (none) from scratch, matching the historical writer output.
+    #[serde(default = "default_polygon_index")]
+    pub polygon_index: u16,
+
+    /// Component index into the board's component list — common-header u16 @7
+    /// (`0xFFFF` stored, exposed as `-1`). `-1` (free primitive) from scratch.
+    #[serde(default = "default_component_index")]
+    pub component_index: i32,
+
     /// Unmodelled parameter keys read verbatim from the body's `KEY=VALUE|...`
     /// block, in read order. An Altium body carries keys the typed model does not
     /// recognise (e.g. `TEXTURE`, `TEXTURECENTERX`, `MODEL.2D.X`, `MODEL.2D.Y`,
@@ -191,6 +206,24 @@ pub struct ComponentBody {
 
 const fn default_body_color() -> u32 {
     8_421_504
+}
+
+/// Default net index for a from-scratch body (`0xFFFF` = no net). The
+/// common-header connectivity indices default to "none" so a free library
+/// body writes the same `0xFF` header bytes as before (byte-identity).
+const fn default_net_index() -> u16 {
+    0xFFFF
+}
+
+/// Default polygon index for a from-scratch body (`0xFFFF` = none).
+const fn default_polygon_index() -> u16 {
+    0xFFFF
+}
+
+/// Default component index for a from-scratch body (`-1` = free primitive,
+/// stored as the `0xFFFF` common-header sentinel).
+const fn default_component_index() -> i32 {
+    -1
 }
 
 const fn default_opacity() -> f64 {
@@ -232,6 +265,9 @@ impl ComponentBody {
             body_color_3d: default_body_color(),
             body_opacity_3d: default_opacity(),
             model_2d_rotation: 0.0,
+            net_index: default_net_index(),
+            polygon_index: default_polygon_index(),
+            component_index: default_component_index(),
             additional_parameters: Vec::new(),
         }
     }
