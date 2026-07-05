@@ -484,7 +484,7 @@ impl McpServer {
                     if name == component_name {
                         String::new()
                     } else {
-                        " (note: name in library key unchanged)".to_string()
+                        format!(" and change its saved name to '{name}' (use rename_component if you also need the in-session lookup key updated)")
                     }
                 ),
             });
@@ -513,7 +513,7 @@ impl McpServer {
                 if name == component_name {
                     String::new()
                 } else {
-                    " (note: name in library key unchanged, use rename_component to change key)".to_string()
+                    format!(" and changed its saved name to '{name}' (use rename_component if you also need the in-session lookup key updated)")
                 }
             ),
         });

@@ -232,9 +232,10 @@ impl McpServer {
             }
         }
 
-        // Draw origin crosshair
+        // Draw origin crosshair only onto a blank cell, so it never hides a
+        // primitive (consistent with render_symbol_ascii).
         let (ox, oy) = to_canvas(0.0, 0.0);
-        if ox < canvas_width && oy < canvas_height {
+        if ox < canvas_width && oy < canvas_height && canvas[oy][ox] == ' ' {
             canvas[oy][ox] = '+';
         }
 
@@ -724,12 +725,14 @@ impl McpServer {
 
         // Build output string
         let mut output = String::new();
+        // Clamp the displayed part index to 1..=part_count so an out-of-range
+        // part_id can't render a nonsensical header like "part 5/2".
+        let part_count_i32 = i32::try_from(symbol.part_count).unwrap_or(i32::MAX).max(1);
+        let shown_part = part_id.clamp(1, part_count_i32);
         let _ = writeln!(
             output,
             "Symbol: {} (part {}/{})",
-            symbol.name,
-            if part_id == 0 { 1 } else { part_id },
-            symbol.part_count
+            symbol.name, shown_part, symbol.part_count
         );
         let _ = writeln!(
             output,

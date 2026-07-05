@@ -6,14 +6,15 @@
 //! # Data Stream Format
 //!
 //! ```text
-//! [RecordLength:2 LE][RecordType:2 BE][data:RecordLength]
+//! [length:3 LE u24][flags:1 u8][data:length]
 //! ...
 //! ```
 //!
-//! The 4-byte record header is equivalent to Altium's single 32-bit
-//! little-endian size word whose high byte is a flag (0x00 text, 0x01 pin).
-//! Records run until the stream is exhausted — there is NO end-of-stream
-//! marker (a trailing 0x0000 would be mis-read as a zero-length record).
+//! The 4-byte record header is Altium's single 32-bit little-endian size word:
+//! the low 24 bits are the payload length and the high byte is a flag (0x00
+//! text record, 0x01 binary pin record). Records run until the stream is
+//! exhausted — there is NO end-of-stream marker (a trailing 0x0000 would be
+//! mis-read as a zero-length record).
 //!
 //! Record types:
 //! - `0x0000`: Text record (pipe-delimited key=value pairs)

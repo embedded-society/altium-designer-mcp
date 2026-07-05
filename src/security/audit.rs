@@ -21,9 +21,14 @@ use serde::Serialize;
 pub enum AuditOutcome {
     /// The operation completed successfully.
     Success,
-    /// The operation returned an error result.
+    /// The operation returned an error result. NOTE: the dispatch chokepoint
+    /// currently records every failed mutating call (including a path-rejected or
+    /// rate-limited one) as `Error`, because at that point only `is_error` is
+    /// known, not the failure category.
     Error,
-    /// The operation was denied (e.g. rate limited or path rejected).
+    /// The operation was denied (e.g. rate limited or path rejected). Reserved:
+    /// distinguishing a denial from a plain `Error` needs the denial category
+    /// threaded from the reject sites, which the dispatch path does not yet do.
     Denied,
 }
 

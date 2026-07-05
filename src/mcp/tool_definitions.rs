@@ -217,6 +217,14 @@ impl McpServer {
                                                     "enum": ["none", "from_rule", "manual"],
                                                     "description": "Solder mask expansion mode. Default: from_rule"
                                                 },
+                                                "paste_mask_expansion": { "type": "number", "description": "Paste (stencil) mask expansion in mm (optional; omit to use the rule default)" },
+                                                "paste_mask_expansion_mode": {
+                                                    "type": "string",
+                                                    "enum": ["none", "from_rule", "manual"],
+                                                    "description": "Paste mask expansion mode. Default: from_rule"
+                                                },
+                                                "corner_radius_percent": { "type": "integer", "description": "Rounded-rectangle corner radius as a percentage of the shorter side (0-100). Default: 0" },
+                                                "rotation": { "type": "number", "description": "Pad rotation in degrees. Default: 0" },
                                                 "power_plane_connect_style": {
                                                     "type": "string",
                                                     "enum": ["relief", "direct", "no_connect"],
@@ -471,7 +479,7 @@ impl McpServer {
                                                 "union_index": { "type": "integer", "description": "Altium UNIONINDEX for grouped primitives. Default: 0" },
                                                 "is_shape_based": { "type": "boolean", "description": "Altium ISSHAPEBASED (shape-based vs. model-based body). Default: false" },
                                                 "body_projection": { "type": "integer", "description": "Altium BODYPROJECTION (board side). Default: 0" },
-                                                "body_color_3d": { "type": "integer", "description": "3D body colour as decimal RGB (Altium BODYCOLOR3D). Default: 8421504 (0xE0E0E0, grey)" },
+                                                "body_color_3d": { "type": "integer", "description": "3D body colour as decimal RGB (Altium BODYCOLOR3D). Default: 8421504 (0x808080, grey)" },
                                                 "body_opacity_3d": { "type": "number", "description": "3D body opacity, 0.0-1.0 (Altium BODYOPACITY3D). Default: 1.0" },
                                                 "model_2d_rotation": { "type": "number", "description": "2D placement rotation in degrees (Altium MODEL.2D.ROTATION). Default: 0" },
                                                 "model_id": { "type": "string", "description": "Model GUID referencing an embedded model (Altium MODELID). Default: \"\" (none)" },
@@ -553,8 +561,8 @@ impl McpServer {
                                             "properties": {
                                                 "designator": { "type": "string" },
                                                 "name": { "type": "string" },
-                                                "x": { "type": "number", "description": "Pin's body-attach (INNER) end, in schematic units (10 units = 1 grid square). This is the end that touches the symbol body, NOT the connection tip. The pin is drawn from (x,y) extending 'length' units in the 'orientation' direction; the connection tip is at the far end." },
-                                                "y": { "type": "number", "description": "Y of the pin's body-attach (inner) end, in schematic units. See 'x'." },
+                                                "x": { "type": "integer", "description": "Pin's body-attach (INNER) end, in whole schematic units (10 units = 1 grid square). This is the end that touches the symbol body, NOT the connection tip. The pin is drawn from (x,y) extending 'length' units in the 'orientation' direction; the connection tip is at the far end. Pins are integer-positioned; for an off-grid pin supply the sub-unit remainder via 'frac' (a fractional value here is truncated)." },
+                                                "y": { "type": "integer", "description": "Y of the pin's body-attach (inner) end, in whole schematic units. See 'x' (use 'frac' for off-grid)." },
                                                 "length": { "type": "number", "description": "Pin length in schematic units (10 = 1 grid). Drawn from (x,y) outward in the 'orientation' direction." },
                                                 "orientation": { "type": "string", "enum": ["left", "right", "up", "down"], "description": "Direction the pin POINTS, away from the body — NOT which side it sits on. A pin on the LEFT side uses 'left' (tip at x-length); a RIGHT-side pin uses 'right' (tip at x+length); 'up'/'down' for top/bottom pins. Put each pin's (x,y) on the matching body-rectangle edge so it attaches flush, e.g. left pin {x:-50,y:20,length:30,orientation:'left'} with rectangle x1=-50, and the matching right pin {x:50,y:20,length:30,orientation:'right'} with x2=50. For TOP/BOTTOM pins, (x,y) sits on the body's top/bottom edge and the pin points outward (away from the body centre): a top-side pin uses 'up' (tip at y+length, above the body), a bottom-side pin uses 'down' (tip at y-length, below) — e.g. a vertical 2-pin part with the body near y=0: top pin {x:0,y:10,length:30,orientation:'up'} (tip at y=40), bottom pin {x:0,y:-10,length:30,orientation:'down'} (tip at y=-40)." },
                                                 "electrical_type": { "type": "string", "enum": ["input", "output", "bidirectional", "passive", "power", "open_collector", "open_emitter", "hi_z", "tristate"], "description": "Pin electrical type. 'tristate' is accepted as an alias for 'hi_z'. Default: passive" },

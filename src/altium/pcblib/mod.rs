@@ -26,9 +26,12 @@
 //! [name_block_len:4][str_len:1][name:str_len]  // Component name
 //! [record_type:1][blocks...]                   // First primitive
 //! [record_type:1][blocks...]                   // Second primitive
-//! ...
-//! [0x00]                                       // End marker
+//! ...                                          // exactly the primitive count from the component header
 //! ```
+//!
+//! There is NO trailing end marker: the writer must never emit a final `0x00`.
+//! Altium reads exactly the primitive count from the component header, and a
+//! stray `0x00` is mis-parsed as a zero-length record (see issue #68).
 //!
 //! Record types: Arc(1), Pad(2), Via(3), Track(4), Text(5), Fill(6), Region(11), ComponentBody(12)
 

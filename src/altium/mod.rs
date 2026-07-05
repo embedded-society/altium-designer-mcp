@@ -44,7 +44,8 @@ use std::hash::{BuildHasher, Hash, Hasher};
 /// Maximum length for OLE Compound File storage/stream names.
 ///
 /// OLE Compound Document format limits entry names to 31 UTF-16 code units.
-/// We enforce 31 bytes for ASCII compatibility.
+/// We enforce that 31-code-unit limit (see `utf16_len` / `truncate_utf16`); for
+/// ASCII names one code unit is one byte, so the effective limit is 31 chars.
 pub const MAX_OLE_NAME_LEN: usize = 31;
 
 /// Reserve 4 chars for "~XXX" suffix (allows 999 collisions).

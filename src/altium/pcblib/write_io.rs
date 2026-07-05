@@ -235,12 +235,15 @@ impl PcbLib {
 
     /// Writes the `/FileHeader` stream.
     ///
-    /// The `FileHeader` contains a binary-encoded version string:
+    /// The canonical `PcbLib` `FileHeader` is **53 bytes** with THREE fields
+    /// (matching `AltiumSharp`'s `PcbLibWriter.WriteFileHeader`); Altium rejects
+    /// the file if the version double or the `UniqueId` block are missing:
     /// ```text
-    /// [string_length:4 LE u32][string_length:1 u8]["PCB 6.0 Binary Library File"]
+    /// [len:4 LE u32][len:1 u8]["PCB 6.0 Binary Library File"]  // version string (4+1+27 = 32 bytes)
+    /// [5.01 : 8 f64]                                            // format version double
+    /// [len:4 LE u32][len:1 u8][8-char UniqueId]                // 4+1+8 = 13 bytes
     /// ```
-    ///
-    /// The 4-byte and 1-byte lengths are the same value (27).
+    /// The version string's 4-byte and 1-byte lengths are the same value (27).
     /// Component metadata is stored in `/Library/Data`, not here.
     #[allow(clippy::unused_self)]
     fn write_file_header<F: std::io::Read + std::io::Write + std::io::Seek>(

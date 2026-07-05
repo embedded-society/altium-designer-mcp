@@ -9,9 +9,11 @@
 //! [name_block_len:4][str_len:1][name:str_len]  // Component name
 //! [record_type:1][blocks...]                   // First primitive
 //! [record_type:1][blocks...]                   // Second primitive
-//! ...
-//! [0x00]                                       // End marker
+//! ...                                          // exactly the primitive count from the component header
 //! ```
+//!
+//! There is NO trailing end marker — the writer deliberately omits any final
+//! `0x00` (a stray one is mis-read as a zero-length record; see issue #68).
 //!
 //! # Record Types
 //!

@@ -742,7 +742,7 @@ pub(super) fn parse_arc(data: &[u8], offset: usize) -> ParseResult<Arc> {
 /// [y:4 i32]                     // Y position
 /// [height:4 i32]                // Text height
 /// ...                           // Additional fields (font, style)
-/// [rotation:8 f64]              // Rotation angle (at offset 37)
+/// [rotation:8 f64]              // Rotation angle (at offset 27)
 /// [font_name:varies]            // Font name in UTF-16 (null-terminated)
 /// [text_content:varies]         // Text content in UTF-16 or reference
 /// ```
@@ -1012,12 +1012,13 @@ pub(super) fn extract_text_from_block(block: &[u8], wide_strings: Option<&WideSt
     // The WideStringsIndex is a u16 at offset 115 in the geometry block
     // Verified by reverse-engineering an Altium-authored library with Text primitives
     if let Some(ws) = wide_strings {
-        if block.len() > 117 {
-            if let Some(index) = read_u16(block, 115) {
-                if let Some(resolved) = ws.get(&(index as usize)) {
-                    tracing::trace!(index, resolved = %resolved, "Resolved WideStrings from offset 115");
-                    return resolved.clone();
-                }
+        // The u16 at offset 115 needs bytes 115..117, i.e. len >= 117; `read_u16`
+        // already bounds-checks, so no redundant length guard (the old `> 117`
+        // wrongly rejected a block of exactly 117 bytes).
+        if let Some(index) = read_u16(block, 115) {
+            if let Some(resolved) = ws.get(&(index as usize)) {
+                tracing::trace!(index, resolved = %resolved, "Resolved WideStrings from offset 115");
+                return resolved.clone();
             }
         }
     }

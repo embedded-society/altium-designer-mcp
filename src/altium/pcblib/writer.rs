@@ -409,7 +409,10 @@ fn encode_pad_per_layer_data(pad: &Pad) -> Vec<u8> {
                     default_radius
                 }
             });
-        block.push(radius);
+        // Corner radius is a 0-100 percentage; clamp on write to mirror the
+        // reader's `.min(100)`, so an out-of-range value round-trips symmetrically
+        // rather than emitting a byte the reader would then clamp.
+        block.push(radius.min(100));
     }
 
     // 32 offset entries (x, y for each layer) - 256 bytes (optional)
@@ -1125,9 +1128,9 @@ pub fn encode_text_geometry(text: &Text) -> Vec<u8> {
     // zero fill — byte-identical to the "Arial\0…" template for a from-scratch text.
     encode_font_name_field(&mut block[46..110], &text.font_name);
 
-    // Text-box justification (offset 132). The from-scratch default `MiddleCenter`
-    // encodes to 0x00 (the template byte); other anchors map onto the Altium
-    // column-major text-box encoding.
+    // Text-box justification (offset 132). The from-scratch default `BottomLeft`
+    // encodes to 0x03 (the template byte at offset 132); other anchors map onto
+    // Altium's column-major text-box encoding.
     block[132] = pcb_justification_to_id(text.justification);
 
     // Inverted (knockout) text-box descriptor. Defaults reproduce the template
@@ -1495,13 +1498,15 @@ fn build_component_body_params(body: &ComponentBody) -> String {
         if body.is_shape_based { "TRUE" } else { "FALSE" }
     ));
     params.push("CAVITYHEIGHT=0mil".to_string());
+    // Use the canonical trimmed mil formatting (as the region encoder does) rather
+    // than raw {} float formatting, so body heights match Altium's own output shape.
     params.push(format!(
-        "STANDOFFHEIGHT={}mil",
-        mm_to_mil(body.standoff_height)
+        "STANDOFFHEIGHT={}",
+        format_mil_coord(body.standoff_height)
     ));
     params.push(format!(
-        "OVERALLHEIGHT={}mil",
-        mm_to_mil(body.overall_height)
+        "OVERALLHEIGHT={}",
+        format_mil_coord(body.overall_height)
     ));
     params.push(format!("BODYPROJECTION={}", body.body_projection));
     // Altium repeats ARCRESOLUTION after BODYPROJECTION (verbatim shape from the
@@ -1541,7 +1546,7 @@ fn build_component_body_params(body: &ComponentBody) -> String {
     params.push(format!("MODEL.3D.ROTX={:.3}", body.rotation_x));
     params.push(format!("MODEL.3D.ROTY={:.3}", body.rotation_y));
     params.push(format!("MODEL.3D.ROTZ={:.3}", body.rotation_z));
-    params.push(format!("MODEL.3D.DZ={}mil", mm_to_mil(body.z_offset)));
+    params.push(format!("MODEL.3D.DZ={}", format_mil_coord(body.z_offset)));
     // MODELTYPE 0 = Extruded (no model file); 1 = generic/STEP model.
     let model_type = if extruded { "0" } else { "1" };
     params.push(format!("MODEL.MODELTYPE={model_type}"));
@@ -1550,12 +1555,12 @@ fn build_component_body_params(body: &ComponentBody) -> String {
         // This is what Altium actually extrudes the outline between; without it
         // the body has no volume and is discarded on load.
         params.push(format!(
-            "MODEL.EXTRUDED.MINZ={}mil",
-            mm_to_mil(body.standoff_height)
+            "MODEL.EXTRUDED.MINZ={}",
+            format_mil_coord(body.standoff_height)
         ));
         params.push(format!(
-            "MODEL.EXTRUDED.MAXZ={}mil",
-            mm_to_mil(body.overall_height)
+            "MODEL.EXTRUDED.MAXZ={}",
+            format_mil_coord(body.overall_height)
         ));
     } else {
         params.push("MODEL.MODELSOURCE=Undefined".to_string());
