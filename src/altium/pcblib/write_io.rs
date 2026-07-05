@@ -235,9 +235,9 @@ impl PcbLib {
 
     /// Writes the `/FileHeader` stream.
     ///
-    /// The canonical PcbLib `FileHeader` is **53 bytes** with THREE fields
-    /// (matching AltiumSharp `PcbLibWriter.WriteFileHeader`); Altium rejects the
-    /// file if the version double or the `UniqueId` block are missing:
+    /// The canonical `PcbLib` `FileHeader` is **53 bytes** with THREE fields
+    /// (matching `AltiumSharp`'s `PcbLibWriter.WriteFileHeader`); Altium rejects
+    /// the file if the version double or the `UniqueId` block are missing:
     /// ```text
     /// [len:4 LE u32][len:1 u8]["PCB 6.0 Binary Library File"]  // version string (4+1+27 = 32 bytes)
     /// [5.01 : 8 f64]                                            // format version double
