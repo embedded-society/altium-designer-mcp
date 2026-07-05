@@ -810,6 +810,12 @@ mod tests {
             mirror: false,
             font_name: "Arial".to_string(),
             justification: TextJustification::MiddleCenter,
+            is_inverted: false,
+            inverted_border: None,
+            use_inverted_rectangle: false,
+            inverted_rect_width: None,
+            inverted_rect_height: None,
+            inverted_rect_text_offset: None,
             flags: PcbFlags::empty(),
             net_index: 0xFFFF,
             polygon_index: 0xFFFF,
@@ -831,6 +837,12 @@ mod tests {
             mirror: false,
             font_name: "Arial".to_string(),
             justification: TextJustification::TopLeft,
+            is_inverted: false,
+            inverted_border: None,
+            use_inverted_rectangle: false,
+            inverted_rect_width: None,
+            inverted_rect_height: None,
+            inverted_rect_text_offset: None,
             flags: PcbFlags::empty(),
             net_index: 0xFFFF,
             polygon_index: 0xFFFF,
@@ -880,6 +892,12 @@ mod tests {
             mirror: false,
             font_name: "Arial".to_string(),
             justification: TextJustification::MiddleCenter,
+            is_inverted: false,
+            inverted_border: None,
+            use_inverted_rectangle: false,
+            inverted_rect_width: None,
+            inverted_rect_height: None,
+            inverted_rect_text_offset: None,
             flags: PcbFlags::empty(),
             net_index: 0xFFFF,
             polygon_index: 0xFFFF,
@@ -917,6 +935,12 @@ mod tests {
             mirror: false,
             font_name: "Arial".to_string(),
             justification: TextJustification::MiddleCenter,
+            is_inverted: false,
+            inverted_border: None,
+            use_inverted_rectangle: false,
+            inverted_rect_width: None,
+            inverted_rect_height: None,
+            inverted_rect_text_offset: None,
             flags: PcbFlags::empty(),
             net_index: 0xFFFF,
             polygon_index: 0xFFFF,
@@ -954,6 +978,12 @@ mod tests {
             font_name: "Arial".to_string(),
             // BottomLeft is the from-scratch default; it encodes to the template's 0x03.
             justification: TextJustification::BottomLeft,
+            is_inverted: false,
+            inverted_border: None,
+            use_inverted_rectangle: false,
+            inverted_rect_width: None,
+            inverted_rect_height: None,
+            inverted_rect_text_offset: None,
             flags: PcbFlags::empty(),
             net_index: 0xFFFF,
             polygon_index: 0xFFFF,
@@ -1003,6 +1033,12 @@ mod tests {
             mirror: true,
             font_name: "Times New Roman".to_string(),
             justification: TextJustification::TopRight,
+            is_inverted: false,
+            inverted_border: None,
+            use_inverted_rectangle: false,
+            inverted_rect_width: None,
+            inverted_rect_height: None,
+            inverted_rect_text_offset: None,
             flags: PcbFlags::empty(),
             net_index: 0xFFFF,
             polygon_index: 0xFFFF,
@@ -1029,6 +1065,66 @@ mod tests {
     }
 
     #[test]
+    fn text_inverted_rect_round_trip() {
+        // A framed inverted (knockout) text must survive encode -> decode for the
+        // whole inverted-rect descriptor: IsInverted@110, InvertedBorder@111,
+        // UseInvertedRectangle@123, InvertedRectWidth@124, InvertedRectHeight@128,
+        // InvertedRectTextOffset@133 (offsets verified against AltiumSharp ReadText).
+        let mut original = Footprint::new("TEXT_INVRECT");
+        original.add_text(Text {
+            x: 0.0,
+            y: 0.0,
+            text: "KO".to_string(),
+            height: 1.0,
+            layer: Layer::TopOverlay,
+            rotation: 0.0,
+            kind: TextKind::Stroke,
+            stroke_font: None,
+            stroke_width: None,
+            italic: false,
+            bold: false,
+            mirror: false,
+            font_name: "Arial".to_string(),
+            justification: TextJustification::MiddleCenter,
+            is_inverted: true,
+            inverted_border: Some(0.0254),
+            use_inverted_rectangle: true,
+            inverted_rect_width: Some(0.254),
+            inverted_rect_height: Some(0.127),
+            inverted_rect_text_offset: Some(0.0508),
+            flags: PcbFlags::empty(),
+            net_index: 0xFFFF,
+            polygon_index: 0xFFFF,
+            component_index: -1,
+            unique_id: None,
+        });
+
+        let data = writer::encode_data_stream(&original).expect("encode");
+        let mut decoded = Footprint::new("TEXT_INVRECT");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        assert_eq!(decoded.text.len(), 1);
+        let t = &decoded.text[0];
+        assert!(t.is_inverted, "is_inverted must round-trip");
+        assert!(
+            t.use_inverted_rectangle,
+            "use_inverted_rectangle must round-trip"
+        );
+        assert_eq!(t.inverted_border, Some(0.0254), "border must round-trip");
+        assert_eq!(t.inverted_rect_width, Some(0.254), "width must round-trip");
+        assert_eq!(
+            t.inverted_rect_height,
+            Some(0.127),
+            "height must round-trip"
+        );
+        assert_eq!(
+            t.inverted_rect_text_offset,
+            Some(0.0508),
+            "text offset must round-trip"
+        );
+    }
+
+    #[test]
     fn binary_roundtrip_text_flags() {
         // parse_text previously discarded the flag word (read PcbFlags::empty());
         // a locked / tented text must now round-trip its flags.
@@ -1048,6 +1144,12 @@ mod tests {
             mirror: false,
             font_name: "Arial".to_string(),
             justification: TextJustification::MiddleCenter,
+            is_inverted: false,
+            inverted_border: None,
+            use_inverted_rectangle: false,
+            inverted_rect_width: None,
+            inverted_rect_height: None,
+            inverted_rect_text_offset: None,
             flags: PcbFlags::LOCKED | PcbFlags::TENTING_TOP,
             net_index: 0xFFFF,
             polygon_index: 0xFFFF,
@@ -1093,6 +1195,12 @@ mod tests {
             mirror: false,
             font_name: "Arial".to_string(),
             justification: TextJustification::MiddleCenter,
+            is_inverted: false,
+            inverted_border: None,
+            use_inverted_rectangle: false,
+            inverted_rect_width: None,
+            inverted_rect_height: None,
+            inverted_rect_text_offset: None,
             flags: PcbFlags::empty(),
             net_index: 9,
             polygon_index: 0xFFFF,

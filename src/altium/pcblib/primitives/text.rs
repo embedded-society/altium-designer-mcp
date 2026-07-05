@@ -76,6 +76,11 @@ const fn default_component_index() -> i32 {
 }
 
 /// A text string on a layer.
+// Altium's text record carries several independent boolean style/knockout flags
+// (mirror, bold, italic, is_inverted, use_inverted_rectangle) that each map to a
+// distinct byte in the fixed 252-byte SubRecord-1 layout; they are not a state
+// machine, so the excessive-bools lint does not apply.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Text {
     /// X position in mm.
@@ -134,6 +139,57 @@ pub struct Text {
     /// template byte `0x03`.
     #[serde(default = "default_justification")]
     pub justification: TextJustification,
+    /// Whether the text is drawn as inverted (knockout) — a filled bar with the
+    /// glyphs punched out (Altium `IsInverted`, geometry offset 110). `false`
+    /// (the from-scratch default) reproduces the template's `0x00` byte.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_inverted: bool,
+    /// Border margin around inverted text in mm (Altium `InvertedBorder`,
+    /// geometry offset 111, i32 internal units). `None` (the from-scratch
+    /// default) reproduces the template's zero bytes; a read value round-trips.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "crate::altium::serde_round::option::serialize"
+    )]
+    pub inverted_border: Option<f64>,
+    /// Whether the inverted text uses an explicit framed rectangle (with the
+    /// `inverted_rect_*` dimensions) rather than auto-sizing to the glyphs
+    /// (Altium `UseInvertedRectangle`, geometry offset 123). `false` (the
+    /// from-scratch default) reproduces the template's `0x00` byte.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub use_inverted_rectangle: bool,
+    /// Inverted-rectangle width in mm (Altium `InvertedRectWidth`, geometry
+    /// offset 124, i32 internal units). Only meaningful when
+    /// [`Self::use_inverted_rectangle`] is set. `None` (the from-scratch default)
+    /// leaves the template's precomputed text-box width untouched, so a plain
+    /// text stays byte-identical; a framed text round-trips its explicit width.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "crate::altium::serde_round::option::serialize"
+    )]
+    pub inverted_rect_width: Option<f64>,
+    /// Inverted-rectangle height in mm (Altium `InvertedRectHeight`, geometry
+    /// offset 128, i32 internal units). Only meaningful when
+    /// [`Self::use_inverted_rectangle`] is set. `None` (the from-scratch default)
+    /// leaves the template's precomputed text-box height untouched (byte-identity).
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "crate::altium::serde_round::option::serialize"
+    )]
+    pub inverted_rect_height: Option<f64>,
+    /// Text offset within the inverted rectangle in mm (Altium
+    /// `InvertedRectTextOffset`, geometry offset 133, i32 internal units — the
+    /// twin of [`Self::justification`]@132). `None` (the from-scratch default)
+    /// reproduces the template's zero bytes; a read value round-trips.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "crate::altium::serde_round::option::serialize"
+    )]
+    pub inverted_rect_text_offset: Option<f64>,
     /// Primitive flags (locked, keepout, etc.).
     #[serde(default, skip_serializing_if = "PcbFlags::is_empty")]
     pub flags: PcbFlags,

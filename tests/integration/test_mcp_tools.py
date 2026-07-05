@@ -1663,6 +1663,54 @@ def test_write_pcblib_text_font_style(client, runner, lib_path):
         runner.check(ref.get("justification") == "top_right", "text justification", actual=ref.get("justification"), expected="top_right")
 
 
+def test_write_pcblib_text_inverted_rect(client, runner, lib_path):
+    print("\n=== Test: write_pcblib text inverted-rectangle round trip ===")
+    # Coverage PR (inverted-rect text box): a knockout/framed silkscreen text's
+    # is_inverted / inverted_border / use_inverted_rectangle / inverted_rect_width
+    # / inverted_rect_height / inverted_rect_text_offset must be authorable via
+    # write_pcblib and round-trip through read_pcblib.
+    footprint = {
+        "name": "TEXT_INVRECT_RT",
+        "text": [
+            {
+                "x": 0.0,
+                "y": 0.0,
+                "text": "KO",
+                "height": 1.0,
+                "layer": "Top Overlay",
+                "is_inverted": True,
+                "inverted_border": 0.0254,
+                "use_inverted_rectangle": True,
+                "inverted_rect_width": 0.254,
+                "inverted_rect_height": 0.127,
+                "inverted_rect_text_offset": 0.0508,
+            }
+        ],
+    }
+    write = client.call_tool(
+        "write_pcblib",
+        {"filepath": lib_path, "footprints": [footprint], "append": False},
+    )
+    runner.check(not write.get("_isError"), "write_pcblib (inverted rect) succeeded", actual=write)
+
+    read = client.call_tool("read_pcblib", {"filepath": lib_path})
+    runner.check(not read.get("_isError"), "read_pcblib succeeded", actual=read)
+    footprints = {fp.get("name"): fp for fp in read.get("footprints", [])}
+    fp = footprints.get("TEXT_INVRECT_RT", {})
+    runner.check(bool(fp), "TEXT_INVRECT_RT footprint present", actual=list(footprints))
+
+    texts = fp.get("text", [])
+    ref = next((t for t in texts if t.get("text") == "KO"), None)
+    runner.check(ref is not None, "KO text survived", actual=[t.get("text") for t in texts])
+    if ref is not None:
+        runner.check(ref.get("is_inverted") is True, "text is_inverted", actual=ref.get("is_inverted"))
+        runner.check(ref.get("use_inverted_rectangle") is True, "text use_inverted_rectangle", actual=ref.get("use_inverted_rectangle"))
+        runner.check(abs(float(ref.get("inverted_border", 0)) - 0.0254) < 1e-4, "text inverted_border", actual=ref.get("inverted_border"), expected=0.0254)
+        runner.check(abs(float(ref.get("inverted_rect_width", 0)) - 0.254) < 1e-4, "text inverted_rect_width", actual=ref.get("inverted_rect_width"), expected=0.254)
+        runner.check(abs(float(ref.get("inverted_rect_height", 0)) - 0.127) < 1e-4, "text inverted_rect_height", actual=ref.get("inverted_rect_height"), expected=0.127)
+        runner.check(abs(float(ref.get("inverted_rect_text_offset", 0)) - 0.0508) < 1e-4, "text inverted_rect_text_offset", actual=ref.get("inverted_rect_text_offset"), expected=0.0508)
+
+
 def test_write_pcblib_unique_id_roundtrip(client, runner, lib_path):
     print("\n=== Test: write_pcblib unique_id round trip ===")
     # Coverage PR-R1: a primitive's identity GUID (unique_id) written via the tool
@@ -2033,6 +2081,7 @@ def main():
         test_write_pcblib_component_body_fields(client, runner, lib_path)
         test_write_pcblib_additional_parameters_roundtrip(client, runner, lib_path)
         test_write_pcblib_text_font_style(client, runner, lib_path)
+        test_write_pcblib_text_inverted_rect(client, runner, lib_path)
         test_write_pcblib_unique_id_roundtrip(client, runner, lib_path)
         test_write_pcblib_common_indices_roundtrip(client, runner, lib_path)
         test_write_schlib_shapes(client, runner, schlib_path)

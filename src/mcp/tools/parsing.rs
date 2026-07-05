@@ -635,6 +635,24 @@ impl McpServer {
             .and_then(|v| serde_json::from_value::<TextJustification>(v.clone()).ok())
             .unwrap_or(TextJustification::BottomLeft);
 
+        // Inverted (knockout) text-box descriptor. Absent booleans default to
+        // false and absent dimensions to `None`, keeping a default text
+        // byte-identical to the template.
+        let is_inverted = json
+            .get("is_inverted")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let inverted_border = json.get("inverted_border").and_then(Value::as_f64);
+        let use_inverted_rectangle = json
+            .get("use_inverted_rectangle")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let inverted_rect_width = json.get("inverted_rect_width").and_then(Value::as_f64);
+        let inverted_rect_height = json.get("inverted_rect_height").and_then(Value::as_f64);
+        let inverted_rect_text_offset = json
+            .get("inverted_rect_text_offset")
+            .and_then(Value::as_f64);
+
         Some(Text {
             x,
             y,
@@ -650,6 +668,12 @@ impl McpServer {
             mirror,
             font_name,
             justification,
+            is_inverted,
+            inverted_border,
+            use_inverted_rectangle,
+            inverted_rect_width,
+            inverted_rect_height,
+            inverted_rect_text_offset,
             flags: json_flags(json),
             net_index: json_net_index(json),
             polygon_index: json_polygon_index(json),

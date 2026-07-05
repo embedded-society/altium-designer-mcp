@@ -746,6 +746,7 @@ pub(super) fn parse_arc(data: &[u8], offset: usize) -> ParseResult<Arc> {
 /// [font_name:varies]            // Font name in UTF-16 (null-terminated)
 /// [text_content:varies]         // Text content in UTF-16 or reference
 /// ```
+#[allow(clippy::too_many_lines)] // fixed 252-byte layout: many fields read at their offsets
 pub(super) fn parse_text(
     data: &[u8],
     offset: usize,
@@ -847,6 +848,30 @@ pub(super) fn parse_text(
             pcb_justification_from_id(b)
         });
 
+    // Inverted (knockout) text-box descriptor.
+    //   @110 IsInverted (bool), @111 InvertedBorder (i32 coord),
+    //   @123 UseInvertedRectangle (bool), @124 InvertedRectWidth (i32 coord),
+    //   @128 InvertedRectHeight (i32 coord), @133 InvertedRectTextOffset (i32 coord).
+    // Offsets verified against AltiumSharp `PcbLibReader.ReadText`.
+    let is_inverted = geometry_block.get(110).is_some_and(|&b| b != 0);
+    // Border/text-offset default to 0 in the template, so a zero reads back as
+    // `None` (round-trips to the same template bytes).
+    let inverted_border = read_i32(geometry_block, 111).filter(|&v| v != 0).map(to_mm);
+    let use_inverted_rectangle = geometry_block.get(123).is_some_and(|&b| b != 0);
+    // The rect width/height template bytes are non-zero (a precomputed text-box
+    // size), so only surface them when the framed rectangle is actually in use;
+    // otherwise leave them `None` and let the writer replay the template bytes
+    // (byte-identity for plain text).
+    let (inverted_rect_width, inverted_rect_height) = if use_inverted_rectangle {
+        (
+            read_i32(geometry_block, 124).map(to_mm),
+            read_i32(geometry_block, 128).map(to_mm),
+        )
+    } else {
+        (None, None)
+    };
+    let inverted_rect_text_offset = read_i32(geometry_block, 133).filter(|&v| v != 0).map(to_mm);
+
     // Block 1: Text content
     let text_content = if let Some((text_block, next)) = read_block(data, current) {
         current = next;
@@ -879,6 +904,12 @@ pub(super) fn parse_text(
         mirror,
         font_name,
         justification,
+        is_inverted,
+        inverted_border,
+        use_inverted_rectangle,
+        inverted_rect_width,
+        inverted_rect_height,
+        inverted_rect_text_offset,
         flags,
         net_index,
         polygon_index,
