@@ -517,6 +517,19 @@ impl McpServer {
             .get("cavity_height")
             .and_then(Value::as_f64)
             .unwrap_or(0.0);
+        // These four are always serialised by read_pcblib (no skip_serializing_if),
+        // so a read-modify-write must accept AND preserve them, not reset to default.
+        // Their defaults mirror Region::default() so a from-scratch region is unchanged.
+        let arc_resolution = json
+            .get("arc_resolution")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0);
+        let sub_poly_index = json_i32(json, "sub_poly_index").unwrap_or(-1);
+        let union_index = json_i32(json, "union_index").unwrap_or(0);
+        let is_shape_based = json
+            .get("is_shape_based")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
 
         // Optional interior hole contours: an array of vertex arrays (each >= 3 pts).
         let holes: Vec<Vec<Vertex>> = json
@@ -561,10 +574,13 @@ impl McpServer {
             net_index,
             polygon_index,
             component_index,
+            arc_resolution,
             cavity_height,
+            sub_poly_index,
+            union_index,
+            is_shape_based,
             unique_id,
             additional_parameters,
-            ..Region::default()
         })
     }
 
