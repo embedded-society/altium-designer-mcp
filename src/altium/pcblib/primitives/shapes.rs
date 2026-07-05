@@ -271,6 +271,16 @@ pub struct Region {
     /// Unique ID assigned by Altium (8-character alphanumeric string).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unique_id: Option<String>,
+    /// Unmodelled parameter keys read verbatim from the nested `KEY=VALUE|...`
+    /// block, in read order. Altium regions carry board-region keys the typed
+    /// model does not recognise (e.g. `LAYER`, `KEEPOUT`, `ISBOARDCUTOUT`,
+    /// `KEEPOUTRESTRICTIONS`, `PADINDEX`, `OBJECTKIND`, `BENDINGLINECOUNT`,
+    /// `LOCKED3D`, `LAYERSTACKID`). Capturing them here and re-emitting them on
+    /// write keeps a read-modify-write from silently dropping keys we don't model.
+    /// Empty from scratch, so the writer appends nothing and the output stays
+    /// byte-identical to the canonical form.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub additional_parameters: Vec<(String, String)>,
 }
 
 /// Default net index for a from-scratch region (`0xFFFF` = no net).
@@ -328,6 +338,7 @@ impl Default for Region {
             union_index: 0,
             is_shape_based: false,
             unique_id: None,
+            additional_parameters: Vec::new(),
         }
     }
 }

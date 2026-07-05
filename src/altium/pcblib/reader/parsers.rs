@@ -1098,6 +1098,14 @@ pub(super) fn parse_region(data: &[u8], offset: usize) -> ParseResult<Region> {
     let params_str = crate::altium::decode_windows1252(&props_block[22..param_end]);
     let params = crate::altium::parse_pipe_params_raw(&params_str);
 
+    // Capture every key the typed model does NOT consume, in read order, so a
+    // read-modify-write round-trips the board-region keys (LAYER, KEEPOUT, ...)
+    // Altium writes but we do not model. The writer re-emits these verbatim after
+    // its canonical key set. The modelled keys below are exactly those backed by a
+    // Region struct field (and thus re-emitted from that field); everything else
+    // is "additional".
+    let additional_parameters = capture_additional_params(&params_str, REGION_MODELLED_PARAM_KEYS);
+
     // Vertex data follows the parameter string.
     let vertex_offset = param_end;
 
@@ -1170,9 +1178,35 @@ pub(super) fn parse_region(data: &[u8], offset: usize) -> ParseResult<Region> {
         union_index,
         is_shape_based,
         unique_id: None,
+        additional_parameters,
     };
 
     Ok((region, current))
+}
+
+/// Region parameter keys the typed [`Region`] model consumes (each backed by a
+/// struct field). Every OTHER key in the nested block is captured verbatim into
+/// [`Region::additional_parameters`] so a read-modify-write does not drop it.
+const REGION_MODELLED_PARAM_KEYS: &[&str] = &[
+    "V7_LAYER",
+    "NAME",
+    "KIND",
+    "SUBPOLYINDEX",
+    "UNIONINDEX",
+    "ARCRESOLUTION",
+    "ISSHAPEBASED",
+    "CAVITYHEIGHT",
+    "NET",
+];
+
+/// Captures the parameters NOT in `modelled`, preserving read order and every
+/// occurrence. Shared by the Region and `ComponentBody` parsers to build their
+/// `additional_parameters` catch-all.
+fn capture_additional_params(params_str: &str, modelled: &[&str]) -> Vec<(String, String)> {
+    crate::altium::parse_pipe_params_ordered(params_str)
+        .into_iter()
+        .filter(|(key, _)| !modelled.contains(&key.as_str()))
+        .collect()
 }
 
 /// Parses a Fill primitive (filled rectangle).
@@ -1274,6 +1308,16 @@ pub(super) fn parse_component_body(data: &[u8], offset: usize) -> ParseResult<Co
 
     // Find the parameter string (starts with V7_LAYER= or similar key)
     let params = parse_component_body_params(&block_str);
+
+    // Capture every key the typed model does NOT consume, in read order, so a
+    // read-modify-write round-trips the body keys Altium writes but we do not model
+    // (TEXTURE*, MODEL.2D.X/Y, IDENTIFIER, MODEL.MODELTYPE, MODEL.MODELSOURCE, the
+    // extrusion range, the repeated ARCRESOLUTION, CAVITYHEIGHT, ...). The writer
+    // re-emits these verbatim after its canonical key set. The modelled keys are
+    // exactly those backed by a ComponentBody struct field.
+    let additional_parameters = block_str.find("V7_LAYER").map_or_else(Vec::new, |start| {
+        capture_additional_params(&block_str[start..], BODY_MODELLED_PARAM_KEYS)
+    });
 
     // Extract key values
     let model_id = params.get("MODELID").cloned().unwrap_or_default();
@@ -1378,10 +1422,40 @@ pub(super) fn parse_component_body(data: &[u8], offset: usize) -> ParseResult<Co
         body_color_3d,
         body_opacity_3d,
         model_2d_rotation,
+        additional_parameters,
     };
 
     Ok((body, current))
 }
+
+/// `ComponentBody` parameter keys the typed [`ComponentBody`] model consumes (each
+/// backed by a struct field). Every OTHER key in the block — including the
+/// writer's hard-coded literals (`ARCRESOLUTION`, `CAVITYHEIGHT`, `IDENTIFIER`,
+/// `TEXTURE*`, `MODEL.2D.X/Y`, `MODEL.MODELTYPE`, `MODEL.MODELSOURCE`,
+/// `MODEL.EXTRUDED.*`) — is captured verbatim into
+/// [`ComponentBody::additional_parameters`] so a read-modify-write does not drop it.
+const BODY_MODELLED_PARAM_KEYS: &[&str] = &[
+    "V7_LAYER",
+    "NAME",
+    "KIND",
+    "SUBPOLYINDEX",
+    "UNIONINDEX",
+    "ISSHAPEBASED",
+    "STANDOFFHEIGHT",
+    "OVERALLHEIGHT",
+    "BODYPROJECTION",
+    "BODYCOLOR3D",
+    "BODYOPACITY3D",
+    "MODELID",
+    "MODEL.CHECKSUM",
+    "MODEL.EMBED",
+    "MODEL.NAME",
+    "MODEL.2D.ROTATION",
+    "MODEL.3D.ROTX",
+    "MODEL.3D.ROTY",
+    "MODEL.3D.ROTZ",
+    "MODEL.3D.DZ",
+];
 
 /// Parses the 2D outline polygon from a `ComponentBody` block.
 ///

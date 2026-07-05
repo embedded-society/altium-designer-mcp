@@ -625,7 +625,8 @@ impl McpServer {
                             "net_index",
                             "cavity_height",
                             "holes",
-                            "unique_id"
+                            "unique_id",
+                            "additional_parameters"
                         ]
                     );
                     if let Some(region) = Self::parse_region(region_json) {
@@ -736,6 +737,7 @@ impl McpServer {
                             body_color_3d: 8_421_504,
                             body_opacity_3d: 1.0,
                             model_2d_rotation: 0.0,
+                            additional_parameters: Vec::new(),
                         });
                     }
                 }
@@ -845,6 +847,10 @@ impl McpServer {
                             .get("model_2d_rotation")
                             .and_then(Value::as_f64)
                             .unwrap_or(0.0),
+                        // Round-trip unmodelled body keys (TEXTURE*, MODEL.2D.X/Y,
+                        // etc.) captured on read. Absent -> empty -> the writer
+                        // appends nothing (byte-identical to a from-scratch body).
+                        additional_parameters: Self::parse_additional_parameters(body_json),
                     });
                 }
             }
@@ -922,6 +928,7 @@ impl McpServer {
                     body_color_3d: 8_421_504,
                     body_opacity_3d: 1.0,
                     model_2d_rotation: 0.0,
+                    additional_parameters: Vec::new(),
                 });
                 true
             } else {
@@ -2201,6 +2208,7 @@ mod tests {
             body_color_3d: 8_421_504,
             body_opacity_3d: 1.0,
             model_2d_rotation: 0.0,
+            additional_parameters: Vec::new(),
         };
 
         // Explicit extruded body: reports its height, not assumed.

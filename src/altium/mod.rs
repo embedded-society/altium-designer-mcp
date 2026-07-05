@@ -351,6 +351,29 @@ pub(crate) fn parse_pipe_params_raw(text: &str) -> std::collections::HashMap<Str
     map
 }
 
+/// Like [`parse_pipe_params_raw`] but preserves the original key order and every
+/// occurrence (no de-duplication), returning `(KEY, VALUE)` pairs in read order.
+///
+/// Parsing stops at the first NUL byte: `PcbLib` parameter blocks are
+/// NUL-terminated and (for a `ComponentBody`) followed by binary outline bytes,
+/// which must not be mistaken for further `KEY=VALUE` segments. Keys are kept in
+/// their native UPPERCASE form and values are trimmed of trailing NUL padding then
+/// surrounding whitespace, matching [`parse_pipe_params_raw`].
+///
+/// Used to capture the unmodelled Region / `ComponentBody` parameters into an
+/// order-preserving `additional_parameters` catch-all so a read-modify-write does
+/// not silently drop keys the typed model does not recognise.
+pub(crate) fn parse_pipe_params_ordered(text: &str) -> Vec<(String, String)> {
+    // Truncate at the NUL terminator so trailing binary (outline) bytes are ignored.
+    let text = text.split('\0').next().unwrap_or(text);
+    text.split('|')
+        .filter_map(|part| {
+            part.split_once('=')
+                .map(|(key, value)| (key.to_string(), value.trim().to_string()))
+        })
+        .collect()
+}
+
 /// Builds a stable-reorder ranking function from a desired name order.
 ///
 /// The returned closure maps a name to its sort rank: its index in `new_order`,
@@ -387,6 +410,35 @@ mod tests {
     #[test]
     fn windows1252_ascii_is_identical_to_utf8() {
         assert_eq!(encode_windows1252("RESC0402"), b"RESC0402");
+    }
+
+    #[test]
+    fn parse_pipe_params_ordered_preserves_order_and_duplicates() {
+        // Order is preserved and repeated keys are kept (unlike the HashMap variant),
+        // so the region/body catch-all re-emits every occurrence in read order.
+        let pairs = parse_pipe_params_ordered("A=1|B=2|A=3");
+        assert_eq!(
+            pairs,
+            vec![
+                ("A".to_string(), "1".to_string()),
+                ("B".to_string(), "2".to_string()),
+                ("A".to_string(), "3".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_pipe_params_ordered_stops_at_nul() {
+        // A ComponentBody param block is NUL-terminated and followed by binary
+        // outline bytes; segments after the NUL must be ignored.
+        let pairs = parse_pipe_params_ordered("A=1|B=2\0\u{7}garbage|C=3");
+        assert_eq!(
+            pairs,
+            vec![
+                ("A".to_string(), "1".to_string()),
+                ("B".to_string(), "2".to_string()),
+            ]
+        );
     }
 
     #[test]

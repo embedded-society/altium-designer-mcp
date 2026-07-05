@@ -368,6 +368,7 @@ impl McpServer {
                                                     }
                                                 },
                                                 "unique_id": { "type": "string", "description": "Unique ID (optional, 8-char alphanumeric). Default: none" },
+                                                "additional_parameters": { "type": "array", "description": "Unmodelled region parameter keys captured verbatim on read (e.g. board-region keys like LAYER, KEEPOUT, ISBOARDCUTOUT). Each entry is a [key, value] string pair. Round-tripped so a read-modify-write does not drop keys the tool does not model. Normally omitted; supply only the pairs read_pcblib returned.", "items": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 2 } },
                                                 "flags": { "type": ["string", "integer"], "description": "Primitive flags (optional). Accepts the name string read_pcblib emits (e.g. \"LOCKED\" or \"LOCKED | KEEPOUT\") or a raw bitmask integer (1=locked, 2=polygon, 4=keepout, 8=tenting-top, 16=tenting-bottom). Default: none" }
                                             },
                                             "required": ["vertices", "layer"]
@@ -447,7 +448,8 @@ impl McpServer {
                                                 "model_id": { "type": "string", "description": "Model GUID referencing an embedded model (Altium MODELID). Default: \"\" (none)" },
                                                 "model_name": { "type": "string", "description": "Model filename or external path (Altium MODEL.NAME). Default: \"\" (none)" },
                                                 "embedded": { "type": "boolean", "description": "Whether the model is embedded in the library (Altium MODEL.EMBED). Default: false" },
-                                                "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" }
+                                                "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" },
+                                                "additional_parameters": { "type": "array", "description": "Unmodelled body parameter keys captured verbatim on read (e.g. TEXTURE, MODEL.2D.X, IDENTIFIER, MODEL.MODELTYPE, MODEL.MODELSOURCE, the extrusion range). Each entry is a [key, value] string pair. Round-tripped so a read-modify-write does not drop keys the tool does not model. Normally omitted; supply only the pairs read_pcblib returned.", "items": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 2 } }
                                             },
                                             "required": ["overall_height"]
                                         }

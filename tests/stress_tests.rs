@@ -843,6 +843,7 @@ fn test_component_body_roundtrip() {
         body_color_3d: 8_421_504,
         body_opacity_3d: 1.0,
         model_2d_rotation: 0.0,
+        additional_parameters: Vec::new(),
     };
     fp.component_bodies.push(body);
 
@@ -898,6 +899,7 @@ fn test_component_body_with_rotation() {
         body_color_3d: 8_421_504,
         body_opacity_3d: 1.0,
         model_2d_rotation: 0.0,
+        additional_parameters: Vec::new(),
     };
     fp.component_bodies.push(body);
 
@@ -2708,6 +2710,7 @@ fn test_component_body_external_model_reference() {
         body_color_3d: 8_421_504,
         body_opacity_3d: 1.0,
         model_2d_rotation: 0.0,
+        additional_parameters: Vec::new(),
     };
     fp.component_bodies.push(body);
 

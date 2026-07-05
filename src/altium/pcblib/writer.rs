@@ -1160,6 +1160,11 @@ fn encode_region_properties(region: &Region) -> Vec<u8> {
         },
         cav = format_mil_coord(region.cavity_height),
     );
+    // Re-emit any unmodelled keys captured on read (board-region keys like LAYER /
+    // KEEPOUT / ISBOARDCUTOUT, etc.), verbatim and in read order, so a
+    // read-modify-write does not drop them. Empty for a from-scratch region, so
+    // nothing is appended and the output stays byte-identical to the canonical form.
+    let params = append_additional_params(params, &region.additional_parameters);
     let params_bytes = crate::altium::encode_windows1252(&params);
 
     let mut block = Vec::with_capacity(22 + params_bytes.len() + 4 + vertex_count * 16);
@@ -1457,7 +1462,28 @@ fn build_component_body_params(body: &ComponentBody) -> String {
         params.push("MODEL.MODELSOURCE=Undefined".to_string());
     }
 
+    // Re-emit any unmodelled keys captured on read (TEXTURE*, MODEL.2D.X/Y,
+    // IDENTIFIER, MODEL.MODELTYPE, the extrusion range, etc.), verbatim and in read
+    // order, so a read-modify-write does not drop them. Empty for a from-scratch
+    // body, so nothing is appended and the output stays byte-identical.
+    for (key, value) in &body.additional_parameters {
+        params.push(format!("{key}={value}"));
+    }
+
     params.join("|")
+}
+
+/// Appends `additional` `KEY=VALUE` pairs to an already-built `|`-joined parameter
+/// string, verbatim and in order. Returns `params` unchanged when `additional` is
+/// empty (the from-scratch case), so the output stays byte-identical.
+fn append_additional_params(mut params: String, additional: &[(String, String)]) -> String {
+    for (key, value) in additional {
+        params.push('|');
+        params.push_str(key);
+        params.push('=');
+        params.push_str(value);
+    }
+    params
 }
 
 // =============================================================================
@@ -2077,6 +2103,155 @@ mod tests {
         assert_eq!(r.union_index, 3);
         assert_eq!(r.sub_poly_index, 2);
         assert!(r.is_shape_based);
+    }
+
+    #[test]
+    fn region_additional_params_are_reemitted() {
+        use crate::altium::pcblib::primitives::Vertex;
+        // A region carrying unmodelled board-region keys must re-emit them verbatim
+        // after the canonical key set (round-trip fidelity — the reader captures them
+        // into `additional_parameters`).
+        let region = Region {
+            vertices: vec![
+                Vertex { x: -1.0, y: -1.0 },
+                Vertex { x: 1.0, y: -1.0 },
+                Vertex { x: 1.0, y: 1.0 },
+                Vertex { x: -1.0, y: 1.0 },
+            ],
+            layer: Layer::TopCourtyard,
+            additional_parameters: vec![
+                ("LAYER".to_string(), "TOP".to_string()),
+                ("KEEPOUT".to_string(), "TRUE".to_string()),
+                ("ISBOARDCUTOUT".to_string(), "FALSE".to_string()),
+            ],
+            ..Region::default()
+        };
+        let props = encode_region_properties(&region);
+        let param_len = u32::from_le_bytes(props[18..22].try_into().unwrap()) as usize;
+        let params = String::from_utf8_lossy(&props[22..22 + param_len]);
+        let params = params.trim_end_matches('\0');
+        // Canonical keys still present, and the extra keys appended (in order) after them.
+        assert!(params.contains("CAVITYHEIGHT=0mil"), "got: {params}");
+        assert!(
+            params.ends_with("|LAYER=TOP|KEEPOUT=TRUE|ISBOARDCUTOUT=FALSE"),
+            "extra keys must be appended verbatim after the canonical set: {params}"
+        );
+    }
+
+    #[test]
+    fn region_empty_additional_params_is_byte_identical() {
+        use crate::altium::pcblib::primitives::Vertex;
+        // The load-bearing property: a from-scratch region (empty additional_parameters)
+        // emits the EXACT canonical param string — the writer appends nothing.
+        let region = Region {
+            vertices: vec![
+                Vertex { x: -1.0, y: -1.0 },
+                Vertex { x: 1.0, y: -1.0 },
+                Vertex { x: 1.0, y: 1.0 },
+                Vertex { x: -1.0, y: 1.0 },
+            ],
+            layer: Layer::TopCourtyard,
+            ..Region::default()
+        };
+        assert!(region.additional_parameters.is_empty());
+        let props = encode_region_properties(&region);
+        let param_len = u32::from_le_bytes(props[18..22].try_into().unwrap()) as usize;
+        let params = &props[22..22 + param_len];
+        let expected = b"V7_LAYER=MECHANICAL4|NAME=|KIND=0|SUBPOLYINDEX=-1|UNIONINDEX=0\
+                         |ARCRESOLUTION=0mil|ISSHAPEBASED=FALSE|CAVITYHEIGHT=0mil\0";
+        assert_eq!(
+            params,
+            expected.as_slice(),
+            "empty additional_parameters must not change the canonical param string: {}",
+            String::from_utf8_lossy(params)
+        );
+    }
+
+    #[test]
+    fn region_additional_params_survive_roundtrip() {
+        use super::super::reader::parse_data_stream;
+        use crate::altium::pcblib::primitives::Vertex;
+        // An unmodelled key captured on read must survive encode -> decode.
+        let mut fp = Footprint::new("R");
+        fp.add_region(Region {
+            vertices: vec![
+                Vertex { x: -1.0, y: -1.0 },
+                Vertex { x: 1.0, y: -1.0 },
+                Vertex { x: 1.0, y: 1.0 },
+                Vertex { x: -1.0, y: 1.0 },
+            ],
+            layer: Layer::TopCourtyard,
+            additional_parameters: vec![
+                ("LAYER".to_string(), "TOP".to_string()),
+                ("LAYERSTACKID".to_string(), "7".to_string()),
+            ],
+            ..Region::default()
+        });
+        let data = encode_data_stream(&fp).expect("encode should succeed");
+        let mut decoded = Footprint::new("R");
+        parse_data_stream(&mut decoded, &data, None);
+        assert_eq!(decoded.regions.len(), 1);
+        assert_eq!(
+            decoded.regions[0].additional_parameters,
+            vec![
+                ("LAYER".to_string(), "TOP".to_string()),
+                ("LAYERSTACKID".to_string(), "7".to_string()),
+            ],
+        );
+    }
+
+    #[test]
+    fn body_additional_params_are_reemitted_and_roundtrip() {
+        use super::super::reader;
+        // A body carrying unmodelled keys (TEXTURE, MODEL.2D.X) must re-emit them and
+        // survive encode -> decode into additional_parameters.
+        let mut model = ComponentBody::new("{G}", "part.step");
+        model.embedded = true;
+        model.additional_parameters = vec![
+            ("TEXTURE".to_string(), "wood".to_string()),
+            ("MODEL.2D.X".to_string(), "5mil".to_string()),
+        ];
+        let s = build_component_body_params(&model);
+        assert!(s.ends_with("|TEXTURE=wood|MODEL.2D.X=5mil"), "got: {s}");
+
+        let mut fp = Footprint::new("B");
+        fp.add_component_body(model);
+        let data = reader_encode_decode(&fp);
+        let mut decoded = Footprint::new("B");
+        reader::parse_data_stream(&mut decoded, &data, None);
+        let extra = &decoded.component_bodies[0].additional_parameters;
+        assert!(
+            extra.contains(&("TEXTURE".to_string(), "wood".to_string())),
+            "TEXTURE must round-trip, got: {extra:?}"
+        );
+        assert!(
+            extra.contains(&("MODEL.2D.X".to_string(), "5mil".to_string())),
+            "MODEL.2D.X must round-trip, got: {extra:?}"
+        );
+    }
+
+    #[test]
+    fn body_empty_additional_params_is_byte_identical() {
+        // A from-scratch body (empty additional_parameters) must emit the exact
+        // canonical param string — the writer appends nothing.
+        let mut model = ComponentBody::new("{G}", "part.step");
+        model.embedded = true;
+        assert!(model.additional_parameters.is_empty());
+        let s = build_component_body_params(&model);
+        let expected = "V7_LAYER=MECHANICAL6|NAME= |KIND=0|SUBPOLYINDEX=-1|UNIONINDEX=0|\
+            ARCRESOLUTION=0.5mil|ISSHAPEBASED=FALSE|CAVITYHEIGHT=0mil|STANDOFFHEIGHT=0mil|\
+            OVERALLHEIGHT=0mil|BODYPROJECTION=0|ARCRESOLUTION=0.5mil|BODYCOLOR3D=8421504|\
+            BODYOPACITY3D=1.000|IDENTIFIER=|TEXTURE=|TEXTURECENTERX=0mil|TEXTURECENTERY=0mil|\
+            TEXTURESIZEX=0.0001mil|TEXTURESIZEY=0.0001mil|TEXTUREROTATION= 0.00000000000000E+0000|\
+            MODELID={G}|MODEL.CHECKSUM=0|MODEL.EMBED=TRUE|MODEL.NAME=part.step|MODEL.2D.X=0mil|\
+            MODEL.2D.Y=0mil|MODEL.2D.ROTATION=0.000|MODEL.3D.ROTX=0.000|MODEL.3D.ROTY=0.000|\
+            MODEL.3D.ROTZ=0.000|MODEL.3D.DZ=0mil|MODEL.MODELTYPE=1|MODEL.MODELSOURCE=Undefined";
+        assert_eq!(s, expected);
+    }
+
+    /// Encodes then returns the data stream for a footprint (test helper).
+    fn reader_encode_decode(fp: &Footprint) -> Vec<u8> {
+        encode_data_stream(fp).expect("encode should succeed")
     }
 
     #[test]

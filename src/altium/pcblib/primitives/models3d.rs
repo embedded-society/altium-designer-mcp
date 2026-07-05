@@ -176,6 +176,17 @@ pub struct ComponentBody {
     /// written with `{:.3}` so the default renders as `0.000` (byte-identity).
     #[serde(default)]
     pub model_2d_rotation: f64,
+
+    /// Unmodelled parameter keys read verbatim from the body's `KEY=VALUE|...`
+    /// block, in read order. An Altium body carries keys the typed model does not
+    /// recognise (e.g. `TEXTURE`, `TEXTURECENTERX`, `MODEL.2D.X`, `MODEL.2D.Y`,
+    /// `IDENTIFIER`, `MODEL.MODELTYPE`, `MODEL.MODELSOURCE`, `MODEL.EXTRUDED.MINZ`,
+    /// `CAVITYHEIGHT`, and the repeated `ARCRESOLUTION`). Capturing them here and
+    /// re-emitting them on write keeps a read-modify-write from silently dropping
+    /// keys we don't model. Empty from scratch, so the writer appends nothing and
+    /// the output stays byte-identical to the canonical form.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub additional_parameters: Vec<(String, String)>,
 }
 
 const fn default_body_color() -> u32 {
@@ -221,6 +232,7 @@ impl ComponentBody {
             body_color_3d: default_body_color(),
             body_opacity_3d: default_opacity(),
             model_2d_rotation: 0.0,
+            additional_parameters: Vec::new(),
         }
     }
 }
