@@ -277,6 +277,9 @@ def test_write_schlib_shapes(client, runner, schlib_path):
                     {"x": 10, "y": 20},
                 ],
                 "fill_color": 0x445566,
+                "line_style": 2,
+                "transparent": True,
+                "is_not_accessible": False,
             }
         ],
         "ellipses": [
@@ -314,8 +317,12 @@ def test_write_schlib_shapes(client, runner, schlib_path):
     polygons = sym.get("polygons", [])
     runner.check(len(polygons) == 1, "1 polygon survived", actual=len(polygons))
     if polygons:
-        pts = polygons[0].get("points", [])
+        pg0 = polygons[0]
+        pts = pg0.get("points", [])
         runner.check(len(pts) == 3, "polygon has 3 vertices", actual=len(pts))
+        runner.check(pg0.get("line_style") == 2, "polygon line_style round-trips", actual=pg0.get("line_style"), expected=2)
+        runner.check(pg0.get("transparent") is True, "polygon transparent round-trips", actual=pg0.get("transparent"))
+        runner.check(pg0.get("is_not_accessible") is False, "polygon is_not_accessible=false round-trips", actual=pg0.get("is_not_accessible"))
 
     # ellipse: count + radii
     ellipses = sym.get("ellipses", [])

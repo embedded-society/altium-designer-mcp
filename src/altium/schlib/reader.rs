@@ -670,7 +670,13 @@ fn parse_polygon(props: &HashMap<String, String>) -> Option<Polygon> {
         .get("areacolor")
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
+    let line_style = props
+        .get("linestyle")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
     let filled = props.get("issolid").is_some_and(|s| s == "T");
+    let transparent = props.get("transparent").is_some_and(|s| s == "T");
+    let is_not_accessible = props.get("isnotaccesible").is_some_and(|s| s == "T");
     let owner_part_id = props
         .get("ownerpartid")
         .and_then(|s| s.parse().ok())
@@ -681,7 +687,10 @@ fn parse_polygon(props: &HashMap<String, String>) -> Option<Polygon> {
         line_width,
         line_color,
         fill_color,
+        line_style,
         filled,
+        transparent,
+        is_not_accessible,
         owner_part_id,
         display_flags: read_display_flags(props),
         unique_id: props.get("uniqueid").cloned(),

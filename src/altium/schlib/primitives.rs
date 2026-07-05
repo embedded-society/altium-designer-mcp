@@ -662,9 +662,22 @@ pub struct Polygon {
     /// Fill colour (BGR format).
     #[serde(default)]
     pub fill_color: u32,
+    /// Border line style (0 = Solid, 1 = Dashed, 2 = Dotted). Altium omits the
+    /// `LineStyle` key when zero, so a solid polygon stays byte-identical.
+    #[serde(default)]
+    pub line_style: u8,
     /// Whether the polygon is filled.
     #[serde(default = "default_true")]
     pub filled: bool,
+    /// Whether the polygon fill is transparent (vs opaque). Altium emits
+    /// `Transparent=T` only when true, so an opaque polygon stays byte-identical.
+    #[serde(default)]
+    pub transparent: bool,
+    /// Whether the polygon is marked not-accessible. Altium tags every polygon
+    /// `IsNotAccesible` (its own single-'s' spelling), so this defaults to true;
+    /// a `false` value round-trips (Altium omits the key when false).
+    #[serde(default = "default_true")]
+    pub is_not_accessible: bool,
     /// Owner part ID.
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,

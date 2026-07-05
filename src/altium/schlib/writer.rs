@@ -565,15 +565,23 @@ fn encode_polygon(polygon: &Polygon, index: usize) -> String {
         "RECORD=7".to_string(),
         format!("IndexInSheet={index}"),
         format!("OwnerPartId={}", polygon.owner_part_id),
-        "IsNotAccesible=T".to_string(),
-        format!("LineWidth={}", polygon.line_width),
     ];
+    // Altium tags polygons IsNotAccesible (its own single-'s' spelling); emit
+    // only when set, so a `false` polygon omits the key and round-trips as false.
+    if polygon.is_not_accessible {
+        parts.push("IsNotAccesible=T".to_string());
+    }
+    parts.push(format!("LineWidth={}", polygon.line_width));
     // Altium omits Color / AreaColor when zero (AddNonZero).
     if polygon.line_color != 0 {
         parts.push(format!("Color={}", polygon.line_color));
     }
     if polygon.fill_color != 0 {
         parts.push(format!("AreaColor={}", polygon.fill_color));
+    }
+    // Altium omits LineStyle when zero (Solid).
+    if polygon.line_style != 0 {
+        parts.push(format!("LineStyle={}", polygon.line_style));
     }
     // Altium emits IsSolid only when filled, and omits it otherwise.
     if polygon.filled {
@@ -583,6 +591,11 @@ fn encode_polygon(polygon: &Polygon, index: usize) -> String {
 
     for (i, (x, y)) in polygon.points.iter().enumerate() {
         push_point(&mut parts, i + 1, *x, *y);
+    }
+
+    // Altium emits Transparent only when true; absent means opaque.
+    if polygon.transparent {
+        parts.push("Transparent=T".to_string());
     }
 
     push_display_flags(&mut parts, polygon.display_flags);
@@ -1605,7 +1618,10 @@ mod tests {
                 line_width: 1,
                 line_color: 0,
                 fill_color: 0,
+                line_style: 0,
                 filled: true,
+                transparent: false,
+                is_not_accessible: true,
                 owner_part_id: 1,
                 display_flags: ShapeDisplayFlags::default(),
                 unique_id: Some("ABCD1234".to_string()),

@@ -1344,7 +1344,16 @@ impl McpServer {
             .get("fill_color")
             .and_then(Value::as_u64)
             .unwrap_or(0xB0_FF_FF) as u32;
+        let line_style = json.get("line_style").and_then(Value::as_u64).unwrap_or(0) as u8;
         let filled = json.get("filled").and_then(Value::as_bool).unwrap_or(true);
+        let transparent = json
+            .get("transparent")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let is_not_accessible = json
+            .get("is_not_accessible")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
         let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
 
         Some(Polygon {
@@ -1352,7 +1361,10 @@ impl McpServer {
             line_width,
             line_color,
             fill_color,
+            line_style,
             filled,
+            transparent,
+            is_not_accessible,
             owner_part_id,
             display_flags: parse_schlib_display_flags(json),
             unique_id: json_unique_id(json),
