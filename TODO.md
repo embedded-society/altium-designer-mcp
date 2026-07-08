@@ -25,14 +25,11 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
 ### A1. PcbLib primitives (code bugs + missing features)
 
 - [ ] 🟠 **Pad** — remaining (mostly golden / on-site / fidelity-gated): `is_plated` @SR5+60
-      read-back; slot length @+263 / hole rotation @+267 (596-body); identity GUIDs @+126/+142
-      read-back; **multi-entry** full-stack tail (count>1);
+      read-back; identity GUIDs @+126/+142 read-back; **multi-entry** full-stack tail (count>1);
       oblong/oval SMD pads should route to the 651 size/shape block (golden shows 651, we emit
-      empty).
-- [ ] 🟠 **Via**: identity GUIDs @259-274/@275-290; net/comp/power-plane/paste/drill-pair fields.
-- [ ] 🟠 **Text**: `mirrored` @35 / `isComment` @40 / `isDesignator` @41; font-name fields
-      @46-109/@161-224; InvertedRect template bytes @124-131. *(raw `fontId` @25 + justification
-      @132 are custom-font / inverted-rect only — deferred.)*
+      empty). *(slot length @+263 / hole rotation @+267 — DONE.)*
+- [ ] 🟠 **Text**: `isComment` @40 / `isDesignator` @41 flags (still dropped on read).
+      *(mirror @35, TrueType font-name @46-109, bold @44, inverted-rect @110-133 — DONE.)*
 
 ### A2. PcbLib stream / container layer
 
@@ -85,13 +82,8 @@ Outstanding SchLib field fidelity all needs an Altium-authored golden to settle 
       `X`; the from-scratch default magnitude (Altium ~`X=-5, Y=5`) is unverified without a golden.
 - [ ] **SchLib `IndexInSheet`**: AltiumSharp does NOT default it to `-1` per shape — the correct
       per-record value/emission needs a golden to confirm (the spec's `-1` design was wrong).
-- [ ] **SchLib Label/Text (RECORD=3/4)**: RECORD=3 is *Symbol* (glyph ref), not Text; `encode_text`
-      writes RECORD=4, clashing with Label. The correct mapping is a byte-changing rework — validate
-      against a golden.
 - [ ] **SchLib Implementation structural**: `MapDefiner` (RECORD=47) pin→pad map, the 46/48 payload
       bodies + cross-record `OwnerIndex` chain, honouring `IsCurrent` on write, `DataFileCount` > 1.
-- [ ] **SchLib Pin aux streams**: `SymbolLineWidth` + `PinFrac` live in separate OLE streams, not the
-      pin record — need golden byte offsets.
 - [ ] **PcbLib ComponentBody remaining**: `IDENTIFIER` (comma-separated codepoint list — would
       misrender as a plain string), `MODEL.MODELTYPE`, `MODEL.SNAP*`, `TEXTURE`, and the non-default
       unit-formatted values (`ARCRESOLUTION`/`CAVITYHEIGHT`/`MODEL.2D.X/Y`) — need a golden to
@@ -120,3 +112,74 @@ Outstanding SchLib field fidelity all needs an Altium-authored golden to settle 
 
 - [ ] Enrich `docs/AI_WORKFLOW.md` with symbol pin-placement guidance (idea from coffeenmusic's
       `symbol_placement_rules.txt`).
+
+---
+
+## G. Feature + fixture completeness audit (2026-07-08)
+
+**Goal:** *every* SchLib/PcbLib feature must be (1) implemented in the reader, (2) exercised by the
+`scripts/samples` goldens, (3) asserted by a `tests/samples_*` test. Close **ALL** gaps, not just
+high-value. Method: `cargo-llvm-cov` read-path coverage from the sample tests + primitive-set
+cross-reference against AltiumSharp DTOs (`C:\tmp\AltiumSharp`, the answer key).
+
+**Baseline read-path coverage from the sample tests** (`cargo llvm-cov test --test samples_schlib
+--test samples_pcblib`): `schlib/reader.rs` 79.5% · `pcblib/reader/parsers.rs` 73.8% ·
+`pcblib/read_io.rs` 64.3% · `pcblib/reader/mod.rs` 49.3% · `schlib/pin_aux.rs` 43.4% ·
+`pcblib/reader/models.rs` **13.7%** · `pcblib/primitives/text.rs` **0%**. Every gap below is a
+concrete slice of those uncovered lines.
+
+### G1. SchLib — MISSING PRIMITIVES (not implemented at all; implement + sample + test)
+
+AltiumSharp models these symbol-library records; our reader does **not** dispatch them (record IDs
+we handle: 1,2,4,5,6,7,8,10,11,12,13,14,34,41,45 — note the holes):
+
+- [ ] 🟠 **Image** (`SchImageDto`) — an embedded raster picture in a symbol (bitmap + bounding box +
+      embedded/linked flag). Not modelled. Add primitive + reader + sample + test.
+- [ ] 🟠 **TextFrame** (`SchTextFrameDto`) — a bordered multi-line text box (distinct from
+      Label/Text: has a frame rect, word-wrap, alignment). Not modelled. Add primitive + sample + test.
+- [ ] ⚪ **Verify in-scope:** `ParameterSet`, `Hyperlink`, `Note`, `CompileMask` — confirm whether
+      any can appear inside a `.SchLib` symbol (vs `.SchDoc` only) before implementing.
+- **OUT OF SCOPE (SchDoc-only, cannot appear in a symbol library — do NOT implement):** Bus,
+  BusEntry, Wire, Junction, NetLabel, NoErc, Port, PowerObject, SheetEntry, SheetSymbol, Template,
+  Blanket, MapDefiner/List, Harness*, SignalHarness, Symbol(sheet).
+
+### G2. PcbLib — primitive set is COMPLETE ✓ (gaps are field-level, tracked in §A1)
+
+AltiumSharp `PcbLibReader` reads exactly: Arc, ComponentBody, Fill, Pad, Region, Text, Track, Via —
+which is precisely our set. **No missing PcbLib primitive.** Remaining PcbLib work is field-level
+(see §A1) plus the sample-coverage gaps in §G3.
+
+### G3. Sample-coverage gaps (feature implemented, golden never exercises it → low read coverage)
+
+Add each to `GenerateSamples.pas`, regenerate on-site, then assert exactly:
+
+- [ ] **3D STEP model** (`pcblib/reader/models.rs` 13.7%): `BODY3D` only has a plain *extruded* body.
+      Author a ComponentBody with an **embedded STEP model** (MODELID + model data stream) so the
+      Model/STEP read path (parse_component_body model block, `read_io` model-stream) is covered.
+- [ ] **Pad slot hole + tolerances** (`parsers.rs` ~1300/1370 uncovered): author a slot-hole pad
+      (`AddThPad` already has `eSlotHole`? verify it sets slot length @263 / hole rotation @267) and a
+      pad with drill tolerances.
+- [ ] **Pad thermal-relief / power-plane / mask** (batch-4 target): needs the `GetState_Cache`→
+      `SetState_Cache` pattern for mask expansion; corner-radius `CRPercentage[Layer]` crashes on a
+      fresh Simple pad — find the correct pad-stack init first (documented in `GenerateSamples.pas`).
+- [ ] **Via** net/power-plane/tenting + identity GUIDs — author a via carrying these.
+- [ ] **PcbLib Text** inverted-rect + barcode (`primitives/text.rs` 0%, `parsers.rs` ~1080-1105):
+      author an inverted (knockout) text and a barcode text.
+- [ ] **Region** cutout kinds beyond board-cutout; named region.
+- [ ] **Layer spread** (`reader/mod.rs` `layer_from_id` 379-484 mostly uncovered): the goldens place
+      primitives on only a few layers, so most `layer_from_id` arms never run — author primitives
+      across internal-plane / mechanical / drill / keepout layers (a single multi-layer footprint).
+- [ ] **SchLib** `IsNotAccesible=false` on Ellipse/Polyline; pin swap_id / part_and_sequence /
+      default_value at non-default values; multi-model Implementation (`DataFileCount>1`, `IsCurrent`).
+- [ ] **PcbLib primitive flags** (locked / keepout / tenting) at non-default on each 2D primitive.
+
+### G4. Execution plan
+
+1. **Implement missing SchLib primitives** (§G1: Pie, Image, TextFrame) — struct + reader + writer +
+   tool + allow-list, oracle-gated byte-identity, per the format-EE recipe.
+2. **Enrich the generator** (§G3) with the un-exercised features — one on-site regenerate per batch
+   (kill `X2` between runs; a bad scripting name is a *compile* abort, a bad call can be a *runtime*
+   ScriptingSystem.DLL crash — see the `altium-delphiscript-api-names` memory).
+3. **Add exact `tests/samples_*` assertions** for every newly-exercised field; re-measure coverage
+   until the reader modules approach 100%.
+4. Fold in the §A1 field-level PcbLib gaps as their own format-EE PRs.

@@ -22,7 +22,7 @@
 
 use super::coord;
 use super::primitives::{
-    Arc, Bezier, Ellipse, EllipticalArc, FootprintModel, Label, Line, Parameter, Pin, Polygon,
+    Arc, Bezier, Ellipse, EllipticalArc, FootprintModel, Label, Line, Parameter, Pie, Pin, Polygon,
     Polyline, Rectangle, RoundRect, ShapeDisplayFlags, Text, TextJustification,
 };
 use super::Symbol;
@@ -663,6 +663,41 @@ fn encode_bezier(bezier: &Bezier, index: usize) -> String {
 }
 
 /// Encodes an ellipse record.
+/// Encodes a pie (filled circular sector) record (`RECORD=9`).
+fn encode_pie(pie: &Pie, index: usize) -> String {
+    // Altium tags shapes IsNotAccesible (its own single-'s' spelling); emit only when set.
+    let not_accessible = if pie.is_not_accessible {
+        "|IsNotAccesible=T"
+    } else {
+        ""
+    };
+    // Altium emits IsSolid only when filled, Transparent only when true.
+    let is_solid = if pie.filled { "|IsSolid=T" } else { "" };
+    let transparent = if pie.transparent {
+        "|Transparent=T"
+    } else {
+        ""
+    };
+    format!(
+        "|RECORD=9|IndexInSheet={}|OwnerPartId={}{}{}{}{}|StartAngle={}|EndAngle={}|LineWidth={}{}{}{}{}{}|UniqueID={}",
+        index,
+        pie.owner_part_id,
+        not_accessible,
+        coord_param("Location.X", pie.x),
+        coord_param("Location.Y", pie.y),
+        coord_param("Radius", pie.radius),
+        pie.start_angle,
+        pie.end_angle,
+        pie.line_width,
+        nonzero("Color", pie.line_color),
+        nonzero("AreaColor", pie.fill_color),
+        is_solid,
+        transparent,
+        write_display_flags(pie.display_flags),
+        pie.unique_id.clone().unwrap_or_else(generate_unique_id)
+    )
+}
+
 fn encode_ellipse(ellipse: &Ellipse, index: usize) -> String {
     // Altium emits IsSolid only when filled, and omits it otherwise.
     let is_solid = if ellipse.filled { "|IsSolid=T" } else { "" };
@@ -968,6 +1003,13 @@ pub fn encode_data_stream(symbol: &Symbol) -> crate::altium::error::AltiumResult
     // 8. Arcs
     for arc in &symbol.arcs {
         let record = encode_arc(arc, index_counter);
+        write_text_record(&mut data, &record)?;
+        index_counter += 1;
+    }
+
+    // 8b. Pies (filled sectors, RECORD=9)
+    for pie in &symbol.pies {
+        let record = encode_pie(pie, index_counter);
         write_text_record(&mut data, &record)?;
         index_counter += 1;
     }

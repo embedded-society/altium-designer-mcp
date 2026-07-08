@@ -298,6 +298,18 @@ def test_write_schlib_shapes(client, runner, schlib_path):
         "lines": [
             {"x1": 0, "y1": 0, "x2": 30, "y2": 0, "is_not_accessible": False}
         ],
+        "pies": [
+            {
+                "x": 100,
+                "y": 100,
+                "radius": 20,
+                "start_angle": 45,
+                "end_angle": 315,
+                "fill_color": 0x223344,
+                "filled": True,
+                "transparent": True,
+            }
+        ],
         "labels": [{"x": 5, "y": 45, "text": "HELLO"}],
     }
 
@@ -356,6 +368,19 @@ def test_write_schlib_shapes(client, runner, schlib_path):
     if lines:
         ln = lines[0]
         runner.check(ln.get("is_not_accessible") is False, "line is_not_accessible=false round-trips", actual=ln.get("is_not_accessible"))
+
+    # pie (RECORD=9): count + angles + fill/transparent round-trip
+    pies = sym.get("pies", [])
+    runner.check(len(pies) == 1, "1 pie survived", actual=len(pies))
+    if pies:
+        pie = pies[0]
+        runner.check(pie.get("radius") == 20, "pie radius", actual=pie.get("radius"), expected=20)
+        runner.check(
+            pie.get("start_angle") == 45 and pie.get("end_angle") == 315,
+            "pie angles", actual=pie,
+        )
+        runner.check(pie.get("filled") is True, "pie filled round-trips", actual=pie.get("filled"))
+        runner.check(pie.get("transparent") is True, "pie transparent round-trips", actual=pie.get("transparent"))
 
     # label: count + text
     labels = sym.get("labels", [])
