@@ -310,6 +310,18 @@ def test_write_schlib_shapes(client, runner, schlib_path):
                 "transparent": True,
             }
         ],
+        "images": [
+            {
+                "x1": -20,
+                "y1": -10,
+                "x2": 20,
+                "y2": 10,
+                "file_name": "pic.png",
+                "embed_image": True,
+                "keep_aspect": True,
+                "show_border": True,
+            }
+        ],
         "labels": [{"x": 5, "y": 45, "text": "HELLO"}],
     }
 
@@ -381,6 +393,16 @@ def test_write_schlib_shapes(client, runner, schlib_path):
         )
         runner.check(pie.get("filled") is True, "pie filled round-trips", actual=pie.get("filled"))
         runner.check(pie.get("transparent") is True, "pie transparent round-trips", actual=pie.get("transparent"))
+
+    # image (RECORD=30): count + filename + flags round-trip
+    images = sym.get("images", [])
+    runner.check(len(images) == 1, "1 image survived", actual=len(images))
+    if images:
+        img = images[0]
+        runner.check(img.get("file_name") == "pic.png", "image file_name", actual=img.get("file_name"), expected="pic.png")
+        runner.check(img.get("embed_image") is True, "image embed_image round-trips", actual=img.get("embed_image"))
+        runner.check(img.get("keep_aspect") is True, "image keep_aspect round-trips", actual=img.get("keep_aspect"))
+        runner.check(img.get("show_border") is True, "image show_border round-trips", actual=img.get("show_border"))
 
     # label: count + text
     labels = sym.get("labels", [])

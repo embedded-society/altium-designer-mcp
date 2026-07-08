@@ -826,6 +826,109 @@ impl Pie {
     }
 }
 
+/// An embedded or linked raster image — `SchLib` `RECORD=30`.
+///
+/// A bounding-box graphic (two corners) with an optional border and fill plus a
+/// referenced/embedded picture. This models the record metadata; the raw image
+/// bytes of an embedded image live in the library's `/Storage` stream and are a
+/// separate fidelity concern (like the pin auxiliary streams). Coordinates are
+/// `f64` schematic units (see `super::coord`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[allow(clippy::struct_excessive_bools)] // independent Altium record flags
+pub struct Image {
+    /// First corner X (`Location.X`).
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub x1: f64,
+    /// First corner Y (`Location.Y`).
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub y1: f64,
+    /// Second corner X (`Corner.X`).
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub x2: f64,
+    /// Second corner Y (`Corner.Y`).
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub y2: f64,
+    /// Whether the image is marked not-accessible. Altium tags every shape
+    /// `IsNotAccesible` (its own single-'s' spelling), so this defaults to true.
+    #[serde(default = "default_true")]
+    pub is_not_accessible: bool,
+    /// Border line width.
+    #[serde(default = "default_line_width")]
+    pub line_width: u8,
+    /// Border colour (BGR format).
+    #[serde(default)]
+    pub line_color: u32,
+    /// Border line style (0 = Solid). Omitted when zero.
+    #[serde(default)]
+    pub line_style: u8,
+    /// Fill colour (BGR format, `AreaColor`). Omitted when zero.
+    #[serde(default)]
+    pub fill_color: u32,
+    /// Whether the box is filled (`IsSolid`).
+    #[serde(default)]
+    pub filled: bool,
+    /// Whether the fill is transparent. Emitted only when true.
+    #[serde(default)]
+    pub transparent: bool,
+    /// Whether the border is shown (`ShowBorder`).
+    #[serde(default)]
+    pub show_border: bool,
+    /// Whether the image keeps its aspect ratio (`KeepAspect`).
+    #[serde(default)]
+    pub keep_aspect: bool,
+    /// Whether the image bytes are embedded in the library (`EmbedImage`), vs a
+    /// link to an external `file_name`.
+    #[serde(default)]
+    pub embed_image: bool,
+    /// The image file name (`FileName`) — the reference name or embedded key.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub file_name: String,
+    /// Owner part ID.
+    #[serde(default = "default_owner_part")]
+    pub owner_part_id: i32,
+    /// Universal display/lock flags; omitted from JSON when all default.
+    #[serde(default, flatten)]
+    pub display_flags: ShapeDisplayFlags,
+    /// Altium unique ID (8-char). Preserved on read so a round-trip keeps the
+    /// shape identity; a from-scratch shape generates a fresh one on write (#113).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unique_id: Option<String>,
+}
+
+impl Image {
+    /// Creates a new image spanning the box `(x1,y1)`-`(x2,y2)` referencing
+    /// `file_name`.
+    #[must_use]
+    pub fn new(
+        x1: impl Into<f64>,
+        y1: impl Into<f64>,
+        x2: impl Into<f64>,
+        y2: impl Into<f64>,
+        file_name: impl Into<String>,
+    ) -> Self {
+        Self {
+            x1: x1.into(),
+            y1: y1.into(),
+            x2: x2.into(),
+            y2: y2.into(),
+            is_not_accessible: true,
+            line_width: 1,
+            line_color: 0,
+            line_style: 0,
+            fill_color: 0,
+            filled: false,
+            transparent: false,
+            show_border: false,
+            keep_aspect: false,
+            embed_image: false,
+            file_name: file_name.into(),
+            owner_part_id: 1,
+            display_flags: ShapeDisplayFlags::default(),
+            unique_id: None,
+        }
+    }
+}
+
 /// A cubic Bezier curve.
 ///
 /// Defined by four control points:

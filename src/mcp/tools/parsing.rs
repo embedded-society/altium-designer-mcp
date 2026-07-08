@@ -1645,6 +1645,53 @@ impl McpServer {
         })
     }
 
+    /// Parses a schematic image (embedded/linked picture, `RECORD=30`) from JSON.
+    #[allow(clippy::cast_possible_truncation)]
+    pub(crate) fn parse_schlib_image(json: &Value) -> Option<crate::altium::schlib::Image> {
+        use crate::altium::schlib::Image;
+
+        let x1 = json_f64(json, "x1")?;
+        let y1 = json_f64(json, "y1")?;
+        let x2 = json_f64(json, "x2")?;
+        let y2 = json_f64(json, "y2")?;
+        let line_width = json.get("line_width").and_then(Value::as_u64).unwrap_or(1) as u8;
+        let line_color = json.get("line_color").and_then(Value::as_u64).unwrap_or(0) as u32;
+        let line_style = json.get("line_style").and_then(Value::as_u64).unwrap_or(0) as u8;
+        let fill_color = json.get("fill_color").and_then(Value::as_u64).unwrap_or(0) as u32;
+        let b = |k: &str| json.get(k).and_then(Value::as_bool).unwrap_or(false);
+        let is_not_accessible = json
+            .get("is_not_accessible")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        let file_name = json
+            .get("file_name")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
+
+        Some(Image {
+            x1,
+            y1,
+            x2,
+            y2,
+            is_not_accessible,
+            line_width,
+            line_color,
+            line_style,
+            fill_color,
+            filled: b("filled"),
+            transparent: b("transparent"),
+            show_border: b("show_border"),
+            keep_aspect: b("keep_aspect"),
+            embed_image: b("embed_image"),
+            file_name,
+            owner_part_id,
+            display_flags: parse_schlib_display_flags(json),
+            unique_id: json_unique_id(json),
+        })
+    }
+
     /// Parses a schematic ellipse from JSON.
     #[allow(clippy::cast_possible_truncation)]
     pub(crate) fn parse_schlib_ellipse(json: &Value) -> Option<crate::altium::schlib::Ellipse> {

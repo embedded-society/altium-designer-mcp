@@ -22,8 +22,8 @@
 
 use super::coord;
 use super::primitives::{
-    Arc, Bezier, Ellipse, EllipticalArc, FootprintModel, Label, Line, Parameter, Pie, Pin, Polygon,
-    Polyline, Rectangle, RoundRect, ShapeDisplayFlags, Text, TextJustification,
+    Arc, Bezier, Ellipse, EllipticalArc, FootprintModel, Image, Label, Line, Parameter, Pie, Pin,
+    Polygon, Polyline, Rectangle, RoundRect, ShapeDisplayFlags, Text, TextJustification,
 };
 use super::Symbol;
 use crate::altium::framing::{write_cstring_param_block, write_pascal_string};
@@ -339,6 +339,17 @@ fn push_point(parts: &mut Vec<String>, n: usize, x: f64, y: f64) {
     parts.push(format!("Y{n}={yi}"));
     if yf != 0 {
         parts.push(format!("Y{n}_Frac={yf}"));
+    }
+}
+
+/// Pushes a named coordinate (`KEY=int` + optional `KEY_Frac=frac`) into a
+/// `parts` vector joined by `|`. The named equivalent of [`push_point`] /
+/// [`coord_param`] for list-style records.
+fn push_coord(parts: &mut Vec<String>, key: &str, value: f64) {
+    let (int, frac) = coord::split(value);
+    parts.push(format!("{key}={int}"));
+    if frac != 0 {
+        parts.push(format!("{key}_Frac={frac}"));
     }
 }
 
@@ -698,6 +709,59 @@ fn encode_pie(pie: &Pie, index: usize) -> String {
     )
 }
 
+/// Encodes an image record (`RECORD=30`) — the picture metadata (bounding box,
+/// border, fill, filename, flags). Embedded image bytes live in `/Storage` and
+/// are not written here.
+fn encode_image(image: &Image, index: usize) -> String {
+    let mut parts = vec![
+        "RECORD=30".to_string(),
+        format!("IndexInSheet={index}"),
+        format!("OwnerPartId={}", image.owner_part_id),
+    ];
+    if image.is_not_accessible {
+        parts.push("IsNotAccesible=T".to_string());
+    }
+    // Bounding box: Location (corner 1) + Corner (corner 2), each with optional _Frac.
+    push_coord(&mut parts, "Location.X", image.x1);
+    push_coord(&mut parts, "Location.Y", image.y1);
+    push_coord(&mut parts, "Corner.X", image.x2);
+    push_coord(&mut parts, "Corner.Y", image.y2);
+    parts.push(format!("LineWidth={}", image.line_width));
+    if image.line_color != 0 {
+        parts.push(format!("Color={}", image.line_color));
+    }
+    if image.line_style != 0 {
+        parts.push(format!("LineStyle={}", image.line_style));
+    }
+    if image.fill_color != 0 {
+        parts.push(format!("AreaColor={}", image.fill_color));
+    }
+    if image.filled {
+        parts.push("IsSolid=T".to_string());
+    }
+    if image.transparent {
+        parts.push("Transparent=T".to_string());
+    }
+    if image.show_border {
+        parts.push("ShowBorder=T".to_string());
+    }
+    if image.keep_aspect {
+        parts.push("KeepAspect=T".to_string());
+    }
+    if image.embed_image {
+        parts.push("EmbedImage=T".to_string());
+    }
+    if !image.file_name.is_empty() {
+        parts.push(format!("FileName={}", image.file_name));
+    }
+    push_display_flags(&mut parts, image.display_flags);
+    parts.push(format!(
+        "UniqueID={}",
+        image.unique_id.clone().unwrap_or_else(generate_unique_id)
+    ));
+    format!("|{}", parts.join("|"))
+}
+
 fn encode_ellipse(ellipse: &Ellipse, index: usize) -> String {
     // Altium emits IsSolid only when filled, and omits it otherwise.
     let is_solid = if ellipse.filled { "|IsSolid=T" } else { "" };
@@ -1010,6 +1074,13 @@ pub fn encode_data_stream(symbol: &Symbol) -> crate::altium::error::AltiumResult
     // 8b. Pies (filled sectors, RECORD=9)
     for pie in &symbol.pies {
         let record = encode_pie(pie, index_counter);
+        write_text_record(&mut data, &record)?;
+        index_counter += 1;
+    }
+
+    // 8c. Images (RECORD=30)
+    for image in &symbol.images {
+        let record = encode_image(image, index_counter);
         write_text_record(&mut data, &record)?;
         index_counter += 1;
     }

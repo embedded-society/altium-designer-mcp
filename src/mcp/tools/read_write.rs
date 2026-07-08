@@ -971,6 +971,7 @@ impl McpServer {
                             "polygons": symbol.polygons,
                             "arcs": symbol.arcs,
                             "pies": symbol.pies,
+                            "images": symbol.images,
                             "ellipses": symbol.ellipses,
                             "labels": symbol.labels,
                             "parameters": symbol.parameters,
@@ -1124,6 +1125,7 @@ impl McpServer {
                     "polygons",
                     "arcs",
                     "pies",
+                    "images",
                     "ellipses",
                     "labels",
                     "text",
@@ -1423,6 +1425,40 @@ impl McpServer {
                     );
                     if let Some(pie) = Self::parse_schlib_pie(pie_json) {
                         symbol.add_pie(pie);
+                    }
+                }
+            }
+
+            if let Some(images) = sym_json.get("images").and_then(Value::as_array) {
+                for image_json in images {
+                    check_keys!(
+                        image_json,
+                        &[
+                            "x1",
+                            "y1",
+                            "x2",
+                            "y2",
+                            "line_width",
+                            "line_color",
+                            "line_style",
+                            "fill_color",
+                            "filled",
+                            "transparent",
+                            "show_border",
+                            "keep_aspect",
+                            "embed_image",
+                            "file_name",
+                            "is_not_accessible",
+                            "owner_part_id",
+                            "unique_id",
+                            "graphically_locked",
+                            "disabled",
+                            "dimmed",
+                            "owner_part_display_mode"
+                        ]
+                    );
+                    if let Some(image) = Self::parse_schlib_image(image_json) {
+                        symbol.add_image(image);
                     }
                 }
             }
