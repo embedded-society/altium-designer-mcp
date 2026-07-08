@@ -760,6 +760,33 @@ impl McpServer {
                                             "required": ["x", "y", "radius"]
                                         }
                                     },
+                                    "pies": {
+                                        "type": "array",
+                                        "description": "Pie (filled circular sector / wedge) definitions",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "x": { "type": "number", "description": "Centre X coordinate" },
+                                                "y": { "type": "number", "description": "Centre Y coordinate" },
+                                                "radius": { "type": "number", "description": "Radius in schematic units" },
+                                                "start_angle": { "type": "number", "description": "Start angle in degrees (0 = right, CCW). Default: 0" },
+                                                "end_angle": { "type": "number", "description": "End angle in degrees. Default: 360" },
+                                                "line_width": { "type": "integer", "description": "Border width. Default: 1" },
+                                                "line_color": { "type": "integer", "description": "Border BGR colour. Default: 0" },
+                                                "fill_color": { "type": "integer", "description": "Fill BGR colour (maps to AreaColor). Default: 0" },
+                                                "filled": { "type": "boolean", "description": "Whether the pie is filled (IsSolid). Default: true" },
+                                                "transparent": { "type": "boolean", "description": "Whether the fill is transparent. Default: false" },
+                                                "is_not_accessible": { "type": "boolean", "description": "Whether the pie is marked not-accessible (Altium tags every shape; default true)" },
+                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" },
+                                                "graphically_locked": { "type": "boolean", "description": "Whether the shape is graphically locked. Default: false" },
+                                                "disabled": { "type": "boolean", "description": "Whether the shape is disabled. Default: false" },
+                                                "dimmed": { "type": "boolean", "description": "Whether the shape is dimmed. Default: false" },
+                                                "owner_part_display_mode": { "type": "integer", "description": "Display mode this shape belongs to (0=Normal, 1=first alternate/de-Morgan, ...). Default: 0" },
+                                                "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" }
+                                            },
+                                            "required": ["x", "y", "radius"]
+                                        }
+                                    },
                                     "ellipses": {
                                         "type": "array",
                                         "description": "Ellipse definitions",

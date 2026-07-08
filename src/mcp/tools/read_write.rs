@@ -970,6 +970,7 @@ impl McpServer {
                             "polylines": symbol.polylines,
                             "polygons": symbol.polygons,
                             "arcs": symbol.arcs,
+                            "pies": symbol.pies,
                             "ellipses": symbol.ellipses,
                             "labels": symbol.labels,
                             "parameters": symbol.parameters,
@@ -1122,6 +1123,7 @@ impl McpServer {
                     "polylines",
                     "polygons",
                     "arcs",
+                    "pies",
                     "ellipses",
                     "labels",
                     "text",
@@ -1391,6 +1393,36 @@ impl McpServer {
                     );
                     if let Some(arc) = Self::parse_schlib_arc(arc_json) {
                         symbol.add_arc(arc);
+                    }
+                }
+            }
+
+            if let Some(pies) = sym_json.get("pies").and_then(Value::as_array) {
+                for pie_json in pies {
+                    check_keys!(
+                        pie_json,
+                        &[
+                            "x",
+                            "y",
+                            "radius",
+                            "start_angle",
+                            "end_angle",
+                            "line_width",
+                            "line_color",
+                            "fill_color",
+                            "filled",
+                            "transparent",
+                            "is_not_accessible",
+                            "owner_part_id",
+                            "unique_id",
+                            "graphically_locked",
+                            "disabled",
+                            "dimmed",
+                            "owner_part_display_mode"
+                        ]
+                    );
+                    if let Some(pie) = Self::parse_schlib_pie(pie_json) {
+                        symbol.add_pie(pie);
                     }
                 }
             }

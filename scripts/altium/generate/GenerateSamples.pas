@@ -672,6 +672,31 @@ begin
                                        SCHM_PrimitiveRegistration, Arc.I_ObjectAddress);
 end;
 
+{ Pie (filled circular sector, RECORD=9). VERIFIED: factory ePie (=12, NOT the
+  record id 9); ISch_Pie inherits ISch_Arc geometry (Location/Radius/Start/End
+  angle) and adds IsSolid + Transparent + AreaColor. }
+procedure AddPie(Comp : ISch_Component; CX : Integer; CY : Integer; R : Integer;
+                 AStart : Double; AEnd : Double; FillCol : TColor);
+var
+    Pie : ISch_Pie;
+begin
+    Pie := SchServer.SchObjectFactory(ePie, eCreate_Default);
+    if Pie = nil then Exit;
+    Pie.Location             := Point(MilsToCoord(CX), MilsToCoord(CY));
+    Pie.Radius               := MilsToCoord(R);
+    Pie.LineWidth            := eSmall;
+    Pie.Color                := $000000;
+    Pie.StartAngle           := AStart;
+    Pie.EndAngle             := AEnd;
+    Pie.AreaColor            := FillCol;
+    Pie.IsSolid              := True;
+    Pie.OwnerPartId          := 1;
+    Pie.OwnerPartDisplayMode := Comp.DisplayMode;
+    Comp.AddSchObject(Pie);
+    SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast,
+                                       SCHM_PrimitiveRegistration, Pie.I_ObjectAddress);
+end;
+
 { FILLED polygon from 4 corners (a box). ePolygon + VerticesCount + 1-based Vertex[i] +
   IsSolid — verified SY_AddPoly. NOTE: this is RECORD=7 (parse_polygon), NOT a polyline. }
 procedure AddPolygonBox(Comp : ISch_Component; X1 : Integer; Y1 : Integer;
@@ -1365,6 +1390,14 @@ begin
         Comp := NewSymbol(Lib, 'BEZIERSYM', 'Bezier curve', 1);
         if Comp <> nil then
             AddBezier4(Comp, -100, 0, -50, 80, 50, 80, 100, 0);
+    except
+    end;
+
+    { ---- PIESYM — a filled pie / circular sector (RECORD=9, newly implemented). ---- }
+    try
+        Comp := NewSymbol(Lib, 'PIESYM', 'Filled pie sector', 1);
+        if Comp <> nil then
+            AddPie(Comp, 0, 0, 50, 30.0, 210.0, $00FFFF);   { 30..210 deg wedge, yellow fill }
     except
     end;
 

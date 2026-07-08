@@ -1597,6 +1597,54 @@ impl McpServer {
         })
     }
 
+    /// Parses a schematic pie (filled circular sector, `RECORD=9`) from JSON.
+    #[allow(clippy::cast_possible_truncation)]
+    pub(crate) fn parse_schlib_pie(json: &Value) -> Option<crate::altium::schlib::Pie> {
+        use crate::altium::schlib::Pie;
+
+        let x = json_f64(json, "x")?;
+        let y = json_f64(json, "y")?;
+        let radius = json_f64(json, "radius")?;
+        let start_angle = json
+            .get("start_angle")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0);
+        let end_angle = json
+            .get("end_angle")
+            .and_then(Value::as_f64)
+            .unwrap_or(360.0);
+        let line_width = json.get("line_width").and_then(Value::as_u64).unwrap_or(1) as u8;
+        let line_color = json.get("line_color").and_then(Value::as_u64).unwrap_or(0) as u32;
+        let fill_color = json.get("fill_color").and_then(Value::as_u64).unwrap_or(0) as u32;
+        let filled = json.get("filled").and_then(Value::as_bool).unwrap_or(true);
+        let transparent = json
+            .get("transparent")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let is_not_accessible = json
+            .get("is_not_accessible")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
+
+        Some(Pie {
+            x,
+            y,
+            radius,
+            is_not_accessible,
+            start_angle,
+            end_angle,
+            line_width,
+            line_color,
+            fill_color,
+            filled,
+            transparent,
+            owner_part_id,
+            display_flags: parse_schlib_display_flags(json),
+            unique_id: json_unique_id(json),
+        })
+    }
+
     /// Parses a schematic ellipse from JSON.
     #[allow(clippy::cast_possible_truncation)]
     pub(crate) fn parse_schlib_ellipse(json: &Value) -> Option<crate::altium::schlib::Ellipse> {

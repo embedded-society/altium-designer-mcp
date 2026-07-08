@@ -21,7 +21,7 @@
 //! - `0x01`: Binary pin record
 
 use super::primitives::{
-    Arc, Bezier, Ellipse, EllipticalArc, FootprintModel, Label, Line, Parameter, Pin,
+    Arc, Bezier, Ellipse, EllipticalArc, FootprintModel, Label, Line, Parameter, Pie, Pin,
     PinElectricalType, PinOrientation, PinSymbol, Polygon, Polyline, Rectangle, RoundRect,
     ShapeDisplayFlags, Text, TextJustification,
 };
@@ -216,6 +216,12 @@ fn parse_text_record_from_string(symbol: &mut Symbol, text: &str) {
             // Ellipse
             if let Some(ellipse) = parse_ellipse(&props) {
                 symbol.add_ellipse(ellipse);
+            }
+        }
+        9 => {
+            // Pie (filled circular sector)
+            if let Some(pie) = parse_pie(&props) {
+                symbol.add_pie(pie);
             }
         }
         12 => {
@@ -782,6 +788,56 @@ fn parse_arc(props: &HashMap<String, String>) -> Option<Arc> {
         line_width,
         color,
         fill_color,
+        owner_part_id,
+        display_flags: read_display_flags(props),
+        unique_id: props.get("uniqueid").cloned(),
+    })
+}
+
+/// Parses a pie (filled circular sector, `RECORD=9`) from properties.
+#[allow(clippy::unnecessary_wraps)] // infallible (all coords default); Option kept for uniform parser dispatch
+fn parse_pie(props: &HashMap<String, String>) -> Option<Pie> {
+    let x = crate::altium::schlib::coord::read(props, "location.x");
+    let y = crate::altium::schlib::coord::read(props, "location.y");
+    let radius = crate::altium::schlib::coord::read(props, "radius");
+
+    let start_angle = props
+        .get("startangle")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0.0);
+    let end_angle = props
+        .get("endangle")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(360.0);
+
+    let line_width = props
+        .get("linewidth")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+    let line_color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
+    let fill_color = props
+        .get("areacolor")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let filled = props.get("issolid").is_some_and(|s| s == "T");
+    let transparent = props.get("transparent").is_some_and(|s| s == "T");
+    let owner_part_id = props
+        .get("ownerpartid")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+
+    Some(Pie {
+        x,
+        y,
+        radius,
+        is_not_accessible: props.get("isnotaccesible").is_some_and(|s| s == "T"),
+        start_angle,
+        end_angle,
+        line_width,
+        line_color,
+        fill_color,
+        filled,
+        transparent,
         owner_part_id,
         display_flags: read_display_flags(props),
         unique_id: props.get("uniqueid").cloned(),

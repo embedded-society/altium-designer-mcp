@@ -741,6 +741,91 @@ const fn default_end_angle() -> f64 {
     360.0
 }
 
+/// A pie (filled circular sector / wedge) — `SchLib` `RECORD=9`.
+///
+/// Geometrically an [`Arc`] (centre + radius + start/end angle) closed to its
+/// centre and fillable, so it also carries `IsSolid` / `Transparent` like an
+/// [`Ellipse`]. Coordinates are `f64` schematic units (see `super::coord`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Pie {
+    /// Centre X coordinate.
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub x: f64,
+    /// Centre Y coordinate.
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub y: f64,
+    /// Radius.
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub radius: f64,
+    /// Whether the pie is marked not-accessible. Altium tags every shape
+    /// `IsNotAccesible` (its own single-'s' spelling), so this defaults to true.
+    #[serde(default = "default_true")]
+    pub is_not_accessible: bool,
+    /// Start angle in degrees (0 = right, counter-clockwise).
+    #[serde(default, serialize_with = "crate::altium::serde_round::serialize")]
+    pub start_angle: f64,
+    /// End angle in degrees.
+    #[serde(
+        default = "default_end_angle",
+        serialize_with = "crate::altium::serde_round::serialize"
+    )]
+    pub end_angle: f64,
+    /// Border line width.
+    #[serde(default = "default_line_width")]
+    pub line_width: u8,
+    /// Border colour (BGR format).
+    #[serde(default)]
+    pub line_color: u32,
+    /// Fill colour (BGR format). Maps to the `AreaColor` parameter; omitted when zero.
+    #[serde(default)]
+    pub fill_color: u32,
+    /// Whether the pie is filled (`IsSolid`).
+    #[serde(default)]
+    pub filled: bool,
+    /// Whether the fill is transparent (vs opaque). Emitted only when true.
+    #[serde(default)]
+    pub transparent: bool,
+    /// Owner part ID.
+    #[serde(default = "default_owner_part")]
+    pub owner_part_id: i32,
+    /// Universal display/lock flags; omitted from JSON when all default.
+    #[serde(default, flatten)]
+    pub display_flags: ShapeDisplayFlags,
+    /// Altium unique ID (8-char). Preserved on read so a round-trip keeps the
+    /// shape identity; a from-scratch shape generates a fresh one on write (#113).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unique_id: Option<String>,
+}
+
+impl Pie {
+    /// Creates a new pie (filled sector) with the given centre, radius and angles.
+    #[must_use]
+    pub fn new(
+        x: impl Into<f64>,
+        y: impl Into<f64>,
+        radius: impl Into<f64>,
+        start_angle: f64,
+        end_angle: f64,
+    ) -> Self {
+        Self {
+            x: x.into(),
+            y: y.into(),
+            radius: radius.into(),
+            is_not_accessible: true,
+            start_angle,
+            end_angle,
+            line_width: 1,
+            line_color: 0,
+            fill_color: 0,
+            filled: true,
+            transparent: false,
+            owner_part_id: 1,
+            display_flags: ShapeDisplayFlags::default(),
+            unique_id: None,
+        }
+    }
+}
+
 /// A cubic Bezier curve.
 ///
 /// Defined by four control points:

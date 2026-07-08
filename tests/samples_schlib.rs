@@ -51,10 +51,11 @@ fn pin_by_designator<'a>(symbol: &'a Symbol, designator: &str) -> &'a Pin {
 fn samples_schlib_structure() {
     let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
 
-    // Twenty Altium-authored symbols: fifteen per-primitive-family symbols plus
-    // five coverage-enrichment symbols (SHAPESTYLE, LOCKFLAGS, JUSTIFY, FRACPINS,
-    // BEZIERSYM) added to GenerateSamples.pas and regenerated on-site.
-    assert_eq!(lib.len(), 20, "expected exactly twenty symbols");
+    // Twenty-one Altium-authored symbols: fifteen per-primitive-family symbols
+    // plus six coverage-enrichment symbols (SHAPESTYLE, LOCKFLAGS, JUSTIFY,
+    // FRACPINS, BEZIERSYM, PIESYM) added to GenerateSamples.pas and regenerated
+    // on-site.
+    assert_eq!(lib.len(), 21, "expected exactly twenty-one symbols");
 
     let names = lib.names();
     for expected in [
@@ -78,6 +79,7 @@ fn samples_schlib_structure() {
         "JUSTIFY",
         "FRACPINS",
         "BEZIERSYM",
+        "PIESYM",
     ] {
         assert!(
             names.iter().any(|n| n == expected),
@@ -779,4 +781,32 @@ fn samples_schlib_bezier() {
     // One cubic Bezier (four control points) authored via the verified
     // eBezier factory + SetState_Vertex path.
     assert_eq!(sym.beziers.len(), 1, "BEZIERSYM has one Bezier curve");
+}
+
+#[test]
+fn samples_schlib_pie() {
+    let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
+    let sym = lib.get("PIESYM").expect("PIESYM symbol not found");
+
+    // One filled pie sector (RECORD=9), authored 30..210 deg, radius 50 mil (=5
+    // reader units), yellow fill. This is real-Altium ground truth for a primitive
+    // the reader did not parse at all before this change — read as a Pie, NOT an Arc.
+    assert!(
+        sym.arcs.is_empty(),
+        "PIESYM has no arcs (the sector is a Pie)"
+    );
+    assert_eq!(sym.pies.len(), 1, "PIESYM has one pie");
+    let p = &sym.pies[0];
+    assert!(
+        (p.x - 0.0).abs() < 1e-6 && (p.y - 0.0).abs() < 1e-6,
+        "pie centre"
+    );
+    assert!(
+        (p.radius - 5.0).abs() < 1e-6,
+        "pie radius (50 mil = 5 units)"
+    );
+    assert!((p.start_angle - 30.0).abs() < 1e-3, "pie start angle");
+    assert!((p.end_angle - 210.0).abs() < 1e-3, "pie end angle");
+    assert!(p.filled, "pie is filled (IsSolid)");
+    assert_eq!(p.fill_color, 0x00_FF_FF, "pie fill colour (yellow)");
 }

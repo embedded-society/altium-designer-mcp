@@ -414,6 +414,9 @@ pub struct Symbol {
     /// Arcs.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub arcs: Vec<Arc>,
+    /// Pies (filled circular sectors, `RECORD=9`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pies: Vec<Pie>,
     /// Bezier curves.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub beziers: Vec<Bezier>,
@@ -506,6 +509,11 @@ impl Symbol {
     /// Adds an arc to the symbol.
     pub fn add_arc(&mut self, arc: Arc) {
         self.arcs.push(arc);
+    }
+
+    /// Adds a pie (filled sector) to the symbol.
+    pub fn add_pie(&mut self, pie: Pie) {
+        self.pies.push(pie);
     }
 
     /// Adds a Bezier curve to the symbol.
@@ -734,6 +742,44 @@ mod tests {
         assert!(
             decoded.labels.is_empty(),
             "the Text must NOT be mis-read as a Label"
+        );
+    }
+
+    #[test]
+    fn roundtrip_pie() {
+        // Pie (RECORD=9) is a filled circular sector; verify every field survives
+        // encode -> parse, and that a Pie is not mistaken for an Arc.
+        let mut symbol = Symbol::new("PIE");
+        let mut pie = Pie::new(10, 20, 30, 45.0, 135.0);
+        pie.line_width = 2;
+        pie.line_color = 0x00_00_FF;
+        pie.fill_color = 0xFF_00_00;
+        pie.filled = true;
+        pie.transparent = true;
+        pie.is_not_accessible = false;
+        pie.display_flags.graphically_locked = true;
+        symbol.add_pie(pie);
+
+        let data = writer::encode_data_stream(&symbol).expect("encode");
+        let mut decoded = Symbol::new("PIE");
+        reader::parse_data_stream(&mut decoded, &data);
+
+        assert_eq!(decoded.pies.len(), 1, "the Pie survives as a Pie");
+        assert!(decoded.arcs.is_empty(), "a Pie is not read as an Arc");
+        let p = &decoded.pies[0];
+        assert!((p.x - 10.0).abs() < 1e-9 && (p.y - 20.0).abs() < 1e-9);
+        assert!((p.radius - 30.0).abs() < 1e-9);
+        assert!((p.start_angle - 45.0).abs() < 1e-6);
+        assert!((p.end_angle - 135.0).abs() < 1e-6);
+        assert_eq!(p.line_width, 2);
+        assert_eq!(p.line_color, 0x00_00_FF);
+        assert_eq!(p.fill_color, 0xFF_00_00);
+        assert!(p.filled, "IsSolid round-trips");
+        assert!(p.transparent, "Transparent round-trips");
+        assert!(!p.is_not_accessible, "false IsNotAccesible round-trips");
+        assert!(
+            p.display_flags.graphically_locked,
+            "GraphicallyLocked round-trips"
         );
     }
 
