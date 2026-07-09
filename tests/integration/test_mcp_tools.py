@@ -1326,6 +1326,85 @@ def test_update_pcblib_preserves_vias_fills(client, runner, lib_path):
     runner.check(fp.get("description") == "after", "description was updated", actual=fp.get("description"))
 
 
+def test_compare_components_duplicates_and_depth(client, runner, lib_path):
+    print("\n=== Test: compare_components duplicate pads + region/text depth (bug sweep) ===")
+    # Regression (bug sweep 2026-07, deferred item): compare_pads indexed pads
+    # by designator into a HashMap, silently collapsing duplicate designators
+    # (legal for e.g. a split thermal pad) so their diffs went unreported; and
+    # regions/text were compared by COUNT only, so an equal-count in-place edit
+    # was reported as identical. Author two footprints that differ ONLY in
+    # (a) the second occurrence of a duplicate-designator pad and (b) a moved
+    # text of the same content — the counts all match, so the old code
+    # reported them identical.
+    common = {
+        "pads": [
+            {"designator": "9", "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0},
+        ],
+        "regions": [
+            {
+                "vertices": [
+                    {"x": -1.0, "y": -1.0},
+                    {"x": 1.0, "y": -1.0},
+                    {"x": 1.0, "y": 1.0},
+                    {"x": -1.0, "y": 1.0},
+                ],
+                "layer": "Top Courtyard",
+            }
+        ],
+    }
+    fp_a = dict(common)
+    fp_a["name"] = "CMP_A"
+    fp_a["pads"] = common["pads"] + [
+        {"designator": "9", "x": 2.0, "y": 0.0, "width": 1.0, "height": 1.0}
+    ]
+    fp_a["text"] = [{"x": 0.0, "y": -2.0, "text": "REF", "height": 1.0, "layer": "Top Overlay"}]
+
+    fp_b = dict(common)
+    fp_b["name"] = "CMP_B"
+    fp_b["pads"] = common["pads"] + [
+        # Same designator "9", second occurrence widened.
+        {"designator": "9", "x": 2.0, "y": 0.0, "width": 1.5, "height": 1.0}
+    ]
+    # Same text content, moved.
+    fp_b["text"] = [{"x": 3.0, "y": -2.0, "text": "REF", "height": 1.0, "layer": "Top Overlay"}]
+
+    write = client.call_tool(
+        "write_pcblib",
+        {"filepath": lib_path, "footprints": [fp_a, fp_b], "append": False},
+    )
+    runner.check(not write.get("_isError"), "write_pcblib (compare fixtures) succeeded", actual=write)
+
+    cmp = client.call_tool(
+        "compare_components",
+        {
+            "filepath_a": lib_path,
+            "component_a": "CMP_A",
+            "filepath_b": lib_path,
+            "component_b": "CMP_B",
+        },
+    )
+    runner.check(not cmp.get("_isError"), "compare_components succeeded", actual=cmp)
+    runner.check(cmp.get("identical") is False, "differences detected", actual=cmp.get("identical"))
+
+    fields = {d.get("field"): d for d in cmp.get("differences", [])}
+    pad_diffs = fields.get("pads", {}).get("differences", [])
+    runner.check(
+        any(d.get("status") == "modified" and d.get("occurrence") == 1 for d in pad_diffs),
+        "duplicate-designator pad diff reported with occurrence index",
+        actual=pad_diffs,
+    )
+    text_diffs = fields.get("text", {}).get("differences", [])
+    runner.check(
+        any(
+            d.get("status") == "modified"
+            and any(c.get("property") == "position" for c in d.get("changes", []))
+            for d in text_diffs
+        ),
+        "moved same-content text reported as position change",
+        actual=text_diffs,
+    )
+
+
 def test_bulk_rename_chained_no_loss(client, runner, schlib_path):
     print("\n=== Test: bulk_rename chained rename loses no symbol (bug sweep) ===")
     # Regression (bug sweep 2026-07): applying renames one-pass (remove-then-add)
@@ -2253,6 +2332,7 @@ def main():
         test_write_pcblib_unique_id_roundtrip(client, runner, lib_path)
         test_write_pcblib_common_indices_roundtrip(client, runner, lib_path)
         test_update_pcblib_preserves_vias_fills(client, runner, lib_path)
+        test_compare_components_duplicates_and_depth(client, runner, lib_path)
         test_bulk_rename_chained_no_loss(client, runner, schlib_path)
         test_write_schlib_shapes(client, runner, schlib_path)
         test_write_schlib_fields(client, runner, schlib_path)
