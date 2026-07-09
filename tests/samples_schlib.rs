@@ -51,11 +51,11 @@ fn pin_by_designator<'a>(symbol: &'a Symbol, designator: &str) -> &'a Pin {
 fn samples_schlib_structure() {
     let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
 
-    // Twenty-one Altium-authored symbols: fifteen per-primitive-family symbols
-    // plus six coverage-enrichment symbols (SHAPESTYLE, LOCKFLAGS, JUSTIFY,
-    // FRACPINS, BEZIERSYM, PIESYM) added to GenerateSamples.pas and regenerated
-    // on-site.
-    assert_eq!(lib.len(), 21, "expected exactly twenty-one symbols");
+    // Twenty-two Altium-authored symbols: fifteen per-primitive-family symbols
+    // plus seven coverage-enrichment symbols (SHAPESTYLE, LOCKFLAGS, JUSTIFY,
+    // FRACPINS, BEZIERSYM, PIESYM, IMAGESYM) added to GenerateSamples.pas and
+    // regenerated on-site.
+    assert_eq!(lib.len(), 22, "expected exactly twenty-two symbols");
 
     let names = lib.names();
     for expected in [
@@ -80,6 +80,7 @@ fn samples_schlib_structure() {
         "FRACPINS",
         "BEZIERSYM",
         "PIESYM",
+        "IMAGESYM",
     ] {
         assert!(
             names.iter().any(|n| n == expected),
@@ -809,4 +810,27 @@ fn samples_schlib_pie() {
     assert!((p.end_angle - 210.0).abs() < 1e-3, "pie end angle");
     assert!(p.filled, "pie is filled (IsSolid)");
     assert_eq!(p.fill_color, 0x00_FF_FF, "pie fill colour (yellow)");
+}
+
+#[test]
+fn samples_schlib_image() {
+    let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
+    let sym = lib.get("IMAGESYM").expect("IMAGESYM symbol not found");
+
+    // One linked image (RECORD=30) — a 100x60 mil box (-5,-3)-(5,3 reader units)
+    // referencing "logo.bmp", not embedded, aspect kept. Real-Altium ground truth
+    // for a primitive the reader did not parse at all before this change.
+    assert_eq!(sym.images.len(), 1, "IMAGESYM has one image");
+    let im = &sym.images[0];
+    assert!(
+        (im.x1 - -5.0).abs() < 1e-6 && (im.y1 - -3.0).abs() < 1e-6,
+        "image corner 1"
+    );
+    assert!(
+        (im.x2 - 5.0).abs() < 1e-6 && (im.y2 - 3.0).abs() < 1e-6,
+        "image corner 2"
+    );
+    assert_eq!(im.file_name, "logo.bmp", "image file name round-trips");
+    assert!(!im.embed_image, "image is linked, not embedded");
+    assert!(im.keep_aspect, "KeepAspect round-trips");
 }

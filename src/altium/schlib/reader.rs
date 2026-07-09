@@ -21,7 +21,7 @@
 //! - `0x01`: Binary pin record
 
 use super::primitives::{
-    Arc, Bezier, Ellipse, EllipticalArc, FootprintModel, Label, Line, Parameter, Pie, Pin,
+    Arc, Bezier, Ellipse, EllipticalArc, FootprintModel, Image, Label, Line, Parameter, Pie, Pin,
     PinElectricalType, PinOrientation, PinSymbol, Polygon, Polyline, Rectangle, RoundRect,
     ShapeDisplayFlags, Text, TextJustification,
 };
@@ -222,6 +222,12 @@ fn parse_text_record_from_string(symbol: &mut Symbol, text: &str) {
             // Pie (filled circular sector)
             if let Some(pie) = parse_pie(&props) {
                 symbol.add_pie(pie);
+            }
+        }
+        30 => {
+            // Image (embedded/linked picture)
+            if let Some(image) = parse_image(&props) {
+                symbol.add_image(image);
             }
         }
         12 => {
@@ -838,6 +844,60 @@ fn parse_pie(props: &HashMap<String, String>) -> Option<Pie> {
         fill_color,
         filled,
         transparent,
+        owner_part_id,
+        display_flags: read_display_flags(props),
+        unique_id: props.get("uniqueid").cloned(),
+    })
+}
+
+/// Parses an image (embedded/linked picture, `RECORD=30`) from properties.
+#[allow(clippy::unnecessary_wraps)] // infallible (all coords default); Option kept for uniform parser dispatch
+fn parse_image(props: &HashMap<String, String>) -> Option<Image> {
+    let x1 = crate::altium::schlib::coord::read(props, "location.x");
+    let y1 = crate::altium::schlib::coord::read(props, "location.y");
+    let x2 = crate::altium::schlib::coord::read(props, "corner.x");
+    let y2 = crate::altium::schlib::coord::read(props, "corner.y");
+
+    let line_width = props
+        .get("linewidth")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+    let line_color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
+    let line_style = props
+        .get("linestyle")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let fill_color = props
+        .get("areacolor")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let filled = props.get("issolid").is_some_and(|s| s == "T");
+    let transparent = props.get("transparent").is_some_and(|s| s == "T");
+    let show_border = props.get("showborder").is_some_and(|s| s == "T");
+    let keep_aspect = props.get("keepaspect").is_some_and(|s| s == "T");
+    let embed_image = props.get("embedimage").is_some_and(|s| s == "T");
+    let file_name = props.get("filename").cloned().unwrap_or_default();
+    let owner_part_id = props
+        .get("ownerpartid")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+
+    Some(Image {
+        x1,
+        y1,
+        x2,
+        y2,
+        is_not_accessible: props.get("isnotaccesible").is_some_and(|s| s == "T"),
+        line_width,
+        line_color,
+        line_style,
+        fill_color,
+        filled,
+        transparent,
+        show_border,
+        keep_aspect,
+        embed_image,
+        file_name,
         owner_part_id,
         display_flags: read_display_flags(props),
         unique_id: props.get("uniqueid").cloned(),

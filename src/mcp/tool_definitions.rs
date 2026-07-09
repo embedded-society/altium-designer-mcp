@@ -787,6 +787,37 @@ impl McpServer {
                                             "required": ["x", "y", "radius"]
                                         }
                                     },
+                                    "images": {
+                                        "type": "array",
+                                        "description": "Embedded/linked raster image definitions (RECORD=30). The record metadata round-trips; embedded image bytes live in the library Storage stream (not authored here).",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "x1": { "type": "number", "description": "First corner X (Location.X)" },
+                                                "y1": { "type": "number", "description": "First corner Y (Location.Y)" },
+                                                "x2": { "type": "number", "description": "Second corner X (Corner.X)" },
+                                                "y2": { "type": "number", "description": "Second corner Y (Corner.Y)" },
+                                                "line_width": { "type": "integer", "description": "Border width. Default: 1" },
+                                                "line_color": { "type": "integer", "description": "Border BGR colour. Default: 0" },
+                                                "line_style": { "type": "integer", "description": "Border style: 0=Solid, 1=Dashed, 2=Dotted. Default: 0" },
+                                                "fill_color": { "type": "integer", "description": "Fill BGR colour (AreaColor). Default: 0" },
+                                                "filled": { "type": "boolean", "description": "Whether the box is filled (IsSolid). Default: false" },
+                                                "transparent": { "type": "boolean", "description": "Whether the fill is transparent. Default: false" },
+                                                "show_border": { "type": "boolean", "description": "Whether the border is shown. Default: false" },
+                                                "keep_aspect": { "type": "boolean", "description": "Whether the image keeps its aspect ratio. Default: false" },
+                                                "embed_image": { "type": "boolean", "description": "Whether the image bytes are embedded (vs a link to file_name). Default: false" },
+                                                "file_name": { "type": "string", "description": "Image file name / embedded key" },
+                                                "is_not_accessible": { "type": "boolean", "description": "Whether the image is marked not-accessible (Altium tags every shape; default true)" },
+                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" },
+                                                "graphically_locked": { "type": "boolean", "description": "Whether the shape is graphically locked. Default: false" },
+                                                "disabled": { "type": "boolean", "description": "Whether the shape is disabled. Default: false" },
+                                                "dimmed": { "type": "boolean", "description": "Whether the shape is dimmed. Default: false" },
+                                                "owner_part_display_mode": { "type": "integer", "description": "Display mode this shape belongs to (0=Normal, 1=first alternate/de-Morgan, ...). Default: 0" },
+                                                "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" }
+                                            },
+                                            "required": ["x1", "y1", "x2", "y2"]
+                                        }
+                                    },
                                     "ellipses": {
                                         "type": "array",
                                         "description": "Ellipse definitions",

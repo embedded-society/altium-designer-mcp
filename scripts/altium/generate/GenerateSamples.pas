@@ -697,6 +697,31 @@ begin
                                        SCHM_PrimitiveRegistration, Pie.I_ObjectAddress);
 end;
 
+{ Image (embedded/linked picture, RECORD=30). VERIFIED factory eImage (=11);
+  ISch_Image members Location/Corner (bounding box), FileName, EmbedImage,
+  KeepAspect, IsSolid, Transparent, LineStyle, LineWidth. A non-embedded image
+  (EmbedImage=False) just references FileName and needs no image bytes. }
+procedure AddImage(Comp : ISch_Component; X1 : Integer; Y1 : Integer;
+                   X2 : Integer; Y2 : Integer; AFileName : String);
+var
+    Img : ISch_Image;
+begin
+    Img := SchServer.SchObjectFactory(eImage, eCreate_Default);
+    if Img = nil then Exit;
+    Img.Location             := Point(MilsToCoord(X1), MilsToCoord(Y1));
+    Img.Corner               := Point(MilsToCoord(X2), MilsToCoord(Y2));
+    Img.LineWidth            := eSmall;
+    Img.Color                := $000000;
+    Img.FileName             := AFileName;
+    Img.EmbedImage           := False;   { link, not embedded — no bytes needed }
+    Img.KeepAspect           := True;
+    Img.OwnerPartId          := 1;
+    Img.OwnerPartDisplayMode := Comp.DisplayMode;
+    Comp.AddSchObject(Img);
+    SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast,
+                                       SCHM_PrimitiveRegistration, Img.I_ObjectAddress);
+end;
+
 { FILLED polygon from 4 corners (a box). ePolygon + VerticesCount + 1-based Vertex[i] +
   IsSolid — verified SY_AddPoly. NOTE: this is RECORD=7 (parse_polygon), NOT a polyline. }
 procedure AddPolygonBox(Comp : ISch_Component; X1 : Integer; Y1 : Integer;
@@ -1398,6 +1423,14 @@ begin
         Comp := NewSymbol(Lib, 'PIESYM', 'Filled pie sector', 1);
         if Comp <> nil then
             AddPie(Comp, 0, 0, 50, 30.0, 210.0, $00FFFF);   { 30..210 deg wedge, yellow fill }
+    except
+    end;
+
+    { ---- IMAGESYM — a linked image (RECORD=30, newly implemented). ---- }
+    try
+        Comp := NewSymbol(Lib, 'IMAGESYM', 'Linked image', 1);
+        if Comp <> nil then
+            AddImage(Comp, -50, -30, 50, 30, 'logo.bmp');   { 100x60 mil box linking logo.bmp }
     except
     end;
 

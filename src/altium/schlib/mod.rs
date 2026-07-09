@@ -417,6 +417,9 @@ pub struct Symbol {
     /// Pies (filled circular sectors, `RECORD=9`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pies: Vec<Pie>,
+    /// Images (embedded/linked pictures, `RECORD=30`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<Image>,
     /// Bezier curves.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub beziers: Vec<Bezier>,
@@ -514,6 +517,11 @@ impl Symbol {
     /// Adds a pie (filled sector) to the symbol.
     pub fn add_pie(&mut self, pie: Pie) {
         self.pies.push(pie);
+    }
+
+    /// Adds an image to the symbol.
+    pub fn add_image(&mut self, image: Image) {
+        self.images.push(image);
     }
 
     /// Adds a Bezier curve to the symbol.
@@ -781,6 +789,44 @@ mod tests {
             p.display_flags.graphically_locked,
             "GraphicallyLocked round-trips"
         );
+    }
+
+    #[test]
+    fn roundtrip_image() {
+        // Image (RECORD=30) is a bounding-box picture record; verify the metadata
+        // round-trips (the embedded bytes in /Storage are a separate concern).
+        let mut symbol = Symbol::new("IMG");
+        let mut image = Image::new(10, 20, 60, 50, "logo.png");
+        image.line_width = 2;
+        image.line_color = 0x00_00_FF;
+        image.line_style = 1;
+        image.fill_color = 0xAB_CD_EF;
+        image.filled = true;
+        image.transparent = true;
+        image.show_border = true;
+        image.keep_aspect = true;
+        image.embed_image = true;
+        image.is_not_accessible = false;
+        image.display_flags.dimmed = true;
+        symbol.add_image(image);
+
+        let data = writer::encode_data_stream(&symbol).expect("encode");
+        let mut decoded = Symbol::new("IMG");
+        reader::parse_data_stream(&mut decoded, &data);
+
+        assert_eq!(decoded.images.len(), 1, "the Image survives");
+        let im = &decoded.images[0];
+        assert!((im.x1 - 10.0).abs() < 1e-9 && (im.y1 - 20.0).abs() < 1e-9);
+        assert!((im.x2 - 60.0).abs() < 1e-9 && (im.y2 - 50.0).abs() < 1e-9);
+        assert_eq!(im.line_width, 2);
+        assert_eq!(im.line_color, 0x00_00_FF);
+        assert_eq!(im.line_style, 1);
+        assert_eq!(im.fill_color, 0xAB_CD_EF);
+        assert!(im.filled && im.transparent && im.show_border && im.keep_aspect);
+        assert!(im.embed_image, "EmbedImage round-trips");
+        assert_eq!(im.file_name, "logo.png");
+        assert!(!im.is_not_accessible, "false IsNotAccesible round-trips");
+        assert!(im.display_flags.dimmed, "Dimmed round-trips");
     }
 
     #[test]

@@ -133,8 +133,9 @@ concrete slice of those uncovered lines.
 AltiumSharp models these symbol-library records; our reader does **not** dispatch them (record IDs
 we handle: 1,2,4,5,6,7,8,10,11,12,13,14,34,41,45 — note the holes):
 
-- [ ] 🟠 **Image** (`SchImageDto`) — an embedded raster picture in a symbol (bitmap + bounding box +
-      embedded/linked flag). Not modelled. Add primitive + reader + sample + test.
+- [ ] 🟠 **Image embedded bytes** — the `RECORD=30` metadata now round-trips, but the raw image
+      *bytes* of an embedded image (in the library `/Storage` stream, matched in order per
+      AltiumSharp `ParseStorageImageData`) are not yet read. Add the Storage-stream extraction.
 - [ ] 🟠 **TextFrame** (`SchTextFrameDto`) — a bordered multi-line text box (distinct from
       Label/Text: has a frame rect, word-wrap, alignment). Not modelled. Add primitive + sample + test.
 - [ ] ⚪ **Verify in-scope:** `ParameterSet`, `Hyperlink`, `Note`, `CompileMask` — confirm whether
