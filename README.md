@@ -110,7 +110,7 @@ read and write the actual `.PcbLib` / `.SchLib` files.
 
 ## MCP Tools
 
-The server exposes **33 tools**, working on both `.PcbLib` (footprints) and
+The server exposes **34 tools**, working on both `.PcbLib` (footprints) and
 `.SchLib` (symbols). Every tool's full parameters and examples live in
 **[docs/TOOLS.md](docs/TOOLS.md)** — this is the categorised overview.
 
@@ -169,6 +169,7 @@ The server exposes **33 tools**, working on both `.PcbLib` (footprints) and
 | Tool | Purpose |
 |------|---------|
 | [`merge_libraries`](docs/TOOLS.md#merge_libraries) | Merge multiple libraries into one. |
+| [`write_libpkg`](docs/TOOLS.md#write_libpkg) | Write a `.LibPkg` project grouping libraries for IntLib compilation. |
 | [`export_library`](docs/TOOLS.md#export_library) | Export to JSON/CSV. |
 | [`import_library`](docs/TOOLS.md#import_library) | Import from JSON (inverse of export). |
 | [`validate_library`](docs/TOOLS.md#validate_library) | Validate for common issues. |
