@@ -9,7 +9,7 @@
 //!
 //! - `FileHeader` stream: Library metadata (component list, fonts)
 //! - `{ComponentName}/Data` stream: Symbol primitives
-//! - `Storage` stream: Additional metadata
+//! - `Storage` stream: Embedded image bytes (icon storage; see the `storage` module)
 //!
 //! # Data Stream Format
 //!
@@ -56,6 +56,7 @@ pub(crate) mod pin_aux;
 pub mod primitives;
 mod read_io;
 pub mod reader;
+pub(crate) mod storage;
 mod write_io;
 pub mod writer;
 
@@ -641,6 +642,56 @@ mod tests {
         assert_eq!(im.file_name, "logo.png");
         assert!(!im.is_not_accessible, "false IsNotAccesible round-trips");
         assert!(im.display_flags.dimmed, "Dimmed round-trips");
+    }
+
+    #[test]
+    fn roundtrip_embedded_image_bytes() {
+        // Embedded image BYTES round-trip through the library-level /Storage
+        // stream: two embedded images with distinct payloads, interleaved with
+        // a non-embedded one (which must be skipped by the in-order matching
+        // and stay byte-less). Full in-RAM write -> read cycle.
+        let mut symbol = Symbol::new("EMBED_IMGS");
+
+        let mut first = Image::new(0, 0, 10, 6, r"C:\img\first.bmp");
+        first.embed_image = true;
+        first.image_data = Some(vec![0x42, 0x4D, 0x01, 0x02, 0x03]);
+        symbol.add_image(first);
+
+        // Non-embedded (linked) image between the two embedded ones.
+        symbol.add_image(Image::new(0, 10, 5, 13, "linked.png"));
+
+        let mut second = Image::new(-10, -6, 0, 0, r"C:\img\second.bmp");
+        second.embed_image = true;
+        second.image_data = Some(vec![0xAB; 300]);
+        symbol.add_image(second);
+
+        let mut lib = SchLib::new();
+        lib.add(symbol);
+        let mut buffer = Cursor::new(Vec::new());
+        lib.write(&mut buffer).expect("Failed to write SchLib");
+
+        buffer.set_position(0);
+        let read_lib = SchLib::read(buffer).expect("Failed to read SchLib");
+        let read_symbol = read_lib.get("EMBED_IMGS").expect("Symbol not found");
+
+        assert_eq!(read_symbol.images.len(), 3, "all three images survive");
+        let [a, b, c] = &read_symbol.images[..] else {
+            panic!("expected exactly three images");
+        };
+        assert!(a.embed_image, "first image stays embedded");
+        assert_eq!(
+            a.image_data.as_deref(),
+            Some([0x42, 0x4D, 0x01, 0x02, 0x03].as_slice()),
+            "first payload matches in order"
+        );
+        assert!(!b.embed_image, "linked image stays non-embedded");
+        assert_eq!(b.image_data, None, "linked image carries no bytes");
+        assert!(c.embed_image, "second image stays embedded");
+        assert_eq!(
+            c.image_data.as_deref(),
+            Some(vec![0xAB; 300].as_slice()),
+            "second payload matches in order (not the linked slot)"
+        );
     }
 
     #[test]

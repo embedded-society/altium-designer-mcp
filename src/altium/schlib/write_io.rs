@@ -4,7 +4,7 @@
 
 use std::io::{Read, Seek, Write};
 
-use super::{pin_aux, writer, AltiumError, AltiumResult, SchLib, Symbol};
+use super::{pin_aux, storage, writer, AltiumError, AltiumResult, SchLib, Symbol};
 
 impl SchLib {
     /// Writes the library to any writer implementing `Read + Write + Seek`.
@@ -48,11 +48,20 @@ impl SchLib {
             }
         }
 
-        // Root Storage stream (Altium's icon storage). Always present; for a
-        // library with no embedded images it is just the header param block.
-        let mut storage = Vec::new();
-        crate::altium::framing::write_cstring_param_block(&mut storage, b"|HEADER=Icon storage");
-        crate::altium::write_stream(&mut cfb, "/Storage", &storage)?;
+        // Root Storage stream (Altium's icon storage). Always present. Each
+        // image with `embed_image` AND carried bytes contributes one
+        // compressed entry, named with the image's `file_name` (real AD24
+        // stores the full source file path there; the reader matches by order,
+        // not name). With no embedded images the stream is just the header
+        // param block — byte-identical to the pre-embedded-image output.
+        let entries: Vec<(&str, &[u8])> = symbols
+            .iter()
+            .flat_map(|s| s.images.iter())
+            .filter(|i| i.embed_image)
+            .filter_map(|i| i.image_data.as_deref().map(|d| (i.file_name.as_str(), d)))
+            .collect();
+        let storage_stream = storage::encode_icon_storage(&entries)?;
+        crate::altium::write_stream(&mut cfb, "/Storage", &storage_stream)?;
 
         cfb.flush()
             .map_err(|e| AltiumError::invalid_ole(format!("Failed to flush OLE file: {e}")))?;

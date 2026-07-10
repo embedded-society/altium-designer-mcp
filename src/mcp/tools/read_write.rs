@@ -1455,6 +1455,7 @@ impl McpServer {
                             "keep_aspect",
                             "embed_image",
                             "file_name",
+                            "image_data",
                             "is_not_accessible",
                             "owner_part_id",
                             "unique_id",

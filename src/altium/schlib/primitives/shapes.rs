@@ -379,10 +379,10 @@ impl Pie {
 /// An embedded or linked raster image — `SchLib` `RECORD=30`.
 ///
 /// A bounding-box graphic (two corners) with an optional border and fill plus a
-/// referenced/embedded picture. This models the record metadata; the raw image
-/// bytes of an embedded image live in the library's `/Storage` stream and are a
-/// separate fidelity concern (like the pin auxiliary streams). Coordinates are
-/// `f64` schematic units (see `super::coord`).
+/// referenced/embedded picture. The record itself carries only metadata; the
+/// raw bytes of an embedded image live in the library's `/Storage` stream
+/// (see `super::super::storage`) and surface here as [`Image::image_data`].
+/// Coordinates are `f64` schematic units (see `super::coord`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[allow(clippy::struct_excessive_bools)] // independent Altium record flags
 pub struct Image {
@@ -431,8 +431,22 @@ pub struct Image {
     #[serde(default)]
     pub embed_image: bool,
     /// The image file name (`FileName`) — the reference name or embedded key.
+    /// For an embedded image real AD24 stores the full source file path here
+    /// and reuses it as the `/Storage` entry name.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub file_name: String,
+    /// Raw embedded image bytes from the library's `/Storage` stream,
+    /// serialised as a base64 string in JSON. Populated when [`embed_image`]
+    /// is true and the library carried bytes for this image; `None` otherwise
+    /// (linked image, or an embedded entry that was absent/corrupt).
+    ///
+    /// [`embed_image`]: Image::embed_image
+    #[serde(
+        default,
+        with = "crate::altium::base64_opt",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub image_data: Option<Vec<u8>>,
     /// Owner part ID.
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,
@@ -472,6 +486,7 @@ impl Image {
             keep_aspect: false,
             embed_image: false,
             file_name: file_name.into(),
+            image_data: None,
             owner_part_id: 1,
             display_flags: ShapeDisplayFlags::default(),
             unique_id: None,

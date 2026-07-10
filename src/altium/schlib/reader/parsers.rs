@@ -580,6 +580,9 @@ pub(super) fn parse_image(props: &HashMap<String, String>) -> Option<Image> {
         keep_aspect,
         embed_image,
         file_name,
+        // Filled in after all symbols are parsed, from the library-level
+        // `/Storage` stream (entries match embedded images in global order).
+        image_data: None,
         owner_part_id,
         display_flags: read_display_flags(props),
         unique_id: props.get("uniqueid").cloned(),

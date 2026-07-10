@@ -12,6 +12,7 @@ Run after building the binary:
     python3 tests/integration/test_mcp_tools.py
 """
 
+import base64
 import json
 import os
 import sys
@@ -1447,7 +1448,9 @@ def test_update_schlib_preserves_pies_images(client, runner, schlib_path):
         "pies": [
             {"x": 0, "y": 0, "radius": 5, "start_angle": 30.0, "end_angle": 210.0}
         ],
-        "images": [{"x1": -5, "y1": -3, "x2": 5, "y2": 3, "file_name": "logo.bmp"}],
+        "images": [{"x1": -5, "y1": -3, "x2": 5, "y2": 3, "file_name": "logo.bmp",
+                    "embed_image": True,
+                    "image_data": base64.b64encode(b"BM_pieimg_payload").decode("ascii")}],
         "footprints": [{"name": "RESC1608X55N"}],
     }
     write = client.call_tool(
@@ -1468,6 +1471,12 @@ def test_update_schlib_preserves_pies_images(client, runner, schlib_path):
     sym = syms.get("PIEIMG", {})
     runner.check(len(sym.get("pies", [])) == 1, "pie survived update_component", actual=len(sym.get("pies", [])))
     runner.check(len(sym.get("images", [])) == 1, "image survived update_component", actual=len(sym.get("images", [])))
+    img = (sym.get("images") or [{}])[0]
+    runner.check(
+        img.get("image_data") == base64.b64encode(b"BM_pieimg_payload").decode("ascii"),
+        "embedded image bytes survived update_component (RMW preservation)",
+        actual=img.get("image_data"),
+    )
     runner.check(len(sym.get("footprints", [])) == 1, "footprint link survived", actual=len(sym.get("footprints", [])))
     runner.check(sym.get("part_count") == 2, "part_count survived", actual=sym.get("part_count"))
     runner.check(sym.get("description") == "after", "description was updated", actual=sym.get("description"))
@@ -2353,6 +2362,66 @@ def test_write_schlib_pin_aux_data(client, runner, schlib_path):
     )
 
 
+def test_write_schlib_embedded_image_bytes(client, runner, schlib_path):
+    print("\n=== Test: write_schlib embedded image bytes round trip ===")
+    # Embedded image bytes travel as base64 image_data on the RECORD=30 image
+    # and land in the library-level /Storage stream (one zlib-compressed 0xD0
+    # entry per embedded image); read_schlib must surface the same base64.
+    img_bytes = b"BM_fake_bitmap_payload_0123456789"
+    img_b64 = base64.b64encode(img_bytes).decode("ascii")
+    symbol = {
+        "name": "EMBIMG",
+        "images": [
+            {
+                "x1": -5,
+                "y1": -3,
+                "x2": 5,
+                "y2": 3,
+                "keep_aspect": True,
+                "embed_image": True,
+                "file_name": "C:\\img\\embed.bmp",
+                "image_data": img_b64,
+            },
+            # A linked image with no bytes must stay byte-less.
+            {"x1": 0, "y1": 10, "x2": 5, "y2": 13, "file_name": "linked.png"},
+        ],
+    }
+
+    write = client.call_tool(
+        "write_schlib",
+        {"filepath": schlib_path, "symbols": [symbol], "append": False},
+    )
+    runner.check(
+        not write.get("_isError"), "write_schlib (embedded image) succeeded", actual=write
+    )
+
+    read = client.call_tool("read_schlib", {"filepath": schlib_path})
+    runner.check(not read.get("_isError"), "read_schlib succeeded", actual=read)
+
+    symbols = {s.get("name"): s for s in read.get("symbols", [])}
+    sym = symbols.get("EMBIMG", {})
+    images = {i.get("file_name"): i for i in sym.get("images", [])}
+    embedded = images.get("C:\\img\\embed.bmp", {})
+    linked = images.get("linked.png", {})
+
+    runner.check(
+        embedded.get("embed_image") is True,
+        "embedded image keeps embed_image",
+        actual=embedded.get("embed_image"),
+    )
+    runner.check(
+        embedded.get("image_data") == img_b64,
+        "embedded image bytes round-trip as base64",
+        actual=embedded.get("image_data"),
+        expected=img_b64,
+    )
+    runner.check(
+        linked.get("image_data") is None,
+        "linked image carries no image_data",
+        actual=linked.get("image_data"),
+    )
+
+
 def main():
     binary = find_binary()
     print(f"Using binary: {binary}")
@@ -2410,6 +2479,7 @@ def main():
         test_write_schlib_utf8_text(client, runner, schlib_path)
         test_write_schlib_unique_id_roundtrip(client, runner, schlib_path)
         test_write_schlib_pin_aux_data(client, runner, schlib_path)
+        test_write_schlib_embedded_image_bytes(client, runner, schlib_path)
         test_read_pcblib_exposes_vias_fills(client, runner, sample_path)
         test_read_schlib_exposes_round_rects_polygons(client, runner, schlib_sample_path)
         test_unknown_tool(client, runner)

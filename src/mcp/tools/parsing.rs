@@ -1668,6 +1668,22 @@ impl McpServer {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string();
+        // Base64-encoded raw image bytes destined for the library /Storage
+        // stream. Invalid base64 is treated as absent (this parser is lenient
+        // Option-style throughout), with a debug log for diagnosis.
+        let image_data = json
+            .get("image_data")
+            .and_then(Value::as_str)
+            .and_then(|s| {
+                use base64::Engine as _;
+                match base64::engine::general_purpose::STANDARD.decode(s.as_bytes()) {
+                    Ok(bytes) => Some(bytes),
+                    Err(e) => {
+                        tracing::debug!(error = %e, "invalid base64 in image_data; ignoring");
+                        None
+                    }
+                }
+            });
         let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
 
         Some(Image {
@@ -1686,6 +1702,7 @@ impl McpServer {
             keep_aspect: b("keep_aspect"),
             embed_image: b("embed_image"),
             file_name,
+            image_data,
             owner_part_id,
             display_flags: parse_schlib_display_flags(json),
             unique_id: json_unique_id(json),

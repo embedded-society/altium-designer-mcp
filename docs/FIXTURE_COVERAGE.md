@@ -67,7 +67,7 @@ negative (Altium does not persist it — do not retry).
 | Polyline | plain polylines | line_style, start/end shapes, transparent, display flags |
 | Polygon | plain polygons; ✅ transparent (`SHAPESTYLE` triangle) | is_not_accessible=false, display flags (line_style: N/A — `ISch_Polygon` has no LineStyle in AD24) |
 | Pie | ✅ authored (`PIESYM`: 30–210°, radius 5 units, yellow fill, exact-asserted) | transparent, display flags, `_Frac` coords |
-| Image | ✅ authored (`IMAGESYM`: bounding box, `logo.bmp`, KeepAspect, non-embedded) | embedded image bytes (`/Storage` stream), show_border non-default, display flags |
+| Image | ✅ authored (`IMAGESYM`: bounding box, `logo.bmp`, KeepAspect, non-embedded); ✅ embedded image bytes in the `/Storage` stream (`EMBIMGSYM`, exact-asserted against the committed `embed.bmp`) | show_border non-default, display flags |
 | Bezier | ✅ authored (`BEZIERSYM`, four control points exact-asserted) | non-default colour/width, display flags |
 | Label | plain labels; ✅ justification variants + rotation (`JUSTIFY`) | mirror, display flags |
 | Parameter | Value etc. | justification, orientation, is_mirrored, autoposition, is_configurable, is_rule/is_system, area colour |

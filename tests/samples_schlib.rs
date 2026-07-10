@@ -51,11 +51,11 @@ fn pin_by_designator<'a>(symbol: &'a Symbol, designator: &str) -> &'a Pin {
 fn samples_schlib_structure() {
     let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
 
-    // Twenty-three Altium-authored symbols: fifteen per-primitive-family symbols
-    // plus eight coverage-enrichment symbols (SHAPESTYLE, LOCKFLAGS, JUSTIFY,
-    // FRACPINS, BEZIERSYM, PIESYM, IMAGESYM, TEXTFRAMESYM) added to
+    // Twenty-four Altium-authored symbols: fifteen per-primitive-family symbols
+    // plus nine coverage-enrichment symbols (SHAPESTYLE, LOCKFLAGS, JUSTIFY,
+    // FRACPINS, BEZIERSYM, PIESYM, IMAGESYM, TEXTFRAMESYM, EMBIMGSYM) added to
     // GenerateSamples.pas and regenerated on-site.
-    assert_eq!(lib.len(), 23, "expected exactly twenty-three symbols");
+    assert_eq!(lib.len(), 24, "expected exactly twenty-four symbols");
 
     let names = lib.names();
     for expected in [
@@ -82,6 +82,7 @@ fn samples_schlib_structure() {
         "PIESYM",
         "IMAGESYM",
         "TEXTFRAMESYM",
+        "EMBIMGSYM",
     ] {
         assert!(
             names.iter().any(|n| n == expected),
@@ -856,6 +857,36 @@ fn samples_schlib_image() {
     assert_eq!(im.file_name, "logo.bmp", "image file name round-trips");
     assert!(!im.embed_image, "image is linked, not embedded");
     assert!(im.keep_aspect, "KeepAspect round-trips");
+    assert_eq!(
+        im.image_data, None,
+        "a linked image carries no /Storage bytes"
+    );
+}
+
+#[test]
+fn samples_schlib_embedded_image() {
+    let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
+    let sym = lib.get("EMBIMGSYM").expect("EMBIMGSYM symbol not found");
+
+    // One EMBEDDED image (RECORD=30, EmbedImage=T) whose raw bytes AD24 stored
+    // in the library-level /Storage stream (one 0xD0 compressed entry, named
+    // with the image's full source file path). The committed embed.bmp is
+    // byte-identical to the bytes AD24 embedded, so this is real-Altium ground
+    // truth for the /Storage read path — exact, all 70 bytes.
+    assert_eq!(sym.images.len(), 1, "EMBIMGSYM has one image");
+    let im = &sym.images[0];
+    assert!(im.embed_image, "the image is embedded (EmbedImage=T)");
+    assert_eq!(
+        im.file_name, r"C:\Users\Public\altium_designer_mcp\samples\embed.bmp",
+        "AD24 stores the full source file path as the FileName"
+    );
+    let expected: &[u8] = include_bytes!("../scripts/samples/embed.bmp");
+    assert_eq!(expected.len(), 70, "the committed embed.bmp is 70 bytes");
+    assert_eq!(
+        im.image_data.as_deref(),
+        Some(expected),
+        "the /Storage bytes match the committed embed.bmp exactly"
+    );
 }
 
 #[test]
