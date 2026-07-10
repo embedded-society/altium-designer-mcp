@@ -1692,6 +1692,93 @@ impl McpServer {
         })
     }
 
+    /// Parses a `SchLib` Bezier from JSON. Requires the four control points
+    /// (`x1`..`y4`); optionals default as [`crate::altium::schlib::Bezier::new`]
+    /// does when absent.
+    #[allow(clippy::cast_possible_truncation)]
+    pub(crate) fn parse_schlib_bezier(json: &Value) -> Option<crate::altium::schlib::Bezier> {
+        use crate::altium::schlib::Bezier;
+
+        let x1 = json_f64(json, "x1")?;
+        let y1 = json_f64(json, "y1")?;
+        let x2 = json_f64(json, "x2")?;
+        let y2 = json_f64(json, "y2")?;
+        let x3 = json_f64(json, "x3")?;
+        let y3 = json_f64(json, "y3")?;
+        let x4 = json_f64(json, "x4")?;
+        let y4 = json_f64(json, "y4")?;
+        let line_width = json.get("line_width").and_then(Value::as_u64).unwrap_or(1) as u8;
+        let color = json
+            .get("color")
+            .and_then(Value::as_u64)
+            .unwrap_or(0x00_00_80) as u32;
+        let is_not_accessible = json
+            .get("is_not_accessible")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
+
+        Some(Bezier {
+            x1,
+            y1,
+            x2,
+            y2,
+            x3,
+            y3,
+            x4,
+            y4,
+            line_width,
+            color,
+            is_not_accessible,
+            owner_part_id,
+            unique_id: json_unique_id(json),
+        })
+    }
+
+    /// Parses a `SchLib` elliptical arc from JSON. Requires centre and both
+    /// radii; optionals default as
+    /// [`crate::altium::schlib::EllipticalArc::new`] does when absent.
+    #[allow(clippy::cast_possible_truncation)]
+    pub(crate) fn parse_schlib_elliptical_arc(
+        json: &Value,
+    ) -> Option<crate::altium::schlib::EllipticalArc> {
+        use crate::altium::schlib::EllipticalArc;
+
+        let x = json_f64(json, "x")?;
+        let y = json_f64(json, "y")?;
+        let radius = json_f64(json, "radius")?;
+        let secondary_radius = json_f64(json, "secondary_radius")?;
+        let start_angle = json
+            .get("start_angle")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0);
+        let end_angle = json
+            .get("end_angle")
+            .and_then(Value::as_f64)
+            .unwrap_or(360.0);
+        let line_width = json.get("line_width").and_then(Value::as_u64).unwrap_or(1) as u8;
+        let color = json
+            .get("color")
+            .and_then(Value::as_u64)
+            .unwrap_or(0x00_00_80) as u32;
+        let fill_color = json.get("fill_color").and_then(Value::as_u64).unwrap_or(0) as u32;
+        let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
+
+        Some(EllipticalArc {
+            x,
+            y,
+            radius,
+            secondary_radius,
+            start_angle,
+            end_angle,
+            line_width,
+            color,
+            fill_color,
+            owner_part_id,
+            unique_id: json_unique_id(json),
+        })
+    }
+
     /// Parses a schematic ellipse from JSON.
     #[allow(clippy::cast_possible_truncation)]
     pub(crate) fn parse_schlib_ellipse(json: &Value) -> Option<crate::altium::schlib::Ellipse> {

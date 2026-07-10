@@ -1129,7 +1129,9 @@ impl McpServer {
                     "arcs",
                     "pies",
                     "images",
+                    "beziers",
                     "ellipses",
+                    "elliptical_arcs",
                     "labels",
                     "text",
                     "parameters",
@@ -1462,6 +1464,56 @@ impl McpServer {
                     );
                     if let Some(image) = Self::parse_schlib_image(image_json) {
                         symbol.add_image(image);
+                    }
+                }
+            }
+
+            if let Some(beziers) = sym_json.get("beziers").and_then(Value::as_array) {
+                for bezier_json in beziers {
+                    check_keys!(
+                        bezier_json,
+                        &[
+                            "x1",
+                            "y1",
+                            "x2",
+                            "y2",
+                            "x3",
+                            "y3",
+                            "x4",
+                            "y4",
+                            "line_width",
+                            "color",
+                            "is_not_accessible",
+                            "owner_part_id",
+                            "unique_id"
+                        ]
+                    );
+                    if let Some(bezier) = Self::parse_schlib_bezier(bezier_json) {
+                        symbol.add_bezier(bezier);
+                    }
+                }
+            }
+
+            if let Some(ell_arcs) = sym_json.get("elliptical_arcs").and_then(Value::as_array) {
+                for ell_arc_json in ell_arcs {
+                    check_keys!(
+                        ell_arc_json,
+                        &[
+                            "x",
+                            "y",
+                            "radius",
+                            "secondary_radius",
+                            "start_angle",
+                            "end_angle",
+                            "line_width",
+                            "color",
+                            "fill_color",
+                            "owner_part_id",
+                            "unique_id"
+                        ]
+                    );
+                    if let Some(ell_arc) = Self::parse_schlib_elliptical_arc(ell_arc_json) {
+                        symbol.add_elliptical_arc(ell_arc);
                     }
                 }
             }

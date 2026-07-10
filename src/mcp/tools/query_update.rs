@@ -502,19 +502,19 @@ impl McpServer {
             }
         }
 
-        // Beziers and elliptical arcs cannot be authored via write_schlib yet,
-        // but get_component returns them in serde shape, so a read-modify-write
-        // must carry them through — deserialise them directly.
+        // Beziers and elliptical arcs (mirror the create path, which authors
+        // them through the same parse helpers — the JSON keys equal the serde
+        // field names, so a get_component echo parses identically).
         if let Some(beziers) = sym_json.get("beziers").and_then(Value::as_array) {
             for bezier_json in beziers {
-                if let Ok(bezier) = serde_json::from_value(bezier_json.clone()) {
+                if let Some(bezier) = Self::parse_schlib_bezier(bezier_json) {
                     symbol.beziers.push(bezier);
                 }
             }
         }
         if let Some(ell_arcs) = sym_json.get("elliptical_arcs").and_then(Value::as_array) {
             for ell_arc_json in ell_arcs {
-                if let Ok(ell_arc) = serde_json::from_value(ell_arc_json.clone()) {
+                if let Some(ell_arc) = Self::parse_schlib_elliptical_arc(ell_arc_json) {
                     symbol.elliptical_arcs.push(ell_arc);
                 }
             }

@@ -1950,6 +1950,12 @@ mod tests {
                 "ellipses": [{"x": 0, "y": 0, "radius_x": 5, "radius_y": 3,
                     "line_width": 1, "line_color": 128, "fill_color": 11_599_871,
                     "filled": true, "owner_part_id": 1}],
+                "beziers": [{"x1": -10, "y1": 0, "x2": -5, "y2": 8, "x3": 5, "y3": 8,
+                    "x4": 10, "y4": 0, "line_width": 1, "color": 128,
+                    "is_not_accessible": true, "owner_part_id": 1}],
+                "elliptical_arcs": [{"x": 0, "y": 0, "radius": 10, "secondary_radius": 5,
+                    "start_angle": 0, "end_angle": 90, "line_width": 1, "color": 128,
+                    "fill_color": 0, "owner_part_id": 1}],
                 "labels": [{"x": 0, "y": 0, "text": "L", "font_id": 1, "color": 128,
                     "rotation": 0, "is_mirrored": false, "is_hidden": false,
                     "justification": "bottom_left", "owner_part_id": 1}],
@@ -1967,6 +1973,58 @@ mod tests {
             !result.is_error,
             "all schlib primitive fields must be accepted, got: {}",
             get_result_text(&result)
+        );
+    }
+
+    #[test]
+    fn write_schlib_authors_beziers_and_elliptical_arcs() {
+        // These two families used to be read/RMW-preserved only (write_schlib
+        // rejected the keys). Author one of each and read them back through
+        // the real writer + reader.
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("bez_earc.SchLib");
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepath": lib_path.to_string_lossy(),
+            "symbols": [{
+                "name": "CURVES",
+                "beziers": [{"x1": -10, "y1": 0, "x2": -5, "y2": 8,
+                    "x3": 5, "y3": 8, "x4": 10, "y4": 0}],
+                "elliptical_arcs": [{"x": 0, "y": 0, "radius": 10,
+                    "secondary_radius": 5, "start_angle": 0, "end_angle": 90}]
+            }]
+        });
+        let result = server.call_write_schlib(&args);
+        assert!(
+            !result.is_error,
+            "write failed: {}",
+            get_result_text(&result)
+        );
+
+        let lib = SchLib::open(&lib_path).expect("reopen");
+        let sym = lib.get("CURVES").expect("symbol present");
+        assert_eq!(sym.beziers.len(), 1, "bezier authored");
+        let bez = &sym.beziers[0];
+        assert!(
+            (bez.x1 + 10.0).abs() < 1e-9
+                && (bez.y2 - 8.0).abs() < 1e-9
+                && (bez.x4 - 10.0).abs() < 1e-9,
+            "bezier control points round-trip, got ({}, {}) .. ({}, {})",
+            bez.x1,
+            bez.y1,
+            bez.x4,
+            bez.y4
+        );
+        assert_eq!(sym.elliptical_arcs.len(), 1, "elliptical arc authored");
+        let ell = &sym.elliptical_arcs[0];
+        assert!(
+            (ell.radius - 10.0).abs() < 1e-9
+                && (ell.secondary_radius - 5.0).abs() < 1e-9
+                && (ell.end_angle - 90.0).abs() < 1e-9,
+            "elliptical arc fields round-trip, got r={} r2={} end={}",
+            ell.radius,
+            ell.secondary_radius,
+            ell.end_angle
         );
     }
 

@@ -532,7 +532,7 @@ impl McpServer {
                 description: Some(
                     "Write schematic symbols to an Altium .SchLib file. Each symbol is defined by \
                      its primitives: pins, rectangles, round_rects, lines, polylines, polygons, \
-                     arcs, pies, images, ellipses, labels, and text. \
+                     arcs, pies, images, beziers, ellipses, elliptical_arcs, labels, and text. \
                      Coordinates must be in schematic units (10 units = 1 grid square, not mm)."
                         .to_string(),
                 ),
@@ -816,6 +816,50 @@ impl McpServer {
                                                 "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" }
                                             },
                                             "required": ["x1", "y1", "x2", "y2"]
+                                        }
+                                    },
+                                    "beziers": {
+                                        "type": "array",
+                                        "description": "Cubic Bezier curve definitions (four control points)",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "x1": { "type": "number", "description": "First control point X" },
+                                                "y1": { "type": "number", "description": "First control point Y" },
+                                                "x2": { "type": "number", "description": "Second control point X" },
+                                                "y2": { "type": "number", "description": "Second control point Y" },
+                                                "x3": { "type": "number", "description": "Third control point X" },
+                                                "y3": { "type": "number", "description": "Third control point Y" },
+                                                "x4": { "type": "number", "description": "Fourth control point X" },
+                                                "y4": { "type": "number", "description": "Fourth control point Y" },
+                                                "line_width": { "type": "integer", "description": "Curve width. Default: 1" },
+                                                "color": { "type": "integer", "description": "Curve BGR colour. Default: 32896 (dark red)" },
+                                                "is_not_accessible": { "type": "boolean", "description": "Whether the curve is marked not-accessible (Altium tags every shape; default true)" },
+                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" },
+                                                "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" }
+                                            },
+                                            "required": ["x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4"]
+                                        }
+                                    },
+                                    "elliptical_arcs": {
+                                        "type": "array",
+                                        "description": "Elliptical arc definitions (arc with independent X/Y radii)",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "x": { "type": "number", "description": "Centre X coordinate" },
+                                                "y": { "type": "number", "description": "Centre Y coordinate" },
+                                                "radius": { "type": "number", "description": "Primary (X) radius in schematic units" },
+                                                "secondary_radius": { "type": "number", "description": "Secondary (Y) radius in schematic units" },
+                                                "start_angle": { "type": "number", "description": "Start angle in degrees (0 = right, CCW). Default: 0" },
+                                                "end_angle": { "type": "number", "description": "End angle in degrees. Default: 360" },
+                                                "line_width": { "type": "integer", "description": "Arc width. Default: 1" },
+                                                "color": { "type": "integer", "description": "Arc BGR colour. Default: 32896 (dark red)" },
+                                                "fill_color": { "type": "integer", "description": "Fill BGR colour (AreaColor). Default: 0" },
+                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" },
+                                                "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" }
+                                            },
+                                            "required": ["x", "y", "radius", "secondary_radius"]
                                         }
                                     },
                                     "ellipses": {
