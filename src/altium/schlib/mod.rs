@@ -51,16 +51,14 @@
 pub(crate) mod coord;
 pub(crate) mod pin_aux;
 pub mod primitives;
+mod read_io;
 pub mod reader;
+mod write_io;
 pub mod writer;
 
-use cfb::CompoundFile;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::io::{Read, Seek, Write};
 use std::path::Path;
-use tracing::warn;
 
 use super::{AltiumError, AltiumResult};
 pub use primitives::*;
@@ -117,78 +115,6 @@ impl SchLib {
 
         let mut lib = Self::read(file)?;
         lib.filepath = Some(path.display().to_string());
-        Ok(lib)
-    }
-
-    /// Reads a `SchLib` from any reader implementing `Read + Seek`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the file cannot be parsed.
-    pub fn read<R: Read + Seek>(reader: R) -> AltiumResult<Self> {
-        let mut cfb = crate::altium::open_ole(reader)?;
-
-        let mut lib = Self::new();
-
-        // Read FileHeader to get component list
-        let header = read_file_header(&mut cfb)?;
-
-        // Read each component
-        for comp_name in header.component_names {
-            let stream_path = format!("{comp_name}/Data");
-
-            let mut stream = match cfb.open_stream(&stream_path) {
-                Ok(s) => s,
-                Err(e) => {
-                    warn!(
-                        component = %comp_name,
-                        error = %e,
-                        "Failed to open component stream, skipping"
-                    );
-                    continue;
-                }
-            };
-
-            let mut data = Vec::new();
-            if let Err(e) = stream.read_to_end(&mut data) {
-                warn!(
-                    component = %comp_name,
-                    error = %e,
-                    "Failed to read component data, skipping"
-                );
-                continue;
-            }
-
-            let mut symbol = Symbol::new(&comp_name);
-            symbol.description = header
-                .component_descriptions
-                .get(&comp_name)
-                .cloned()
-                .unwrap_or_default();
-
-            reader::parse_data_stream(&mut symbol, &data);
-
-            // Apply the optional per-component pin auxiliary streams. They sit
-            // alongside `Data` in the same storage and are keyed by pin ordinal,
-            // so they must be applied AFTER the pins are parsed. Absent streams
-            // (the common case, incl. the whole golden) leave the pins untouched.
-            if let Some(frac) =
-                crate::altium::read_stream_opt(&mut cfb, format!("{comp_name}/PinFrac"))
-            {
-                pin_aux::apply_pin_frac(&mut symbol.pins, &frac);
-            }
-            if let Some(widths) =
-                crate::altium::read_stream_opt(&mut cfb, format!("{comp_name}/PinSymbolLineWidth"))
-            {
-                pin_aux::apply_pin_symbol_line_widths(&mut symbol.pins, &widths);
-            }
-
-            // Use the symbol's actual name (from LibReference) as the key
-            // This handles long names that were truncated in the OLE storage path
-            let key = symbol.name.clone();
-            lib.symbols.insert(key, symbol);
-        }
-
         Ok(lib)
     }
 
@@ -290,59 +216,6 @@ impl SchLib {
     /// Returns an error if the file cannot be written.
     pub fn save(&self, path: impl AsRef<Path>) -> AltiumResult<()> {
         crate::altium::save_atomic(path.as_ref(), "schlib.tmp", |file| self.write(file))
-    }
-
-    /// Writes the library to any writer implementing `Read + Write + Seek`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the library cannot be written.
-    pub fn write<W: Read + Write + Seek>(&self, writer: W) -> AltiumResult<()> {
-        let mut cfb = crate::altium::create_ole(writer)?;
-
-        let symbols: Vec<&Symbol> = self.symbols.values().collect();
-        // OLE-safe storage names (handles long names + collisions).
-        let ole_names = crate::altium::generate_ole_names(symbols.iter().map(|s| s.name.as_str()));
-
-        // FileHeader stream.
-        crate::altium::write_stream(
-            &mut cfb,
-            "/FileHeader",
-            &writer::encode_file_header(&symbols, &ole_names),
-        )?;
-
-        // One Data stream per symbol, under its own storage.
-        for (symbol, ole_name) in symbols.iter().zip(ole_names.iter()) {
-            crate::altium::create_storage(&mut cfb, &format!("/{ole_name}"))?;
-            let data = writer::encode_data_stream(symbol)?;
-            crate::altium::write_stream(&mut cfb, &format!("/{ole_name}/Data"), &data)?;
-
-            // Optional per-component pin auxiliary streams, written into the same
-            // storage. Each is emitted ONLY when at least one pin carries a
-            // non-default value; an all-default symbol (the common case, incl.
-            // the golden) writes neither, keeping its storage byte-identical.
-            if let Some(frac) = pin_aux::encode_pin_frac(&symbol.pins)? {
-                crate::altium::write_stream(&mut cfb, &format!("/{ole_name}/PinFrac"), &frac)?;
-            }
-            if let Some(widths) = pin_aux::encode_pin_symbol_line_widths(&symbol.pins)? {
-                crate::altium::write_stream(
-                    &mut cfb,
-                    &format!("/{ole_name}/PinSymbolLineWidth"),
-                    &widths,
-                )?;
-            }
-        }
-
-        // Root Storage stream (Altium's icon storage). Always present; for a
-        // library with no embedded images it is just the header param block.
-        let mut storage = Vec::new();
-        crate::altium::framing::write_cstring_param_block(&mut storage, b"|HEADER=Icon storage");
-        crate::altium::write_stream(&mut cfb, "/Storage", &storage)?;
-
-        cfb.flush()
-            .map_err(|e| AltiumError::invalid_ole(format!("Failed to flush OLE file: {e}")))?;
-
-        Ok(())
     }
 }
 
@@ -553,76 +426,6 @@ impl Symbol {
     pub fn add_text(&mut self, text: Text) {
         self.text.push(text);
     }
-}
-
-/// Parsed file header information.
-struct FileHeader {
-    component_names: Vec<String>,
-    component_descriptions: HashMap<String, String>,
-}
-
-/// Reads the `FileHeader` stream.
-///
-/// # Errors
-///
-/// Returns an error if the file is not a valid `SchLib` (wrong file type).
-fn read_file_header<R: Read + Seek>(cfb: &mut CompoundFile<R>) -> AltiumResult<FileHeader> {
-    // A `SchLib` without a readable FileHeader is invalid, so map the shared
-    // optional read onto a hard error.
-    let data = crate::altium::read_stream_opt(&mut *cfb, "/FileHeader")
-        .ok_or_else(|| AltiumError::missing_stream("FileHeader"))?;
-
-    // Parse header: [length:4 LE][pipe-delimited key=value pairs]
-    if data.len() < 4 {
-        return Err(AltiumError::parse_error(0, "FileHeader too short"));
-    }
-
-    let length = u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as usize;
-    if data.len() < 4 + length {
-        return Err(AltiumError::parse_error(4, "FileHeader truncated"));
-    }
-
-    // The block is a C-string; drop the trailing null terminator (and any
-    // padding) before splitting so values don't carry a stray '\0'.
-    let text = String::from_utf8_lossy(&data[4..4 + length]);
-    let text = text.trim_end_matches('\u{0}');
-    let props = crate::altium::parse_pipe_params(text);
-
-    // Validate file type - must be a Schematic Library
-    if let Some(header) = props.get("header") {
-        if !header.contains("Schematic Library") {
-            // Detect what type it actually is for a helpful error message
-            let actual_type = if header.contains("PCB Library") {
-                "PcbLib (PCB Footprint Library)"
-            } else {
-                header
-            };
-            return Err(AltiumError::wrong_file_type("SchLib", actual_type));
-        }
-    }
-
-    // Get component count
-    let comp_count: usize = props
-        .get("compcount")
-        .and_then(|s| s.trim().parse().ok())
-        .unwrap_or(0);
-
-    let mut component_names = Vec::with_capacity(comp_count);
-    let mut component_descriptions = HashMap::new();
-
-    for i in 0..comp_count {
-        if let Some(name) = props.get(&format!("libref{i}")) {
-            component_names.push(name.clone());
-            if let Some(desc) = props.get(&format!("compdescr{i}")) {
-                component_descriptions.insert(name.clone(), desc.clone());
-            }
-        }
-    }
-
-    Ok(FileHeader {
-        component_names,
-        component_descriptions,
-    })
 }
 
 #[cfg(test)]
