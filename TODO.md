@@ -136,8 +136,6 @@ we handle: 1,2,4,5,6,7,8,10,11,12,13,14,34,41,45 — note the holes):
 - [ ] 🟠 **Image embedded bytes** — the `RECORD=30` metadata now round-trips, but the raw image
       *bytes* of an embedded image (in the library `/Storage` stream, matched in order per
       AltiumSharp `ParseStorageImageData`) are not yet read. Add the Storage-stream extraction.
-- [ ] 🟠 **TextFrame** (`SchTextFrameDto`) — a bordered multi-line text box (distinct from
-      Label/Text: has a frame rect, word-wrap, alignment). Not modelled. Add primitive + sample + test.
 - [ ] ⚪ **Verify in-scope:** `ParameterSet`, `Hyperlink`, `Note`, `CompileMask` — confirm whether
       any can appear inside a `.SchLib` symbol (vs `.SchDoc` only) before implementing.
 - **OUT OF SCOPE (SchDoc-only, cannot appear in a symbol library — do NOT implement):** Bus,
@@ -176,8 +174,8 @@ Add each to `GenerateSamples.pas`, regenerate on-site, then assert exactly:
 
 ### G4. Execution plan
 
-1. **Implement missing SchLib primitives** (§G1: Pie, Image, TextFrame) — struct + reader + writer +
-   tool + allow-list, oracle-gated byte-identity, per the format-EE recipe.
+1. **Close the remaining §G1 gaps** (Pie, Image and TextFrame primitives are done): embedded-image
+   `/Storage` bytes, plus the in-scope verification of `ParameterSet`/`Hyperlink`/`Note`/`CompileMask`.
 2. **Enrich the generator** (§G3) with the un-exercised features — one on-site regenerate per batch
    (kill `X2` between runs; a bad scripting name is a *compile* abort, a bad call can be a *runtime*
    ScriptingSystem.DLL crash — see the `altium-delphiscript-api-names` memory).

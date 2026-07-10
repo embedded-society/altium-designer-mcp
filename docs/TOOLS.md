@@ -200,7 +200,7 @@ Write footprints to an Altium .PcbLib file. Each footprint is defined by its pri
 
 ## `write_schlib`
 
-Write schematic symbols to an Altium .SchLib file. Each symbol is defined by its primitives: pins, rectangles, round_rects, lines, polylines, polygons, arcs, pies, images, beziers, ellipses, elliptical_arcs, labels, and text. Coordinates must be in schematic units (10 units = 1 grid square, not mm).
+Write schematic symbols to an Altium .SchLib file. Each symbol is defined by its primitives: pins, rectangles, round_rects, lines, polylines, polygons, arcs, pies, images, text_frames, beziers, ellipses, elliptical_arcs, labels, and text. Coordinates must be in schematic units (10 units = 1 grid square, not mm).
 
 **Example**
 

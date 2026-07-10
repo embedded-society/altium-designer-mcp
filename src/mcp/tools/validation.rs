@@ -265,6 +265,29 @@ impl McpServer {
             Self::validate_schlib_coordinate(image.y2, &format!("Symbol '{name}' image {i} y2"))?;
         }
 
+        for (i, frame) in symbol.text_frames.iter().enumerate() {
+            Self::validate_schlib_coordinate(
+                frame.x1,
+                &format!("Symbol '{name}' text_frame {i} x1"),
+            )?;
+            Self::validate_schlib_coordinate(
+                frame.y1,
+                &format!("Symbol '{name}' text_frame {i} y1"),
+            )?;
+            Self::validate_schlib_coordinate(
+                frame.x2,
+                &format!("Symbol '{name}' text_frame {i} x2"),
+            )?;
+            Self::validate_schlib_coordinate(
+                frame.y2,
+                &format!("Symbol '{name}' text_frame {i} y2"),
+            )?;
+            Self::validate_schlib_coordinate(
+                frame.text_margin,
+                &format!("Symbol '{name}' text_frame {i} text_margin"),
+            )?;
+        }
+
         for (i, bezier) in symbol.beziers.iter().enumerate() {
             for (j, (x, y)) in [
                 (bezier.x1, bezier.y1),

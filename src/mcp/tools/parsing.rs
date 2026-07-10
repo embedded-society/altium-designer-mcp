@@ -1692,6 +1692,67 @@ impl McpServer {
         })
     }
 
+    /// Parses a schematic text frame (bordered multi-line text box,
+    /// `RECORD=28`) from JSON. Requires the frame box (`x1`..`y2`) and `text`;
+    /// optionals default as [`crate::altium::schlib::TextFrame::new`] does when
+    /// absent (white fill, centre alignment, border/word-wrap/clip-to-rect on).
+    #[allow(clippy::cast_possible_truncation)]
+    pub(crate) fn parse_schlib_text_frame(
+        json: &Value,
+    ) -> Option<crate::altium::schlib::TextFrame> {
+        use crate::altium::schlib::TextFrame;
+
+        let x1 = json_f64(json, "x1")?;
+        let y1 = json_f64(json, "y1")?;
+        let x2 = json_f64(json, "x2")?;
+        let y2 = json_f64(json, "y2")?;
+        let text = json.get("text").and_then(Value::as_str)?.to_string();
+        let color = json.get("color").and_then(Value::as_u64).unwrap_or(0) as u32;
+        let area_color = json
+            .get("area_color")
+            .and_then(Value::as_u64)
+            .unwrap_or(16_777_215) as u32;
+        let text_color = json.get("text_color").and_then(Value::as_u64).unwrap_or(0) as u32;
+        let text_margin = json
+            .get("text_margin")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.000_05);
+        let line_width = json.get("line_width").and_then(Value::as_u64).unwrap_or(0) as u8;
+        let line_style = json.get("line_style").and_then(Value::as_u64).unwrap_or(0) as u8;
+        let font_id = json.get("font_id").and_then(Value::as_u64).unwrap_or(1) as u8;
+        let orientation = json.get("orientation").and_then(Value::as_u64).unwrap_or(0) as u8;
+        let alignment = json.get("alignment").and_then(Value::as_u64).unwrap_or(1) as u8;
+        let b_false = |k: &str| json.get(k).and_then(Value::as_bool).unwrap_or(false);
+        let b_true = |k: &str| json.get(k).and_then(Value::as_bool).unwrap_or(true);
+        let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
+
+        Some(TextFrame {
+            x1,
+            y1,
+            x2,
+            y2,
+            text,
+            color,
+            area_color,
+            text_color,
+            text_margin,
+            line_width,
+            line_style,
+            transparent: b_false("transparent"),
+            font_id,
+            orientation,
+            alignment,
+            is_solid: b_false("is_solid"),
+            show_border: b_true("show_border"),
+            word_wrap: b_true("word_wrap"),
+            clip_to_rect: b_true("clip_to_rect"),
+            is_not_accessible: b_true("is_not_accessible"),
+            owner_part_id,
+            display_flags: parse_schlib_display_flags(json),
+            unique_id: json_unique_id(json),
+        })
+    }
+
     /// Parses a `SchLib` Bezier from JSON. Requires the four control points
     /// (`x1`..`y4`); optionals default as [`crate::altium::schlib::Bezier::new`]
     /// does when absent.

@@ -532,7 +532,8 @@ impl McpServer {
                 description: Some(
                     "Write schematic symbols to an Altium .SchLib file. Each symbol is defined by \
                      its primitives: pins, rectangles, round_rects, lines, polylines, polygons, \
-                     arcs, pies, images, beziers, ellipses, elliptical_arcs, labels, and text. \
+                     arcs, pies, images, text_frames, beziers, ellipses, elliptical_arcs, labels, \
+                     and text. \
                      Coordinates must be in schematic units (10 units = 1 grid square, not mm)."
                         .to_string(),
                 ),
@@ -816,6 +817,42 @@ impl McpServer {
                                                 "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" }
                                             },
                                             "required": ["x1", "y1", "x2", "y2"]
+                                        }
+                                    },
+                                    "text_frames": {
+                                        "type": "array",
+                                        "description": "Text frame definitions (RECORD=28): a bordered multi-line text box, distinct from labels/text (frame rectangle, word-wrap, alignment, clip-to-rect).",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "x1": { "type": "number", "description": "First corner X (Location.X)" },
+                                                "y1": { "type": "number", "description": "First corner Y (Location.Y)" },
+                                                "x2": { "type": "number", "description": "Second corner X (Corner.X)" },
+                                                "y2": { "type": "number", "description": "Second corner Y (Corner.Y)" },
+                                                "text": { "type": "string", "description": "Text content of the frame" },
+                                                "color": { "type": "integer", "description": "Border BGR colour. Default: 0" },
+                                                "area_color": { "type": "integer", "description": "Fill BGR colour (AreaColor). Default: 16777215 (white)" },
+                                                "text_color": { "type": "integer", "description": "Text BGR colour. Default: 0" },
+                                                "text_margin": { "type": "number", "description": "Margin between the frame border and the text, in schematic units. Default: 0.00005 (Altium's from-scratch default)" },
+                                                "line_width": { "type": "integer", "description": "Border width. Default: 0" },
+                                                "line_style": { "type": "integer", "description": "Border style: 0=Solid, 1=Dashed, 2=Dotted. Default: 0" },
+                                                "transparent": { "type": "boolean", "description": "Whether the fill is transparent. Default: false" },
+                                                "font_id": { "type": "integer", "description": "Font ID (1-based index into library fonts). Default: 1" },
+                                                "orientation": { "type": "integer", "description": "Text orientation: 0/1/2/3 = 0/90/180/270 degrees. Default: 0" },
+                                                "alignment": { "type": "integer", "description": "Text alignment: 0=left, 1=centre, 2=right. Default: 1 (centre)" },
+                                                "is_solid": { "type": "boolean", "description": "Whether the frame is filled (IsSolid). Default: false" },
+                                                "show_border": { "type": "boolean", "description": "Whether the border is shown. Default: true" },
+                                                "word_wrap": { "type": "boolean", "description": "Whether the text word-wraps inside the frame. Default: true" },
+                                                "clip_to_rect": { "type": "boolean", "description": "Whether the text is clipped to the frame rectangle. Default: true" },
+                                                "is_not_accessible": { "type": "boolean", "description": "Whether the frame is marked not-accessible (Altium tags every shape; default true)" },
+                                                "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" },
+                                                "graphically_locked": { "type": "boolean", "description": "Whether the shape is graphically locked. Default: false" },
+                                                "disabled": { "type": "boolean", "description": "Whether the shape is disabled. Default: false" },
+                                                "dimmed": { "type": "boolean", "description": "Whether the shape is dimmed. Default: false" },
+                                                "owner_part_display_mode": { "type": "integer", "description": "Display mode this shape belongs to (0=Normal, 1=first alternate/de-Morgan, ...). Default: 0" },
+                                                "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" }
+                                            },
+                                            "required": ["x1", "y1", "x2", "y2", "text"]
                                         }
                                     },
                                     "beziers": {

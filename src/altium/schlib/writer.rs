@@ -23,7 +23,7 @@
 use super::coord;
 use super::primitives::{
     Arc, Bezier, Ellipse, EllipticalArc, FootprintModel, Image, Label, Line, Parameter, Pie, Pin,
-    Polygon, Polyline, Rectangle, RoundRect, ShapeDisplayFlags, Text, TextJustification,
+    Polygon, Polyline, Rectangle, RoundRect, ShapeDisplayFlags, Text, TextFrame, TextJustification,
 };
 use super::Symbol;
 use crate::altium::framing::{write_cstring_param_block, write_pascal_string};
@@ -762,6 +762,84 @@ fn encode_image(image: &Image, index: usize) -> String {
     format!("|{}", parts.join("|"))
 }
 
+/// Encodes a text frame record (`RECORD=28`) — a bordered multi-line text box.
+///
+/// Token order and omit-when-default behaviour match Altium's own output (both
+/// the regenerated golden and `AltiumSharp`'s from-scratch record): no
+/// `IndexInSheet` is written (Altium emits none for this record), `LineWidth` /
+/// `LineStyle` / `Color` / `AreaColor` / `TextColor` / `FontID` / `Alignment` /
+/// `Orientation` only when non-zero, the `T`-flags only when true, and
+/// `TextMargin` as a coordinate whose zero integer part is omitted (a default
+/// frame carries only `TextMargin_Frac=5`).
+fn encode_text_frame(frame: &TextFrame) -> String {
+    let mut parts = vec!["RECORD=28".to_string()];
+    if frame.is_not_accessible {
+        parts.push("IsNotAccesible=T".to_string());
+    }
+    parts.push(format!("OwnerPartId={}", frame.owner_part_id));
+    // Frame box: Location (corner 1) + Corner (corner 2), each with optional _Frac.
+    push_coord(&mut parts, "Location.X", frame.x1);
+    push_coord(&mut parts, "Location.Y", frame.y1);
+    push_coord(&mut parts, "Corner.X", frame.x2);
+    push_coord(&mut parts, "Corner.Y", frame.y2);
+    if frame.line_width != 0 {
+        parts.push(format!("LineWidth={}", frame.line_width));
+    }
+    if frame.line_style != 0 {
+        parts.push(format!("LineStyle={}", frame.line_style));
+    }
+    if frame.color != 0 {
+        parts.push(format!("Color={}", frame.color));
+    }
+    if frame.area_color != 0 {
+        parts.push(format!("AreaColor={}", frame.area_color));
+    }
+    if frame.text_color != 0 {
+        parts.push(format!("TextColor={}", frame.text_color));
+    }
+    if frame.font_id != 0 {
+        parts.push(format!("FontID={}", frame.font_id));
+    }
+    if frame.is_solid {
+        parts.push("IsSolid=T".to_string());
+    }
+    if frame.show_border {
+        parts.push("ShowBorder=T".to_string());
+    }
+    if frame.alignment != 0 {
+        parts.push(format!("Alignment={}", frame.alignment));
+    }
+    if frame.word_wrap {
+        parts.push("WordWrap=T".to_string());
+    }
+    if frame.clip_to_rect {
+        parts.push("ClipToRect=T".to_string());
+    }
+    if frame.transparent {
+        parts.push("Transparent=T".to_string());
+    }
+    // Text is always written (with %UTF8% promotion, like Label/Text).
+    parts.push(text_field("Text", &frame.text));
+    if frame.orientation != 0 {
+        parts.push(format!("Orientation={}", frame.orientation));
+    }
+    // TextMargin is a coordinate whose zero integer part Altium omits entirely
+    // (unlike Location/Corner, which always carry the integer key).
+    let (margin_int, margin_frac) = coord::split(frame.text_margin);
+    if margin_int != 0 {
+        parts.push(format!("TextMargin={margin_int}"));
+    }
+    if margin_frac != 0 {
+        parts.push(format!("TextMargin_Frac={margin_frac}"));
+    }
+    push_display_flags(&mut parts, frame.display_flags);
+    parts.push(format!(
+        "UniqueID={}",
+        frame.unique_id.clone().unwrap_or_else(generate_unique_id)
+    ));
+    format!("|{}", parts.join("|"))
+}
+
 fn encode_ellipse(ellipse: &Ellipse, index: usize) -> String {
     // Altium emits IsSolid only when filled, and omits it otherwise.
     let is_solid = if ellipse.filled { "|IsSolid=T" } else { "" };
@@ -1085,6 +1163,15 @@ pub fn encode_data_stream(symbol: &Symbol) -> crate::altium::error::AltiumResult
         index_counter += 1;
     }
 
+    // 8d. Text frames (RECORD=28). Altium writes no IndexInSheet key for this
+    // record, but a frame still occupies an ordinal slot, so the counter
+    // advances to keep later records' IndexInSheet values in step.
+    for text_frame in &symbol.text_frames {
+        let record = encode_text_frame(text_frame);
+        write_text_record(&mut data, &record)?;
+        index_counter += 1;
+    }
+
     // 9. Bezier curves
     for bezier in &symbol.beziers {
         let record = encode_bezier(bezier, index_counter);
@@ -1301,6 +1388,40 @@ mod tests {
             "filled rectangle must emit IsSolid=T: {s}"
         );
         assert!(!s.contains("IsSolid=F"), "never emit IsSolid=F: {s}");
+    }
+
+    #[test]
+    fn text_frame_default_is_byte_identical_to_altium() {
+        // A from-scratch TextFrame must emit exactly the record Altium itself
+        // writes for a from-scratch frame (AltiumSharp's generated
+        // TEXTFRAME_TEST.SchLib golden), token for token. Only the trailing
+        // UniqueID (freshly generated) differs.
+        let frame = TextFrame::new(-20, -10, 20, 10, "Test Frame");
+        let s = encode_text_frame(&frame);
+        assert!(
+            s.starts_with(
+                "|RECORD=28|IsNotAccesible=T|OwnerPartId=1\
+                 |Location.X=-20|Location.Y=-10|Corner.X=20|Corner.Y=10\
+                 |AreaColor=16777215|FontID=1|ShowBorder=T|Alignment=1\
+                 |WordWrap=T|ClipToRect=T|Text=Test Frame|TextMargin_Frac=5\
+                 |UniqueID="
+            ),
+            "default text frame must be byte-identical to Altium's own record: {s}"
+        );
+        // Omit-when-default keys a default frame must NOT carry.
+        for absent in [
+            "IndexInSheet",
+            "LineWidth",
+            "LineStyle",
+            "|Color=",
+            "TextColor",
+            "IsSolid",
+            "Transparent",
+            "Orientation",
+            "TextMargin=",
+        ] {
+            assert!(!s.contains(absent), "default frame must omit {absent}: {s}");
+        }
     }
 
     #[test]

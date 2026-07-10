@@ -972,6 +972,7 @@ impl McpServer {
                             "arcs": symbol.arcs,
                             "pies": symbol.pies,
                             "images": symbol.images,
+                            "text_frames": symbol.text_frames,
                             "beziers": symbol.beziers,
                             "ellipses": symbol.ellipses,
                             "elliptical_arcs": symbol.elliptical_arcs,
@@ -1129,6 +1130,7 @@ impl McpServer {
                     "arcs",
                     "pies",
                     "images",
+                    "text_frames",
                     "beziers",
                     "ellipses",
                     "elliptical_arcs",
@@ -1464,6 +1466,45 @@ impl McpServer {
                     );
                     if let Some(image) = Self::parse_schlib_image(image_json) {
                         symbol.add_image(image);
+                    }
+                }
+            }
+
+            if let Some(text_frames) = sym_json.get("text_frames").and_then(Value::as_array) {
+                for frame_json in text_frames {
+                    check_keys!(
+                        frame_json,
+                        &[
+                            "x1",
+                            "y1",
+                            "x2",
+                            "y2",
+                            "text",
+                            "color",
+                            "area_color",
+                            "text_color",
+                            "text_margin",
+                            "line_width",
+                            "line_style",
+                            "transparent",
+                            "font_id",
+                            "orientation",
+                            "alignment",
+                            "is_solid",
+                            "show_border",
+                            "word_wrap",
+                            "clip_to_rect",
+                            "is_not_accessible",
+                            "owner_part_id",
+                            "unique_id",
+                            "graphically_locked",
+                            "disabled",
+                            "dimmed",
+                            "owner_part_display_mode"
+                        ]
+                    );
+                    if let Some(text_frame) = Self::parse_schlib_text_frame(frame_json) {
+                        symbol.add_text_frame(text_frame);
                     }
                 }
             }

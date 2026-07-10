@@ -240,6 +240,7 @@ This follows the IPC-7351 convention where pin 1 has a distinct shape (typically
 | **Bezier** | Cubic Bezier curve (4 control points) |
 | **Label** | Text label (RECORD=4) |
 | **Text** | Text annotation (RECORD=3) |
+| **TextFrame** | Bordered multi-line text box (word-wrap, alignment) |
 | **Parameter** | Component parameter (Value, Part Number, etc.) |
 | **FootprintModel** | Reference to a footprint in a PcbLib |
 

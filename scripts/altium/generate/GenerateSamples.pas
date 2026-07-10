@@ -722,6 +722,38 @@ begin
                                        SCHM_PrimitiveRegistration, Img.I_ObjectAddress);
 end;
 
+{ Bordered multi-line text frame (RECORD=28). All member names VERIFIED against the
+  AD24 IDE object-model dump (ISch_TextFrame: Text, WordWrap, ClipToRect, ShowBorder,
+  IsSolid, Transparent, TextMargin, TextColor, LineWidth, LineStyle, FontID, Alignment;
+  factory constant eTextFrame). Alignment is left at its default (no verified enum
+  constant name for THorizontalAlign values — do not guess one). }
+procedure AddTextFrame(Comp : ISch_Component; X1 : Integer; Y1 : Integer;
+                       X2 : Integer; Y2 : Integer; AText : String);
+var
+    Frm : ISch_TextFrame;
+begin
+    Frm := SchServer.SchObjectFactory(eTextFrame, eCreate_Default);
+    if Frm = nil then Exit;
+    Frm.Location             := Point(MilsToCoord(X1), MilsToCoord(Y1));
+    Frm.Corner               := Point(MilsToCoord(X2), MilsToCoord(Y2));
+    Frm.Text                 := AText;
+    Frm.FontID               := 1;
+    Frm.Color                := $000000;
+    Frm.AreaColor            := $B0FFFF;
+    Frm.TextColor            := $800000;   { dark blue (BGR) }
+    Frm.IsSolid              := True;
+    Frm.ShowBorder           := True;
+    Frm.WordWrap             := True;
+    Frm.ClipToRect           := True;
+    Frm.LineWidth            := eSmall;
+    Frm.TextMargin           := MilsToCoord(2);
+    Frm.OwnerPartId          := 1;
+    Frm.OwnerPartDisplayMode := Comp.DisplayMode;
+    Comp.AddSchObject(Frm);
+    SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast,
+                                       SCHM_PrimitiveRegistration, Frm.I_ObjectAddress);
+end;
+
 { FILLED polygon from 4 corners (a box). ePolygon + VerticesCount + 1-based Vertex[i] +
   IsSolid — verified SY_AddPoly. NOTE: this is RECORD=7 (parse_polygon), NOT a polyline. }
 procedure AddPolygonBox(Comp : ISch_Component; X1 : Integer; Y1 : Integer;
@@ -1437,6 +1469,14 @@ begin
         Comp := NewSymbol(Lib, 'IMAGESYM', 'Linked image', 1);
         if Comp <> nil then
             AddImage(Comp, -50, -30, 50, 30, 'logo.bmp');   { 100x60 mil box linking logo.bmp }
+    except
+    end;
+
+    { ---- TEXTFRAMESYM — a bordered multi-line text frame (RECORD=28, newly implemented). ---- }
+    try
+        Comp := NewSymbol(Lib, 'TEXTFRAMESYM', 'Text frame', 1);
+        if Comp <> nil then
+            AddTextFrame(Comp, -100, -50, 100, 50, 'Frame text');   { 200x100 mil box }
     except
     end;
 

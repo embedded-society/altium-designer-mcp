@@ -14,7 +14,7 @@ pub use shapes::{
     Arc, Bezier, Ellipse, EllipticalArc, Image, Line, Pie, Polygon, Polyline, Rectangle, RoundRect,
 };
 mod text;
-pub use text::{Label, Parameter, Text, TextJustification};
+pub use text::{Label, Parameter, Text, TextFrame, TextJustification};
 
 // Float rounding on serialization is shared (crate::altium::serde_round).
 

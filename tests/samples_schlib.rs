@@ -51,11 +51,11 @@ fn pin_by_designator<'a>(symbol: &'a Symbol, designator: &str) -> &'a Pin {
 fn samples_schlib_structure() {
     let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
 
-    // Twenty-two Altium-authored symbols: fifteen per-primitive-family symbols
-    // plus seven coverage-enrichment symbols (SHAPESTYLE, LOCKFLAGS, JUSTIFY,
-    // FRACPINS, BEZIERSYM, PIESYM, IMAGESYM) added to GenerateSamples.pas and
-    // regenerated on-site.
-    assert_eq!(lib.len(), 22, "expected exactly twenty-two symbols");
+    // Twenty-three Altium-authored symbols: fifteen per-primitive-family symbols
+    // plus eight coverage-enrichment symbols (SHAPESTYLE, LOCKFLAGS, JUSTIFY,
+    // FRACPINS, BEZIERSYM, PIESYM, IMAGESYM, TEXTFRAMESYM) added to
+    // GenerateSamples.pas and regenerated on-site.
+    assert_eq!(lib.len(), 23, "expected exactly twenty-three symbols");
 
     let names = lib.names();
     for expected in [
@@ -81,6 +81,7 @@ fn samples_schlib_structure() {
         "BEZIERSYM",
         "PIESYM",
         "IMAGESYM",
+        "TEXTFRAMESYM",
     ] {
         assert!(
             names.iter().any(|n| n == expected),
@@ -855,4 +856,43 @@ fn samples_schlib_image() {
     assert_eq!(im.file_name, "logo.bmp", "image file name round-trips");
     assert!(!im.embed_image, "image is linked, not embedded");
     assert!(im.keep_aspect, "KeepAspect round-trips");
+}
+
+#[test]
+fn samples_schlib_text_frame() {
+    let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
+    let sym = lib
+        .get("TEXTFRAMESYM")
+        .expect("TEXTFRAMESYM symbol not found");
+
+    // One text frame (RECORD=28) — a (-10,-5)-(10,5) box holding "Frame text",
+    // light-yellow fill, dark-blue text, centred, word-wrapped and clipped, with
+    // a 0.2-unit text margin (TextMargin_Frac=20000). Real-Altium ground truth
+    // for a primitive the reader did not parse at all before this change.
+    assert_eq!(sym.text_frames.len(), 1, "TEXTFRAMESYM has one text frame");
+    let f = &sym.text_frames[0];
+    assert!(
+        (f.x1 - -10.0).abs() < 1e-6 && (f.y1 - -5.0).abs() < 1e-6,
+        "frame corner 1"
+    );
+    assert!(
+        (f.x2 - 10.0).abs() < 1e-6 && (f.y2 - 5.0).abs() < 1e-6,
+        "frame corner 2"
+    );
+    assert_eq!(f.text, "Frame text", "frame text round-trips");
+    assert_eq!(f.area_color, 11_599_871, "fill colour (light yellow)");
+    assert_eq!(f.text_color, 8_388_608, "text colour (dark blue)");
+    assert_eq!(f.line_width, 1, "border width");
+    assert_eq!(f.font_id, 1, "font id");
+    assert!(f.is_solid, "IsSolid round-trips");
+    assert!(f.show_border, "ShowBorder round-trips");
+    assert!(f.word_wrap, "WordWrap round-trips");
+    assert!(f.clip_to_rect, "ClipToRect round-trips");
+    assert_eq!(f.alignment, 1, "centred alignment");
+    assert!(
+        (f.text_margin - 0.2).abs() < 1e-6,
+        "text margin (TextMargin_Frac=20000 = 0.2 units), got {}",
+        f.text_margin
+    );
+    assert!(f.is_not_accessible, "IsNotAccesible round-trips");
 }

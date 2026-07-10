@@ -586,6 +586,86 @@ pub(super) fn parse_image(props: &HashMap<String, String>) -> Option<Image> {
     })
 }
 
+/// Parses a text frame (bordered multi-line text box, `RECORD=28`) from
+/// properties. Every omit-when-default key defaults back to the value the
+/// writer omits it for (0 / false), so a read-write cycle is byte-identical.
+#[allow(clippy::unnecessary_wraps)] // infallible (all coords default); Option kept for uniform parser dispatch
+pub(super) fn parse_text_frame(props: &HashMap<String, String>) -> Option<TextFrame> {
+    let x1 = crate::altium::schlib::coord::read(props, "location.x");
+    let y1 = crate::altium::schlib::coord::read(props, "location.y");
+    let x2 = crate::altium::schlib::coord::read(props, "corner.x");
+    let y2 = crate::altium::schlib::coord::read(props, "corner.y");
+    let text_margin = crate::altium::schlib::coord::read(props, "textmargin");
+
+    // Multi-line content; honours the `%UTF8%Text` convention like Label/Text.
+    let text = read_utf8_text_field(props, "text").unwrap_or_default();
+
+    let color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
+    let area_color = props
+        .get("areacolor")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let text_color = props
+        .get("textcolor")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let line_width = props
+        .get("linewidth")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let line_style = props
+        .get("linestyle")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let font_id = props
+        .get("fontid")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let orientation = props
+        .get("orientation")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let alignment = props
+        .get("alignment")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let transparent = props.get("transparent").is_some_and(|s| s == "T");
+    let is_solid = props.get("issolid").is_some_and(|s| s == "T");
+    let show_border = props.get("showborder").is_some_and(|s| s == "T");
+    let word_wrap = props.get("wordwrap").is_some_and(|s| s == "T");
+    let clip_to_rect = props.get("cliptorect").is_some_and(|s| s == "T");
+    let owner_part_id = props
+        .get("ownerpartid")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+
+    Some(TextFrame {
+        x1,
+        y1,
+        x2,
+        y2,
+        text,
+        color,
+        area_color,
+        text_color,
+        text_margin,
+        line_width,
+        line_style,
+        transparent,
+        font_id,
+        orientation,
+        alignment,
+        is_solid,
+        show_border,
+        word_wrap,
+        clip_to_rect,
+        is_not_accessible: props.get("isnotaccesible").is_some_and(|s| s == "T"),
+        owner_part_id,
+        display_flags: read_display_flags(props),
+        unique_id: props.get("uniqueid").cloned(),
+    })
+}
+
 /// Parses a Bezier curve from properties.
 #[allow(clippy::unnecessary_wraps)] // infallible (all coords default); Option kept for uniform parser dispatch
 pub(super) fn parse_bezier(props: &HashMap<String, String>) -> Option<Bezier> {

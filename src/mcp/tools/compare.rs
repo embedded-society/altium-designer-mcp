@@ -1326,6 +1326,7 @@ impl McpServer {
         compare_family!("arc_count", "arcs", arcs);
         compare_family!("pie_count", "pies", pies);
         compare_family!("image_count", "images", images);
+        compare_family!("text_frame_count", "text_frames", text_frames);
         compare_family!("bezier_count", "beziers", beziers);
         compare_family!("ellipse_count", "ellipses", ellipses);
         compare_family!("round_rect_count", "round_rects", round_rects);

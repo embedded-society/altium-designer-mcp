@@ -501,6 +501,13 @@ impl McpServer {
                 }
             }
         }
+        if let Some(text_frames) = sym_json.get("text_frames").and_then(Value::as_array) {
+            for frame_json in text_frames {
+                if let Some(text_frame) = Self::parse_schlib_text_frame(frame_json) {
+                    symbol.text_frames.push(text_frame);
+                }
+            }
+        }
 
         // Beziers and elliptical arcs (mirror the create path, which authors
         // them through the same parse helpers — the JSON keys equal the serde
@@ -653,6 +660,11 @@ impl McpServer {
                 ("polygon_count", old.polygons.len(), new.polygons.len()),
                 ("pie_count", old.pies.len(), new.pies.len()),
                 ("image_count", old.images.len(), new.images.len()),
+                (
+                    "text_frame_count",
+                    old.text_frames.len(),
+                    new.text_frames.len(),
+                ),
                 ("bezier_count", old.beziers.len(), new.beziers.len()),
                 (
                     "elliptical_arc_count",
