@@ -427,7 +427,7 @@ Extract embedded STEP 3D models from an Altium .PcbLib file. Models are stored c
 | `mode` | enum | no | Extraction mode: 'auto' (default) extracts single model or lists if multiple; 'list' always lists models; 'extract_all' extracts all models to output_dir; 'extract_by_footprint' extracts models used by specified footprint (one of: auto, list, extract_all, extract_by_footprint) |
 | `model` | string | no | Model name (e.g., 'RESC1005X04L.step') or GUID to extract (for 'auto' mode) |
 | `offset` | integer | no | Number of models to skip when listing (for 'list' mode) |
-| `output_path` | string | no | For single extraction: file path for .step file. For extract_all: directory path for all models. |
+| `output_path` | string | no | Meaning depends only on the mode, never on how many models match: for 'auto' it is the FILE path for the extracted .step; for 'extract_all' and 'extract_by_footprint' it is a DIRECTORY that receives one file per model (created if absent). Omit to get the model inline as base64 ('auto' single model, or 'extract_by_footprint' with a single match). |
 
 ## `diff_libraries`
 

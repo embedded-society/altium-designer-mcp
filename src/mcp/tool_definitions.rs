@@ -1120,7 +1120,7 @@ impl McpServer {
                         },
                         "output_path": {
                             "type": "string",
-                            "description": "For single extraction: file path for .step file. For extract_all: directory path for all models."
+                            "description": "Meaning depends only on the mode, never on how many models match: for 'auto' it is the FILE path for the extracted .step; for 'extract_all' and 'extract_by_footprint' it is a DIRECTORY that receives one file per model (created if absent). Omit to get the model inline as base64 ('auto' single model, or 'extract_by_footprint' with a single match)."
                         },
                         "model": {
                             "type": "string",
