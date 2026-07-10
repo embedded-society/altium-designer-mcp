@@ -20,30 +20,51 @@ src/
 ├── lib.rs                       # Library crate root
 ├── main.rs                      # CLI entry point
 ├── error.rs                     # Top-level error types
+├── util.rs                      # Path redaction, CSV escaping, UniqueId generation
 │
 ├── config/                      # Configuration
 │   ├── mod.rs                   # Module exports
 │   └── settings.rs              # Config file parsing + defaults
 │
-├── altium/                      # Altium file I/O
+├── security/                    # Safety controls
 │   ├── mod.rs                   # Module exports
-│   ├── error.rs                 # Altium-specific errors
+│   ├── audit.rs                 # Append-only audit log for mutating tools
+│   └── rate_limit.rs            # Token-bucket rate limiter (mutating tools)
+│
+├── altium/                      # Altium file I/O
+│   ├── mod.rs                   # Shared helpers: Windows-1252, OLE names, atomic save
+│   ├── error.rs                 # Altium-specific errors (path-sanitised Display)
+│   ├── bytes.rs                 # Bounds-checked little-endian scalar readers
+│   ├── framing.rs               # Shared block / Pascal-string / C-string frames
+│   ├── text.rs                  # TextJustification (shared enum)
+│   ├── serde_round.rs           # 6-decimal f64 rounding on serialise
+│   ├── libpkg.rs                # .LibPkg project-file generator
 │   ├── pcblib/
-│   │   ├── mod.rs               # PcbLib module exports
-│   │   ├── primitives.rs        # Pad, Track, Arc, Region, Text, Fill, etc.
-│   │   ├── reader.rs            # Binary parsing
-│   │   └── writer.rs            # Binary encoding
+│   │   ├── mod.rs               # PcbLib + Footprint types, CRUD
+│   │   ├── read_io.rs           # OLE stream orchestration (read)
+│   │   ├── write_io.rs          # OLE stream orchestration (write)
+│   │   ├── reader/              # Binary parsing (dispatch, per-primitive, 3D models)
+│   │   ├── writer.rs            # Binary encoding (byte templates)
+│   │   ├── primitives/          # Pad, Via, Track, Arc, Region, Text, Fill, bodies
+│   │   ├── flags.rs             # On-disk flag-word bits
+│   │   ├── units.rs             # mm ↔ Altium internal units
+│   │   └── assets/              # Captured Library/Data stack + FileVersionInfo
 │   └── schlib/
-│       ├── mod.rs               # SchLib module exports
+│       ├── mod.rs               # SchLib + Symbol types, CRUD, I/O orchestration
+│       ├── reader.rs            # Record parsing (text records + binary pin)
+│       ├── writer.rs            # Record encoding (omit-when-default)
 │       ├── primitives.rs        # Pin, Rectangle, Line, Arc, Ellipse, etc.
-│       ├── reader.rs            # Binary parsing
-│       └── writer.rs            # Binary encoding
+│       ├── coord.rs             # Fractional (_Frac) coordinate codec
+│       └── pin_aux.rs           # PinFrac / PinSymbolLineWidth aux streams
 │
 └── mcp/                         # MCP server implementation
     ├── mod.rs                   # Module exports
-    ├── server.rs                # JSON-RPC server + tool handlers
+    ├── server.rs                # JSON-RPC dispatch, path validation, backups, audit
     ├── protocol.rs              # MCP protocol types
-    └── transport.rs             # stdio transport
+    ├── transport.rs             # stdio transport
+    ├── tool_definitions.rs      # Tool schemas (source of truth for docs/TOOLS.md)
+    ├── tool_docs.rs             # docs/TOOLS.md generator + drift guard (test-only)
+    └── tools/                   # One file per tool family (read_write, compare, …)
 ```
 
 ---
