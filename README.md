@@ -233,6 +233,8 @@ This follows the IPC-7351 convention where pin 1 has a distinct shape (typically
 | **Polyline** | Multiple connected line segments |
 | **Polygon** | Filled polygon with border and fill colours |
 | **Arc** | Arc or circle |
+| **Pie** | Filled circular sector (arc geometry plus fill) |
+| **Image** | Embedded or linked raster picture with a bounding box |
 | **Ellipse** | Ellipse or circle (filled or unfilled) |
 | **EllipticalArc** | Elliptical arc segment with fractional radii |
 | **Bezier** | Cubic Bezier curve (4 control points) |

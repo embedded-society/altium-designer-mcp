@@ -362,6 +362,32 @@ impl McpServer {
             symbol.designator = designator.to_string();
         }
 
+        // Parse part_count and the other symbol header fields (mirrors the
+        // create path for part_count; the rest are returned by get_component,
+        // so a read-modify-write must not reset them to defaults — omitting
+        // part_count here silently collapsed a multi-part symbol to one part).
+        if let Some(part_count) = sym_json.get("part_count").and_then(Value::as_u64) {
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                symbol.part_count = part_count.clamp(1, 255) as u32;
+            }
+        }
+        if let Some(v) = sym_json.get("display_mode_count").and_then(Value::as_u64) {
+            symbol.display_mode_count = u32::try_from(v).unwrap_or(symbol.display_mode_count);
+        }
+        if let Some(v) = sym_json.get("current_part_id").and_then(Value::as_u64) {
+            symbol.current_part_id = u32::try_from(v).unwrap_or(symbol.current_part_id);
+        }
+        if let Some(v) = sym_json.get("part_id_locked").and_then(Value::as_bool) {
+            symbol.part_id_locked = v;
+        }
+        if let Some(v) = sym_json.get("source_library_name").and_then(Value::as_str) {
+            symbol.source_library_name = v.to_string();
+        }
+        if let Some(v) = sym_json.get("target_file_name").and_then(Value::as_str) {
+            symbol.target_file_name = v.to_string();
+        }
+
         // Parse pins
         if let Some(pins) = sym_json.get("pins").and_then(Value::as_array) {
             for pin_json in pins {
@@ -458,6 +484,53 @@ impl McpServer {
             }
         }
 
+        // Parse pies and images (mirror the create path — both were added to
+        // call_write_schlib without this path, recreating exactly the
+        // dropped-primitive bug documented above).
+        if let Some(pies) = sym_json.get("pies").and_then(Value::as_array) {
+            for pie_json in pies {
+                if let Some(pie) = Self::parse_schlib_pie(pie_json) {
+                    symbol.pies.push(pie);
+                }
+            }
+        }
+        if let Some(images) = sym_json.get("images").and_then(Value::as_array) {
+            for image_json in images {
+                if let Some(image) = Self::parse_schlib_image(image_json) {
+                    symbol.images.push(image);
+                }
+            }
+        }
+
+        // Beziers and elliptical arcs cannot be authored via write_schlib yet,
+        // but get_component returns them in serde shape, so a read-modify-write
+        // must carry them through — deserialise them directly.
+        if let Some(beziers) = sym_json.get("beziers").and_then(Value::as_array) {
+            for bezier_json in beziers {
+                if let Ok(bezier) = serde_json::from_value(bezier_json.clone()) {
+                    symbol.beziers.push(bezier);
+                }
+            }
+        }
+        if let Some(ell_arcs) = sym_json.get("elliptical_arcs").and_then(Value::as_array) {
+            for ell_arc_json in ell_arcs {
+                if let Ok(ell_arc) = serde_json::from_value(ell_arc_json.clone()) {
+                    symbol.elliptical_arcs.push(ell_arc);
+                }
+            }
+        }
+
+        // Parse footprint references. serde shape (get_component echo) and the
+        // create-path shape ({name, description, library_path}) both
+        // deserialise, since every other FootprintModel field has a default.
+        if let Some(footprints) = sym_json.get("footprints").and_then(Value::as_array) {
+            for fp_json in footprints {
+                if let Ok(fp) = serde_json::from_value(fp_json.clone()) {
+                    symbol.footprints.push(fp);
+                }
+            }
+        }
+
         // Reject out-of-range geometry before save (the create path validates
         // here; this path skipped it entirely). Runs in dry-run too.
         if let Err(e) = Self::validate_symbol_coordinates(&symbol) {
@@ -546,68 +619,56 @@ impl McpServer {
                     old.designator, new.designator
                 ));
             }
-            if old.pins.len() != new.pins.len() {
+            if old.part_count != new.part_count {
                 changes.push(format!(
-                    "pin_count: {} -> {}",
-                    old.pins.len(),
-                    new.pins.len()
+                    "part_count: {} -> {}",
+                    old.part_count, new.part_count
                 ));
             }
-            if old.rectangles.len() != new.rectangles.len() {
-                changes.push(format!(
-                    "rectangle_count: {} -> {}",
+            // Every primitive family, so the dry-run preview can never miss an
+            // added/removed family (a new family = one line here).
+            let family_counts = [
+                ("pin_count", old.pins.len(), new.pins.len()),
+                (
+                    "rectangle_count",
                     old.rectangles.len(),
-                    new.rectangles.len()
-                ));
-            }
-            if old.lines.len() != new.lines.len() {
-                changes.push(format!(
-                    "line_count: {} -> {}",
-                    old.lines.len(),
-                    new.lines.len()
-                ));
-            }
-            if old.polylines.len() != new.polylines.len() {
-                changes.push(format!(
-                    "polyline_count: {} -> {}",
-                    old.polylines.len(),
-                    new.polylines.len()
-                ));
-            }
-            if old.arcs.len() != new.arcs.len() {
-                changes.push(format!(
-                    "arc_count: {} -> {}",
-                    old.arcs.len(),
-                    new.arcs.len()
-                ));
-            }
-            if old.ellipses.len() != new.ellipses.len() {
-                changes.push(format!(
-                    "ellipse_count: {} -> {}",
-                    old.ellipses.len(),
-                    new.ellipses.len()
-                ));
-            }
-            if old.labels.len() != new.labels.len() {
-                changes.push(format!(
-                    "label_count: {} -> {}",
-                    old.labels.len(),
-                    new.labels.len()
-                ));
-            }
-            if old.text.len() != new.text.len() {
-                changes.push(format!(
-                    "text_count: {} -> {}",
-                    old.text.len(),
-                    new.text.len()
-                ));
-            }
-            if old.parameters.len() != new.parameters.len() {
-                changes.push(format!(
-                    "parameter_count: {} -> {}",
+                    new.rectangles.len(),
+                ),
+                ("line_count", old.lines.len(), new.lines.len()),
+                ("polyline_count", old.polylines.len(), new.polylines.len()),
+                ("arc_count", old.arcs.len(), new.arcs.len()),
+                ("ellipse_count", old.ellipses.len(), new.ellipses.len()),
+                ("label_count", old.labels.len(), new.labels.len()),
+                ("text_count", old.text.len(), new.text.len()),
+                (
+                    "parameter_count",
                     old.parameters.len(),
-                    new.parameters.len()
-                ));
+                    new.parameters.len(),
+                ),
+                (
+                    "round_rect_count",
+                    old.round_rects.len(),
+                    new.round_rects.len(),
+                ),
+                ("polygon_count", old.polygons.len(), new.polygons.len()),
+                ("pie_count", old.pies.len(), new.pies.len()),
+                ("image_count", old.images.len(), new.images.len()),
+                ("bezier_count", old.beziers.len(), new.beziers.len()),
+                (
+                    "elliptical_arc_count",
+                    old.elliptical_arcs.len(),
+                    new.elliptical_arcs.len(),
+                ),
+                (
+                    "footprint_count",
+                    old.footprints.len(),
+                    new.footprints.len(),
+                ),
+            ];
+            for (label, old_len, new_len) in family_counts {
+                if old_len != new_len {
+                    changes.push(format!("{label}: {old_len} -> {new_len}"));
+                }
             }
         } else {
             changes.push("component will be created".to_string());

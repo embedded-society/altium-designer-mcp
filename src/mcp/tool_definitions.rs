@@ -532,7 +532,7 @@ impl McpServer {
                 description: Some(
                     "Write schematic symbols to an Altium .SchLib file. Each symbol is defined by \
                      its primitives: pins, rectangles, round_rects, lines, polylines, polygons, \
-                     arcs, ellipses, labels, and text. \
+                     arcs, pies, images, ellipses, labels, and text. \
                      Coordinates must be in schematic units (10 units = 1 grid square, not mm)."
                         .to_string(),
                 ),

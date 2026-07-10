@@ -1305,6 +1305,128 @@ mod tests {
     }
 
     // =========================================================================
+    // SchLib primitive-family completeness Tests
+    // =========================================================================
+
+    /// Builds a symbol carrying every primitive family that a read-modify-write
+    /// used to drop (pies, images, beziers, elliptical arcs, footprint links)
+    /// plus a non-default part count.
+    fn symbol_with_every_at_risk_family() -> Symbol {
+        use crate::altium::schlib::{Bezier, EllipticalArc, FootprintModel, Image, Pie};
+
+        let mut symbol = Symbol::new("FAMILIES");
+        symbol.part_count = 2;
+        symbol.add_pin(Pin::new("1", "1", -20, 0, 10, PinOrientation::Left));
+        symbol.pies.push(Pie::new(0, 0, 5, 30.0, 210.0));
+        symbol.images.push(Image::new(-5, -3, 5, 3, "logo.bmp"));
+        symbol.beziers.push(Bezier::new(0, 0, 1, 2, 3, 2, 4, 0));
+        symbol
+            .elliptical_arcs
+            .push(EllipticalArc::new(0, 0, 10, 5, 0, 90));
+        symbol.footprints.push(FootprintModel::new("RESC1608X55N"));
+        symbol
+    }
+
+    #[test]
+    fn update_schlib_preserves_every_primitive_family() {
+        // Regression: update_schlib_component rebuilt the symbol from JSON but
+        // never parsed pies, images, beziers, elliptical_arcs, footprints or
+        // part_count, so feeding get_component's own output back (the
+        // documented read-modify-write flow) silently deleted them all.
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("families.SchLib");
+
+        let symbol = symbol_with_every_at_risk_family();
+        let mut lib = SchLib::new();
+        lib.add(symbol.clone());
+        lib.save(&lib_path).expect("save schlib");
+
+        // Exactly what get_component returns: the serde-serialised symbol.
+        let mut sym_json = serde_json::to_value(&symbol).expect("serialise symbol");
+        sym_json["description"] = json!("after");
+
+        let result = McpServer::update_schlib_component(
+            &lib_path.to_string_lossy(),
+            "FAMILIES",
+            &sym_json,
+            false,
+        );
+        assert!(!result.is_error, "expected success: {:?}", result.content);
+
+        let reread = SchLib::open(&lib_path).expect("reopen");
+        let updated = reread.get("FAMILIES").expect("symbol present");
+        assert_eq!(updated.description, "after");
+        assert_eq!(updated.part_count, 2, "multi-part count preserved");
+        assert_eq!(updated.pins.len(), 1, "pin preserved");
+        assert_eq!(updated.pies.len(), 1, "pie preserved");
+        assert_eq!(updated.images.len(), 1, "image preserved");
+        assert_eq!(updated.beziers.len(), 1, "bezier preserved");
+        assert_eq!(updated.elliptical_arcs.len(), 1, "elliptical arc preserved");
+        assert_eq!(updated.footprints.len(), 1, "footprint link preserved");
+    }
+
+    #[test]
+    fn export_schlib_json_includes_every_family() {
+        // Regression: the JSON export omitted pies, images, beziers,
+        // elliptical_arcs, text and part_count, so the documented
+        // export -> import round-trip silently dropped them.
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("families.SchLib");
+
+        let mut lib = SchLib::new();
+        lib.add(symbol_with_every_at_risk_family());
+        lib.save(&lib_path).expect("save schlib");
+
+        let server = create_test_server(temp.path());
+        let args = json!({ "filepath": lib_path.to_string_lossy(), "format": "json" });
+        let result = server.call_export_library(&args);
+        assert!(!result.is_error, "expected success: {:?}", result.content);
+
+        let parsed: Value = serde_json::from_str(get_result_text(&result)).expect("valid JSON");
+        let symbol = &parsed["symbols"][0];
+        for key in [
+            "part_count",
+            "pies",
+            "images",
+            "beziers",
+            "elliptical_arcs",
+            "text",
+            "footprints",
+        ] {
+            assert!(
+                symbol.get(key).is_some(),
+                "export omits '{key}' — import would silently drop it"
+            );
+        }
+        assert_eq!(symbol["part_count"], 2);
+        assert_eq!(symbol["pies"].as_array().map(Vec::len), Some(1));
+        assert_eq!(symbol["images"].as_array().map(Vec::len), Some(1));
+    }
+
+    #[test]
+    fn symbol_validation_rejects_out_of_range_pie_and_image() {
+        use crate::altium::schlib::{Image, Pie};
+
+        // Pies and images used to bypass the ±32000-unit coordinate guard that
+        // every other family goes through before a write.
+        let mut with_pie = Symbol::new("BAD_PIE");
+        with_pie.pies.push(Pie::new(100_000, 0, 5, 0.0, 90.0));
+        assert!(
+            McpServer::validate_symbol_coordinates(&with_pie).is_err(),
+            "out-of-range pie must be rejected"
+        );
+
+        let mut with_image = Symbol::new("BAD_IMAGE");
+        with_image
+            .images
+            .push(Image::new(0, 0, 100_000, 3, "x.bmp"));
+        assert!(
+            McpServer::validate_symbol_coordinates(&with_image).is_err(),
+            "out-of-range image must be rejected"
+        );
+    }
+
+    // =========================================================================
     // list_components Tool Tests
     // =========================================================================
 
