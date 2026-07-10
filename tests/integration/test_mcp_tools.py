@@ -322,6 +322,21 @@ def test_write_schlib_shapes(client, runner, schlib_path):
                 "show_border": True,
             }
         ],
+        "text_frames": [
+            {
+                "x1": -10,
+                "y1": -5,
+                "x2": 10,
+                "y2": 5,
+                "text": "Frame text",
+                "area_color": 0xB0FFFF,
+                "text_color": 0x800000,
+                "text_margin": 0.2,
+                "line_width": 1,
+                "is_solid": True,
+                "alignment": 2,
+            }
+        ],
         "labels": [{"x": 5, "y": 45, "text": "HELLO"}],
     }
 
@@ -403,6 +418,21 @@ def test_write_schlib_shapes(client, runner, schlib_path):
         runner.check(img.get("embed_image") is True, "image embed_image round-trips", actual=img.get("embed_image"))
         runner.check(img.get("keep_aspect") is True, "image keep_aspect round-trips", actual=img.get("keep_aspect"))
         runner.check(img.get("show_border") is True, "image show_border round-trips", actual=img.get("show_border"))
+
+    # text frame (RECORD=28): count + text + colours + margin + flags round-trip
+    text_frames = sym.get("text_frames", [])
+    runner.check(len(text_frames) == 1, "1 text_frame survived", actual=len(text_frames))
+    if text_frames:
+        tf = text_frames[0]
+        runner.check(tf.get("text") == "Frame text", "text_frame text", actual=tf.get("text"), expected="Frame text")
+        runner.check(tf.get("area_color") == 0xB0FFFF, "text_frame area_color round-trips", actual=tf.get("area_color"), expected=0xB0FFFF)
+        runner.check(tf.get("text_color") == 0x800000, "text_frame text_color round-trips", actual=tf.get("text_color"), expected=0x800000)
+        runner.check(tf.get("text_margin") == 0.2, "text_frame text_margin round-trips", actual=tf.get("text_margin"), expected=0.2)
+        runner.check(tf.get("is_solid") is True, "text_frame is_solid round-trips", actual=tf.get("is_solid"))
+        runner.check(tf.get("alignment") == 2, "text_frame alignment round-trips", actual=tf.get("alignment"), expected=2)
+        runner.check(tf.get("word_wrap") is True, "text_frame word_wrap defaults true", actual=tf.get("word_wrap"))
+        runner.check(tf.get("clip_to_rect") is True, "text_frame clip_to_rect defaults true", actual=tf.get("clip_to_rect"))
+        runner.check(tf.get("show_border") is True, "text_frame show_border defaults true", actual=tf.get("show_border"))
 
     # label: count + text
     labels = sym.get("labels", [])

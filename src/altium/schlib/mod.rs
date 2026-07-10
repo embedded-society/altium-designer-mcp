@@ -38,11 +38,14 @@
 //! | 6 | Polyline | Multiple connected lines |
 //! | 7 | Polygon | Filled polygon |
 //! | 8 | Ellipse | Ellipse or circle |
+//! | 9 | Pie | Filled circular sector |
 //! | 10 | RoundRect | Rounded rectangle |
 //! | 11 | EllipticalArc | Elliptical arc segment |
 //! | 12 | Arc | Arc segment |
 //! | 13 | Line | Single line segment |
 //! | 14 | Rectangle | Rectangle shape |
+//! | 28 | TextFrame | Bordered multi-line text box |
+//! | 30 | Image | Embedded/linked picture |
 //! | 34 | Designator | Component designator (R?, U?, etc.) |
 //! | 41 | Parameter | Component parameter (Value, etc.) |
 //! | 44 | Implementation List | Start of model list |
@@ -293,6 +296,9 @@ pub struct Symbol {
     /// Images (embedded/linked pictures, `RECORD=30`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub images: Vec<Image>,
+    /// Text frames (bordered multi-line text boxes, `RECORD=28`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub text_frames: Vec<TextFrame>,
     /// Bezier curves.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub beziers: Vec<Bezier>,
@@ -395,6 +401,11 @@ impl Symbol {
     /// Adds an image to the symbol.
     pub fn add_image(&mut self, image: Image) {
         self.images.push(image);
+    }
+
+    /// Adds a text frame to the symbol.
+    pub fn add_text_frame(&mut self, text_frame: TextFrame) {
+        self.text_frames.push(text_frame);
     }
 
     /// Adds a Bezier curve to the symbol.
@@ -630,6 +641,67 @@ mod tests {
         assert_eq!(im.file_name, "logo.png");
         assert!(!im.is_not_accessible, "false IsNotAccesible round-trips");
         assert!(im.display_flags.dimmed, "Dimmed round-trips");
+    }
+
+    #[test]
+    fn roundtrip_text_frame() {
+        // TextFrame (RECORD=28) round-trips through a full in-RAM library
+        // write/read, with every field at a non-default value.
+        let mut symbol = Symbol::new("FRAME_TEST");
+        symbol.designator = "U?".to_string();
+        let mut frame = TextFrame::new(-12.5, -6, 12.5, 6, "Line one");
+        frame.color = 0x00_00_FF;
+        frame.area_color = 0xAB_CD_EF;
+        frame.text_color = 0x12_34_56;
+        frame.text_margin = 1.25;
+        frame.line_width = 2;
+        frame.line_style = 1;
+        frame.transparent = true;
+        frame.font_id = 2;
+        frame.orientation = 1;
+        frame.alignment = 2;
+        frame.is_solid = true;
+        frame.show_border = false;
+        frame.word_wrap = false;
+        frame.clip_to_rect = false;
+        frame.is_not_accessible = false;
+        frame.owner_part_id = 1;
+        frame.display_flags.dimmed = true;
+        symbol.add_text_frame(frame);
+
+        let mut lib = SchLib::new();
+        lib.add(symbol);
+        let mut buffer = Cursor::new(Vec::new());
+        lib.write(&mut buffer).expect("Failed to write SchLib");
+
+        buffer.set_position(0);
+        let read_lib = SchLib::read(buffer).expect("Failed to read SchLib");
+        let read_symbol = read_lib.get("FRAME_TEST").expect("Symbol not found");
+
+        assert_eq!(read_symbol.text_frames.len(), 1, "the TextFrame survives");
+        let f = &read_symbol.text_frames[0];
+        assert!((f.x1 - -12.5).abs() < 1e-9 && (f.y1 - -6.0).abs() < 1e-9);
+        assert!((f.x2 - 12.5).abs() < 1e-9 && (f.y2 - 6.0).abs() < 1e-9);
+        assert_eq!(f.text, "Line one");
+        assert_eq!(f.color, 0x00_00_FF);
+        assert_eq!(f.area_color, 0xAB_CD_EF);
+        assert_eq!(f.text_color, 0x12_34_56);
+        assert!(
+            (f.text_margin - 1.25).abs() < 1e-9,
+            "fractional TextMargin round-trips"
+        );
+        assert_eq!(f.line_width, 2);
+        assert_eq!(f.line_style, 1);
+        assert!(f.transparent, "Transparent round-trips");
+        assert_eq!(f.font_id, 2);
+        assert_eq!(f.orientation, 1);
+        assert_eq!(f.alignment, 2);
+        assert!(f.is_solid, "IsSolid round-trips");
+        assert!(!f.show_border, "false ShowBorder round-trips");
+        assert!(!f.word_wrap, "false WordWrap round-trips");
+        assert!(!f.clip_to_rect, "false ClipToRect round-trips");
+        assert!(!f.is_not_accessible, "false IsNotAccesible round-trips");
+        assert!(f.display_flags.dimmed, "Dimmed round-trips");
     }
 
     #[test]

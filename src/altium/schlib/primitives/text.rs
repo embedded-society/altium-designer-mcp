@@ -85,8 +85,158 @@ pub struct Text {
     pub unique_id: Option<String>,
 }
 
+/// A bordered multi-line text box — `SchLib` `RECORD=28`.
+///
+/// Distinct from [`Label`] / [`Text`]: the text lives inside a frame rectangle
+/// (Location + Corner) with its own border, fill and text colours, a text
+/// margin, word-wrap and clip-to-rect behaviour. Coordinates are `f64`
+/// schematic units (see `super::coord`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[allow(clippy::struct_excessive_bools)] // independent Altium record flags
+pub struct TextFrame {
+    /// First corner X (`Location.X`).
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub x1: f64,
+    /// First corner Y (`Location.Y`).
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub y1: f64,
+    /// Second corner X (`Corner.X`).
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub x2: f64,
+    /// Second corner Y (`Corner.Y`).
+    #[serde(serialize_with = "crate::altium::serde_round::serialize")]
+    pub y2: f64,
+    /// Text content (`TEXT`).
+    pub text: String,
+    /// Border colour (BGR format, `COLOR`). Omitted when zero (default).
+    #[serde(default)]
+    pub color: u32,
+    /// Fill colour (BGR format, `AREACOLOR`). Defaults to white (0xFFFFFF),
+    /// which Altium emits even on a from-scratch frame.
+    #[serde(default = "default_area_color")]
+    pub area_color: u32,
+    /// Text colour (BGR format, `TEXTCOLOR`). Omitted when zero (default).
+    #[serde(default)]
+    pub text_color: u32,
+    /// Margin between the frame border and the text (`TEXTMARGIN`), a
+    /// fractional coordinate. Altium's from-scratch default is 0.00005 units
+    /// (the record carries only `TextMargin_Frac=5`).
+    #[serde(
+        default = "default_text_margin",
+        serialize_with = "crate::altium::serde_round::serialize"
+    )]
+    pub text_margin: f64,
+    /// Border line width (`LINEWIDTH`). Omitted when zero (default).
+    #[serde(default)]
+    pub line_width: u8,
+    /// Border line style (`LINESTYLE`, 0 = Solid). Omitted when zero.
+    #[serde(default)]
+    pub line_style: u8,
+    /// Whether the fill is transparent. Emitted only when true.
+    #[serde(default)]
+    pub transparent: bool,
+    /// Font ID (1-based index into library fonts).
+    #[serde(default = "default_font_id")]
+    pub font_id: u8,
+    /// Text orientation (`ORIENTATION`): `0`/`1`/`2`/`3` = 0°/90°/180°/270°.
+    /// Omitted when zero (default).
+    #[serde(default)]
+    pub orientation: u8,
+    /// Text alignment (`ALIGNMENT`): 0 = left, 1 = centre, 2 = right. Default 1
+    /// (centre) — Altium emits `Alignment=1` even on a from-scratch frame.
+    #[serde(default = "default_alignment")]
+    pub alignment: u8,
+    /// Whether the frame is filled (`ISSOLID`). Emitted only when true.
+    #[serde(default)]
+    pub is_solid: bool,
+    /// Whether the border is shown (`SHOWBORDER`). Default true; emitted only
+    /// when true.
+    #[serde(default = "default_true")]
+    pub show_border: bool,
+    /// Whether the text word-wraps inside the frame (`WORDWRAP`). Default true;
+    /// emitted only when true.
+    #[serde(default = "default_true")]
+    pub word_wrap: bool,
+    /// Whether the text is clipped to the frame rectangle (`CLIPTORECT`).
+    /// Default true; emitted only when true.
+    #[serde(default = "default_true")]
+    pub clip_to_rect: bool,
+    /// Whether the frame is marked not-accessible. Altium tags every shape
+    /// `IsNotAccesible` (its own single-'s' spelling), so this defaults to true.
+    #[serde(default = "default_true")]
+    pub is_not_accessible: bool,
+    /// Owner part ID.
+    #[serde(default = "default_owner_part")]
+    pub owner_part_id: i32,
+    /// Universal display/lock flags; omitted from JSON when all default.
+    #[serde(default, flatten)]
+    pub display_flags: ShapeDisplayFlags,
+    /// Altium unique ID (8-char). Preserved on read so a round-trip keeps the
+    /// shape identity; a from-scratch shape generates a fresh one on write (#113).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unique_id: Option<String>,
+}
+
+impl TextFrame {
+    /// Creates a new text frame spanning the box `(x1,y1)`-`(x2,y2)` holding
+    /// `text`, with Altium's from-scratch defaults (white fill, centre
+    /// alignment, border shown, word-wrap and clip-to-rect on).
+    #[must_use]
+    pub fn new(
+        x1: impl Into<f64>,
+        y1: impl Into<f64>,
+        x2: impl Into<f64>,
+        y2: impl Into<f64>,
+        text: impl Into<String>,
+    ) -> Self {
+        Self {
+            x1: x1.into(),
+            y1: y1.into(),
+            x2: x2.into(),
+            y2: y2.into(),
+            text: text.into(),
+            color: 0,
+            area_color: default_area_color(),
+            text_color: 0,
+            text_margin: default_text_margin(),
+            line_width: 0,
+            line_style: 0,
+            transparent: false,
+            font_id: 1,
+            orientation: 0,
+            alignment: 1,
+            is_solid: false,
+            show_border: true,
+            word_wrap: true,
+            clip_to_rect: true,
+            is_not_accessible: true,
+            owner_part_id: 1,
+            display_flags: ShapeDisplayFlags::default(),
+            unique_id: None,
+        }
+    }
+}
+
 const fn default_font_id() -> u8 {
     1
+}
+
+/// A text frame's default fill colour: white (BGR 0xFFFFFF). Altium emits
+/// `AreaColor=16777215` even on a from-scratch frame.
+const fn default_area_color() -> u32 {
+    16_777_215
+}
+
+/// A text frame's default alignment: 1 = centre. Altium emits `Alignment=1`
+/// even on a from-scratch frame.
+const fn default_alignment() -> u8 {
+    1
+}
+
+/// A text frame's default text margin: 0.00005 schematic units — Altium's
+/// from-scratch record carries only `TextMargin_Frac=5`.
+const fn default_text_margin() -> f64 {
+    0.000_05
 }
 
 /// Text justification. Shared with `PcbLib`; the canonical definition is

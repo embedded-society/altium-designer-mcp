@@ -23,7 +23,7 @@
 use super::primitives::{
     Arc, Bezier, Ellipse, EllipticalArc, FootprintModel, Image, Label, Line, Parameter, Pie, Pin,
     PinElectricalType, PinOrientation, PinSymbol, Polygon, Polyline, Rectangle, RoundRect,
-    ShapeDisplayFlags, Text, TextJustification,
+    ShapeDisplayFlags, Text, TextFrame, TextJustification,
 };
 use super::Symbol;
 use crate::altium::bytes::{
@@ -233,6 +233,12 @@ fn parse_text_record_from_string(symbol: &mut Symbol, text: &str) {
             // Image (embedded/linked picture)
             if let Some(image) = parse_image(&props) {
                 symbol.add_image(image);
+            }
+        }
+        28 => {
+            // Text frame (bordered multi-line text box)
+            if let Some(text_frame) = parse_text_frame(&props) {
+                symbol.add_text_frame(text_frame);
             }
         }
         12 => {
