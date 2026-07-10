@@ -49,11 +49,13 @@ src/
 │   │   ├── flags.rs             # On-disk flag-word bits
 │   │   ├── units.rs             # mm ↔ Altium internal units
 │   │   └── assets/              # Captured Library/Data stack + FileVersionInfo
-│   └── schlib/
-│       ├── mod.rs               # SchLib + Symbol types, CRUD, I/O orchestration
-│       ├── reader.rs            # Record parsing (text records + binary pin)
+│   └── schlib/                  # (mirrors pcblib/ — same module shape)
+│       ├── mod.rs               # SchLib + Symbol types, CRUD
+│       ├── read_io.rs           # OLE stream orchestration (read)
+│       ├── write_io.rs          # OLE stream orchestration (write)
+│       ├── reader/              # Record parsing (dispatch + per-record parsers)
 │       ├── writer.rs            # Record encoding (omit-when-default)
-│       ├── primitives.rs        # Pin, Rectangle, Line, Arc, Ellipse, etc.
+│       ├── primitives/          # Pin, shapes, text, footprint models
 │       ├── coord.rs             # Fractional (_Frac) coordinate codec
 │       └── pin_aux.rs           # PinFrac / PinSymbolLineWidth aux streams
 │
