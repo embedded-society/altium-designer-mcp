@@ -134,6 +134,7 @@ impl McpServer {
     }
 
     /// Validates all coordinates in a symbol before writing.
+    #[allow(clippy::too_many_lines)] // a flat per-family checklist — splitting adds no clarity
     pub(crate) fn validate_symbol_coordinates(
         symbol: &crate::altium::schlib::Symbol,
     ) -> Result<(), String> {
@@ -218,6 +219,100 @@ impl McpServer {
         for (i, label) in symbol.labels.iter().enumerate() {
             Self::validate_schlib_coordinate(label.x, &format!("Symbol '{name}' label {i} x"))?;
             Self::validate_schlib_coordinate(label.y, &format!("Symbol '{name}' label {i} y"))?;
+        }
+
+        for (i, rr) in symbol.round_rects.iter().enumerate() {
+            Self::validate_schlib_coordinate(rr.x1, &format!("Symbol '{name}' round_rect {i} x1"))?;
+            Self::validate_schlib_coordinate(rr.y1, &format!("Symbol '{name}' round_rect {i} y1"))?;
+            Self::validate_schlib_coordinate(rr.x2, &format!("Symbol '{name}' round_rect {i} x2"))?;
+            Self::validate_schlib_coordinate(rr.y2, &format!("Symbol '{name}' round_rect {i} y2"))?;
+            Self::validate_schlib_coordinate(
+                rr.corner_x_radius,
+                &format!("Symbol '{name}' round_rect {i} corner_x_radius"),
+            )?;
+            Self::validate_schlib_coordinate(
+                rr.corner_y_radius,
+                &format!("Symbol '{name}' round_rect {i} corner_y_radius"),
+            )?;
+        }
+
+        for (i, polygon) in symbol.polygons.iter().enumerate() {
+            for (j, &(x, y)) in polygon.points.iter().enumerate() {
+                Self::validate_schlib_coordinate(
+                    x,
+                    &format!("Symbol '{name}' polygon {i} point {j} x"),
+                )?;
+                Self::validate_schlib_coordinate(
+                    y,
+                    &format!("Symbol '{name}' polygon {i} point {j} y"),
+                )?;
+            }
+        }
+
+        for (i, pie) in symbol.pies.iter().enumerate() {
+            Self::validate_schlib_coordinate(pie.x, &format!("Symbol '{name}' pie {i} x"))?;
+            Self::validate_schlib_coordinate(pie.y, &format!("Symbol '{name}' pie {i} y"))?;
+            Self::validate_schlib_coordinate(
+                pie.radius,
+                &format!("Symbol '{name}' pie {i} radius"),
+            )?;
+        }
+
+        for (i, image) in symbol.images.iter().enumerate() {
+            Self::validate_schlib_coordinate(image.x1, &format!("Symbol '{name}' image {i} x1"))?;
+            Self::validate_schlib_coordinate(image.y1, &format!("Symbol '{name}' image {i} y1"))?;
+            Self::validate_schlib_coordinate(image.x2, &format!("Symbol '{name}' image {i} x2"))?;
+            Self::validate_schlib_coordinate(image.y2, &format!("Symbol '{name}' image {i} y2"))?;
+        }
+
+        for (i, bezier) in symbol.beziers.iter().enumerate() {
+            for (j, (x, y)) in [
+                (bezier.x1, bezier.y1),
+                (bezier.x2, bezier.y2),
+                (bezier.x3, bezier.y3),
+                (bezier.x4, bezier.y4),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                Self::validate_schlib_coordinate(
+                    x,
+                    &format!("Symbol '{name}' bezier {i} point {j} x"),
+                )?;
+                Self::validate_schlib_coordinate(
+                    y,
+                    &format!("Symbol '{name}' bezier {i} point {j} y"),
+                )?;
+            }
+        }
+
+        for (i, ell_arc) in symbol.elliptical_arcs.iter().enumerate() {
+            Self::validate_schlib_coordinate(
+                ell_arc.x,
+                &format!("Symbol '{name}' elliptical_arc {i} x"),
+            )?;
+            Self::validate_schlib_coordinate(
+                ell_arc.y,
+                &format!("Symbol '{name}' elliptical_arc {i} y"),
+            )?;
+            Self::validate_schlib_coordinate(
+                ell_arc.radius,
+                &format!("Symbol '{name}' elliptical_arc {i} radius"),
+            )?;
+            Self::validate_schlib_coordinate(
+                ell_arc.secondary_radius,
+                &format!("Symbol '{name}' elliptical_arc {i} secondary_radius"),
+            )?;
+        }
+
+        for (i, text) in symbol.text.iter().enumerate() {
+            Self::validate_schlib_coordinate(text.x, &format!("Symbol '{name}' text {i} x"))?;
+            Self::validate_schlib_coordinate(text.y, &format!("Symbol '{name}' text {i} y"))?;
+        }
+
+        for (i, param) in symbol.parameters.iter().enumerate() {
+            Self::validate_schlib_coordinate(param.x, &format!("Symbol '{name}' parameter {i} x"))?;
+            Self::validate_schlib_coordinate(param.y, &format!("Symbol '{name}' parameter {i} y"))?;
         }
 
         Ok(())
