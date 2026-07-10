@@ -37,33 +37,18 @@ See `docs/VISION.md` for the full architecture.
 
 ## Project Structure
 
-```
-src/
-├── lib.rs              # Library crate root
-├── main.rs             # CLI entry point
-├── error.rs            # Top-level error types
-├── config/             # Configuration
-│   ├── mod.rs
-│   └── settings.rs
-├── mcp/                # MCP server
-│   ├── mod.rs
-│   ├── server.rs       # Tool definitions & handlers
-│   ├── protocol.rs     # JSON-RPC types
-│   └── transport.rs    # Stdio transport
-└── altium/             # Altium file I/O
-    ├── mod.rs
-    ├── error.rs        # Altium-specific errors
-    ├── pcblib/         # .PcbLib read/write
-    │   ├── mod.rs
-    │   ├── primitives.rs
-    │   ├── reader.rs
-    │   └── writer.rs
-    └── schlib/         # .SchLib read/write
-        ├── mod.rs
-        ├── primitives.rs
-        ├── reader.rs
-        └── writer.rs
-```
+See `docs/ARCHITECTURE.md` § Component Overview for the maintained source tree —
+it is the single source of truth; do not duplicate it here.
+
+Key orientation points:
+
+- `src/altium/` — file-format layer: shared framing/encoding helpers at the root,
+  `pcblib/` (binary records over byte templates) and `schlib/` (text records,
+  omit-when-default) beneath.
+- `src/mcp/` — server layer: dispatch + security choke-points in `server.rs`, one
+  handler file per tool family in `tools/`, tool schemas in `tool_definitions.rs`
+  (the source of truth for the generated `docs/TOOLS.md`).
+- `src/security/` — rate limiting + audit log for mutating tools.
 
 ## MCP Tools
 
