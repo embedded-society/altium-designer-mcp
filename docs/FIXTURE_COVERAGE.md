@@ -16,72 +16,78 @@ Our test pyramid has three tiers, and only one of them is true ground truth for 
 | **Self-round-trip** (write→read→assert) | our writer and our reader agree | **circular** — a field read wrong *and* written wrong the same way still passes |
 | **Golden fixtures** (Altium-authored) | we read a real Altium file correctly | only as good as the values the fixture actually contains |
 
-Every "medium confidence / no golden fixture, self-round-trip only" caveat in recent PRs
-(PinFrac, PinSymbolLineWidth, inverted-rect text, barcode, …) traces to the **golden fixtures
-being too plain**. The fix is to enrich them.
+Every "self-round-trip only" caveat traces to the golden fixtures not yet carrying the
+field. The fix is always to enrich them (see the workflow below).
 
-## How the fixtures are produced (fully automated)
+## How the fixtures are produced (fully automated, on this PC)
 
 - `scripts/Generate-Samples.ps1` — launches Altium headless (RunScript CLI), runs the
   DelphiScript, copies the authored libraries into `scripts/samples/`.
 - `scripts/altium/generate/GenerateSamples.pas` — the **authoring logic** (editable here;
   DelphiScript). Header declares it *iterative by design*: generate → read back → add the next
   feature → regenerate, until coverage is complete.
-- **The one on-site step:** running the wrapper needs Altium installed (AD24). Division of
-  labour — extend `GenerateSamples.pas` + add read tests in-repo; the maintainer runs
-  `.\scripts\Generate-Samples.ps1` on their Altium box and commits the regenerated binaries.
+- **Standing workflow:** when a read test needs a feature the goldens don't carry, extend the
+  `.pas` (verified AD24 API names only — one bad identifier aborts the whole script compile),
+  kill any stale `X2` process, regenerate locally, commit the binaries, then write **exact**
+  (non-guarded) assertions against the authored values. No tolerant or skipping tests.
+- **Documented negatives:** when Altium does not persist an authored property, record the
+  negative in the `.pas` next to the helper (and in the tables below) so it is not retried
+  blindly. Known AD24 negatives: `Disabled`/`Dimmed` on a library rectangle,
+  `ISch_RoundRectangle.Transparent`, `Pad.CRPercentage[...]` on a fresh Simple pad (native
+  crash).
 
 ## Coverage map
 
-Legend: ✅ authored + asserted · 🟡 authored, weak/no assertion · ❌ not exercised (self-round-trip only).
+Legend: ✅ authored + asserted · ❌ not exercised (self-round-trip only) · 🚫 documented
+negative (Altium does not persist it — do not retry).
 
 ### PcbLib (`footprints.PcbLib`)
 
 | Primitive | Exercised today | Not exercised (❌) |
 |-----------|-----------------|--------------------|
-| Pad | shape (round/rect/oct/rrect), TH holes (round/square/slot), local stack, rotation, negative/far coords | thermal-relief (relief_*), power-plane connect style, paste/solder-mask expansion, testpoint flags, slot geometry on SMD, drill tolerances, jumper id, locked/keepout flags |
+| Pad | shape (round/rect/oct/rrect), TH holes (round/square/slot), local stack, rotation, negative/far coords | thermal-relief (relief_*), power-plane connect style, paste/solder-mask expansion, testpoint flags, slot geometry on SMD, drill tolerances, jumper id, locked/keepout flags; 🚫 corner-radius `CRPercentage` (crashes on a fresh Simple pad — needs correct pad-stack init first) |
 | Via | simple TH, two pad/hole sizes | thermal-relief, power-plane, tenting flags, net index, paste-mask expansion, GUID |
 | Track | silk box + copper track, two widths, two layers | locked/keepout flags, net index |
 | Arc | full circle + quarter arc | fill/area colour, locked/keepout, net index |
-| Region | copper box + mechanical box | KIND (cutout/…), net, name, arc-resolution/cavity/subpoly/union params |
+| Region | copper box + mechanical box; ✅ board-cutout representation (`ISBOARDCUTOUT=TRUE` + `KEEPOUT=TRUE`, relocated to the keep-out layer — `samples_pcblib_region_cutout`) | named region, net, arc-resolution/cavity/subpoly/union params |
 | Fill | axis-aligned + 45°-rotated copper | locked/keepout, net index |
-| Text | stroke text, Win-1252 chars, vertical (90°) | **mirror, bold, TrueType font_name, italic, justification, kind=TrueType/BarCode, stroke_font, inverted-rect block, barcode block, char_set, union_index, net/component index, flags** |
-| ComponentBody | one extruded box (Mechanical) | cavity height, model 2D location/rotation, non-default colour/opacity, raw-outline precision |
+| Text | stroke text, Win-1252 chars, vertical (90°); ✅ TrueType `font_name`='Arial' + bold + italic + mirror (`TEXT_STYLE`) | justification, kind=BarCode, stroke_font variants, inverted-rect block, barcode block, char_set, union_index, net/component index, flags |
+| ComponentBody | one extruded box (Mechanical) | embedded STEP model, cavity height, model 2D location/rotation, non-default colour/opacity, raw-outline precision |
 
 ### SchLib (`symbols.SchLib`)
 
 | Primitive | Exercised today | Not exercised (❌) |
 |-----------|-----------------|--------------------|
-| Pin | electrical types (all 8), orientations (0/90/180/270), name/designator visibility, edge decorations, dual-part `owner_part_id` | **PinFrac (fractional coords), PinSymbolLineWidth, owner_part_display_mode, swap_id_group, part_and_sequence, default_value, graphically_locked** |
-| Line | plain segments | line_style (dashed/dotted), is_not_accessible=false, display flags |
-| Arc | plain arcs | fill/area colour, is_not_accessible=false, _FRAC coords, display flags |
-| Rectangle | plain rects | line_style, transparent, display flags |
-| RoundRect | plain rounded rects | line_style, transparent, display flags |
-| Ellipse | plain ellipses | transparent, display flags |
+| Pin | electrical types (all 8), orientations (0/90/180/270), name/designator visibility, edge decorations, dual-part `owner_part_id`; ✅ PinFrac off-grid coords (`FRACPINS`), ✅ PinSymbolLineWidth (`Symbol_LineWidth=eLarge`) | owner_part_display_mode (non-default), swap_id_group, part_and_sequence, default_value, graphically_locked |
+| Line | plain segments; ✅ line_style dashed + dotted (`SHAPESTYLE`) | is_not_accessible=false, display flags |
+| Arc | plain arcs | fill/area colour, is_not_accessible=false, `_Frac` coords, display flags |
+| Rectangle | plain rects; ✅ transparent (`SHAPESTYLE`), ✅ GraphicallyLocked (`LOCKFLAGS`) | line_style; 🚫 Disabled/Dimmed (authored but not persisted by AD24) |
+| RoundRect | plain rounded rects | line_style, display flags; 🚫 transparent (authored but not persisted on a library round-rect) |
+| Ellipse | plain ellipses; ✅ transparent (batch 3) | display flags |
 | Polyline | plain polylines | line_style, start/end shapes, transparent, display flags |
-| Polygon | plain polygons | **line_style, transparent, is_not_accessible=false, display flags** |
-| Label | plain labels | justification variants, mirror, rotation, display flags |
+| Polygon | plain polygons; ✅ transparent (`SHAPESTYLE` triangle) | is_not_accessible=false, display flags (line_style: N/A — `ISch_Polygon` has no LineStyle in AD24) |
+| Pie | ✅ authored (`PIESYM`: 30–210°, radius 5 units, yellow fill, exact-asserted) | transparent, display flags, `_Frac` coords |
+| Image | ✅ authored (`IMAGESYM`: bounding box, `logo.bmp`, KeepAspect, non-embedded) | embedded image bytes (`/Storage` stream), show_border non-default, display flags |
+| Bezier | ✅ authored (`BEZIERSYM`, four control points exact-asserted) | non-default colour/width, display flags |
+| Label | plain labels; ✅ justification variants + rotation (`JUSTIFY`) | mirror, display flags |
 | Parameter | Value etc. | justification, orientation, is_mirrored, autoposition, is_configurable, is_rule/is_system, area colour |
-| Bezier | *(not authored at all)* | entire primitive |
 
 ### Cross-cutting (both formats)
 
-- **Universal display/lock flags** (`GraphicallyLocked` / `Disabled` / `Dimmed` /
-  `OwnerPartDisplayMode`) — modelled on all 9 SchLib shapes, but the fixture authors none
-  non-default, so their *read* path is self-round-trip only.
+- **Universal display/lock flags** — `GraphicallyLocked` is golden-covered on Rectangle
+  (`LOCKFLAGS`); `Disabled`/`Dimmed` are 🚫 documented AD24 negatives (not persisted on
+  library shapes); `OwnerPartDisplayMode` at a non-default value remains self-round-trip only.
 - **`unique_id`** — present in fixtures, so identity read is covered; but per-primitive GUID
   streams for populated cases are thin.
-- **Fractional (`*_Frac`) coordinates** — the whole `_FRAC` read path is unexercised because
-  every fixture primitive sits on the integer grid.
+- **Fractional coordinates** — the Pin `_Frac` path is golden-covered via the `PinFrac` aux
+  stream (`FRACPINS`); the text-record `*_Frac` key path on graphic shapes is still
+  unexercised (every fixture *shape* sits on the integer grid).
 
-## Plan to close it
+## Remaining enrichment backlog (batch 4+)
 
-1. Extend `GenerateSamples.pas`: one component (or one small library) per feature area
-   authoring the ❌ properties above — a mirrored/inverted/barcode text, an off-grid pin with
-   a symbol line width, locked/dimmed shapes, non-default justifications, thermal-relief pads,
-   filled arcs, cutout regions, a Bezier, etc.
-2. Add read-assertion tests in `tests/samples_{schlib,pcblib}.rs`, each **guarded** to skip
-   gracefully until the regenerated fixture carries the field (so CI stays green pre-regen).
-3. Maintainer runs `.\scripts\Generate-Samples.ps1` → commits the enriched binaries.
-4. The guarded tests activate → every field becomes verified against a real Altium file,
-   retiring the self-round-trip caveats.
+PcbLib: pad thermal-relief / power-plane (`PowerPlaneConnectStyle`) + mask expansion
+(`GetState_Cache`→`SetState_Cache` pattern); text inverted-rect + barcode (`BarCodeKind`);
+an embedded-STEP `ComponentBody`; a multi-layer spread footprint (internal-plane /
+mechanical / drill / keepout layers). SchLib: pin swap_id / part_and_sequence /
+default_value; off-grid graphic shapes (`*_Frac`); non-default `OwnerPartDisplayMode`.
+Each batch: extend the `.pas` → regenerate locally → commit binaries → exact assertions.

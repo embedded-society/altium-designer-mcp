@@ -817,4 +817,20 @@ fn samples_pcblib_region_cutout() {
         "the board-cutout flag is preserved in additional_parameters, got {:?}",
         r.additional_parameters
     );
+    // Altium also silently MOVED the authored eTopLayer region onto the
+    // keep-out layer (LAYER=KEEPOUT + KEEPOUT=TRUE in the same param block) —
+    // the authored layer is not preserved for a board cutout. Assert the real
+    // on-disk placement so the relocation is documented ground truth.
+    assert_eq!(
+        r.layer,
+        Layer::KeepOut,
+        "Altium relocates a board cutout to the keep-out layer"
+    );
+    assert!(
+        r.additional_parameters
+            .iter()
+            .any(|(k, v)| k == "KEEPOUT" && v == "TRUE"),
+        "the KEEPOUT flag is preserved in additional_parameters, got {:?}",
+        r.additional_parameters
+    );
 }
