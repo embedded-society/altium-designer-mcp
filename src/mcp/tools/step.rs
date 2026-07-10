@@ -376,36 +376,43 @@ impl McpServer {
             return ToolCallResult::error(serde_json::to_string_pretty(&result).unwrap());
         }
 
-        // Extract or return the models
-        if matching_models.len() == 1 {
-            // Single model - use standard extraction
-            Self::extract_model_output(filepath, output_path, matching_models[0])
-        } else if let Some(out_dir) = output_path {
-            // Multiple models - extract to directory
-            self.extract_all_step_models(filepath, Some(out_dir), &matching_models)
-        } else {
-            // Multiple models, no output - return info
-            let model_info: Vec<Value> = matching_models
-                .iter()
-                .map(|m| {
-                    json!({
-                        "id": m.id,
-                        "name": m.name,
-                        "size_bytes": m.data.len(),
-                    })
-                })
-                .collect();
+        // Extract or return the models. `output_path` is ALWAYS a directory in
+        // this mode — previously it meant a file path for exactly one match
+        // and a directory for several, so the same call wrote to different
+        // places depending on how many models the footprint happened to
+        // reference. The footprint decides the match count, not the caller,
+        // so the meaning of the argument must not depend on it.
+        output_path.map_or_else(
+            || {
+                if matching_models.len() == 1 {
+                    // Single model, no output path - return it inline as base64
+                    Self::extract_model_output(filepath, None, matching_models[0])
+                } else {
+                    // Multiple models, no output - return info
+                    let model_info: Vec<Value> = matching_models
+                        .iter()
+                        .map(|m| {
+                            json!({
+                                "id": m.id,
+                                "name": m.name,
+                                "size_bytes": m.data.len(),
+                            })
+                        })
+                        .collect();
 
-            let result = json!({
-                "status": "list",
-                "filepath": filepath,
-                "footprint": footprint_name,
-                "message": "Multiple models found for footprint. Specify 'output_path' to extract all.",
-                "model_count": matching_models.len(),
-                "models": model_info,
-            });
-            ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
-        }
+                    let result = json!({
+                        "status": "list",
+                        "filepath": filepath,
+                        "footprint": footprint_name,
+                        "message": "Multiple models found for footprint. Specify 'output_path' to extract all.",
+                        "model_count": matching_models.len(),
+                        "models": model_info,
+                    });
+                    ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+                }
+            },
+            |out_dir| self.extract_all_step_models(filepath, Some(out_dir), &matching_models),
+        )
     }
 
     /// Helper to output extracted model data (to file or base64).

@@ -1228,6 +1228,83 @@ mod tests {
     }
 
     // =========================================================================
+    // extract_step_model Tool Tests
+    // =========================================================================
+
+    /// Creates a test `PcbLib` with one footprint referencing one embedded
+    /// STEP model.
+    fn create_test_pcblib_with_model(path: &std::path::Path) {
+        use crate::altium::pcblib::{ComponentBody, EmbeddedModel};
+
+        const MODEL_ID: &str = "{11111111-2222-3333-4444-555555555555}";
+
+        let mut lib = PcbLib::new();
+        let mut fp = Footprint::new("FP_3D");
+        fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+        fp.add_component_body(ComponentBody::new(MODEL_ID, "part.step"));
+        lib.add(fp);
+        lib.add_model(EmbeddedModel::new(
+            MODEL_ID,
+            "part.step",
+            b"ISO-10303-21; test".to_vec(),
+        ));
+        lib.save(path).expect("save pcblib with model");
+    }
+
+    #[test]
+    fn extract_by_footprint_output_path_is_a_directory_even_for_one_match() {
+        // Regression (bug sweep 2026-07, deferred item): with exactly one
+        // matching model `output_path` used to be treated as a FILE path, but
+        // as a DIRECTORY for two or more — the same argument changed meaning
+        // based on data the caller does not control. It is now always a
+        // directory for extract_by_footprint.
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("with_model.PcbLib");
+        create_test_pcblib_with_model(&lib_path);
+
+        let out_dir = temp.path().join("models_out");
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepath": lib_path.to_string_lossy(),
+            "mode": "extract_by_footprint",
+            "footprint_name": "FP_3D",
+            "output_path": out_dir.to_string_lossy(),
+        });
+
+        let result = server.call_extract_step_model(&args);
+        assert!(!result.is_error, "expected success: {:?}", result.content);
+
+        let extracted = out_dir.join("part.step");
+        assert!(
+            extracted.exists(),
+            "single-match extract_by_footprint must treat output_path as a directory"
+        );
+        assert_eq!(
+            std::fs::read(&extracted).expect("read extracted model"),
+            b"ISO-10303-21; test"
+        );
+    }
+
+    #[test]
+    fn extract_by_footprint_without_output_returns_base64_for_single_match() {
+        let temp = test_temp_dir();
+        let lib_path = temp.path().join("with_model.PcbLib");
+        create_test_pcblib_with_model(&lib_path);
+
+        let server = create_test_server(temp.path());
+        let args = json!({
+            "filepath": lib_path.to_string_lossy(),
+            "mode": "extract_by_footprint",
+            "footprint_name": "FP_3D",
+        });
+
+        let result = server.call_extract_step_model(&args);
+        assert!(!result.is_error, "expected success: {:?}", result.content);
+        let parsed: Value = serde_json::from_str(get_result_text(&result)).expect("valid JSON");
+        assert_eq!(parsed["encoding"], "base64");
+    }
+
+    // =========================================================================
     // list_components Tool Tests
     // =========================================================================
 
