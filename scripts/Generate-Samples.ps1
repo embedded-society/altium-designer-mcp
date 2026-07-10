@@ -55,6 +55,22 @@ if (Test-Path $ResponseFile) { Remove-Item $ResponseFile -Force }
 # DelphiScript's lowercase filenames take effect.
 Get-ChildItem -Path $BridgeDir -File -ErrorAction SilentlyContinue |
     Where-Object { $_.Name -match '\.(PcbLib|SchLib)$' } | Remove-Item -Force
+
+# Deterministic 2x2 24-bit BMP (70 bytes) for the EMBIMGSYM embedded-image symbol:
+# the DelphiScript's AddImageEmbedded points Altium at this file so the saved
+# SchLib carries real image bytes in its /Storage stream. A byte-identical copy
+# is committed at scripts\samples\embed.bmp for the read tests to compare against.
+$EmbedBmp = Join-Path $BridgeDir 'embed.bmp'
+[byte[]]$bmpBytes = @(
+    0x42, 0x4D, 0x46, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x36, 0x00, 0x00, 0x00, # 'BM', size 70, pixel offset 54
+    0x28, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01, 0x00, # info header 40, 2x2, 1 plane
+    0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x13, 0x0B, 0x00, 0x00, # 24 bpp, no compression, size-image 0 (BI_RGB; matches Altium's own normalisation)
+    0x13, 0x0B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,             # 2835 ppm, 0 palette colours
+    0x00, 0x00, 0xFF, 0x00, 0xFF, 0x00, 0x00, 0x00,                                     # bottom row: red, green + pad
+    0xFF, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00                                      # top row: blue, white + pad
+)
+[System.IO.File]::WriteAllBytes($EmbedBmp, $bmpBytes)
+
 Write-Host "Authoring sample libraries..."
 
 # Launch Altium with the generate script. The `^|` separator is what RunScript expects;
