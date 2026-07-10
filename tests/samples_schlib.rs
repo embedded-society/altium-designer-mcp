@@ -780,8 +780,30 @@ fn samples_schlib_bezier() {
     let sym = lib.get("BEZIERSYM").expect("BEZIERSYM symbol not found");
 
     // One cubic Bezier (four control points) authored via the verified
-    // eBezier factory + SetState_Vertex path.
+    // eBezier factory + SetState_Vertex path: AddBezier4(-100, 0, -50, 80,
+    // 50, 80, 100, 0) in mils = (-10, 0) (-5, 8) (5, 8) (10, 0) in units.
     assert_eq!(sym.beziers.len(), 1, "BEZIERSYM has one Bezier curve");
+    let bez = &sym.beziers[0];
+    assert!(
+        approx_eq(bez.x1, -10.0)
+            && approx_eq(bez.y1, 0.0)
+            && approx_eq(bez.x2, -5.0)
+            && approx_eq(bez.y2, 8.0)
+            && approx_eq(bez.x3, 5.0)
+            && approx_eq(bez.y3, 8.0)
+            && approx_eq(bez.x4, 10.0)
+            && approx_eq(bez.y4, 0.0),
+        "Bezier control points must match the authored values, got \
+         ({}, {}) ({}, {}) ({}, {}) ({}, {})",
+        bez.x1,
+        bez.y1,
+        bez.x2,
+        bez.y2,
+        bez.x3,
+        bez.y3,
+        bez.x4,
+        bez.y4
+    );
 }
 
 #[test]

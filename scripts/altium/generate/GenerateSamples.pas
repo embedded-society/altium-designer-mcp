@@ -1028,7 +1028,12 @@ end;
 
 { Rectangle with the universal display/lock flags set. Names VERIFIED against the
   AD24 IDE object-model dump: GraphicallyLocked / Disabled / Dimmed are Boolean
-  members of ISch_GraphicalObject (inherited by every graphic shape). }
+  members of ISch_GraphicalObject (inherited by every graphic shape).
+  DOCUMENTED NEGATIVE (AD24, batch 2): only GraphicallyLocked PERSISTS in the
+  saved .SchLib — the fixture's Data stream carries GraphicallyLocked=T and no
+  Disabled/Dimmed keys, so the read test asserts GraphicallyLocked only. The
+  Disabled/Dimmed assignments below are kept as living probes in case a future
+  AD version starts persisting them; do not add fixture assertions for them. }
 procedure AddRectFlagged(Comp : ISch_Component; X1 : Integer; Y1 : Integer;
                          X2 : Integer; Y2 : Integer);
 var R : ISch_Rectangle;
@@ -1050,7 +1055,8 @@ begin
     SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast, SCHM_PrimitiveRegistration, R.I_ObjectAddress);
 end;
 
-{ Filled polygon (box) with Transparent := True. VERIFIED: ISch_Polygon HAS
+{ Filled polygon (right TRIANGLE — three vertices from the given box corners:
+  (X1,Y1) (X2,Y1) (X2,Y2)) with Transparent := True. VERIFIED: ISch_Polygon HAS
   Transparent (Boolean) but has NO LineStyle — do not set LineStyle on a polygon. }
 procedure AddPolygonTransparent(Comp : ISch_Component; X1 : Integer; Y1 : Integer;
                                 X2 : Integer; Y2 : Integer);
