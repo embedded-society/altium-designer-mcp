@@ -1405,6 +1405,44 @@ def test_compare_components_duplicates_and_depth(client, runner, lib_path):
     )
 
 
+def test_update_schlib_preserves_pies_images(client, runner, schlib_path):
+    print("\n=== Test: update_component preserves pies/images/part_count (bug hunt) ===")
+    # Regression (post-sweep hunt 2026-07): update_schlib_component was missing
+    # the pies/images parse blocks (and beziers/elliptical_arcs/footprints/
+    # part_count), so a read-modify-write via update_component silently deleted
+    # them and reset a multi-part symbol to one part.
+    symbol = {
+        "name": "PIEIMG",
+        "part_count": 2,
+        "pies": [
+            {"x": 0, "y": 0, "radius": 5, "start_angle": 30.0, "end_angle": 210.0}
+        ],
+        "images": [{"x1": -5, "y1": -3, "x2": 5, "y2": 3, "file_name": "logo.bmp"}],
+        "footprints": [{"name": "RESC1608X55N"}],
+    }
+    write = client.call_tool(
+        "write_schlib",
+        {"filepath": schlib_path, "symbols": [symbol], "append": False},
+    )
+    runner.check(not write.get("_isError"), "write_schlib (pie+image) succeeded", actual=write)
+
+    symbol["description"] = "after"
+    upd = client.call_tool(
+        "update_component",
+        {"filepath": schlib_path, "component_name": "PIEIMG", "symbol": symbol},
+    )
+    runner.check(not upd.get("_isError"), "update_component succeeded", actual=upd)
+
+    read = client.call_tool("read_schlib", {"filepath": schlib_path})
+    syms = {s.get("name"): s for s in read.get("symbols", [])}
+    sym = syms.get("PIEIMG", {})
+    runner.check(len(sym.get("pies", [])) == 1, "pie survived update_component", actual=len(sym.get("pies", [])))
+    runner.check(len(sym.get("images", [])) == 1, "image survived update_component", actual=len(sym.get("images", [])))
+    runner.check(len(sym.get("footprints", [])) == 1, "footprint link survived", actual=len(sym.get("footprints", [])))
+    runner.check(sym.get("part_count") == 2, "part_count survived", actual=sym.get("part_count"))
+    runner.check(sym.get("description") == "after", "description was updated", actual=sym.get("description"))
+
+
 def test_bulk_rename_chained_no_loss(client, runner, schlib_path):
     print("\n=== Test: bulk_rename chained rename loses no symbol (bug sweep) ===")
     # Regression (bug sweep 2026-07): applying renames one-pass (remove-then-add)
@@ -2333,6 +2371,7 @@ def main():
         test_write_pcblib_common_indices_roundtrip(client, runner, lib_path)
         test_update_pcblib_preserves_vias_fills(client, runner, lib_path)
         test_compare_components_duplicates_and_depth(client, runner, lib_path)
+        test_update_schlib_preserves_pies_images(client, runner, schlib_path)
         test_bulk_rename_chained_no_loss(client, runner, schlib_path)
         test_write_schlib_shapes(client, runner, schlib_path)
         test_write_schlib_fields(client, runner, schlib_path)

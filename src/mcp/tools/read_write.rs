@@ -972,8 +972,11 @@ impl McpServer {
                             "arcs": symbol.arcs,
                             "pies": symbol.pies,
                             "images": symbol.images,
+                            "beziers": symbol.beziers,
                             "ellipses": symbol.ellipses,
+                            "elliptical_arcs": symbol.elliptical_arcs,
                             "labels": symbol.labels,
+                            "text": symbol.text,
                             "parameters": symbol.parameters,
                             "footprints": symbol.footprints,
                         })

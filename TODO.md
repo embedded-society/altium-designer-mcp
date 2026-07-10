@@ -138,6 +138,10 @@ we handle: 1,2,4,5,6,7,8,10,11,12,13,14,34,41,45 — note the holes):
       AltiumSharp `ParseStorageImageData`) are not yet read. Add the Storage-stream extraction.
 - [ ] 🟠 **TextFrame** (`SchTextFrameDto`) — a bordered multi-line text box (distinct from
       Label/Text: has a frame rect, word-wrap, alignment). Not modelled. Add primitive + sample + test.
+- [ ] 🟠 **Bezier + EllipticalArc authoring** — both families are read and RMW-preserved
+      (update_component carries them through), but `write_schlib` cannot author them: no schema
+      entry, no `parse_schlib_*`, and the symbol allow-list rejects the keys. Add schema + parser +
+      allow-list + tests per the tool-completeness recipe.
 - [ ] ⚪ **Verify in-scope:** `ParameterSet`, `Hyperlink`, `Note`, `CompileMask` — confirm whether
       any can appear inside a `.SchLib` symbol (vs `.SchDoc` only) before implementing.
 - **OUT OF SCOPE (SchDoc-only, cannot appear in a symbol library — do NOT implement):** Bus,
