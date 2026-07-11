@@ -80,8 +80,6 @@ Outstanding SchLib field fidelity all needs an Altium-authored golden to settle 
       / `SheetPartFileName` / `IndexInSheet` / `OwnerPartId`) — need golden fixtures.
 - [ ] **SchLib Designator position**: emit `Location.X/Y` instead of the hardcoded `Y=-6` / omitted
       `X`; the from-scratch default magnitude (Altium ~`X=-5, Y=5`) is unverified without a golden.
-- [ ] **SchLib `IndexInSheet`**: AltiumSharp does NOT default it to `-1` per shape — the correct
-      per-record value/emission needs a golden to confirm (the spec's `-1` design was wrong).
 - [ ] **SchLib Implementation structural**: `MapDefiner` (RECORD=47) pin→pad map, the 46/48 payload
       bodies + cross-record `OwnerIndex` chain, honouring `IsCurrent` on write, `DataFileCount` > 1.
 - [ ] **PcbLib ComponentBody remaining**: `IDENTIFIER` (comma-separated codepoint list — would

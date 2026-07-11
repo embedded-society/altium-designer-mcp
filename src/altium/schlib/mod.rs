@@ -966,9 +966,11 @@ mod tests {
     #[test]
     fn polygon_default_is_byte_identical() {
         // Byte-identity guard: a default polygon (is_not_accessible=true,
-        // line_style=0, transparent=false) must emit exactly the pre-change
-        // record shape — IsNotAccesible=T right after OwnerPartId, and NO
-        // LineStyle / Transparent tokens.
+        // line_style=0, transparent=false) must emit exactly the golden record
+        // shape — IsNotAccesible=T between RECORD and OwnerPartId (the
+        // SHAPESTYLE golden's `|RECORD=7|IsNotAccesible=T|IndexInSheet=4|
+        // OwnerPartId=1|` order; the token itself is omitted here at slot 0),
+        // and NO LineStyle / Transparent tokens.
         let mut sym = Symbol::new("POLY_DEFAULT");
         sym.add_polygon(Polygon {
             points: vec![(0.0, 0.0), (5.0, 0.0), (2.5, 5.0)],
@@ -986,8 +988,8 @@ mod tests {
         let data = writer::encode_data_stream(&sym).expect("encode");
         let text = String::from_utf8_lossy(&data);
         assert!(
-            text.contains("|OwnerPartId=1|IsNotAccesible=T|LineWidth=1"),
-            "default polygon keeps IsNotAccesible=T in position: {text}"
+            text.contains("|RECORD=7|IsNotAccesible=T|OwnerPartId=1|LineWidth=1"),
+            "default polygon keeps IsNotAccesible=T in the golden position: {text}"
         );
         assert!(
             !text.contains("LineStyle"),

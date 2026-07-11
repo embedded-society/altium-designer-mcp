@@ -342,7 +342,7 @@ Most text records include these standard fields:
 | `RECORD` | int | Record type ID |
 | `OwnerPartId` | int | Part ownership (-1 = all parts, 1+ = specific part) |
 | `OwnerPartDisplayMode` | int | Display mode (typically 0) |
-| `IndexInSheet` | int | Index within sheet (-1 for most) |
+| `IndexInSheet` | int | Sequential content-record ordinal (0 omitted; -1 on header/system records) |
 | `UniqueID` | string | 8-char alphanumeric identifier |
 | `IsNotAccesible` | bool | Access flag ("T" or "F") |
 
@@ -679,7 +679,7 @@ Common default values used when properties are not specified:
 | `EndAngle` | 360.0 | For Arc and EllipticalArc |
 | `OwnerPartId` | 1 | First part (shapes default to 1, not -1) |
 | `OwnerPartDisplayMode` | 0 | Default display mode |
-| `IndexInSheet` | -1 | No specific index |
+| `IndexInSheet` | positional | Shared 0-based content counter; slot 0 omitted; `-1` on header/system records |
 | `LineWidth` | 1 | All shapes |
 | `Color` (lines) | 0x000080 | Dark red (BGR) |
 | `Color` (text) | 0x800000 | Dark blue (BGR) |
@@ -711,7 +711,14 @@ When writing symbol data, records are encoded in this specific order:
 The stream ends with the last record's payload — there is **no** trailing end marker (see the Data
 Stream Format section and issue #68).
 
-> **Note:** The `IndexInSheet` counter is incremented for each shape record but NOT for pins.
+> **Note:** All content records — every graphic shape, user Label/Parameter record **and** every
+> binary pin — share one sequential 0-based `IndexInSheet` counter in stream order. The token is
+> omitted at slot 0, and sits immediately after `IsNotAccesible` (before `OwnerPartId`). Binary
+> pin records store no `IndexInSheet` field but still consume a counter slot: a real
+> Altium-authored symbol with parameters 0–2, two pins, then a rectangle stores `IndexInSheet=5`
+> on the rectangle. The component header (RECORD=1) and the trailing system Designator
+> (RECORD=34) / Comment (RECORD=41) records carry `IndexInSheet=-1`; RECORD=44/46/48 carry no
+> token and RECORD=45 carries `-1`.
 
 ## Multi-Part Symbols
 
