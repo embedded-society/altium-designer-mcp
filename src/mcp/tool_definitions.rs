@@ -790,7 +790,7 @@ impl McpServer {
                                     },
                                     "images": {
                                         "type": "array",
-                                        "description": "Embedded/linked raster image definitions (RECORD=30). The record metadata round-trips; embedded image bytes live in the library Storage stream (not authored here).",
+                                        "description": "Embedded/linked raster image definitions (RECORD=30). The record metadata round-trips; embedded image bytes are authored via image_data (base64) and stored in the library /Storage stream.",
                                         "items": {
                                             "type": "object",
                                             "properties": {
@@ -807,7 +807,8 @@ impl McpServer {
                                                 "show_border": { "type": "boolean", "description": "Whether the border is shown. Default: false" },
                                                 "keep_aspect": { "type": "boolean", "description": "Whether the image keeps its aspect ratio. Default: false" },
                                                 "embed_image": { "type": "boolean", "description": "Whether the image bytes are embedded (vs a link to file_name). Default: false" },
-                                                "file_name": { "type": "string", "description": "Image file name / embedded key" },
+                                                "file_name": { "type": "string", "description": "Image file name / embedded key (Altium stores the full source file path for embedded images)" },
+                                                "image_data": { "type": "string", "description": "Base64-encoded raw image bytes; stored in the library /Storage stream when embed_image is true" },
                                                 "is_not_accessible": { "type": "boolean", "description": "Whether the image is marked not-accessible (Altium tags every shape; default true)" },
                                                 "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" },
                                                 "graphically_locked": { "type": "boolean", "description": "Whether the shape is graphically locked. Default: false" },

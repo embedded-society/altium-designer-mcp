@@ -9,17 +9,9 @@
 //! - **`PinSymbolLineWidth`** — a `SYMBOL_LINEWIDTH=N` parameter per pin whose
 //!   symbol line width is non-default.
 //!
-//! Both share Altium's *compressed-storage* framing (the same layout used for
-//! embedded icon images):
-//!
-//! ```text
-//! [u32 LE header_len][header_len header bytes]         # C-string param block
-//! then, per non-default pin:
-//!   [u32 LE size]        # low 24 bits = block size, high byte = 0x01 flag
-//!   0xD0                 # storage-entry tag
-//!   [u8 name_len][name]  # Pascal string: the pin ordinal as ASCII decimal
-//!   [u32 LE comp_len][comp_len bytes]   # zlib-compressed payload
-//! ```
+//! Both use Altium's *compressed-storage* framing (shared with the embedded
+//! icon-image `/Storage` stream — see [`super::storage`] for the byte layout);
+//! each entry is keyed by the pin ordinal as an ASCII-decimal Pascal string.
 //!
 //! The compressed payload differs per stream:
 //! - `PinFrac`: 12 bytes = three little-endian `i32` (`frac_x`, `frac_y`,
@@ -40,146 +32,23 @@
 //! standardised), so round-tripping a real off-grid pin is lossless.
 
 use super::primitives::{Pin, PinFrac};
+use super::storage;
 use crate::altium::bytes::{read_i32_le, read_u32_le};
-use crate::altium::framing::write_cstring_param_block;
-
-/// The storage-entry tag byte Altium writes before each compressed entry.
-const ENTRY_TAG: u8 = 0xD0;
-
-/// Flag byte OR-ed into the high byte of each entry's 24-bit size word.
-const ENTRY_SIZE_FLAG: u32 = 0x0100_0000;
 
 /// Upper bound on a single decompressed entry, guarding against a hostile or
 /// corrupt stream. Both payload kinds are tiny (12 bytes / a short param block),
 /// so 64 KiB is generous.
 const MAX_ENTRY_DECOMPRESSED: usize = 64 * 1024;
 
-/// Compresses `payload` with a zlib (RFC 1950) wrapper, matching the reader's
-/// inflate. Uses `flate2`'s default compression, exactly like the `PcbLib`
-/// model-data compressor (`compress_model_data`).
-fn zlib_compress(payload: &[u8]) -> crate::altium::error::AltiumResult<Vec<u8>> {
-    use crate::altium::error::AltiumError;
-    use flate2::{write::ZlibEncoder, Compression};
-    use std::io::Write as _;
-
-    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
-    encoder
-        .write_all(payload)
-        .map_err(|e| AltiumError::compression_error("Failed to compress pin aux entry", Some(e)))?;
-    encoder.finish().map_err(|e| {
-        AltiumError::compression_error("Failed to finish pin aux compression", Some(e))
-    })
-}
-
-/// Decompresses a zlib entry, rejecting output larger than
-/// [`MAX_ENTRY_DECOMPRESSED`]. Returns `None` on any error (a corrupt entry is
-/// skipped rather than failing the whole read).
-fn zlib_decompress(data: &[u8]) -> Option<Vec<u8>> {
-    use flate2::read::ZlibDecoder;
-    use std::io::Read as _;
-
-    let limit = MAX_ENTRY_DECOMPRESSED.saturating_add(1) as u64;
-    let mut decoder = ZlibDecoder::new(data).take(limit);
-    let mut out = Vec::new();
-    decoder.read_to_end(&mut out).ok()?;
-    if out.len() > MAX_ENTRY_DECOMPRESSED {
-        return None;
-    }
-    Some(out)
-}
-
-/// Appends one compressed-storage entry (`0xD0` tag + Pascal-string key +
-/// zlib-compressed payload) for pin ordinal `index`.
-fn write_entry(
-    out: &mut Vec<u8>,
-    index: usize,
-    payload: &[u8],
-) -> crate::altium::error::AltiumResult<()> {
-    use crate::altium::error::AltiumError;
-
-    let compressed = zlib_compress(payload)?;
-    let name = index.to_string();
-    let name_bytes = name.as_bytes();
-
-    // block_size = tag(1) + name_len(1) + name(N) + comp_len(4) + compressed(N)
-    let block_size = 1 + 1 + name_bytes.len() + 4 + compressed.len();
-    if block_size > 0x00FF_FFFF {
-        return Err(AltiumError::InvalidParameter {
-            name: "pin_aux".to_string(),
-            message: format!("pin aux entry {index} is too large ({block_size} bytes)"),
-        });
-    }
-
-    #[allow(clippy::cast_possible_truncation)] // bounded above
-    let size_word = (block_size as u32) | ENTRY_SIZE_FLAG;
-    out.extend_from_slice(&size_word.to_le_bytes());
-    out.push(ENTRY_TAG);
-    #[allow(clippy::cast_possible_truncation)] // a pin ordinal never needs >255 ASCII digits
-    out.push(name_bytes.len() as u8);
-    out.extend_from_slice(name_bytes);
-    #[allow(clippy::cast_possible_truncation)] // bounded by block_size guard above
-    out.extend_from_slice(&(compressed.len() as u32).to_le_bytes());
-    out.extend_from_slice(&compressed);
-    Ok(())
-}
-
 /// Walks the compressed-storage entries after the header block, invoking
-/// `on_entry(pin_index, decompressed_payload)` for each well-formed entry.
-///
-/// Mirrors `AltiumSharp`'s parse loop: read the header length prefix and skip it,
-/// then read `[u32 size][0xD0][pascal key][u32 comp_len][comp]` entries until
-/// the stream is exhausted or a malformed entry is hit (which stops the walk,
-/// matching `AltiumSharp`'s `break`).
+/// `on_entry(pin_index, decompressed_payload)` for each well-formed entry
+/// whose Pascal-string key parses as a pin ordinal.
 fn for_each_entry<F: FnMut(usize, &[u8])>(raw: &[u8], mut on_entry: F) {
-    // Header block: [u32 LE len][len bytes]. Skip it.
-    let Some(header_len) = read_u32_le(raw, 0) else {
-        return;
-    };
-    let mut offset = 4 + header_len as usize;
-
-    while offset + 4 <= raw.len() {
-        let Some(size_word) = read_u32_le(raw, offset) else {
-            break;
-        };
-        let block_size = (size_word & 0x00FF_FFFF) as usize;
-        if block_size == 0 {
-            break;
+    storage::for_each_entry(raw, MAX_ENTRY_DECOMPRESSED, |key, payload| {
+        if let Ok(idx) = key.parse::<usize>() {
+            on_entry(idx, payload);
         }
-        let block_start = offset + 4;
-        let block_end = block_start + block_size;
-        if block_end > raw.len() {
-            break;
-        }
-        let block = &raw[block_start..block_end];
-
-        // 0xD0 tag
-        if block.first().copied() != Some(ENTRY_TAG) {
-            break;
-        }
-        // Pascal string: pin ordinal as ASCII decimal.
-        let (key, after_key) = crate::altium::framing::read_pascal_string(block, 1);
-        // Compressed data: [u32 LE comp_len][comp bytes].
-        if let (Some(comp_len), Ok(idx)) = (read_u32_le(block, after_key), key.parse::<usize>()) {
-            let comp_start = after_key + 4;
-            let comp_end = comp_start + comp_len as usize;
-            if comp_end <= block.len() {
-                if let Some(payload) = zlib_decompress(&block[comp_start..comp_end]) {
-                    on_entry(idx, &payload);
-                }
-            }
-        }
-
-        offset = block_end;
-    }
-}
-
-/// Writes the shared header block (`|HEADER=<name>|Weight=<count>`), matching
-/// Altium's mixed-case keys, then returns the buffer ready for entries.
-fn start_stream(header_name: &str, count: usize) -> Vec<u8> {
-    let text = format!("|HEADER={header_name}|Weight={count}");
-    let mut out = Vec::new();
-    write_cstring_param_block(&mut out, &crate::altium::encode_windows1252(&text));
-    out
+    });
 }
 
 /// Encodes the `PinFrac` stream for `pins`, or `None` when every pin is on-grid
@@ -203,13 +72,13 @@ pub(super) fn encode_pin_frac(pins: &[Pin]) -> crate::altium::error::AltiumResul
         return Ok(None);
     }
 
-    let mut out = start_stream("PinFrac", entries.len());
+    let mut out = storage::start_stream("PinFrac", entries.len());
     for (index, frac) in entries {
         let mut payload = Vec::with_capacity(12);
         payload.extend_from_slice(&frac.x.to_le_bytes());
         payload.extend_from_slice(&frac.y.to_le_bytes());
         payload.extend_from_slice(&frac.length.to_le_bytes());
-        write_entry(&mut out, index, &payload)?;
+        storage::write_entry(&mut out, &index.to_string(), &payload)?;
     }
     Ok(Some(out))
 }
@@ -234,10 +103,10 @@ pub(super) fn encode_pin_symbol_line_widths(
         return Ok(None);
     }
 
-    let mut out = start_stream("PinSymbolLineWidth", entries.len());
+    let mut out = storage::start_stream("PinSymbolLineWidth", entries.len());
     for (index, width) in entries {
         let payload = encode_unicode_param_block(&format!("|SYMBOL_LINEWIDTH={width}"));
-        write_entry(&mut out, index, &payload)?;
+        storage::write_entry(&mut out, &index.to_string(), &payload)?;
     }
     Ok(Some(out))
 }
@@ -372,7 +241,7 @@ mod tests {
 
     #[test]
     fn header_uses_altium_mixed_case_keys() {
-        let stream = start_stream("PinFrac", 2);
+        let stream = storage::start_stream("PinFrac", 2);
         let text = String::from_utf8_lossy(&stream);
         assert!(
             text.contains("|HEADER=PinFrac"),

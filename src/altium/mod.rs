@@ -23,6 +23,7 @@
 //! - Package layout decisions
 //! - Style choices
 
+pub(crate) mod base64_opt;
 pub(crate) mod bytes;
 pub mod error;
 pub(crate) mod framing;

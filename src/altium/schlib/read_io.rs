@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::io::{Read, Seek};
 use tracing::warn;
 
-use super::{pin_aux, reader, AltiumError, AltiumResult, SchLib, Symbol};
+use super::{pin_aux, reader, storage, AltiumError, AltiumResult, SchLib, Symbol};
 
 impl SchLib {
     /// Reads a `SchLib` from any reader implementing `Read + Seek`.
@@ -77,6 +77,23 @@ impl SchLib {
             // This handles long names that were truncated in the OLE storage path
             let key = symbol.name.clone();
             lib.symbols.insert(key, symbol);
+        }
+
+        // Attach embedded image bytes from the library-level `/Storage`
+        // stream. Entry names are ignored: each decompressed payload is
+        // matched to the next `EmbedImage=T` image in global symbol order,
+        // exactly like `AltiumSharp`'s `ParseStorageImageData`. An absent or
+        // header-only stream (the common case) leaves every image untouched.
+        if let Some(raw) = crate::altium::read_stream_opt(&mut cfb, "/Storage") {
+            let mut payloads = storage::parse_icon_storage(&raw).into_iter();
+            'attach: for symbol in lib.symbols.values_mut() {
+                for image in symbol.images.iter_mut().filter(|i| i.embed_image) {
+                    let Some(data) = payloads.next() else {
+                        break 'attach;
+                    };
+                    image.image_data = Some(data);
+                }
+            }
         }
 
         Ok(lib)

@@ -13,3 +13,4 @@ node_modules/
 .tmp/
 __pycache__/
 .env.local
+.claude/worktrees/

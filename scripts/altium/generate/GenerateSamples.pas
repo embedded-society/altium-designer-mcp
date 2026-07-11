@@ -722,6 +722,32 @@ begin
                                        SCHM_PrimitiveRegistration, Img.I_ObjectAddress);
 end;
 
+{ EMBEDDED image (RECORD=30 with EmbedImage=True): Altium loads the file at
+  AFilePath and stores its bytes in the library /Storage stream (zlib-compressed,
+  0xD0-tagged entries named "0","1",... matched to embedded images in order).
+  The wrapper (Generate-Samples.ps1) writes a deterministic 70-byte 2x2 BMP to
+  OUT_DIR\embed.bmp before launching, so the fixture bytes are known exactly. }
+procedure AddImageEmbedded(Comp : ISch_Component; X1 : Integer; Y1 : Integer;
+                           X2 : Integer; Y2 : Integer; AFilePath : String);
+var
+    Img : ISch_Image;
+begin
+    Img := SchServer.SchObjectFactory(eImage, eCreate_Default);
+    if Img = nil then Exit;
+    Img.Location             := Point(MilsToCoord(X1), MilsToCoord(Y1));
+    Img.Corner               := Point(MilsToCoord(X2), MilsToCoord(Y2));
+    Img.LineWidth            := eSmall;
+    Img.Color                := $000000;
+    Img.FileName             := AFilePath;
+    Img.EmbedImage           := True;    { embed - bytes land in /Storage }
+    Img.KeepAspect           := True;
+    Img.OwnerPartId          := 1;
+    Img.OwnerPartDisplayMode := Comp.DisplayMode;
+    Comp.AddSchObject(Img);
+    SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast,
+                                       SCHM_PrimitiveRegistration, Img.I_ObjectAddress);
+end;
+
 { Bordered multi-line text frame (RECORD=28). All member names VERIFIED against the
   AD24 IDE object-model dump (ISch_TextFrame: Text, WordWrap, ClipToRect, ShowBorder,
   IsSolid, Transparent, TextMargin, TextColor, LineWidth, LineStyle, FontID, Alignment;
@@ -1477,6 +1503,14 @@ begin
         Comp := NewSymbol(Lib, 'TEXTFRAMESYM', 'Text frame', 1);
         if Comp <> nil then
             AddTextFrame(Comp, -100, -50, 100, 50, 'Frame text');   { 200x100 mil box }
+    except
+    end;
+
+    { ---- EMBIMGSYM — an EMBEDDED image whose bytes land in /Storage. ---- }
+    try
+        Comp := NewSymbol(Lib, 'EMBIMGSYM', 'Embedded image', 1);
+        if Comp <> nil then
+            AddImageEmbedded(Comp, -20, -20, 20, 20, OUT_DIR + 'embed.bmp');
     except
     end;
 
