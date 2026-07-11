@@ -128,16 +128,19 @@ cross-reference against AltiumSharp DTOs (`C:\tmp\AltiumSharp`, the answer key).
 `pcblib/reader/models.rs` **13.7%** · `pcblib/primitives/text.rs` **0%**. Every gap below is a
 concrete slice of those uncovered lines.
 
-### G1. SchLib — MISSING PRIMITIVES (not implemented at all; implement + sample + test)
+### G1. SchLib — primitive set is COMPLETE ✓ (2026-07-11)
 
-AltiumSharp models these symbol-library records; our reader does **not** dispatch them (record IDs
-we handle: 1,2,3,4,5,6,7,8,9,10,11,12,13,14,28,30,34,41,45 — note the holes):
+Every record type that occurs in a real `.SchLib` is read, written, tool-exposed and
+golden-asserted (record IDs we handle: 1,2,3,4,5,6,7,8,9,10,11,12,13,14,28,30,34,41,44-48 +
+the `/Storage` embedded-image bytes). Scope check settled by enumerating record IDs across
+AltiumSharp's entire SchLib golden corpus — only `{1,4,6-14,28,34,41,44}` (+ binary pins)
+ever occur:
 
-- [ ] ⚪ **Verify in-scope:** `ParameterSet`, `Hyperlink`, `Note`, `CompileMask` — confirm whether
-      any can appear inside a `.SchLib` symbol (vs `.SchDoc` only) before implementing.
-- **OUT OF SCOPE (SchDoc-only, cannot appear in a symbol library — do NOT implement):** Bus,
-  BusEntry, Wire, Junction, NetLabel, NoErc, Port, PowerObject, SheetEntry, SheetSymbol, Template,
-  Blanket, MapDefiner/List, Harness*, SignalHarness, Symbol(sheet).
+- **OUT OF SCOPE (SchDoc-only, never occur in a symbol library — do NOT implement):**
+  `ParameterSet` (43), `Note` (209), `CompileMask` (211), `Hyperlink` (226) — verified absent
+  from every AltiumSharp SchLib golden and from `SchLibReader`'s expectations — plus Bus,
+  BusEntry, Wire, Junction, NetLabel, NoErc, Port, PowerObject, SheetEntry, SheetSymbol,
+  Template, Blanket, MapDefiner/List, Harness*, SignalHarness, Symbol(sheet).
 
 ### G2. PcbLib — primitive set is COMPLETE ✓ (gaps are field-level, tracked in §A1)
 
