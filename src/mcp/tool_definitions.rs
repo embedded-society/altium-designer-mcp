@@ -13,10 +13,22 @@ impl McpServer {
     ///
     /// These are low-level file I/O and primitive placement tools.
     /// The AI handles IPC calculations and design decisions.
-    #[allow(clippy::too_many_lines)]
+    ///
+    /// Built from one helper per tool family: the `json!` schema literals
+    /// allocate their temporaries on the stack, and a single function holding
+    /// all of them breaches clippy's `large_stack_frames` threshold.
     pub(crate) fn get_tool_definitions() -> Vec<ToolDefinition> {
+        let mut tools = Self::reading_tool_definitions();
+        tools.extend(Self::style_tool_definitions());
+        tools.extend(Self::writing_tool_definitions());
+        tools.extend(Self::management_tool_definitions());
+        tools
+    }
+
+    /// Tool schemas for the library-reading family.
+    #[allow(clippy::too_many_lines)]
+    fn reading_tool_definitions() -> Vec<ToolDefinition> {
         vec![
-            // === Library Reading ===
             ToolDefinition {
                 name: "read_pcblib".to_string(),
                 example: Some(serde_json::json!({"name": "read_pcblib", "arguments": {"filepath": "./MyLibrary.PcbLib"}})),
@@ -122,29 +134,40 @@ impl McpServer {
                     "required": ["filepath"]
                 }),
             },
-            // === Style Extraction ===
-            ToolDefinition {
-                name: "extract_style".to_string(),
-                example: Some(serde_json::json!({"name": "extract_style", "arguments": {"filepath": "./MyLibrary.PcbLib"}})),
-                description: Some(
-                    "Extract style information from an existing Altium library file. Returns \
+        ]
+    }
+
+    /// Tool schemas for the style-extraction family.
+    fn style_tool_definitions() -> Vec<ToolDefinition> {
+        vec![ToolDefinition {
+            name: "extract_style".to_string(),
+            example: Some(
+                serde_json::json!({"name": "extract_style", "arguments": {"filepath": "./MyLibrary.PcbLib"}}),
+            ),
+            description: Some(
+                "Extract style information from an existing Altium library file. Returns \
                      statistics about track widths, colours, pin lengths, layer usage, and other \
                      styling parameters. Use this to learn from existing libraries and create \
                      consistent new components."
-                        .to_string(),
-                ),
-                input_schema: json!({
-                    "type": "object",
-                    "properties": {
-                        "filepath": {
-                            "type": "string",
-                            "description": "Path to the .PcbLib or .SchLib file"
-                        }
-                    },
-                    "required": ["filepath"]
-                }),
-            },
-            // === Library Writing ===
+                    .to_string(),
+            ),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "filepath": {
+                        "type": "string",
+                        "description": "Path to the .PcbLib or .SchLib file"
+                    }
+                },
+                "required": ["filepath"]
+            }),
+        }]
+    }
+
+    /// Tool schemas for the library-writing family.
+    #[allow(clippy::too_many_lines)]
+    fn writing_tool_definitions() -> Vec<ToolDefinition> {
+        vec![
             ToolDefinition {
                 name: "write_pcblib".to_string(),
                 example: Some(serde_json::json!({"name": "write_pcblib", "arguments": {"filepath": "./Passives.PcbLib", "footprints": [{"name": "RESC1608X55N", "description": "Chip resistor, 0603 (1608 metric)", "pads": [{"designator": "1", "x": -0.75, "y": 0, "width": 0.9, "height": 0.95}, {"designator": "2", "x": 0.75, "y": 0, "width": 0.9, "height": 0.95}], "tracks": [{"x1": -0.8, "y1": -0.425, "x2": 0.8, "y2": -0.425, "width": 0.12, "layer": "Top Overlay"}, {"x1": -0.8, "y1": 0.425, "x2": 0.8, "y2": 0.425, "width": 0.12, "layer": "Top Overlay"}], "regions": [{"vertices": [{"x": -1.45, "y": -0.73}, {"x": 1.45, "y": -0.73}, {"x": 1.45, "y": 0.73}, {"x": -1.45, "y": 0.73}], "layer": "Top Courtyard"}]}], "append": false}})),
@@ -569,6 +592,9 @@ impl McpServer {
                                     "name": { "type": "string" },
                                     "description": { "type": "string" },
                                     "designator_prefix": { "type": "string", "description": "Reference-designator class letter, e.g. 'R' for resistors, 'U' for ICs. Written as '<prefix>?'. If omitted, falls back to 'component_type' (IEEE 315 / ASME Y14.44 mapping), then to 'U'." },
+                                    "designator_x": { "type": "number", "description": "X position of the designator text. Default: -5 (Altium's from-scratch placement)" },
+                                    "designator_y": { "type": "number", "description": "Y position of the designator text. Default: 5 (Altium's from-scratch placement)" },
+                                    "designator_unique_id": { "type": "string", "description": "8-char unique ID of the designator record; preserved on read-modify-write, auto-generated if omitted" },
                                     "component_type": { "type": "string", "description": "Optional component category (e.g. 'resistor', 'capacitor', 'inductor', 'diode', 'transistor', 'connector', 'crystal', 'ic') used to derive the IEEE designator letter when 'designator_prefix' is not given. Unknown values default to 'U'." },
                                     "part_count": { "type": "integer", "description": "Number of parts for multi-part symbols (e.g., 2 for dual op-amp). Default: 1" },
                                     "display_mode_count": { "type": "integer", "description": "Number of display modes (1 = normal only, 2+ = alternate/de-Morgan views). Default: 1" },
@@ -712,6 +738,7 @@ impl McpServer {
                                                 "end_line_shape": { "type": "integer", "description": "End endpoint (arrowhead) shape id. Default: 0 (none)" },
                                                 "line_shape_size": { "type": "integer", "description": "Size of the endpoint shapes. Default: 0" },
                                                 "transparent": { "type": "boolean", "description": "Whether the polyline is transparent. Default: false" },
+                                                "is_not_accessible": { "type": "boolean", "description": "Whether the polyline is marked not-accessible (Altium tags every polyline; default true)" },
                                                 "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" },
                                                 "graphically_locked": { "type": "boolean", "description": "Whether the shape is graphically locked. Default: false" },
                                                 "disabled": { "type": "boolean", "description": "Whether the shape is disabled. Default: false" },
@@ -936,6 +963,7 @@ impl McpServer {
                                                 "fill_color": { "type": "integer", "description": "Fill BGR colour. Default: 0xB0FFFF (Altium light yellow)" },
                                                 "filled": { "type": "boolean", "description": "Whether filled. Default: true" },
                                                 "transparent": { "type": "boolean", "description": "Whether the fill is transparent. Default: false" },
+                                                "is_not_accessible": { "type": "boolean", "description": "Whether the ellipse is marked not-accessible (Altium tags every ellipse; default true)" },
                                                 "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" },
                                                 "graphically_locked": { "type": "boolean", "description": "Whether the shape is graphically locked. Default: false" },
                                                 "disabled": { "type": "boolean", "description": "Whether the shape is disabled. Default: false" },
@@ -1009,6 +1037,7 @@ impl McpServer {
                                                 "param_type": { "type": "integer", "description": "Parameter type (0=String, 1=Boolean, 2=Integer, 3=Float). Default: 0" },
                                                 "unique_id": { "type": "string", "description": "8-char Altium unique ID. Default: auto-generated" },
                                                 "orientation": { "type": "integer", "description": "Text orientation (0/1/2/3 = 0/90/180/270 degrees). Default: 0" },
+                                                "justification": { "type": "integer", "description": "Text anchor id 0-8 (0=bottom-left, 4=middle-centre, 8=top-right). Default: 0" },
                                                 "show_name": { "type": "boolean", "description": "Whether the parameter name is shown alongside the value. Default: false" },
                                                 "hide_name": { "type": "boolean", "description": "Whether the parameter name is hidden (only the value shown). Default: false" },
                                                 "description": { "type": "string", "description": "Parameter description text. Default: empty" },
@@ -1081,7 +1110,13 @@ impl McpServer {
                     "required": ["filepath", "documents"]
                 }),
             },
-            // === Library Management ===
+        ]
+    }
+
+    /// Tool schemas for the library-management family.
+    #[allow(clippy::too_many_lines)]
+    fn management_tool_definitions() -> Vec<ToolDefinition> {
+        vec![
             ToolDefinition {
                 name: "delete_component".to_string(),
                 example: Some(serde_json::json!({"name": "delete_component", "arguments": {"filepath": "./MyLibrary.PcbLib", "component_names": ["OLD_FOOTPRINT", "UNUSED_COMPONENT"], "dry_run": false}})),

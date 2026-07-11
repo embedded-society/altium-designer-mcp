@@ -186,8 +186,12 @@ pub(super) fn parse_line(props: &HashMap<String, String>) -> Option<Line> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
     let color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
+    // A styled line carries BOTH LineStyle and LineStyleExt (the SHAPESTYLE
+    // golden dashed line stores `LineStyle=1|LineStyleExt=1`); accept either
+    // key so a record carrying only one still reads its style.
     let line_style = props
         .get("linestyle")
+        .or_else(|| props.get("linestyleext"))
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
     // Altium omits IsNotAccesible when false (accessible), so absent => false — matching
@@ -224,10 +228,11 @@ pub(super) fn parse_parameter(props: &HashMap<String, String>) -> Option<Paramet
         .get("fontid")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
-    let color = props
-        .get("color")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0x80_00_00);
+    // Altium omits Color when 0 (the golden's user parameters carry no key), so
+    // absent reads as 0 — matching every other shape parser and AltiumSharp's
+    // TryGetInt. The old fabricated 0x800000 default re-emitted a spurious
+    // `Color=8388608` on read-modify-write.
+    let color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
     let hidden = props.get("ishidden").is_some_and(|s| s == "T");
     let read_only_state = props
         .get("readonlystate")
@@ -239,6 +244,12 @@ pub(super) fn parse_parameter(props: &HashMap<String, String>) -> Option<Paramet
         .unwrap_or(0);
     let orientation = props
         .get("orientation")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    // The golden's user parameters carry `Justification=8`/`=4`; absent => 0
+    // (bottom-left). Previously dropped on read (silent data loss).
+    let justification = props
+        .get("justification")
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
     let show_name = props.get("showname").is_some_and(|s| s == "T");
@@ -261,6 +272,7 @@ pub(super) fn parse_parameter(props: &HashMap<String, String>) -> Option<Paramet
         read_only_state,
         param_type,
         orientation,
+        justification,
         show_name,
         hide_name,
         description,
@@ -297,8 +309,11 @@ pub(super) fn parse_polyline(props: &HashMap<String, String>) -> Option<Polyline
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
     let color = props.get("color").and_then(|s| s.parse().ok()).unwrap_or(0);
+    // A styled polyline may carry both LineStyle and its trailing LineStyleExt
+    // companion (mirroring styled lines); accept either key.
     let line_style = props
         .get("linestyle")
+        .or_else(|| props.get("linestyleext"))
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
     let start_line_shape = props
@@ -314,6 +329,9 @@ pub(super) fn parse_polyline(props: &HashMap<String, String>) -> Option<Polyline
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
     let transparent = props.get("transparent").is_some_and(|s| s == "T");
+    // Altium omits IsNotAccesible when false, so absent => false — matching the
+    // other shapes. A fresh polyline defaults true (struct), so it still emits =T.
+    let is_not_accessible = props.get("isnotaccesible").is_some_and(|s| s == "T");
     let owner_part_id = props
         .get("ownerpartid")
         .and_then(|s| s.parse().ok())
@@ -328,6 +346,7 @@ pub(super) fn parse_polyline(props: &HashMap<String, String>) -> Option<Polyline
         end_line_shape,
         line_shape_size,
         transparent,
+        is_not_accessible,
         owner_part_id,
         display_flags: read_display_flags(props),
         unique_id: props.get("uniqueid").cloned(),
@@ -415,6 +434,9 @@ pub(super) fn parse_ellipse(props: &HashMap<String, String>) -> Option<Ellipse> 
         .unwrap_or(0);
     let filled = props.get("issolid").is_some_and(|s| s == "T");
     let transparent = props.get("transparent").is_some_and(|s| s == "T");
+    // Altium omits IsNotAccesible when false, so absent => false — matching the
+    // other shapes. A fresh ellipse defaults true (struct), so it still emits =T.
+    let is_not_accessible = props.get("isnotaccesible").is_some_and(|s| s == "T");
     let owner_part_id = props
         .get("ownerpartid")
         .and_then(|s| s.parse().ok())
@@ -430,6 +452,7 @@ pub(super) fn parse_ellipse(props: &HashMap<String, String>) -> Option<Ellipse> 
         fill_color,
         filled,
         transparent,
+        is_not_accessible,
         owner_part_id,
         display_flags: read_display_flags(props),
         unique_id: props.get("uniqueid").cloned(),
@@ -1020,6 +1043,36 @@ mod tests {
         ))
         .unwrap();
         assert!(filled.filled, "IsSolid=T must read as filled");
+    }
+
+    #[test]
+    fn line_style_accepts_either_key() {
+        // A golden dashed line carries BOTH `LineStyle=1|LineStyleExt=1`; a
+        // record carrying only one of the two must still read its style.
+        let both = parse_line(&parse_properties(
+            "|RECORD=13|Corner.X=10|LineWidth=1|LineStyle=1|LineStyleExt=1|",
+        ))
+        .unwrap();
+        assert_eq!(both.line_style, 1, "both keys read the style");
+
+        let ext_only = parse_line(&parse_properties(
+            "|RECORD=13|Corner.X=10|LineWidth=1|LineStyleExt=2|",
+        ))
+        .unwrap();
+        assert_eq!(ext_only.line_style, 2, "LineStyleExt alone reads the style");
+    }
+
+    #[test]
+    fn parameter_justification_reads_and_defaults() {
+        // Golden JUSTIFY: `Justification=8` on Value, `=4` on Tol — previously
+        // dropped on read (silent data loss); absent defaults to 0.
+        let p = parse_parameter(&parse_properties(
+            "|RECORD=41|Justification=8|FontID=1|Text=1k|Name=Value|",
+        ))
+        .unwrap();
+        assert_eq!(p.justification, 8);
+        let p = parse_parameter(&parse_properties("|RECORD=41|FontID=1|Name=Value|")).unwrap();
+        assert_eq!(p.justification, 0, "absent Justification reads 0");
     }
 
     #[test]

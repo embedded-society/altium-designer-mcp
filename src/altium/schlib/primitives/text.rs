@@ -288,6 +288,13 @@ pub struct Parameter {
     /// emits `Orientation` only when non-zero. Default `0`.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub orientation: i32,
+    /// Text justification (`JUSTIFICATION`): the Altium anchor id 0–8
+    /// (0 = bottom-left … 4 = middle-centre … 8 = top-right). Omit-when-default:
+    /// the golden's user parameters carry `Justification=8`/`=4` and omit the key
+    /// at 0, so the reader defaults an absent key to `0` and the writer emits
+    /// `Justification` only when non-zero. Default `0`.
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub justification: u8,
     /// Whether to show the parameter name alongside its value (`SHOWNAME`).
     /// Omit-when-default: Altium omits the key for a from-scratch parameter (the
     /// golden's visible + hidden parameters carry neither `SHOWNAME` nor
@@ -334,6 +341,7 @@ impl Parameter {
             read_only_state: 0,
             param_type: 0,
             orientation: 0,
+            justification: 0,
             show_name: false,
             hide_name: false,
             description: String::new(),

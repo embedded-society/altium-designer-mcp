@@ -183,6 +183,11 @@ pub struct Polyline {
     /// Whether the polyline is transparent.
     #[serde(default)]
     pub transparent: bool,
+    /// Whether the polyline is marked not-accessible. The AD24 golden tags every
+    /// polyline `IsNotAccesible=T` (Altium's own single-'s' spelling), so this
+    /// defaults to true; a `false` value round-trips (the key is omitted).
+    #[serde(default = "default_true")]
+    pub is_not_accessible: bool,
     /// Owner part ID.
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,
@@ -614,6 +619,11 @@ pub struct Ellipse {
     /// Whether the ellipse is transparent.
     #[serde(default)]
     pub transparent: bool,
+    /// Whether the ellipse is marked not-accessible. The AD24 golden tags every
+    /// ellipse `IsNotAccesible=T` (Altium's own single-'s' spelling), so this
+    /// defaults to true; a `false` value round-trips (the key is omitted).
+    #[serde(default = "default_true")]
+    pub is_not_accessible: bool,
     /// Owner part ID.
     #[serde(default = "default_owner_part")]
     pub owner_part_id: i32,
@@ -645,6 +655,7 @@ impl Ellipse {
             fill_color: 0xB0_FF_FF, // Light yellow (BGR), matches Altium's default AreaColor (11599871)
             filled: true,
             transparent: false,
+            is_not_accessible: true,
             owner_part_id: 1,
             display_flags: ShapeDisplayFlags::default(),
             unique_id: None,

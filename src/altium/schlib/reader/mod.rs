@@ -182,9 +182,15 @@ fn parse_text_record_from_string(symbol: &mut Symbol, text: &str) {
         }
         34 => {
             // Designator (a parameter record; its value uses the same
-            // `%UTF8%Text` convention as any other text field).
+            // `%UTF8%Text` convention as any other text field). Its position
+            // and UniqueID are preserved so a read-modify-write re-emits the
+            // record byte-identically (absent coordinate keys decode to 0,
+            // which is the authored value — Altium omits zero keys).
             if let Some(text) = read_utf8_text_field(&props, "text") {
                 symbol.designator = text;
+                symbol.designator_x = crate::altium::schlib::coord::read(&props, "location.x");
+                symbol.designator_y = crate::altium::schlib::coord::read(&props, "location.y");
+                symbol.designator_unique_id = props.get("uniqueid").cloned();
             }
         }
         41 => {

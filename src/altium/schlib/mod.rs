@@ -255,6 +255,26 @@ pub struct Symbol {
     /// Default designator (e.g., "R?", "U?").
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub designator: String,
+    /// X position of the designator text (`RECORD=34` `Location.X`). The AD24
+    /// golden authors `Location.X=-5` on every from-scratch symbol, so this
+    /// defaults to `-5`.
+    #[serde(
+        default = "default_designator_x",
+        serialize_with = "crate::altium::serde_round::serialize"
+    )]
+    pub designator_x: f64,
+    /// Y position of the designator text (`RECORD=34` `Location.Y`). The AD24
+    /// golden authors `Location.Y=5`, so this defaults to `5`.
+    #[serde(
+        default = "default_designator_y",
+        serialize_with = "crate::altium::serde_round::serialize"
+    )]
+    pub designator_y: f64,
+    /// Unique ID of the designator record (`RECORD=34` `UniqueID`). Preserved on
+    /// read so a read-modify-write re-emits the same id (deterministic RMW); a
+    /// from-scratch symbol generates a fresh one on write.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub designator_unique_id: Option<String>,
     /// Number of parts (for multi-part symbols).
     #[serde(default = "default_part_count")]
     pub part_count: u32,
@@ -330,6 +350,16 @@ const fn default_part_count() -> u32 {
     1
 }
 
+/// Golden-verified from-scratch designator X position (`Location.X=-5`).
+const fn default_designator_x() -> f64 {
+    -5.0
+}
+
+/// Golden-verified from-scratch designator Y position (`Location.Y=5`).
+const fn default_designator_y() -> f64 {
+    5.0
+}
+
 fn default_source_library() -> String {
     "*".to_string()
 }
@@ -344,6 +374,8 @@ impl Symbol {
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
+            designator_x: default_designator_x(),
+            designator_y: default_designator_y(),
             part_count: 1,
             display_mode_count: 1,
             current_part_id: 1,
@@ -1499,6 +1531,7 @@ mod tests {
             end_line_shape: 0,
             line_shape_size: 0,
             transparent: false,
+            is_not_accessible: true,
             owner_part_id: 1,
             display_flags: ShapeDisplayFlags::default(),
             unique_id: None,

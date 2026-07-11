@@ -51,6 +51,11 @@ const fn is_zero_i32(v: &i32) -> bool {
     *v == 0
 }
 
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde skip_serializing_if requires &T
+const fn is_zero_u8(v: &u8) -> bool {
+    *v == 0
+}
+
 const fn default_true() -> bool {
     true
 }
