@@ -316,38 +316,44 @@ fn nonzero(key: &str, value: u32) -> String {
 }
 
 /// Emits an Altium coordinate parameter: `|<key>=<int>` followed by
-/// `|<key>_Frac=<frac>` when the fractional part is non-zero (omitted otherwise,
-/// so integer-grid coordinates stay byte-identical to pre-fractional output).
-/// See [`super::coord`] for the integer/fraction split.
+/// `|<key>_Frac=<frac>` when the (signed) fractional part is non-zero (omitted
+/// otherwise, so integer-grid coordinates stay byte-identical to
+/// pre-fractional output). Matching AD24, a zero integer part is omitted when
+/// the fraction is non-zero (the FRACSHAPES golden arc stores centre 0.05 as
+/// `Location.X_Frac=5000` with no `Location.X` key); an on-grid zero still
+/// emits `|<key>=0` as before. See [`super::coord`] for the toward-zero /
+/// signed-fraction split.
 fn coord_param(key: &str, value: f64) -> String {
     let (int, frac) = coord::split(value);
-    format!("|{key}={int}{}", nonzero(&format!("{key}_Frac"), frac))
+    if frac == 0 {
+        format!("|{key}={int}")
+    } else if int == 0 {
+        format!("|{key}_Frac={frac}")
+    } else {
+        format!("|{key}={int}|{key}_Frac={frac}")
+    }
 }
 
 /// Pushes a numbered polyline/polygon vertex (`X{n}`/`Y{n}`) into a `parts`
 /// vector that is later joined by `|`, emitting `X{n}_Frac`/`Y{n}_Frac` only when
-/// the fractional part is non-zero. Mirrors [`coord_param`] for the list-style
-/// records that build their text from `parts.join("|")`.
-#[allow(clippy::similar_names)] // xi/yi/xf/yf are the obvious names for the split parts
+/// the (signed) fractional part is non-zero. Mirrors [`coord_param`] for the
+/// list-style records that build their text from `parts.join("|")`, including
+/// the omit-zero-integer-when-fractional rule.
 fn push_point(parts: &mut Vec<String>, n: usize, x: f64, y: f64) {
-    let (xi, xf) = coord::split(x);
-    let (yi, yf) = coord::split(y);
-    parts.push(format!("X{n}={xi}"));
-    if xf != 0 {
-        parts.push(format!("X{n}_Frac={xf}"));
-    }
-    parts.push(format!("Y{n}={yi}"));
-    if yf != 0 {
-        parts.push(format!("Y{n}_Frac={yf}"));
-    }
+    push_coord(parts, &format!("X{n}"), x);
+    push_coord(parts, &format!("Y{n}"), y);
 }
 
 /// Pushes a named coordinate (`KEY=int` + optional `KEY_Frac=frac`) into a
 /// `parts` vector joined by `|`. The named equivalent of [`push_point`] /
-/// [`coord_param`] for list-style records.
+/// [`coord_param`] for list-style records, following the same AD24 rules: the
+/// `_Frac` companion is omitted when zero, and a zero integer part is omitted
+/// when the fraction is non-zero.
 fn push_coord(parts: &mut Vec<String>, key: &str, value: f64) {
     let (int, frac) = coord::split(value);
-    parts.push(format!("{key}={int}"));
+    if int != 0 || frac == 0 {
+        parts.push(format!("{key}={int}"));
+    }
     if frac != 0 {
         parts.push(format!("{key}_Frac={frac}"));
     }
@@ -907,27 +913,22 @@ fn encode_round_rect(round_rect: &RoundRect, index: usize) -> String {
 
 /// Encodes an elliptical arc record.
 fn encode_elliptical_arc(arc: &EllipticalArc, index: usize) -> String {
-    // Split each radius into the integer part plus a non-negative `_Frac`
-    // companion (scaled by 100,000), carrying near-boundary values into the
-    // integer part. See [`super::coord`] for the shared encoding.
-    let (radius_int, radius_frac) = coord::split(arc.radius);
-    let (secondary_radius_int, secondary_radius_frac) = coord::split(arc.secondary_radius);
-
+    // Each radius splits into an integer part plus a signed `_Frac` companion
+    // (scaled by 100,000), carrying near-boundary values into the integer part.
+    // See [`super::coord`] for the shared encoding.
     format!(
         "|RECORD=11|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T\
          {}{}\
-         |Radius={}{}\
-         |SecondaryRadius={}{}\
+         {}\
+         {}\
          |StartAngle={}|EndAngle={}\
          |LineWidth={}{}{}|UniqueID={}",
         index,
         arc.owner_part_id,
         coord_param("Location.X", arc.x),
         coord_param("Location.Y", arc.y),
-        radius_int,
-        nonzero("Radius_Frac", radius_frac),
-        secondary_radius_int,
-        nonzero("SecondaryRadius_Frac", secondary_radius_frac),
+        coord_param("Radius", arc.radius),
+        coord_param("SecondaryRadius", arc.secondary_radius),
         arc.start_angle,
         arc.end_angle,
         arc.line_width,
@@ -1948,19 +1949,57 @@ mod tests {
 
     #[test]
     fn encode_line_emits_frac_for_fractional_and_negative_coords() {
-        // Floor split: -28.995 -> Location.X=-29 with Location.X_Frac=500; the
-        // positive 7.5 -> 7 + 50000. This is the capability the integer field
-        // could not represent at all.
-        let mut line = Line::new(-28.995, 7.5, 0, 0);
+        // AD24's toward-zero/signed split (the FRACSHAPES golden convention):
+        // -5.45 -> Location.X=-5 with Location.X_Frac=-45000; the positive
+        // 7.5 -> 7 + 50000. This is the capability the integer field could not
+        // represent at all.
+        let mut line = Line::new(-5.45, 7.5, 5.55, 0);
         line.unique_id = Some("ABCD1234".to_string());
         let s = encode_line(&line, 1);
-        assert!(s.contains("|Location.X=-29|"), "floor integer part: {s}");
         assert!(
-            s.contains("|Location.X_Frac=500|"),
-            "non-negative fractional part: {s}"
+            s.contains("|Location.X=-5|Location.X_Frac=-45000|"),
+            "negative off-grid coordinate emits Altium's exact signed form: {s}"
         );
         assert!(s.contains("|Location.Y=7|"), "Y integer part: {s}");
         assert!(s.contains("|Location.Y_Frac=50000|"), "Y fractional: {s}");
+        assert!(
+            s.contains("|Corner.X=5|Corner.X_Frac=55000|"),
+            "positive off-grid coordinate: {s}"
+        );
+    }
+
+    #[test]
+    fn encode_arc_omits_zero_integer_when_fractional() {
+        // AD24 omits a zero integer coordinate key when its `_Frac` companion is
+        // non-zero (the FRACSHAPES golden arc carries `Location.X_Frac=5000`
+        // with no `Location.X` key); an on-grid zero still emits `=0`.
+        let arc = Arc {
+            x: 0.05,
+            y: 0.05,
+            radius: 4.05,
+            is_not_accessible: true,
+            start_angle: 0.0,
+            end_angle: 270.0,
+            line_width: 1,
+            color: 0,
+            fill_color: 0,
+            owner_part_id: 1,
+            display_flags: ShapeDisplayFlags::default(),
+            unique_id: Some("ABCD1234".to_string()),
+        };
+        let s = encode_arc(&arc, 1);
+        assert!(
+            !s.contains("|Location.X=") && !s.contains("|Location.Y="),
+            "zero integer part with a fraction omits the integer key: {s}"
+        );
+        assert!(
+            s.contains("|Location.X_Frac=5000|") && s.contains("|Location.Y_Frac=5000|"),
+            "the fraction alone carries the coordinate: {s}"
+        );
+        assert!(
+            s.contains("|Radius=4|Radius_Frac=5000|"),
+            "non-zero integer keeps both keys: {s}"
+        );
     }
 
     #[test]

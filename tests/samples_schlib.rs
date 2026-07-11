@@ -51,11 +51,11 @@ fn pin_by_designator<'a>(symbol: &'a Symbol, designator: &str) -> &'a Pin {
 fn samples_schlib_structure() {
     let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
 
-    // Twenty-four Altium-authored symbols: fifteen per-primitive-family symbols
-    // plus nine coverage-enrichment symbols (SHAPESTYLE, LOCKFLAGS, JUSTIFY,
-    // FRACPINS, BEZIERSYM, PIESYM, IMAGESYM, TEXTFRAMESYM, EMBIMGSYM) added to
-    // GenerateSamples.pas and regenerated on-site.
-    assert_eq!(lib.len(), 24, "expected exactly twenty-four symbols");
+    // Twenty-six Altium-authored symbols: fifteen per-primitive-family symbols
+    // plus eleven coverage-enrichment symbols (SHAPESTYLE, LOCKFLAGS, JUSTIFY,
+    // FRACPINS, BEZIERSYM, PIESYM, IMAGESYM, TEXTFRAMESYM, EMBIMGSYM, SWAPPIN,
+    // FRACSHAPES) added to GenerateSamples.pas and regenerated on-site.
+    assert_eq!(lib.len(), 26, "expected exactly twenty-six symbols");
 
     let names = lib.names();
     for expected in [
@@ -83,6 +83,8 @@ fn samples_schlib_structure() {
         "IMAGESYM",
         "TEXTFRAMESYM",
         "EMBIMGSYM",
+        "SWAPPIN",
+        "FRACSHAPES",
     ] {
         assert!(
             names.iter().any(|n| n == expected),
@@ -926,4 +928,72 @@ fn samples_schlib_text_frame() {
         f.text_margin
     );
     assert!(f.is_not_accessible, "IsNotAccesible round-trips");
+}
+
+#[test]
+fn samples_schlib_fracshapes() {
+    let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
+    let sym = lib.get("FRACSHAPES").expect("FRACSHAPES symbol not found");
+
+    // Off-grid shapes authored at MilsToCoord(n) + 5000 internal units (+0.5 mil
+    // = +0.05 units per coordinate). AD24 stores negative off-grid coordinates
+    // as truncation-toward-zero with a SIGNED fraction — the golden rectangle is
+    // literally `Location.X=-5|Location.X_Frac=-45000` (= -5.45). Before the
+    // signed-frac fix the reader parsed `_Frac` as u32, so -45000 failed to
+    // parse and silently truncated the coordinate to -5.0.
+    assert_eq!(sym.rectangles.len(), 1, "FRACSHAPES has one rectangle");
+    let r = &sym.rectangles[0];
+    assert!(
+        approx_eq(r.x1, -5.45) && approx_eq(r.y1, -2.45),
+        "rectangle corner 1 (authored -55-25 mil + 0.5 mil), got ({}, {})",
+        r.x1,
+        r.y1
+    );
+    assert!(
+        approx_eq(r.x2, 5.55) && approx_eq(r.y2, 2.55),
+        "rectangle corner 2 (authored 55/25 mil + 0.5 mil), got ({}, {})",
+        r.x2,
+        r.y2
+    );
+
+    // The arc centre sits at (+0.05, +0.05): AD24 omits the zero integer keys
+    // entirely and stores only `Location.X_Frac=5000|Location.Y_Frac=5000`,
+    // plus `Radius=4|Radius_Frac=5000` (= 4.05).
+    assert_eq!(sym.arcs.len(), 1, "FRACSHAPES has one arc");
+    let a = &sym.arcs[0];
+    assert!(
+        approx_eq(a.x, 0.05) && approx_eq(a.y, 0.05),
+        "arc centre (integer keys omitted, frac-only), got ({}, {})",
+        a.x,
+        a.y
+    );
+    assert!(approx_eq(a.radius, 4.05), "arc radius, got {}", a.radius);
+    assert!(approx_eq(a.end_angle, 270.0), "arc end angle");
+}
+
+#[test]
+fn samples_schlib_swappin() {
+    let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
+    let sym = lib.get("SWAPPIN").expect("SWAPPIN symbol not found");
+
+    // One pin authored with the swap-id tail: SwapId_Pin='A', SwapId_Part='1',
+    // DefaultValue='3V3'. The binary pin record stores these as three trailing
+    // Pascal short strings, mapped by the reader in order:
+    //   SwapId_Pin  -> swap_id_group      ("A")
+    //   SwapId_Part -> part_and_sequence  ("1" — replacing the "|&|" default)
+    //   DefaultValue -> default_value     ("3V3")
+    // First real-Altium ground truth for the tail (previously only
+    // self-round-trip-tested).
+    assert_eq!(sym.pins.len(), 1, "SWAPPIN has one pin");
+    let pin = pin_by_designator(sym, "1");
+    assert_eq!(pin.name, "SWP", "pin name");
+    assert_eq!(pin.swap_id_group, "A", "SwapId_Pin lands in swap_id_group");
+    assert_eq!(
+        pin.part_and_sequence, "1",
+        "SwapId_Part lands in part_and_sequence"
+    );
+    assert_eq!(
+        pin.default_value, "3V3",
+        "DefaultValue lands in default_value"
+    );
 }
