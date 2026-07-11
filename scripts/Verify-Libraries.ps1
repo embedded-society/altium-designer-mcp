@@ -17,7 +17,7 @@
     One or more .PcbLib / .SchLib paths to verify.
 
 .PARAMETER AltiumExe
-    Path to X2.EXE. Read from scripts\.env.local (ALTIUM_EXE) when omitted.
+    Path to X2.EXE. Read from the repo-root .env.local (ALTIUM_EXE) when omitted.
 
 .PARAMETER TimeoutSeconds
     How long to wait for Altium to write the response (default 180).

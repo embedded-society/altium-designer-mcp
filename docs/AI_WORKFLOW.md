@@ -264,8 +264,9 @@ tool — full details in **[docs/TOOLS.md](TOOLS.md)**.
 | Import / export | `import_library`, `export_library` |
 | Backups | `list_backups`, `restore_backup` |
 
-**Every mutating operation creates a timestamped backup first** (disable with
-`create_backup: false`) and accepts `dry_run: true` to preview changes without writing.
+**Every mutating operation creates a timestamped backup first**, and most editing and
+maintenance tools accept `dry_run: true` to preview changes without writing (see
+[README § Automatic Backups](../README.md#automatic-backups) for the exact lists).
 
 ## Tips for AI Assistants
 
@@ -308,29 +309,9 @@ For through-hole pads:
 
 ## Error Handling
 
-### File Not Found
-
-```json
-{
-    "error": "Failed to read file: ./Missing.PcbLib"
-}
-```
-
-### Invalid Primitive
-
-```json
-{
-    "error": "Invalid parameter 'width': must be positive"
-}
-```
-
-### Write Error
-
-```json
-{
-    "error": "Failed to write file: ./Library.PcbLib"
-}
-```
+Failed tool calls return an MCP `ToolCallResult` with `isError: true` — not a bare
+`{"error": …}` object. The exact payload shapes and the full catalogue of error
+messages live in **[docs/errors.md](errors.md)**.
 
 ---
 

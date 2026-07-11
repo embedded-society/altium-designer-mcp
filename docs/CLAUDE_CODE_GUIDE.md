@@ -80,6 +80,10 @@ Create a `.mcp.json` file in your Altium project's root directory:
 }
 ```
 
+> **Note:** the JSON `args` are passed to the server verbatim — they are **not** shell-expanded,
+> so `%USERPROFILE%` only works if the client expands it for you. An absolute path
+> (for example `C:\\Users\\yourname\\.altium-designer-mcp\\config.json`) is safest.
+
 #### Linux
 
 ```json
@@ -113,7 +117,7 @@ You can also add the MCP server globally using the Claude Code CLI:
 **Windows (PowerShell):**
 
 ```powershell
-claude mcp add altium C:\path\to\altium-designer-mcp\target\release\altium-designer-mcp.exe -- %USERPROFILE%\.altium-designer-mcp\config.json
+claude mcp add altium C:\path\to\altium-designer-mcp\target\release\altium-designer-mcp.exe -- $env:USERPROFILE\.altium-designer-mcp\config.json
 ```
 
 **Linux / macOS:**
@@ -149,7 +153,7 @@ Claude Code will automatically detect and load the MCP server from:
 
 Ask Claude Code:
 
-```
+```text
 What MCP tools do you have available?
 ```
 
@@ -159,50 +163,11 @@ Or use the CLI command:
 claude mcp list
 ```
 
-You should see the Altium tools listed:
+You should see the Altium tools listed — `read_pcblib`, `write_pcblib`, `read_schlib`,
+`write_schlib`, and the rest.
 
-**Core Tools:**
-
-- `read_pcblib` — Read footprints from a PcbLib file
-- `write_pcblib` — Write footprints to a PcbLib file
-- `read_schlib` — Read symbols from a SchLib file
-- `write_schlib` — Write symbols to a SchLib file
-- `list_components` — List component names in a library
-- `extract_style` — Extract styling information from a library
-
-**Library Management:**
-
-- `delete_component` — Delete components from a library (supports `dry_run` for preview)
-- `copy_component` — Duplicate a component within a library
-- `rename_component` — Rename a component within a library
-- `copy_component_cross_library` — Copy a component from one library to another
-- `merge_libraries` — Merge multiple libraries into one (supports `dry_run` for preview)
-- `reorder_components` — Reorder components in a library
-- `update_component` — Update a component in-place, preserving its position (supports `dry_run`)
-- `search_components` — Search for components across multiple libraries
-- `get_component` — Get a single component by name from a library
-- `compare_components` — Compare two components in detail (primitive-level differences)
-- `validate_library` — Check a library for common issues
-- `export_library` — Export library to JSON or CSV format
-- `import_library` — Import components from JSON data (inverse of export_library)
-- `extract_step_model` — Extract embedded STEP 3D models from a PcbLib
-- `diff_libraries` — Compare two library versions
-- `repair_library` — Remove orphaned data (e.g., component body references to missing models)
-- `bulk_rename` — Rename multiple components using glob or regex patterns
-
-**Batch Operations:**
-
-- `batch_update` — Perform library-wide updates (PcbLib: track widths, layer renaming; SchLib: parameter updates)
-
-**SchLib Tools:**
-
-- `manage_schlib_parameters` — Manage component parameters (Value, Manufacturer, etc.)
-- `manage_schlib_footprints` — Manage footprint links in symbols
-
-**Visualisation:**
-
-- `render_footprint` — Generate ASCII art preview of a footprint
-- `render_symbol` — Generate ASCII art preview of a schematic symbol
+For the categorised overview of every tool, see [README § MCP Tools](../README.md#mcp-tools);
+for full parameters and examples, see **[docs/TOOLS.md](TOOLS.md)**.
 
 ---
 
@@ -210,7 +175,7 @@ You should see the Altium tools listed:
 
 ### 1. Create a Single Footprint
 
-```
+```text
 Create an IPC-7351B compliant 0603 chip resistor footprint and save it to
 ./MyLibrary.PcbLib
 ```
@@ -223,14 +188,14 @@ Claude Code will:
 
 ### 2. Create a Matching Schematic Symbol
 
-```
+```text
 Now create a matching schematic symbol for the 0603 resistor and save it to
 ./MyLibrary.SchLib. Use designator "R?" and link it to the RESC1608X55N footprint.
 ```
 
 ### 3. Analyse an Existing Library
 
-```
+```text
 Read ./ExistingLibrary.PcbLib and describe the footprints it contains.
 What silkscreen style does it use?
 ```
@@ -243,7 +208,7 @@ Claude Code will:
 
 ### 4. Match an Existing Style
 
-```
+```text
 Extract the style from ./CompanyLibrary.PcbLib and create a new 0805 capacitor
 footprint that matches the same style conventions.
 ```
@@ -256,7 +221,7 @@ Claude Code will:
 
 ### 5. Create a Complete Component Library
 
-```
+```text
 Create a chip resistor library with footprints and symbols for:
 - 0201, 0402, 0603, 0805, 1206, 2010, 2512
 
@@ -268,7 +233,7 @@ Claude Code will batch-create all components using IPC-7351B calculations.
 
 ### 6. Create from Datasheet Specifications
 
-```
+```text
 Create a footprint for a QFN-24 package with:
 - Body: 4mm x 4mm
 - 24 pins, 0.5mm pitch
@@ -284,41 +249,41 @@ Save to ./ICs.PcbLib
 
 ### Basic Component Creation
 
-```
+```text
 Create an 0805 chip capacitor footprint with IPC-7351B nominal land pattern.
 ```
 
-```
+```text
 Create a 2-pin polarised capacitor schematic symbol.
 ```
 
 ### Working with Existing Libraries
 
-```
+```text
 List all components in ./MyLibrary.PcbLib
 ```
 
-```
+```text
 Read ./Passives.SchLib and show me the pin configuration for the RESISTOR symbol.
 ```
 
 ### Style Matching
 
-```
+```text
 Analyse the silkscreen style in ./ExistingLib.PcbLib - what line width does it use?
 ```
 
-```
+```text
 Create a new footprint matching the style of ./CompanyStandard.PcbLib
 ```
 
 ### Batch Creation
 
-```
+```text
 Create a complete SMD inductor library with sizes: 0402, 0603, 0805, 1008, 1206
 ```
 
-```
+```text
 Create schematic symbols for all footprints in ./Passives.PcbLib
 ```
 
@@ -328,19 +293,19 @@ Create schematic symbols for all footprints in ./Passives.PcbLib
 
 ### 1. Be Specific About Standards
 
-```
+```text
 Use IPC-7351B nominal density (not maximum or minimum)
 ```
 
 ### 2. Specify Layer Preferences
 
-```
+```text
 Put silkscreen on Top Overlay, courtyard on Top Courtyard layer
 ```
 
 ### 3. Request Style Analysis First
 
-```
+```text
 First analyse ./ExistingLib.PcbLib, then create new components matching that style
 ```
 
@@ -355,7 +320,7 @@ When creating custom packages, provide:
 
 ### 5. Use Append Mode for Incremental Building
 
-```
+```text
 Add an 0402 resistor footprint to the existing ./Passives.PcbLib (append mode)
 ```
 

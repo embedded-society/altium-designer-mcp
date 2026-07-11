@@ -1,9 +1,11 @@
 # Scripts
 
-On-site developer tooling for the Altium binary formats. Everything here is for **manual,
-local use only** — none of it is part of the automated test suite, and **none of it runs in
-CI**. (CI verifies Altium-readability through the independent `pyaltiumlib` oracle in
-[`tests/integration/`](../tests/integration/).)
+On-site developer tooling for the Altium binary formats. The **tooling** here (the PowerShell
+launchers and DelphiScript) is for **manual, local use only** — it needs a real Altium and
+**never runs in CI**. The committed [`samples/`](samples/) libraries it authors, however, *are*
+read by the automated tests (`tests/samples_pcblib.rs`, `tests/samples_schlib.rs`) as golden
+fixtures. (CI additionally verifies Altium-readability through the independent `pyaltiumlib`
+oracle in [`tests/integration/`](../tests/integration/).)
 
 | Path | What it is | Needs Altium? |
 |------|------------|---------------|
@@ -47,8 +49,9 @@ ground truth the reader and round-trip tests validate against. See
 [`samples/README.md`](samples/README.md).
 
 > Building the sample set is **iterative**: generate → read back with the Rust tests → extend
-> the authoring script's primitive coverage → regenerate. The `samples/` folder is empty until
-> the first set lands.
+> the authoring script's primitive coverage → regenerate. The committed set currently holds
+> `footprints.PcbLib`, `symbols.SchLib`, and the `embed.bmp` image the symbols embed; it grows
+> with each authoring-script extension.
 
 ## References
 
