@@ -155,6 +155,18 @@ pub(super) fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
         0.0
     };
 
+    // Is plated - offset 60 (bool). An independent flag Altium defaults to 1
+    // for every pad, SMD included (verified against AltiumSharp ReadPad and
+    // the golden fixture), so an absent byte reads back as `true`.
+    let is_plated = geometry.get(60).map_or(true, |&b| b != 0);
+
+    // Per-pad identity GUIDs — extended-tail 16-byte fields @126 (GUID-A) and
+    // @142 (GUID-B), read back verbatim (including the golden's nil GUIDs) so
+    // a loaded pad re-encodes byte-identically. Absent (short block) -> None,
+    // which makes the writer generate a fresh GUID (the from-scratch default).
+    let identity_guid = geometry.get(126..142).map(guid_string_from_bytes);
+    let identity_guid_b = geometry.get(142..158).map(guid_string_from_bytes);
+
     // Hole shape comes from the 596-byte size/shape block (offset 262) when
     // present; a plain simple pad (empty Block 5) has a round hole. Main-block
     // offset 61 is reserved in Altium's layout, so it is not used here.
@@ -297,6 +309,7 @@ pub(super) fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
         shape: adjusted_shape,
         layer,
         hole_size,
+        is_plated,
         hole_shape,
         hole_slot_length,
         hole_rotation,
@@ -324,9 +337,26 @@ pub(super) fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
         component_index,
         flags,
         unique_id: None,
+        identity_guid,
+        identity_guid_b,
     };
 
     Ok((pad, current))
+}
+
+/// Formats a 16-byte on-disk identity GUID as a braced uppercase GUID string
+/// (e.g. `{A5172B29-…}`). Altium stores GUIDs in the Windows little-endian
+/// mixed layout, matching `AltiumSharp`'s `new Guid(byte[16])`; the writer's
+/// `guid_bytes_from_string` is the exact inverse, so a read value re-encodes
+/// byte-identically.
+///
+/// # Panics
+///
+/// The caller must pass exactly 16 bytes (a checked slice from `get(a..b)`).
+fn guid_string_from_bytes(bytes: &[u8]) -> String {
+    let array: [u8; 16] = bytes.try_into().expect("identity GUID is 16 bytes");
+    let uuid = uuid::Uuid::from_bytes_le(array);
+    format!("{{{}}}", uuid.hyphenated().to_string().to_uppercase())
 }
 
 /// Parses per-layer pad data from Block 5.
@@ -831,6 +861,12 @@ pub(super) fn parse_text(
     // A positive value is surfaced explicitly; 0/absent leaves it as the default.
     let stroke_width = read_i32(geometry_block, 36).filter(|&w| w > 0).map(to_mm);
 
+    // Comment/Designator field markers - offsets 40/41 (bool, IsComment /
+    // IsDesignator; verified against AltiumSharp ReadText B(40)/B(41)).
+    // Absent/short blocks default to false (the template bytes).
+    let is_comment = geometry_block.get(40).is_some_and(|&b| b != 0);
+    let is_designator = geometry_block.get(41).is_some_and(|&b| b != 0);
+
     // Bold/italic styles - offsets 44/45 (bool). Absent/short blocks default to false.
     // baseFontType@43 is not read: it is fully derived from `kind` (offset 160).
     let bold = geometry_block.get(44).is_some_and(|&b| b != 0);
@@ -902,6 +938,8 @@ pub(super) fn parse_text(
         italic,
         bold,
         mirror,
+        is_comment,
+        is_designator,
         font_name,
         justification,
         is_inverted,

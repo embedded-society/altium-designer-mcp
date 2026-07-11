@@ -24,12 +24,9 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
 
 ### A1. PcbLib primitives (code bugs + missing features)
 
-- [ ] 🟠 **Pad** — remaining (mostly golden / on-site / fidelity-gated): `is_plated` @SR5+60
-      read-back; identity GUIDs @+126/+142 read-back; **multi-entry** full-stack tail (count>1);
-      oblong/oval SMD pads should route to the 651 size/shape block (golden shows 651, we emit
-      empty). *(slot length @+263 / hole rotation @+267 — DONE.)*
-- [ ] 🟠 **Text**: `isComment` @40 / `isDesignator` @41 flags (still dropped on read).
-      *(mirror @35, TrueType font-name @46-109, bold @44, inverted-rect @110-133 — DONE.)*
+- [ ] 🟠 **Pad** — remaining (golden / on-site / fidelity-gated): **multi-entry** full-stack
+      tail (count>1); oblong/oval SMD pads should route to the 651 size/shape block (golden
+      shows 651, we emit empty).
 
 ### A2. PcbLib stream / container layer
 

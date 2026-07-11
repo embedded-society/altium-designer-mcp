@@ -656,6 +656,8 @@ impl McpServer {
                             "inverted_rect_height",
                             "inverted_rect_text_offset",
                             "inverted_rect_width",
+                            "is_comment",
+                            "is_designator",
                             "is_inverted",
                             "italic",
                             "justification",
@@ -802,6 +804,12 @@ impl McpServer {
                     italic: false,
                     bold: false,
                     mirror: false,
+                    // The `.Designator` special string works through its content;
+                    // is_designator@41 stays at the template's 0x00 (byte-identity —
+                    // no golden carries a `.Designator` text to settle Altium's own
+                    // authoring value for this byte).
+                    is_comment: false,
+                    is_designator: false,
                     font_name: "Arial".to_string(),
                     // BottomLeft = the template's 0x03 anchor: the writer now honours
                     // @132, so keep the auto-designator on the template default to stay
