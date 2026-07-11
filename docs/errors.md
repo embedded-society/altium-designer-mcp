@@ -3,8 +3,8 @@
 This document is a consolidated catalogue of every error this MCP server can surface, the
 condition that produces it, and how to resolve it. It complements the operational hints in
 [CLAUDE_CODE_GUIDE.md § Troubleshooting](CLAUDE_CODE_GUIDE.md#troubleshooting), which covers
-client-side setup problems, and the `isError` example in the
-[README § read_footprint](../README.md#mcp-tools), which it does not repeat here.
+client-side setup problems, and the tool reference in
+[README § MCP Tools](../README.md#mcp-tools), which it does not repeat here.
 
 ---
 
@@ -108,6 +108,25 @@ operations. They are surfaced to the client as tool-call results with `isError: 
 
 ---
 
+## Path Validation Errors
+
+Every file-touching tool routes its `filepath` argument through `validate_path`
+(`src/mcp/server.rs`) before any I/O. When validation fails, the message below is returned
+to the client as a tool-call result with `isError: true` (see
+[How Errors Surface](#how-errors-surface)). Only the sanitised file name (`{name}`) ever
+appears — never a full path.
+
+| Message | When It Occurs | Remedy |
+|---------|----------------|--------|
+| `Access denied: no allowed directories are configured` | The server was constructed with an empty allow-list, so every path is denied (fail closed). The CLI substitutes the current directory when the config omits `allowed_paths`, so this normally only affects embedders. | Configure at least one `allowed_paths` entry. |
+| `Access denied: path is outside the configured allowed directories` | The canonicalised path is not within any configured allowed path. The message is deliberately generic — it discloses no path, allow-list contents, or OS error text. | Use a path inside a configured allowed directory, or add the directory to `allowed_paths`. |
+| `Failed to resolve path '{name}'` | The path exists but could not be canonicalised (for example, permission denied on a component of the path). | Check the path's permissions and that every component is accessible. |
+| `Invalid path '{name}': cannot create a file at the filesystem root` | A new-file path has no parent directory (it points at the filesystem root). | Supply a path inside a directory, not at the root. |
+| `Invalid path '{name}': no filename specified` | A new-file path has no final file-name component. | Supply a path that ends in a file name. |
+| `Parent directory of '{name}' does not exist or is inaccessible` | For a file that does not yet exist, the parent directory could not be canonicalised — it is missing or unreadable. | Create the parent directory first, or correct the path. |
+
+---
+
 ## Tool-Call Result and Error-Context Shapes
 
 When a tool fails, the handler returns a `ToolCallResult` (defined in `src/mcp/server.rs`).
@@ -119,7 +138,7 @@ The envelope serialises to the standard MCP shape: a `content` array of typed it
     "content": [
         {
             "type": "text",
-            "text": "Component 'SOIC-99' not found in library."
+            "text": "Component 'SOIC-99' not found in library"
         }
     ],
     "isError": true

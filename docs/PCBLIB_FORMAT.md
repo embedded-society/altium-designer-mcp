@@ -855,7 +855,8 @@ There is **no** end marker after the last primitive (issue #68).
 - **Unique IDs**: 8-character alphanumeric, keyed by a single global 0-based `PRIMITIVEINDEX` over all primitives in Data order
 - **Default layer mapping**: unknown layer IDs default to Multi-Layer (74)
 - **Default stack mode**: unknown stack mode IDs default to Simple (0)
-- **Internal OLE entries filtered on read**: FileHeader, Library, Models, Textures, ModelsNoEmbed, PadViaLibrary, LayerKindMapping, ComponentParamsTOC, FileVersionInfo, PrimitiveGuids
+- **Internal OLE entries filtered on read**: FileHeader, Library, Models, Textures, ModelsNoEmbed, PadViaLibrary, LayerKindMapping,
+    ComponentParamsTOC, FileVersionInfo, PrimitiveGuids
 
 ## References
 

@@ -15,16 +15,18 @@ _34 tools._
 
 ## `read_pcblib`
 
-Read an Altium .PcbLib file and return its contents including footprints with their primitives (pads, tracks, arcs, regions, text). Returns structured data that can be used to understand existing footprint styles. All coordinates and dimensions are in millimetres (mm). For large libraries, use component_name to fetch specific footprints, or use limit/offset for pagination.
+Read an Altium .PcbLib file and return its contents including footprints with their primitives (pads, tracks, arcs, regions, text). Returns structured data that can be
+used to understand existing footprint styles. All coordinates and dimensions are in millimetres (mm). For large libraries, use component_name to fetch specific
+footprints, or use limit/offset for pagination.
 
 **Example**
 
 ```json
 {
-  "arguments": {
-    "filepath": "./MyLibrary.PcbLib"
-  },
-  "name": "read_pcblib"
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib"
+    },
+    "name": "read_pcblib"
 }
 ```
 
@@ -40,16 +42,17 @@ Read an Altium .PcbLib file and return its contents including footprints with th
 
 ## `read_schlib`
 
-Read an Altium .SchLib file and return its contents including symbols with their primitives (pins, rectangles, lines, text). Coordinates are in schematic units (10 units = 1 grid square, not mm). For large libraries, use component_name to fetch specific symbols, or use limit/offset for pagination.
+Read an Altium .SchLib file and return its contents including symbols with their primitives (pins, rectangles, lines, text). Coordinates are in schematic units (10 units
+= 1 grid square, not mm). For large libraries, use component_name to fetch specific symbols, or use limit/offset for pagination.
 
 **Example**
 
 ```json
 {
-  "arguments": {
-    "filepath": "./MySymbols.SchLib"
-  },
-  "name": "read_schlib"
+    "arguments": {
+        "filepath": "./MySymbols.SchLib"
+    },
+    "name": "read_schlib"
 }
 ```
 
@@ -64,19 +67,20 @@ Read an Altium .SchLib file and return its contents including symbols with their
 
 ## `list_components`
 
-List all component/footprint names in an Altium library file (.PcbLib or .SchLib). Supports pagination with limit/offset for large libraries. Use include_metadata for additional details like part_count and pin_count.
+List all component/footprint names in an Altium library file (.PcbLib or .SchLib). Supports pagination with limit/offset for large libraries. Use include_metadata for
+additional details like part_count and pin_count.
 
 **Example**
 
 ```json
 {
-  "arguments": {
-    "filepath": "./MyLibrary.PcbLib",
-    "include_metadata": true,
-    "limit": 50,
-    "offset": 0
-  },
-  "name": "list_components"
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib",
+        "include_metadata": true,
+        "limit": 50,
+        "offset": 0
+    },
+    "name": "list_components"
 }
 ```
 
@@ -91,16 +95,17 @@ List all component/footprint names in an Altium library file (.PcbLib or .SchLib
 
 ## `extract_style`
 
-Extract style information from an existing Altium library file. Returns statistics about track widths, colours, pin lengths, layer usage, and other styling parameters. Use this to learn from existing libraries and create consistent new components.
+Extract style information from an existing Altium library file. Returns statistics about track widths, colours, pin lengths, layer usage, and other styling parameters.
+Use this to learn from existing libraries and create consistent new components.
 
 **Example**
 
 ```json
 {
-  "arguments": {
-    "filepath": "./MyLibrary.PcbLib"
-  },
-  "name": "extract_style"
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib"
+    },
+    "name": "extract_style"
 }
 ```
 
@@ -112,80 +117,85 @@ Extract style information from an existing Altium library file. Returns statisti
 
 ## `write_pcblib`
 
-Write footprints to an Altium .PcbLib file. Each footprint is defined by its primitives: pads (with position, size, shape, layer), tracks, vias, fills, arcs, regions, and text. The AI is responsible for calculating correct positions and sizes based on IPC-7351B or other standards. All coordinates and dimensions must be in millimetres (mm). The response 'bodies' array echoes each footprint's 3D body height and source; a footprint with no STEP model and no component body reports source 'none'. Set 'auto_3d_body': true to have an extruded placeholder body (default height 1.0 mm, flagged 'assumed_height': true) added to such footprints, then confirm or override it by supplying 'component_bodies' explicitly. The response also includes a 'warnings' array flagging silkscreen (overlay) tracks that overlap a pad (silk-on-pad) so you can move them clear.
+Write footprints to an Altium .PcbLib file. Each footprint is defined by its primitives: pads (with position, size, shape, layer), tracks, vias, fills, arcs, regions, and
+text. The AI is responsible for calculating correct positions and sizes based on IPC-7351B or other standards. All coordinates and dimensions must be in millimetres (mm).
+The response 'bodies' array echoes each footprint's 3D body height and source; a footprint with no STEP model and no component body reports source 'none'. Set
+'auto_3d_body': true to have an extruded placeholder body (default height 1.0 mm, flagged 'assumed_height': true) added to such footprints, then confirm or override it by
+supplying 'component_bodies' explicitly. The response also includes a 'warnings' array flagging silkscreen (overlay) tracks that overlap a pad (silk-on-pad) so you can
+move them clear.
 
 **Example**
 
 ```json
 {
-  "arguments": {
-    "append": false,
-    "filepath": "./Passives.PcbLib",
-    "footprints": [
-      {
-        "description": "Chip resistor, 0603 (1608 metric)",
-        "name": "RESC1608X55N",
-        "pads": [
-          {
-            "designator": "1",
-            "height": 0.95,
-            "width": 0.9,
-            "x": -0.75,
-            "y": 0
-          },
-          {
-            "designator": "2",
-            "height": 0.95,
-            "width": 0.9,
-            "x": 0.75,
-            "y": 0
-          }
-        ],
-        "regions": [
-          {
-            "layer": "Top Courtyard",
-            "vertices": [
-              {
-                "x": -1.45,
-                "y": -0.73
-              },
-              {
-                "x": 1.45,
-                "y": -0.73
-              },
-              {
-                "x": 1.45,
-                "y": 0.73
-              },
-              {
-                "x": -1.45,
-                "y": 0.73
-              }
-            ]
-          }
-        ],
-        "tracks": [
-          {
-            "layer": "Top Overlay",
-            "width": 0.12,
-            "x1": -0.8,
-            "x2": 0.8,
-            "y1": -0.425,
-            "y2": -0.425
-          },
-          {
-            "layer": "Top Overlay",
-            "width": 0.12,
-            "x1": -0.8,
-            "x2": 0.8,
-            "y1": 0.425,
-            "y2": 0.425
-          }
+    "arguments": {
+        "append": false,
+        "filepath": "./Passives.PcbLib",
+        "footprints": [
+            {
+                "description": "Chip resistor, 0603 (1608 metric)",
+                "name": "RESC1608X55N",
+                "pads": [
+                    {
+                        "designator": "1",
+                        "height": 0.95,
+                        "width": 0.9,
+                        "x": -0.75,
+                        "y": 0
+                    },
+                    {
+                        "designator": "2",
+                        "height": 0.95,
+                        "width": 0.9,
+                        "x": 0.75,
+                        "y": 0
+                    }
+                ],
+                "regions": [
+                    {
+                        "layer": "Top Courtyard",
+                        "vertices": [
+                            {
+                                "x": -1.45,
+                                "y": -0.73
+                            },
+                            {
+                                "x": 1.45,
+                                "y": -0.73
+                            },
+                            {
+                                "x": 1.45,
+                                "y": 0.73
+                            },
+                            {
+                                "x": -1.45,
+                                "y": 0.73
+                            }
+                        ]
+                    }
+                ],
+                "tracks": [
+                    {
+                        "layer": "Top Overlay",
+                        "width": 0.12,
+                        "x1": -0.8,
+                        "x2": 0.8,
+                        "y1": -0.425,
+                        "y2": -0.425
+                    },
+                    {
+                        "layer": "Top Overlay",
+                        "width": 0.12,
+                        "x1": -0.8,
+                        "x2": 0.8,
+                        "y1": 0.425,
+                        "y2": 0.425
+                    }
+                ]
+            }
         ]
-      }
-    ]
-  },
-  "name": "write_pcblib"
+    },
+    "name": "write_pcblib"
 }
 ```
 
@@ -200,62 +210,63 @@ Write footprints to an Altium .PcbLib file. Each footprint is defined by its pri
 
 ## `write_schlib`
 
-Write schematic symbols to an Altium .SchLib file. Each symbol is defined by its primitives: pins, rectangles, round_rects, lines, polylines, polygons, arcs, pies, images, text_frames, beziers, ellipses, elliptical_arcs, labels, and text. Coordinates must be in schematic units (10 units = 1 grid square, not mm).
+Write schematic symbols to an Altium .SchLib file. Each symbol is defined by its primitives: pins, rectangles, round_rects, lines, polylines, polygons, arcs, pies,
+images, text_frames, beziers, ellipses, elliptical_arcs, labels, and text. Coordinates must be in schematic units (10 units = 1 grid square, not mm).
 
 **Example**
 
 ```json
 {
-  "arguments": {
-    "filepath": "./MyLibrary.SchLib",
-    "symbols": [
-      {
-        "designator_prefix": "R",
-        "footprints": [
-          {
-            "library_path": "./MyLibrary.PcbLib",
-            "name": "R0402"
-          }
-        ],
-        "name": "R",
-        "parameters": [
-          {
-            "name": "Value",
-            "value": "10k"
-          }
-        ],
-        "pins": [
-          {
-            "designator": "1",
-            "electrical_type": "passive",
-            "length": 20,
-            "name": "1",
-            "orientation": "left",
-            "x": -50,
-            "y": 0
-          },
-          {
-            "designator": "2",
-            "electrical_type": "passive",
-            "length": 20,
-            "name": "2",
-            "orientation": "right",
-            "x": 50,
-            "y": 0
-          }
-        ],
-        "rectangles": [
-          {
-            "x1": -50,
-            "x2": 50,
-            "y1": -20,
-            "y2": 20
-          }
+    "arguments": {
+        "filepath": "./MyLibrary.SchLib",
+        "symbols": [
+            {
+                "designator_prefix": "R",
+                "footprints": [
+                    {
+                        "library_path": "./MyLibrary.PcbLib",
+                        "name": "R0402"
+                    }
+                ],
+                "name": "R",
+                "parameters": [
+                    {
+                        "name": "Value",
+                        "value": "10k"
+                    }
+                ],
+                "pins": [
+                    {
+                        "designator": "1",
+                        "electrical_type": "passive",
+                        "length": 20,
+                        "name": "1",
+                        "orientation": "left",
+                        "x": -50,
+                        "y": 0
+                    },
+                    {
+                        "designator": "2",
+                        "electrical_type": "passive",
+                        "length": 20,
+                        "name": "2",
+                        "orientation": "right",
+                        "x": 50,
+                        "y": 0
+                    }
+                ],
+                "rectangles": [
+                    {
+                        "x1": -50,
+                        "x2": 50,
+                        "y1": -20,
+                        "y2": 20
+                    }
+                ]
+            }
         ]
-      }
-    ]
-  },
-  "name": "write_schlib"
+    },
+    "name": "write_schlib"
 }
 ```
 
@@ -269,20 +280,22 @@ Write schematic symbols to an Altium .SchLib file. Each symbol is defined by its
 
 ## `write_libpkg`
 
-Write an Altium Library Package (.LibPkg) project file that groups source library documents (.SchLib and .PcbLib) so they can be compiled into an Integrated Library (.IntLib). Member documents are referenced by their path relative to the .LibPkg. This generates only the project source; compiling to a binary .IntLib is a one-click operation inside Altium Designer (Project > Compile Integrated Library).
+Write an Altium Library Package (.LibPkg) project file that groups source library documents (.SchLib and .PcbLib) so they can be compiled into an Integrated Library
+(.IntLib). Member documents are referenced by their path relative to the .LibPkg. This generates only the project source; compiling to a binary .IntLib is a one-click
+operation inside Altium Designer (Project > Compile Integrated Library).
 
 **Example**
 
 ```json
 {
-  "arguments": {
-    "documents": [
-      "MyLibrary.SchLib",
-      "MyLibrary.PcbLib"
-    ],
-    "filepath": "./MyLibrary.LibPkg"
-  },
-  "name": "write_libpkg"
+    "arguments": {
+        "documents": [
+            "MyLibrary.SchLib",
+            "MyLibrary.PcbLib"
+        ],
+        "filepath": "./MyLibrary.LibPkg"
+    },
+    "name": "write_libpkg"
 }
 ```
 
@@ -295,21 +308,22 @@ Write an Altium Library Package (.LibPkg) project file that groups source librar
 
 ## `delete_component`
 
-Delete one or more components from an Altium library file (.PcbLib or .SchLib). The file type is auto-detected from the extension. Returns status for each component: deleted, not_found, or error. Use dry_run=true to preview changes without modifying the file.
+Delete one or more components from an Altium library file (.PcbLib or .SchLib). The file type is auto-detected from the extension. Returns status for each component:
+deleted, not_found, or error. Use dry_run=true to preview changes without modifying the file.
 
 **Example**
 
 ```json
 {
-  "arguments": {
-    "component_names": [
-      "OLD_FOOTPRINT",
-      "UNUSED_COMPONENT"
-    ],
-    "dry_run": false,
-    "filepath": "./MyLibrary.PcbLib"
-  },
-  "name": "delete_component"
+    "arguments": {
+        "component_names": [
+            "OLD_FOOTPRINT",
+            "UNUSED_COMPONENT"
+        ],
+        "dry_run": false,
+        "filepath": "./MyLibrary.PcbLib"
+    },
+    "name": "delete_component"
 }
 ```
 
@@ -323,16 +337,17 @@ Delete one or more components from an Altium library file (.PcbLib or .SchLib). 
 
 ## `validate_library`
 
-Validate an Altium library file for common issues. Checks for: empty components (no pads/pins), duplicate designators, invalid coordinates, zero-size primitives, and other integrity problems. Returns a list of warnings and errors.
+Validate an Altium library file for common issues. Checks for: empty components (no pads/pins), duplicate designators, invalid coordinates, zero-size primitives, and
+other integrity problems. Returns a list of warnings and errors.
 
 **Example**
 
 ```json
 {
-  "arguments": {
-    "filepath": "./MyLibrary.PcbLib"
-  },
-  "name": "validate_library"
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib"
+    },
+    "name": "validate_library"
 }
 ```
 
@@ -344,18 +359,19 @@ Validate an Altium library file for common issues. Checks for: empty components 
 
 ## `export_library`
 
-Export an Altium library to JSON or CSV format for version control, backup, or external processing. JSON includes full component data; CSV provides a summary table of component names and basic info.
+Export an Altium library to JSON or CSV format for version control, backup, or external processing. JSON includes full component data; CSV provides a summary table of
+component names and basic info.
 
 **Example**
 
 ```json
 {
-  "arguments": {
-    "compact": true,
-    "filepath": "./MyLibrary.PcbLib",
-    "format": "json"
-  },
-  "name": "export_library"
+    "arguments": {
+        "compact": true,
+        "filepath": "./MyLibrary.PcbLib",
+        "format": "json"
+    },
+    "name": "export_library"
 }
 ```
 
@@ -369,25 +385,26 @@ Export an Altium library to JSON or CSV format for version control, backup, or e
 
 ## `import_library`
 
-Import components from JSON data into an Altium library file. Accepts JSON in the format produced by export_library, enabling round-trip workflows. Auto-detects library type (PcbLib/SchLib) from the JSON data.
+Import components from JSON data into an Altium library file. Accepts JSON in the format produced by export_library, enabling round-trip workflows. Auto-detects library
+type (PcbLib/SchLib) from the JSON data.
 
 **Example**
 
 ```json
 {
-  "arguments": {
-    "json_data": {
-      "file_type": "PcbLib",
-      "footprints": [
-        {
-          "name": "R0402",
-          "pads": []
-        }
-      ]
+    "arguments": {
+        "json_data": {
+            "file_type": "PcbLib",
+            "footprints": [
+                {
+                    "name": "R0402",
+                    "pads": []
+                }
+            ]
+        },
+        "output_path": "./MyLibrary.PcbLib"
     },
-    "output_path": "./MyLibrary.PcbLib"
-  },
-  "name": "import_library"
+    "name": "import_library"
 }
 ```
 
@@ -401,19 +418,20 @@ Import components from JSON data into an Altium library file. Accepts JSON in th
 
 ## `extract_step_model`
 
-Extract embedded STEP 3D models from an Altium .PcbLib file. Models are stored compressed inside the library and this tool extracts them to standalone .step files. Supports multiple modes: 'auto' (default), 'list', 'extract_all', or 'extract_by_footprint'.
+Extract embedded STEP 3D models from an Altium .PcbLib file. Models are stored compressed inside the library and this tool extracts them to standalone .step files.
+Supports multiple modes: 'auto' (default), 'list', 'extract_all', or 'extract_by_footprint'.
 
 **Example**
 
 ```json
 {
-  "arguments": {
-    "filepath": "./MyLibrary.PcbLib",
-    "mode": "auto",
-    "model": "RESC1005X04L.step",
-    "output_path": "./extracted_model.step"
-  },
-  "name": "extract_step_model"
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib",
+        "mode": "auto",
+        "model": "RESC1005X04L.step",
+        "output_path": "./extracted_model.step"
+    },
+    "name": "extract_step_model"
 }
 ```
 
@@ -437,11 +455,11 @@ Compare two Altium library files and report differences. Shows added, removed, a
 
 ```json
 {
-  "arguments": {
-    "filepath_a": "./OldLibrary.PcbLib",
-    "filepath_b": "./NewLibrary.PcbLib"
-  },
-  "name": "diff_libraries"
+    "arguments": {
+        "filepath_a": "./OldLibrary.PcbLib",
+        "filepath_b": "./NewLibrary.PcbLib"
+    },
+    "name": "diff_libraries"
 }
 ```
 
@@ -454,22 +472,23 @@ Compare two Altium library files and report differences. Shows added, removed, a
 
 ## `batch_update`
 
-Perform batch updates across all components in an Altium library file. For PcbLib: update track widths, rename layers. For SchLib: update parameter values across symbols. Use dry_run=true to preview changes without modifying the file.
+Perform batch updates across all components in an Altium library file. For PcbLib: update track widths, rename layers. For SchLib: update parameter values across symbols.
+Use dry_run=true to preview changes without modifying the file.
 
 **Example**
 
 ```json
 {
-  "arguments": {
-    "filepath": "./MyLibrary.PcbLib",
-    "operation": "update_track_width",
-    "parameters": {
-      "from_width": 0.2,
-      "to_width": 0.25,
-      "tolerance": 0.001
-    }
-  },
-  "name": "batch_update"
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib",
+        "operation": "update_track_width",
+        "parameters": {
+            "from_width": 0.2,
+            "to_width": 0.25,
+            "tolerance": 0.001
+        }
+    },
+    "name": "batch_update"
 }
 ```
 
@@ -490,13 +509,13 @@ Copy/duplicate a component within an Altium library file. Creates a new componen
 
 ```json
 {
-  "arguments": {
-    "description": "0603 resistor variant 2",
-    "filepath": "./MyLibrary.PcbLib",
-    "source_name": "RESC0603_IPC_MEDIUM",
-    "target_name": "RESC0603_IPC_MEDIUM_V2"
-  },
-  "name": "copy_component"
+    "arguments": {
+        "description": "0603 resistor variant 2",
+        "filepath": "./MyLibrary.PcbLib",
+        "source_name": "RESC0603_IPC_MEDIUM",
+        "target_name": "RESC0603_IPC_MEDIUM_V2"
+    },
+    "name": "copy_component"
 }
 ```
 
@@ -512,18 +531,19 @@ Copy/duplicate a component within an Altium library file. Creates a new componen
 
 ## `rename_component`
 
-Rename a component within an Altium library file. This is an atomic operation that changes the component's name while preserving all primitives and properties. More efficient than copy + delete for simple renames.
+Rename a component within an Altium library file. This is an atomic operation that changes the component's name while preserving all primitives and properties. More
+efficient than copy + delete for simple renames.
 
 **Example**
 
 ```json
 {
-  "arguments": {
-    "filepath": "./MyLibrary.PcbLib",
-    "new_name": "RESC0603_NEW",
-    "old_name": "RESC0603_OLD"
-  },
-  "name": "rename_component"
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib",
+        "new_name": "RESC0603_NEW",
+        "old_name": "RESC0603_OLD"
+    },
+    "name": "rename_component"
 }
 ```
 
@@ -538,22 +558,23 @@ Rename a component within an Altium library file. This is an atomic operation th
 
 ## `copy_component_cross_library`
 
-Copy a component from one Altium library to another. Both libraries must be the same type (PcbLib to PcbLib, or SchLib to SchLib). Useful for consolidating libraries or sharing components between projects.
+Copy a component from one Altium library to another. Both libraries must be the same type (PcbLib to PcbLib, or SchLib to SchLib). Useful for consolidating libraries or
+sharing components between projects.
 
 **Example**
 
 ```json
 {
-  "arguments": {
-    "component_name": "RESC0603_IPC_MEDIUM",
-    "description": "Copied from SourceLibrary",
-    "ignore_missing_models": false,
-    "new_name": "RESC0603_COPIED",
-    "preserve_external_paths": false,
-    "source_filepath": "./SourceLibrary.PcbLib",
-    "target_filepath": "./TargetLibrary.PcbLib"
-  },
-  "name": "copy_component_cross_library"
+    "arguments": {
+        "component_name": "RESC0603_IPC_MEDIUM",
+        "description": "Copied from SourceLibrary",
+        "ignore_missing_models": false,
+        "new_name": "RESC0603_COPIED",
+        "preserve_external_paths": false,
+        "source_filepath": "./SourceLibrary.PcbLib",
+        "target_filepath": "./TargetLibrary.PcbLib"
+    },
+    "name": "copy_component_cross_library"
 }
 ```
 
@@ -571,22 +592,23 @@ Copy a component from one Altium library to another. Both libraries must be the 
 
 ## `merge_libraries`
 
-Merge multiple Altium libraries into a single library. All source libraries must be the same type (all PcbLib or all SchLib). Components are copied from each source into the target library. Use dry_run=true to preview what would be merged.
+Merge multiple Altium libraries into a single library. All source libraries must be the same type (all PcbLib or all SchLib). Components are copied from each source into
+the target library. Use dry_run=true to preview what would be merged.
 
 **Example**
 
 ```json
 {
-  "arguments": {
-    "on_duplicate": "skip",
-    "source_filepaths": [
-      "./LibraryA.PcbLib",
-      "./LibraryB.PcbLib",
-      "./LibraryC.PcbLib"
-    ],
-    "target_filepath": "./MergedLibrary.PcbLib"
-  },
-  "name": "merge_libraries"
+    "arguments": {
+        "on_duplicate": "skip",
+        "source_filepaths": [
+            "./LibraryA.PcbLib",
+            "./LibraryB.PcbLib",
+            "./LibraryC.PcbLib"
+        ],
+        "target_filepath": "./MergedLibrary.PcbLib"
+    },
+    "name": "merge_libraries"
 }
 ```
 
@@ -601,21 +623,22 @@ Merge multiple Altium libraries into a single library. All source libraries must
 
 ## `reorder_components`
 
-Reorder components in an Altium library file (.PcbLib or .SchLib). Specify the desired order as a list of component names. Components not in the list are placed at the end in their original relative order.
+Reorder components in an Altium library file (.PcbLib or .SchLib). Specify the desired order as a list of component names. Components not in the list are placed at the
+end in their original relative order.
 
 **Example**
 
 ```json
 {
-  "arguments": {
-    "component_order": [
-      "RESC1608X55N",
-      "RESC0805X40N",
-      "RESC0402X20N"
-    ],
-    "filepath": "./MyLibrary.PcbLib"
-  },
-  "name": "reorder_components"
+    "arguments": {
+        "component_order": [
+            "RESC1608X55N",
+            "RESC0805X40N",
+            "RESC0402X20N"
+        ],
+        "filepath": "./MyLibrary.PcbLib"
+    },
+    "name": "reorder_components"
 }
 ```
 
@@ -628,39 +651,40 @@ Reorder components in an Altium library file (.PcbLib or .SchLib). Specify the d
 
 ## `update_component`
 
-Update a component in-place within an Altium library file, preserving its position. For PcbLib, provide a footprint object. For SchLib, provide a symbol object. The component is matched by name. Use dry_run=true to preview changes without modifying.
+Update a component in-place within an Altium library file, preserving its position. For PcbLib, provide a footprint object. For SchLib, provide a symbol object. The
+component is matched by name. Use dry_run=true to preview changes without modifying.
 
 **Example**
 
 ```json
 {
-  "arguments": {
-    "component_name": "RESC0402X20N",
-    "filepath": "./MyLibrary.PcbLib",
-    "footprint": {
-      "description": "Updated resistor 0402",
-      "name": "RESC0402X20N",
-      "pads": [
-        {
-          "designator": "1",
-          "height": 0.5,
-          "layer": "TopLayer",
-          "width": 0.5,
-          "x": -0.5,
-          "y": 0
-        },
-        {
-          "designator": "2",
-          "height": 0.5,
-          "layer": "TopLayer",
-          "width": 0.5,
-          "x": 0.5,
-          "y": 0
+    "arguments": {
+        "component_name": "RESC0402X20N",
+        "filepath": "./MyLibrary.PcbLib",
+        "footprint": {
+            "description": "Updated resistor 0402",
+            "name": "RESC0402X20N",
+            "pads": [
+                {
+                    "designator": "1",
+                    "height": 0.5,
+                    "layer": "TopLayer",
+                    "width": 0.5,
+                    "x": -0.5,
+                    "y": 0
+                },
+                {
+                    "designator": "2",
+                    "height": 0.5,
+                    "layer": "TopLayer",
+                    "width": 0.5,
+                    "x": 0.5,
+                    "y": 0
+                }
+            ]
         }
-      ]
-    }
-  },
-  "name": "update_component"
+    },
+    "name": "update_component"
 }
 ```
 
@@ -676,22 +700,23 @@ Update a component in-place within an Altium library file, preserving its positi
 
 ## `search_components`
 
-Search for components across multiple Altium libraries using regex or glob patterns. Returns matching component names with their source library paths. Supports both `.PcbLib` (footprints) and `.SchLib` (symbols) files.
+Search for components across multiple Altium libraries using regex or glob patterns. Returns matching component names with their source library paths. Supports both
+`.PcbLib` (footprints) and `.SchLib` (symbols) files.
 
 **Example**
 
 ```json
 {
-  "arguments": {
-    "filepaths": [
-      "./Resistors.PcbLib",
-      "./Capacitors.PcbLib",
-      "./ICs.PcbLib"
-    ],
-    "pattern": "SOIC-*",
-    "pattern_type": "glob"
-  },
-  "name": "search_components"
+    "arguments": {
+        "filepaths": [
+            "./Resistors.PcbLib",
+            "./Capacitors.PcbLib",
+            "./ICs.PcbLib"
+        ],
+        "pattern": "SOIC-*",
+        "pattern_type": "glob"
+    },
+    "name": "search_components"
 }
 ```
 
@@ -705,17 +730,18 @@ Search for components across multiple Altium libraries using regex or glob patte
 
 ## `get_component`
 
-Get a single component by name from an Altium library. Returns the full component data (footprint or symbol) without needing to read and filter the entire library. Supports both `.PcbLib` (footprints) and `.SchLib` (symbols) files.
+Get a single component by name from an Altium library. Returns the full component data (footprint or symbol) without needing to read and filter the entire library.
+Supports both `.PcbLib` (footprints) and `.SchLib` (symbols) files.
 
 **Example**
 
 ```json
 {
-  "arguments": {
-    "component_name": "SOIC-8",
-    "filepath": "./MyLibrary.PcbLib"
-  },
-  "name": "get_component"
+    "arguments": {
+        "component_name": "SOIC-8",
+        "filepath": "./MyLibrary.PcbLib"
+    },
+    "name": "get_component"
 }
 ```
 
@@ -728,21 +754,22 @@ Get a single component by name from an Altium library. Returns the full componen
 
 ## `component_exists`
 
-Check if one or more components exist in an Altium library. Use this to validate component names before operations like rename, copy, or delete. Supports both `.PcbLib` and `.SchLib` files.
+Check if one or more components exist in an Altium library. Use this to validate component names before operations like rename, copy, or delete. Supports both `.PcbLib`
+and `.SchLib` files.
 
 **Example**
 
 ```json
 {
-  "arguments": {
-    "component_names": [
-      "RESC0603",
-      "CAPC0402",
-      "MISSING_COMPONENT"
-    ],
-    "filepath": "./MyLibrary.PcbLib"
-  },
-  "name": "component_exists"
+    "arguments": {
+        "component_names": [
+            "RESC0603",
+            "CAPC0402",
+            "MISSING_COMPONENT"
+        ],
+        "filepath": "./MyLibrary.PcbLib"
+    },
+    "name": "component_exists"
 }
 ```
 
@@ -761,14 +788,14 @@ Render an ASCII art visualisation of a footprint from a PcbLib file. Shows pads,
 
 ```json
 {
-  "arguments": {
-    "component_name": "RESC0603_IPC_MEDIUM",
-    "filepath": "./MyLibrary.PcbLib",
-    "max_height": 40,
-    "max_width": 80,
-    "scale": 2.0
-  },
-  "name": "render_footprint"
+    "arguments": {
+        "component_name": "RESC0603_IPC_MEDIUM",
+        "filepath": "./MyLibrary.PcbLib",
+        "max_height": 40,
+        "max_width": 80,
+        "scale": 2.0
+    },
+    "name": "render_footprint"
 }
 ```
 
@@ -784,21 +811,22 @@ Render an ASCII art visualisation of a footprint from a PcbLib file. Shows pads,
 
 ## `render_symbol`
 
-Render an ASCII art visualisation of a schematic symbol from a SchLib file. Shows pins, rectangles, lines, and other primitives in a simple text format for quick preview. Coordinates are in schematic units (10 units = 1 grid).
+Render an ASCII art visualisation of a schematic symbol from a SchLib file. Shows pins, rectangles, lines, and other primitives in a simple text format for quick preview.
+Coordinates are in schematic units (10 units = 1 grid).
 
 **Example**
 
 ```json
 {
-  "arguments": {
-    "component_name": "LM358",
-    "filepath": "./MyLibrary.SchLib",
-    "max_height": 40,
-    "max_width": 80,
-    "part_id": 1,
-    "scale": 1.0
-  },
-  "name": "render_symbol"
+    "arguments": {
+        "component_name": "LM358",
+        "filepath": "./MyLibrary.SchLib",
+        "max_height": 40,
+        "max_width": 80,
+        "part_id": 1,
+        "scale": 1.0
+    },
+    "name": "render_symbol"
 }
 ```
 
@@ -821,14 +849,14 @@ Manage component parameters in Altium SchLib files. Supports listing, getting, s
 
 ```json
 {
-  "arguments": {
-    "component_name": "LM358",
-    "filepath": "./MyLibrary.SchLib",
-    "operation": "set",
-    "parameter_name": "Value",
-    "value": "LM358D"
-  },
-  "name": "manage_schlib_parameters"
+    "arguments": {
+        "component_name": "LM358",
+        "filepath": "./MyLibrary.SchLib",
+        "operation": "set",
+        "parameter_name": "Value",
+        "value": "LM358D"
+    },
+    "name": "manage_schlib_parameters"
 }
 ```
 
@@ -856,13 +884,13 @@ Manage footprint links in Altium SchLib symbols. Supports listing, adding, and r
 
 ```json
 {
-  "arguments": {
-    "component_name": "LM358",
-    "filepath": "./MyLibrary.SchLib",
-    "footprint_name": "SOIC-8_3.9x4.9mm",
-    "operation": "add"
-  },
-  "name": "manage_schlib_footprints"
+    "arguments": {
+        "component_name": "LM358",
+        "filepath": "./MyLibrary.SchLib",
+        "footprint_name": "SOIC-8_3.9x4.9mm",
+        "operation": "add"
+    },
+    "name": "manage_schlib_footprints"
 }
 ```
 
@@ -879,21 +907,22 @@ Manage footprint links in Altium SchLib symbols. Supports listing, adding, and r
 
 ## `compare_components`
 
-Compare two specific components in detail, showing differences in primitives, parameters, and properties. Components can be from the same library or different libraries. Returns detailed primitive-level differences (pads, tracks, pins, etc.).
+Compare two specific components in detail, showing differences in primitives, parameters, and properties. Components can be from the same library or different libraries.
+Returns detailed primitive-level differences (pads, tracks, pins, etc.).
 
 **Example**
 
 ```json
 {
-  "arguments": {
-    "component_a": "RESC0603_V1",
-    "component_b": "RESC0603_V2",
-    "filepath_a": "./LibraryA.PcbLib",
-    "filepath_b": "./LibraryB.PcbLib",
-    "include_geometry": true,
-    "tolerance": 0.001
-  },
-  "name": "compare_components"
+    "arguments": {
+        "component_a": "RESC0603_V1",
+        "component_b": "RESC0603_V2",
+        "filepath_a": "./LibraryA.PcbLib",
+        "filepath_b": "./LibraryB.PcbLib",
+        "include_geometry": true,
+        "tolerance": 0.001
+    },
+    "name": "compare_components"
 }
 ```
 
@@ -910,17 +939,18 @@ Compare two specific components in detail, showing differences in primitives, pa
 
 ## `repair_library`
 
-Repair a library by removing orphaned references. For PcbLib files, this removes: (1) embedded models not referenced by any footprint, and (2) component body references that point to non-existent models. This fixes libraries where STEP model data is missing but references remain.
+Repair a library by removing orphaned references. For PcbLib files, this removes: (1) embedded models not referenced by any footprint, and (2) component body references
+that point to non-existent models. This fixes libraries where STEP model data is missing but references remain.
 
 **Example**
 
 ```json
 {
-  "arguments": {
-    "dry_run": true,
-    "filepath": "./MyLibrary.PcbLib"
-  },
-  "name": "repair_library"
+    "arguments": {
+        "dry_run": true,
+        "filepath": "./MyLibrary.PcbLib"
+    },
+    "name": "repair_library"
 }
 ```
 
@@ -939,10 +969,10 @@ List available backup files for an Altium library. Shows timestamped .bak files 
 
 ```json
 {
-  "arguments": {
-    "filepath": "./MyLibrary.PcbLib"
-  },
-  "name": "list_backups"
+    "arguments": {
+        "filepath": "./MyLibrary.PcbLib"
+    },
+    "name": "list_backups"
 }
 ```
 
@@ -960,11 +990,11 @@ Restore an Altium library file from a backup. If no specific backup is specified
 
 ```json
 {
-  "arguments": {
-    "backup_path": "MyLibrary.PcbLib.20260125_091500.bak",
-    "filepath": "./MyLibrary.PcbLib"
-  },
-  "name": "restore_backup"
+    "arguments": {
+        "backup_path": "MyLibrary.PcbLib.20260125_091500.bak",
+        "filepath": "./MyLibrary.PcbLib"
+    },
+    "name": "restore_backup"
 }
 ```
 
@@ -983,13 +1013,13 @@ Rename multiple components in a library using regex pattern matching. Supports c
 
 ```json
 {
-  "arguments": {
-    "dry_run": true,
-    "filepath": "./MyLibrary.PcbLib",
-    "pattern": "^RESC(.*)$",
-    "replacement": "RES_$1"
-  },
-  "name": "bulk_rename"
+    "arguments": {
+        "dry_run": true,
+        "filepath": "./MyLibrary.PcbLib",
+        "pattern": "^RESC(.*)$",
+        "replacement": "RES_$1"
+    },
+    "name": "bulk_rename"
 }
 ```
 
@@ -1010,18 +1040,18 @@ Update specific properties of a pad in a PcbLib footprint without replacing the 
 
 ```json
 {
-  "arguments": {
-    "component_name": "RESC0603",
-    "designator": "1",
-    "dry_run": false,
-    "filepath": "./MyLibrary.PcbLib",
-    "updates": {
-      "height": 0.9,
-      "shape": "rectangle",
-      "width": 1.0
-    }
-  },
-  "name": "update_pad"
+    "arguments": {
+        "component_name": "RESC0603",
+        "designator": "1",
+        "dry_run": false,
+        "filepath": "./MyLibrary.PcbLib",
+        "updates": {
+            "height": 0.9,
+            "shape": "rectangle",
+            "width": 1.0
+        }
+    },
+    "name": "update_pad"
 }
 ```
 
@@ -1043,18 +1073,18 @@ Update specific properties of a primitive (track, arc, region, or text) in a Pcb
 
 ```json
 {
-  "arguments": {
-    "component_name": "RESC0603",
-    "dry_run": false,
-    "filepath": "./MyLibrary.PcbLib",
-    "index": 0,
-    "primitive_type": "track",
-    "updates": {
-      "layer": "Top Overlay",
-      "width": 0.15
-    }
-  },
-  "name": "update_primitive"
+    "arguments": {
+        "component_name": "RESC0603",
+        "dry_run": false,
+        "filepath": "./MyLibrary.PcbLib",
+        "index": 0,
+        "primitive_type": "track",
+        "updates": {
+            "layer": "Top Overlay",
+            "width": 0.15
+        }
+    },
+    "name": "update_primitive"
 }
 ```
 

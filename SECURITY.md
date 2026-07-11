@@ -95,14 +95,8 @@ See [README.md § Configuration](README.md#configuration) for the config file lo
 
 ## Security Design Principles
 
-This project follows these security principles:
-
-1. **Minimal file access:** Only access paths explicitly configured
-2. **Input validation:** All dimensions and parameters validated
-3. **Error sanitisation:** Internal paths not exposed in error messages
-4. **Defence in depth:** Multiple validation layers
-5. **Secure defaults:** Conservative defaults for all settings
-6. **Transparency:** Open source code for community review
+For the design principles, threat model, and the concrete controls behind them, see
+[docs/SECURITY.md](docs/SECURITY.md).
 
 ## Acknowledgements
 
