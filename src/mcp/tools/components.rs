@@ -1364,3 +1364,578 @@ impl McpServer {
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::altium::pcblib::{ComponentBody, EmbeddedModel, Footprint, Pad, PcbLib};
+    use crate::altium::SchLib;
+    use crate::mcp::tools::test_support::{
+        create_test_pcblib, create_test_schlib, create_test_server, get_result_text,
+        parse_result_json, test_temp_dir,
+    };
+    use serde_json::json;
+
+    // ==================== copy_component ====================
+
+    #[test]
+    fn copy_component_missing_and_invalid_arguments() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Copy.PcbLib");
+        create_test_pcblib(&path);
+
+        let result = server.call_copy_component(&json!({}));
+        assert!(result.is_error);
+        assert_eq!(
+            get_result_text(&result),
+            "Missing required parameter: filepath"
+        );
+
+        // Invalid OLE character in the target name.
+        let result = server.call_copy_component(&json!({
+            "filepath": path.to_string_lossy(),
+            "source_name": "CHIP_0402",
+            "target_name": "BAD:NAME",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("invalid character"));
+
+        // Unsupported extension.
+        let txt = dir.path().join("x.txt");
+        let result = server.call_copy_component(&json!({
+            "filepath": txt.to_string_lossy(),
+            "source_name": "A",
+            "target_name": "B",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Unsupported file type"));
+    }
+
+    #[test]
+    fn copy_component_pcblib_success_and_duplicate_rejection() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Copy.PcbLib");
+        create_test_pcblib(&path);
+
+        let result = server.call_copy_component(&json!({
+            "filepath": path.to_string_lossy(),
+            "source_name": "CHIP_0402",
+            "target_name": "CHIP_0402_COPY",
+            "description": "copied part",
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["file_type"], "PcbLib");
+        assert_eq!(parsed["source_name"], "CHIP_0402");
+        assert_eq!(parsed["target_name"], "CHIP_0402_COPY");
+        assert_eq!(parsed["component_count"], 3);
+
+        // The copy persisted with the source's pads and the new description.
+        let lib = PcbLib::open(&path).unwrap();
+        let copy = lib.get("CHIP_0402_COPY").unwrap();
+        assert_eq!(copy.description, "copied part");
+        assert_eq!(copy.pads.len(), 2);
+        assert_eq!(copy.pads[0].designator, "1");
+
+        // Copying onto an existing name is rejected.
+        let result = server.call_copy_component(&json!({
+            "filepath": path.to_string_lossy(),
+            "source_name": "CHIP_0402",
+            "target_name": "CHIP_0603",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("already exists"));
+
+        // Copying a component that does not exist is rejected.
+        let result = server.call_copy_component(&json!({
+            "filepath": path.to_string_lossy(),
+            "source_name": "NOPE",
+            "target_name": "NOPE_COPY",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Source component 'NOPE' not found"));
+    }
+
+    #[test]
+    fn copy_component_pcblib_dry_run_leaves_file_untouched() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("CopyDry.PcbLib");
+        create_test_pcblib(&path);
+
+        let result = server.call_copy_component(&json!({
+            "filepath": path.to_string_lossy(),
+            "source_name": "CHIP_0402",
+            "target_name": "CHIP_0402_COPY",
+            "dry_run": true,
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "dry_run");
+        assert_eq!(parsed["dry_run"], true);
+        assert_eq!(parsed["component_count_after"], 3);
+
+        let lib = PcbLib::open(&path).unwrap();
+        assert_eq!(lib.len(), 2);
+        assert!(lib.get("CHIP_0402_COPY").is_none());
+    }
+
+    #[test]
+    fn copy_component_schlib_success() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Copy.SchLib");
+        create_test_schlib(&path);
+
+        let result = server.call_copy_component(&json!({
+            "filepath": path.to_string_lossy(),
+            "source_name": "RESISTOR",
+            "target_name": "RESISTOR_PRECISION",
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["file_type"], "SchLib");
+        assert_eq!(parsed["component_count"], 3);
+
+        let lib = SchLib::open(&path).unwrap();
+        let copy = lib.get("RESISTOR_PRECISION").unwrap();
+        assert_eq!(copy.pins.len(), 2);
+        assert_eq!(copy.designator, "R?");
+    }
+
+    // ==================== rename_component ====================
+
+    #[test]
+    fn rename_component_pcblib_success() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Rename.PcbLib");
+        create_test_pcblib(&path);
+
+        let result = server.call_rename_component(&json!({
+            "filepath": path.to_string_lossy(),
+            "old_name": "CHIP_0402",
+            "new_name": "RES_0402",
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["old_name"], "CHIP_0402");
+        assert_eq!(parsed["new_name"], "RES_0402");
+        assert_eq!(parsed["component_count"], 2);
+
+        let lib = PcbLib::open(&path).unwrap();
+        assert!(lib.get("CHIP_0402").is_none());
+        let renamed = lib.get("RES_0402").unwrap();
+        assert_eq!(renamed.pads.len(), 2);
+        assert_eq!(renamed.description, "0402 chip resistor");
+    }
+
+    #[test]
+    fn rename_component_error_paths() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("RenameErr.PcbLib");
+        create_test_pcblib(&path);
+        let filepath = path.to_string_lossy().to_string();
+
+        // No-op rename is rejected up front.
+        let result = server.call_rename_component(&json!({
+            "filepath": filepath,
+            "old_name": "CHIP_0402",
+            "new_name": "CHIP_0402",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("identical"));
+
+        // Renaming onto an existing component is rejected.
+        let result = server.call_rename_component(&json!({
+            "filepath": filepath,
+            "old_name": "CHIP_0402",
+            "new_name": "CHIP_0603",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("already exists"));
+
+        // Renaming a missing component is rejected.
+        let result = server.call_rename_component(&json!({
+            "filepath": filepath,
+            "old_name": "NOPE",
+            "new_name": "NEW",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("'NOPE' not found"));
+    }
+
+    #[test]
+    fn rename_component_schlib_dry_run() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Rename.SchLib");
+        create_test_schlib(&path);
+
+        let result = server.call_rename_component(&json!({
+            "filepath": path.to_string_lossy(),
+            "old_name": "RESISTOR",
+            "new_name": "RES_GENERIC",
+            "dry_run": true,
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "dry_run");
+        assert_eq!(parsed["file_type"], "SchLib");
+
+        // Nothing was written.
+        let lib = SchLib::open(&path).unwrap();
+        assert!(lib.get("RESISTOR").is_some());
+        assert!(lib.get("RES_GENERIC").is_none());
+    }
+
+    #[test]
+    fn rename_component_schlib_success() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("RenameOk.SchLib");
+        create_test_schlib(&path);
+
+        let result = server.call_rename_component(&json!({
+            "filepath": path.to_string_lossy(),
+            "old_name": "CAPACITOR",
+            "new_name": "CAP_GENERIC",
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+
+        let lib = SchLib::open(&path).unwrap();
+        assert!(lib.get("CAPACITOR").is_none());
+        assert_eq!(lib.get("CAP_GENERIC").unwrap().designator, "C?");
+    }
+
+    // ==================== copy_component_cross_library ====================
+
+    #[test]
+    fn cross_library_copy_pcblib_creates_target() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let source = dir.path().join("Source.PcbLib");
+        create_test_pcblib(&source);
+        let target = dir.path().join("Target.PcbLib");
+
+        let result = server.call_copy_component_cross_library(&json!({
+            "source_filepath": source.to_string_lossy(),
+            "target_filepath": target.to_string_lossy(),
+            "component_name": "CHIP_0402",
+            "new_name": "CHIP_0402_IMPORTED",
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["target_name"], "CHIP_0402_IMPORTED");
+        assert_eq!(parsed["target_component_count"], 1);
+        assert_eq!(parsed["embedded_models_copied"], 0);
+
+        let lib = PcbLib::open(&target).unwrap();
+        assert_eq!(lib.get("CHIP_0402_IMPORTED").unwrap().pads.len(), 2);
+
+        // The source is untouched.
+        let src = PcbLib::open(&source).unwrap();
+        assert_eq!(src.len(), 2);
+    }
+
+    #[test]
+    fn cross_library_copy_pcblib_copies_embedded_models() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+
+        // Source library with an embedded model referenced by a body.
+        let model_id = "{11111111-2222-3333-4444-555555555555}";
+        let mut lib = PcbLib::new();
+        let mut fp = Footprint::new("QFN16");
+        fp.add_pad(Pad::smd("1", -1.0, 0.0, 0.3, 0.8));
+        fp.add_component_body(ComponentBody::new(model_id, "QFN16.step"));
+        lib.add(fp);
+        lib.add_model(EmbeddedModel::new(
+            model_id,
+            "QFN16.step",
+            b"ISO-10303-21; test model".to_vec(),
+        ));
+        let source = dir.path().join("Models.PcbLib");
+        lib.save(&source).unwrap();
+        let target = dir.path().join("ModelsTarget.PcbLib");
+
+        let result = server.call_copy_component_cross_library(&json!({
+            "source_filepath": source.to_string_lossy(),
+            "target_filepath": target.to_string_lossy(),
+            "component_name": "QFN16",
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["embedded_models_copied"], 1);
+
+        let out = PcbLib::open(&target).unwrap();
+        assert!(out.get_model(model_id).is_some());
+        assert_eq!(out.get("QFN16").unwrap().component_bodies.len(), 1);
+    }
+
+    #[test]
+    fn cross_library_copy_error_paths() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let source = dir.path().join("XSource.PcbLib");
+        create_test_pcblib(&source);
+        let sch = dir.path().join("XTarget.SchLib");
+        create_test_schlib(&sch);
+
+        // Mismatched library types.
+        let result = server.call_copy_component_cross_library(&json!({
+            "source_filepath": source.to_string_lossy(),
+            "target_filepath": sch.to_string_lossy(),
+            "component_name": "CHIP_0402",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("must be the same type"));
+
+        // Missing component.
+        let target = dir.path().join("XTarget.PcbLib");
+        let result = server.call_copy_component_cross_library(&json!({
+            "source_filepath": source.to_string_lossy(),
+            "target_filepath": target.to_string_lossy(),
+            "component_name": "NOPE",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("'NOPE' not found in source library"));
+    }
+
+    #[test]
+    fn cross_library_copy_schlib_success() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let source = dir.path().join("SSource.SchLib");
+        create_test_schlib(&source);
+        let target = dir.path().join("STarget.SchLib");
+
+        let result = server.call_copy_component_cross_library(&json!({
+            "source_filepath": source.to_string_lossy(),
+            "target_filepath": target.to_string_lossy(),
+            "component_name": "RESISTOR",
+            "description": "imported resistor",
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["file_type"], "SchLib");
+        assert_eq!(parsed["target_component_count"], 1);
+
+        let lib = SchLib::open(&target).unwrap();
+        assert_eq!(
+            lib.get("RESISTOR").unwrap().description,
+            "imported resistor"
+        );
+    }
+
+    // ==================== merge_libraries ====================
+
+    #[test]
+    fn merge_libraries_validates_arguments() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let a = dir.path().join("MA.PcbLib");
+        create_test_pcblib(&a);
+        let target = dir.path().join("MT.PcbLib");
+
+        let result = server.call_merge_libraries(&json!({}));
+        assert!(result.is_error);
+        assert_eq!(
+            get_result_text(&result),
+            "Missing required parameter: source_filepaths"
+        );
+
+        let result = server.call_merge_libraries(&json!({ "source_filepaths": [] }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("at least one path"));
+
+        let result = server.call_merge_libraries(&json!({
+            "source_filepaths": [a.to_string_lossy()],
+            "target_filepath": target.to_string_lossy(),
+            "on_duplicate": "explode",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("on_duplicate must be one of"));
+    }
+
+    #[test]
+    fn merge_libraries_pcblib_duplicate_handling() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+
+        // Both sources contain CHIP_0402/CHIP_0603.
+        let a = dir.path().join("MergeA.PcbLib");
+        let b = dir.path().join("MergeB.PcbLib");
+        create_test_pcblib(&a);
+        create_test_pcblib(&b);
+        let target = dir.path().join("Merged.PcbLib");
+
+        // Default on_duplicate=error fails on the clash.
+        let result = server.call_merge_libraries(&json!({
+            "source_filepaths": [a.to_string_lossy(), b.to_string_lossy()],
+            "target_filepath": target.to_string_lossy(),
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Duplicate component name"));
+        assert!(!target.exists(), "failed merge must not create the target");
+
+        // on_duplicate=rename merges everything with suffixed names.
+        let result = server.call_merge_libraries(&json!({
+            "source_filepaths": [a.to_string_lossy(), b.to_string_lossy()],
+            "target_filepath": target.to_string_lossy(),
+            "on_duplicate": "rename",
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["merged_count"], 4);
+        assert_eq!(parsed["renamed_count"], 2);
+        assert_eq!(parsed["skipped_count"], 0);
+        assert_eq!(parsed["final_count"], 4);
+        assert_eq!(parsed["sources"][1]["renamed"], 2);
+
+        let lib = PcbLib::open(&target).unwrap();
+        assert_eq!(lib.len(), 4);
+        assert!(lib.get("CHIP_0402").is_some());
+        assert!(lib.get("CHIP_0402_1").is_some());
+    }
+
+    #[test]
+    fn merge_libraries_pcblib_skip_and_dry_run() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let a = dir.path().join("SkipA.PcbLib");
+        let b = dir.path().join("SkipB.PcbLib");
+        create_test_pcblib(&a);
+        create_test_pcblib(&b);
+        let target = dir.path().join("Skipped.PcbLib");
+
+        // Dry run reports the plan without creating the target file.
+        let result = server.call_merge_libraries(&json!({
+            "source_filepaths": [a.to_string_lossy(), b.to_string_lossy()],
+            "target_filepath": target.to_string_lossy(),
+            "on_duplicate": "skip",
+            "dry_run": true,
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "dry_run");
+        assert_eq!(parsed["merged_count"], 2);
+        assert_eq!(parsed["skipped_count"], 2);
+        assert_eq!(parsed["final_count"], 2);
+        assert!(!target.exists(), "dry run must not create the target");
+
+        // Real merge with skip keeps the first occurrence only.
+        let result = server.call_merge_libraries(&json!({
+            "source_filepaths": [a.to_string_lossy(), b.to_string_lossy()],
+            "target_filepath": target.to_string_lossy(),
+            "on_duplicate": "skip",
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let lib = PcbLib::open(&target).unwrap();
+        assert_eq!(lib.len(), 2);
+    }
+
+    #[test]
+    fn merge_libraries_schlib_success() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let a = dir.path().join("SMergeA.SchLib");
+        create_test_schlib(&a);
+        let target = dir.path().join("SMerged.SchLib");
+
+        let result = server.call_merge_libraries(&json!({
+            "source_filepaths": [a.to_string_lossy()],
+            "target_filepath": target.to_string_lossy(),
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["file_type"], "SchLib");
+        assert_eq!(parsed["merged_count"], 2);
+        assert_eq!(parsed["final_count"], 2);
+
+        let lib = SchLib::open(&target).unwrap();
+        assert!(lib.get("RESISTOR").is_some());
+        assert!(lib.get("CAPACITOR").is_some());
+    }
+
+    // ==================== reorder_components ====================
+
+    #[test]
+    fn reorder_components_pcblib_success() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Reorder.PcbLib");
+        create_test_pcblib(&path);
+
+        let result = server.call_reorder_components(&json!({
+            "filepath": path.to_string_lossy(),
+            "component_order": ["CHIP_0603", "CHIP_0402"],
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["component_count"], 2);
+        assert_eq!(parsed["original_order"], json!(["CHIP_0402", "CHIP_0603"]));
+        assert_eq!(parsed["new_order"], json!(["CHIP_0603", "CHIP_0402"]));
+        assert_eq!(parsed["not_in_library"], json!([]));
+        assert_eq!(parsed["appended_at_end"], json!([]));
+
+        let lib = PcbLib::open(&path).unwrap();
+        assert_eq!(lib.names(), vec!["CHIP_0603", "CHIP_0402"]);
+    }
+
+    #[test]
+    fn reorder_components_schlib_reports_unknown_and_appended() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Reorder.SchLib");
+        create_test_schlib(&path);
+
+        // Request contains an unknown name and omits CAPACITOR.
+        let result = server.call_reorder_components(&json!({
+            "filepath": path.to_string_lossy(),
+            "component_order": ["GHOST", "RESISTOR"],
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["not_in_library"], json!(["GHOST"]));
+        assert_eq!(parsed["appended_at_end"], json!(["CAPACITOR"]));
+        assert_eq!(parsed["new_order"], json!(["RESISTOR", "CAPACITOR"]));
+    }
+
+    #[test]
+    fn reorder_components_rejects_bad_arguments() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("ReorderBad.PcbLib");
+        create_test_pcblib(&path);
+
+        let result = server.call_reorder_components(&json!({
+            "filepath": path.to_string_lossy(),
+        }));
+        assert!(result.is_error);
+        assert_eq!(
+            get_result_text(&result),
+            "Missing required parameter: component_order"
+        );
+
+        let result = server.call_reorder_components(&json!({
+            "filepath": path.to_string_lossy(),
+            "component_order": [],
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("empty"));
+    }
+}

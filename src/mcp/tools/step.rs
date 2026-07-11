@@ -504,16 +504,11 @@ impl McpServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::altium::pcblib::EmbeddedModel;
+    use crate::altium::pcblib::{ComponentBody, EmbeddedModel, Footprint, Pad, PcbLib};
+    use crate::mcp::tools::test_support::{
+        create_test_pcblib, create_test_server, get_result_text, parse_result_json, test_temp_dir,
+    };
     use std::collections::HashSet;
-
-    /// Creates a temporary directory inside `.tmp/` for test isolation.
-    fn test_temp_dir() -> tempfile::TempDir {
-        let cwd = std::env::current_dir().expect("Failed to get current directory");
-        let tmp_root = cwd.join(".tmp");
-        std::fs::create_dir_all(&tmp_root).expect("Failed to create .tmp directory");
-        tempfile::tempdir_in(&tmp_root).expect("Failed to create temp dir")
-    }
 
     #[test]
     fn deduplicate_file_name_appends_suffix_before_extension() {
@@ -577,5 +572,285 @@ mod tests {
         // an alternate-data-stream write.
         let count = std::fs::read_dir(&out_dir).expect("read out dir").count();
         assert_eq!(count, 3, "all three models extracted as separate files");
+    }
+
+    const MODEL_A_ID: &str = "{11111111-1111-1111-1111-111111111111}";
+    const MODEL_B_ID: &str = "{22222222-2222-2222-2222-222222222222}";
+    const MODEL_A_DATA: &[u8] = b"ISO-10303-21; model A";
+    const MODEL_B_DATA: &[u8] = b"ISO-10303-21; model B";
+
+    /// Builds a library with two embedded models; `QFN16` references model A.
+    fn create_model_pcblib(path: &std::path::Path) {
+        let mut lib = PcbLib::new();
+
+        let mut fp = Footprint::new("QFN16");
+        fp.add_pad(Pad::smd("1", -1.0, 0.0, 0.3, 0.8));
+        fp.add_component_body(ComponentBody::new(MODEL_A_ID, "modelA.step"));
+        lib.add(fp);
+
+        let mut plain = Footprint::new("PLAIN");
+        plain.add_pad(Pad::smd("1", 0.0, 0.0, 0.5, 0.5));
+        lib.add(plain);
+
+        lib.add_model(EmbeddedModel::new(
+            MODEL_A_ID,
+            "modelA.step",
+            MODEL_A_DATA.to_vec(),
+        ));
+        lib.add_model(EmbeddedModel::new(
+            MODEL_B_ID,
+            "modelB.step",
+            MODEL_B_DATA.to_vec(),
+        ));
+        lib.save(path).expect("Failed to create model PcbLib");
+    }
+
+    #[test]
+    fn extract_step_model_list_mode_paginates() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Models.PcbLib");
+        create_model_pcblib(&path);
+
+        let result = server.call_extract_step_model(&json!({
+            "filepath": path.to_string_lossy(),
+            "mode": "list",
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "list");
+        assert_eq!(parsed["total_count"], 2);
+        assert_eq!(parsed["returned_count"], 2);
+        assert_eq!(parsed["has_more"], false);
+        let models = parsed["models"].as_array().unwrap();
+        assert!(models.iter().any(|m| m["name"] == "modelA.step"));
+
+        // Pagination with limit 1: one entry and more remaining.
+        let result = server.call_extract_step_model(&json!({
+            "filepath": path.to_string_lossy(),
+            "mode": "list",
+            "limit": 1,
+        }));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["returned_count"], 1);
+        assert_eq!(parsed["has_more"], true);
+    }
+
+    #[test]
+    fn extract_step_model_by_name_returns_base64() {
+        use base64::Engine as _;
+
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("ByName.PcbLib");
+        create_model_pcblib(&path);
+
+        let result = server.call_extract_step_model(&json!({
+            "filepath": path.to_string_lossy(),
+            "model": "modelA.step",
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["model_name"], "modelA.step");
+        assert_eq!(parsed["encoding"], "base64");
+        assert_eq!(
+            parsed["size_bytes"].as_u64().unwrap(),
+            MODEL_A_DATA.len() as u64
+        );
+        let decoded = BASE64_STANDARD
+            .decode(parsed["data"].as_str().unwrap())
+            .expect("valid base64");
+        assert_eq!(decoded, MODEL_A_DATA);
+    }
+
+    #[test]
+    fn extract_step_model_writes_to_output_path() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("ToFile.PcbLib");
+        create_model_pcblib(&path);
+        let out = dir.path().join("out.step");
+
+        // Look up by GUID without braces to exercise the trimmed-id match.
+        let result = server.call_extract_step_model(&json!({
+            "filepath": path.to_string_lossy(),
+            "model": "22222222-2222-2222-2222-222222222222",
+            "output_path": out.to_string_lossy(),
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["model_name"], "modelB.step");
+        assert_eq!(std::fs::read(&out).unwrap(), MODEL_B_DATA);
+    }
+
+    #[test]
+    fn extract_step_model_extract_all_writes_every_model() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("All.PcbLib");
+        create_model_pcblib(&path);
+        let out_dir = dir.path().join("exported");
+
+        let result = server.call_extract_step_model(&json!({
+            "filepath": path.to_string_lossy(),
+            "mode": "extract_all",
+            "output_path": out_dir.to_string_lossy(),
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["total_models"], 2);
+        assert_eq!(parsed["extracted_count"], 2);
+        assert_eq!(parsed["error_count"], 0);
+        assert_eq!(
+            std::fs::read(out_dir.join("modelA.step")).unwrap(),
+            MODEL_A_DATA
+        );
+        assert_eq!(
+            std::fs::read(out_dir.join("modelB.step")).unwrap(),
+            MODEL_B_DATA
+        );
+    }
+
+    #[test]
+    fn extract_step_model_extract_all_requires_output_path() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("AllErr.PcbLib");
+        create_model_pcblib(&path);
+
+        let result = server.call_extract_step_model(&json!({
+            "filepath": path.to_string_lossy(),
+            "mode": "extract_all",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("output_path"));
+    }
+
+    #[test]
+    fn extract_step_model_by_footprint_returns_referenced_model() {
+        use base64::Engine as _;
+
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("ByFp.PcbLib");
+        create_model_pcblib(&path);
+
+        // Single referenced model without output_path → inline base64.
+        let result = server.call_extract_step_model(&json!({
+            "filepath": path.to_string_lossy(),
+            "mode": "extract_by_footprint",
+            "footprint_name": "QFN16",
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["model_name"], "modelA.step");
+        let decoded = BASE64_STANDARD
+            .decode(parsed["data"].as_str().unwrap())
+            .expect("valid base64");
+        assert_eq!(decoded, MODEL_A_DATA);
+    }
+
+    #[test]
+    fn extract_step_model_by_footprint_error_paths() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("ByFpErr.PcbLib");
+        create_model_pcblib(&path);
+        let filepath = path.to_string_lossy().to_string();
+
+        // Mode requires footprint_name.
+        let result = server.call_extract_step_model(&json!({
+            "filepath": filepath,
+            "mode": "extract_by_footprint",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("footprint_name"));
+
+        // Unknown footprint lists the available ones.
+        let result = server.call_extract_step_model(&json!({
+            "filepath": filepath,
+            "mode": "extract_by_footprint",
+            "footprint_name": "GHOST",
+        }));
+        assert!(result.is_error);
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "error");
+        assert!(parsed["available_footprints"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f == "QFN16"));
+
+        // Footprint with no 3D references.
+        let result = server.call_extract_step_model(&json!({
+            "filepath": filepath,
+            "mode": "extract_by_footprint",
+            "footprint_name": "PLAIN",
+        }));
+        assert!(result.is_error);
+        let parsed = parse_result_json(&result);
+        assert_eq!(
+            parsed["error"],
+            "No 3D model references found for this footprint"
+        );
+    }
+
+    #[test]
+    fn extract_step_model_unknown_identifier_lists_models() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Unknown.PcbLib");
+        create_model_pcblib(&path);
+
+        let result = server.call_extract_step_model(&json!({
+            "filepath": path.to_string_lossy(),
+            "model": "nonsense.step",
+        }));
+        assert!(result.is_error);
+        let parsed = parse_result_json(&result);
+        assert!(parsed["error"]
+            .as_str()
+            .unwrap()
+            .contains("Model 'nonsense.step' not found"));
+        assert_eq!(parsed["available_models"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn extract_step_model_no_embedded_models_is_an_error() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("NoModels.PcbLib");
+        create_test_pcblib(&path);
+
+        let result = server.call_extract_step_model(&json!({
+            "filepath": path.to_string_lossy(),
+        }));
+        assert!(result.is_error);
+        let parsed = parse_result_json(&result);
+        assert_eq!(
+            parsed["error"],
+            "No embedded 3D models found in this library."
+        );
+        assert_eq!(
+            parsed["note"],
+            "No 3D model references of any kind found in this library."
+        );
+    }
+
+    #[test]
+    fn extract_step_model_missing_filepath() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+
+        let result = server.call_extract_step_model(&json!({}));
+        assert!(result.is_error);
+        assert_eq!(
+            get_result_text(&result),
+            "Missing required parameter: filepath"
+        );
     }
 }

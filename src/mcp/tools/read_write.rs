@@ -2481,4 +2481,119 @@ mod tests {
         assert_eq!(ieee_designator_prefix("flux_capacitor"), "U");
         assert_eq!(ieee_designator_prefix(""), "U");
     }
+
+    // ==================== extract_style ====================
+
+    mod extract_style {
+        use crate::altium::pcblib::{Footprint, Layer, Pad, PcbLib, Track};
+        use crate::mcp::tools::test_support::{
+            create_test_schlib, create_test_server, get_result_text, parse_result_json,
+            test_temp_dir,
+        };
+        use serde_json::json;
+
+        #[test]
+        fn extract_style_pcblib_reports_track_and_pad_statistics() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+
+            // Two footprints: three 0.2 mm overlay tracks and one 0.4 mm, plus
+            // four rectangular pads.
+            let mut lib = PcbLib::new();
+            let mut fp1 = Footprint::new("A");
+            fp1.add_pad(Pad::smd("1", -0.5, 0.0, 0.6, 0.5));
+            fp1.add_pad(Pad::smd("2", 0.5, 0.0, 0.6, 0.5));
+            fp1.add_track(Track::new(-1.0, -1.0, 1.0, -1.0, 0.2, Layer::TopOverlay));
+            fp1.add_track(Track::new(-1.0, 1.0, 1.0, 1.0, 0.2, Layer::TopOverlay));
+            lib.add(fp1);
+            let mut fp2 = Footprint::new("B");
+            fp2.add_pad(Pad::smd("1", -0.8, 0.0, 0.8, 0.8));
+            fp2.add_pad(Pad::smd("2", 0.8, 0.0, 0.8, 0.8));
+            fp2.add_track(Track::new(-2.0, -2.0, 2.0, -2.0, 0.2, Layer::TopOverlay));
+            fp2.add_track(Track::new(-2.0, 2.0, 2.0, 2.0, 0.4, Layer::TopOverlay));
+            lib.add(fp2);
+            let path = dir.path().join("Style.PcbLib");
+            lib.save(&path).unwrap();
+
+            let result = server.call_extract_style(&json!({
+                "filepath": path.to_string_lossy(),
+            }));
+            assert!(!result.is_error, "{}", get_result_text(&result));
+            let parsed = parse_result_json(&result);
+            assert_eq!(parsed["status"], "success");
+            assert_eq!(parsed["file_type"], "PcbLib");
+            assert_eq!(parsed["footprint_count"], 2);
+
+            let overlay = &parsed["style"]["track_widths_by_layer"]["Top Overlay"];
+            assert_eq!(overlay["count"], 4);
+            // Widths quantise to 0.01 mm for the most-common statistic.
+            assert!((overlay["most_common_mm"].as_f64().unwrap() - 0.2).abs() < 1e-9);
+            assert!((overlay["min_mm"].as_f64().unwrap() - 0.2).abs() < 1e-3);
+            assert!((overlay["max_mm"].as_f64().unwrap() - 0.4).abs() < 1e-3);
+
+            // `Pad::smd` creates rounded-rectangle pads.
+            assert_eq!(parsed["style"]["pad_shapes"]["RoundedRectangle"], 4);
+            assert_eq!(parsed["style"]["layers_used"]["Top Overlay"], 4);
+            assert_eq!(parsed["style"]["text_heights"], serde_json::Value::Null);
+        }
+
+        #[test]
+        fn extract_style_schlib_reports_pin_and_line_statistics() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Style.SchLib");
+            create_test_schlib(&path);
+
+            let result = server.call_extract_style(&json!({
+                "filepath": path.to_string_lossy(),
+            }));
+            assert!(!result.is_error, "{}", get_result_text(&result));
+            let parsed = parse_result_json(&result);
+            assert_eq!(parsed["status"], "success");
+            assert_eq!(parsed["file_type"], "SchLib");
+            assert_eq!(parsed["symbol_count"], 2);
+
+            // Four fixture pins, all 10 units long.
+            let pins = &parsed["style"]["pin_lengths"];
+            assert_eq!(pins["count"], 4);
+            assert_eq!(pins["min_units"], 10);
+            assert_eq!(pins["max_units"], 10);
+            assert_eq!(pins["most_common_units"], 10);
+
+            // One fixture rectangle contributes the only line width.
+            assert_eq!(parsed["style"]["line_widths"]["count"], 1);
+            assert_eq!(parsed["style"]["rectangles"]["filled_count"], 1);
+            assert_eq!(parsed["style"]["rectangles"]["unfilled_count"], 0);
+        }
+
+        #[test]
+        fn extract_style_error_paths() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+
+            let result = server.call_extract_style(&json!({}));
+            assert!(result.is_error);
+            assert_eq!(
+                get_result_text(&result),
+                "Missing required parameter: filepath"
+            );
+
+            // Unknown extension.
+            let txt = dir.path().join("x.txt");
+            let result = server.call_extract_style(&json!({
+                "filepath": txt.to_string_lossy(),
+            }));
+            assert!(result.is_error);
+            assert!(get_result_text(&result).contains("Unknown file type"));
+
+            // Unreadable library.
+            let missing = dir.path().join("Missing.PcbLib");
+            let result = server.call_extract_style(&json!({
+                "filepath": missing.to_string_lossy(),
+            }));
+            assert!(result.is_error);
+            let parsed = parse_result_json(&result);
+            assert_eq!(parsed["status"], "error");
+        }
+    }
 }

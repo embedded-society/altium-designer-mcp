@@ -1116,3 +1116,573 @@ impl McpServer {
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::altium::pcblib::{
+        ComponentBody, EmbeddedModel, Footprint, Layer, Pad, PcbLib, Track,
+    };
+    use crate::altium::SchLib;
+    use crate::mcp::tools::test_support::{
+        create_test_pcblib, create_test_schlib, create_test_server, get_result_text,
+        parse_result_json, test_temp_dir,
+    };
+    use serde_json::json;
+
+    // ==================== repair_library ====================
+
+    #[test]
+    fn repair_library_clean_library_needs_no_repairs() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Clean.PcbLib");
+        create_test_pcblib(&path);
+
+        let result = server.call_repair_library(&json!({
+            "filepath": path.to_string_lossy(),
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["repairs"]["orphaned_models_removed"], 0);
+        assert_eq!(parsed["repairs"]["orphaned_component_bodies_removed"], 0);
+        assert_eq!(parsed["message"], "No repairs needed - library is clean");
+    }
+
+    /// Builds a library with one orphaned embedded model (no footprint
+    /// references it). Note the reverse case — a component body referencing a
+    /// missing model — cannot be authored through `PcbLib::save`, which
+    /// validates embedded references at write time; it only arises from
+    /// external tools.
+    fn create_dirty_pcblib(path: &std::path::Path) {
+        let mut lib = PcbLib::new();
+        let mut fp = Footprint::new("DIRTY");
+        fp.add_pad(Pad::smd("1", 0.0, 0.0, 0.5, 0.5));
+        lib.add(fp);
+        lib.add_model(EmbeddedModel::new(
+            "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}",
+            "orphan.step",
+            b"ISO-10303-21; orphaned".to_vec(),
+        ));
+        lib.save(path).expect("Failed to create dirty PcbLib");
+    }
+
+    #[test]
+    fn repair_library_removes_orphaned_models() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Dirty.PcbLib");
+        create_dirty_pcblib(&path);
+
+        let result = server.call_repair_library(&json!({
+            "filepath": path.to_string_lossy(),
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["repairs"]["orphaned_models_removed"], 1);
+        assert_eq!(parsed["repairs"]["orphaned_component_bodies_removed"], 0);
+        assert_eq!(parsed["before"]["model_count"], 1);
+        assert_eq!(parsed["after"]["model_count"], 0);
+
+        // The repair persisted.
+        let lib = PcbLib::open(&path).unwrap();
+        assert_eq!(lib.model_count(), 0);
+    }
+
+    #[test]
+    fn repair_library_removes_orphaned_component_bodies_in_memory() {
+        // The on-disk orphaned-body state cannot be authored through the
+        // writer (it validates embedded references), so exercise the library
+        // layer the handler delegates to directly.
+        let mut lib = PcbLib::new();
+        let mut fp = Footprint::new("DIRTY");
+        fp.add_pad(Pad::smd("1", 0.0, 0.0, 0.5, 0.5));
+        fp.add_component_body(ComponentBody::new(
+            "{99999999-9999-9999-9999-999999999999}",
+            "missing.step",
+        ));
+        lib.add(fp);
+
+        let removed = lib.remove_orphaned_component_bodies();
+        assert_eq!(removed, vec![("DIRTY".to_string(), 1)]);
+        assert!(lib.get("DIRTY").unwrap().component_bodies.is_empty());
+    }
+
+    #[test]
+    fn repair_library_dry_run_previews_without_writing() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("DirtyDry.PcbLib");
+        create_dirty_pcblib(&path);
+
+        let result = server.call_repair_library(&json!({
+            "filepath": path.to_string_lossy(),
+            "dry_run": true,
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "dry_run");
+        assert!(parsed["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("Would remove"));
+
+        // Nothing was written: the orphaned model is still there.
+        let lib = PcbLib::open(&path).unwrap();
+        assert_eq!(lib.model_count(), 1);
+    }
+
+    #[test]
+    fn repair_library_rejects_non_pcblib() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Repair.SchLib");
+        create_test_schlib(&path);
+
+        let result = server.call_repair_library(&json!({
+            "filepath": path.to_string_lossy(),
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("only supports .PcbLib"));
+    }
+
+    // ==================== bulk_rename ====================
+
+    #[test]
+    fn bulk_rename_pcblib_applies_regex_replacement() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Bulk.PcbLib");
+        create_test_pcblib(&path);
+
+        let result = server.call_bulk_rename(&json!({
+            "filepath": path.to_string_lossy(),
+            "pattern": "^CHIP_",
+            "replacement": "RES_",
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["renamed_count"], 2);
+        assert_eq!(parsed["renames"][0]["from"], "CHIP_0402");
+        assert_eq!(parsed["renames"][0]["to"], "RES_0402");
+
+        let lib = PcbLib::open(&path).unwrap();
+        assert!(lib.get("RES_0402").is_some());
+        assert!(lib.get("RES_0603").is_some());
+        assert!(lib.get("CHIP_0402").is_none());
+    }
+
+    #[test]
+    fn bulk_rename_schlib_dry_run_and_conflicts() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Bulk.SchLib");
+        create_test_schlib(&path);
+        let filepath = path.to_string_lossy().to_string();
+
+        // Dry run reports the plan but writes nothing.
+        let result = server.call_bulk_rename(&json!({
+            "filepath": filepath,
+            "pattern": "^RESISTOR$",
+            "replacement": "RES",
+            "dry_run": true,
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "dry_run");
+        assert_eq!(parsed["renamed_count"], 1);
+        let lib = SchLib::open(&path).unwrap();
+        assert!(lib.get("RESISTOR").is_some());
+
+        // Mapping both symbols to the same name is a conflict.
+        let result = server.call_bulk_rename(&json!({
+            "filepath": filepath,
+            "pattern": "^(RESISTOR|CAPACITOR)$",
+            "replacement": "PART",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Rename conflicts detected"));
+
+        // Invalid regex is rejected.
+        let result = server.call_bulk_rename(&json!({
+            "filepath": filepath,
+            "pattern": "(unclosed",
+            "replacement": "X",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Invalid regex pattern"));
+    }
+
+    // ==================== list_backups / restore_backup ====================
+
+    #[test]
+    fn list_backups_finds_only_timestamped_backups() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Lib.PcbLib");
+        create_test_pcblib(&path);
+
+        // Two valid backups plus a timestamp-less .bak that must be ignored.
+        let bak_old = dir.path().join("Lib.PcbLib.20260101_090000.bak");
+        let bak_new = dir.path().join("Lib.PcbLib.20260301_120000.bak");
+        std::fs::copy(&path, &bak_old).unwrap();
+        std::fs::copy(&path, &bak_new).unwrap();
+        std::fs::write(dir.path().join("Lib.PcbLib.bak"), b"stray").unwrap();
+
+        let result = server.call_list_backups(&json!({
+            "filepath": path.to_string_lossy(),
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["backup_count"], 2);
+        // Sorted most recent first.
+        assert_eq!(parsed["backups"][0]["timestamp"], "20260301_120000");
+        assert_eq!(parsed["backups"][1]["timestamp"], "20260101_090000");
+        assert!(parsed["backups"][0]["size_bytes"].as_u64().unwrap() > 0);
+    }
+
+    #[test]
+    fn list_backups_empty_when_none_exist() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("NoBak.PcbLib");
+        create_test_pcblib(&path);
+
+        let result = server.call_list_backups(&json!({
+            "filepath": path.to_string_lossy(),
+        }));
+        assert!(!result.is_error);
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["backup_count"], 0);
+        assert_eq!(parsed["backups"], json!([]));
+    }
+
+    #[test]
+    fn restore_backup_restores_most_recent() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Restore.PcbLib");
+        create_test_pcblib(&path);
+
+        // Snapshot the pristine two-footprint state as the newest backup.
+        let bak = dir.path().join("Restore.PcbLib.20260301_120000.bak");
+        std::fs::copy(&path, &bak).unwrap();
+
+        // Mutate the live library.
+        let mut lib = PcbLib::open(&path).unwrap();
+        lib.remove("CHIP_0402");
+        lib.save(&path).unwrap();
+        assert_eq!(PcbLib::open(&path).unwrap().len(), 1);
+
+        let result = server.call_restore_backup(&json!({
+            "filepath": path.to_string_lossy(),
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert!(parsed["restored_from"]
+            .as_str()
+            .unwrap()
+            .ends_with("Restore.PcbLib.20260301_120000.bak"));
+
+        // The pristine state is back.
+        let lib = PcbLib::open(&path).unwrap();
+        assert_eq!(lib.len(), 2);
+        assert!(lib.get("CHIP_0402").is_some());
+    }
+
+    #[test]
+    fn restore_backup_with_explicit_path_and_error_paths() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("RestoreX.PcbLib");
+        create_test_pcblib(&path);
+
+        // No backups yet.
+        let result = server.call_restore_backup(&json!({
+            "filepath": path.to_string_lossy(),
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("No backup files found"));
+
+        // Explicit backup path that does not exist.
+        let ghost = dir.path().join("Ghost.bak");
+        let result = server.call_restore_backup(&json!({
+            "filepath": path.to_string_lossy(),
+            "backup_path": ghost.to_string_lossy(),
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("does not exist"));
+
+        // Explicit backup path that does exist.
+        let bak = dir.path().join("RestoreX.PcbLib.20260101_000000.bak");
+        std::fs::copy(&path, &bak).unwrap();
+        let result = server.call_restore_backup(&json!({
+            "filepath": path.to_string_lossy(),
+            "backup_path": bak.to_string_lossy(),
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(
+            parsed["backup_size_bytes"].as_u64().unwrap(),
+            std::fs::metadata(&bak).unwrap().len()
+        );
+    }
+
+    // ==================== update_pad ====================
+
+    #[test]
+    fn update_pad_changes_geometry_and_persists() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Pad.PcbLib");
+        create_test_pcblib(&path);
+
+        let result = server.call_update_pad(&json!({
+            "filepath": path.to_string_lossy(),
+            "component_name": "CHIP_0402",
+            "designator": "1",
+            "updates": { "x": -0.6, "width": 0.7, "shape": "round" },
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["dry_run"], false);
+        let changes = parsed["changes"].as_array().unwrap();
+        assert_eq!(changes.len(), 3);
+        assert!(changes
+            .iter()
+            .any(|c| c["property"] == "x" && c["new"] == -0.6));
+        assert!(changes
+            .iter()
+            .any(|c| c["property"] == "shape" && c["new"] == "round"));
+
+        let lib = PcbLib::open(&path).unwrap();
+        let pad = &lib.get("CHIP_0402").unwrap().pads[0];
+        assert!((pad.x - -0.6).abs() < 1e-4);
+        assert!((pad.width - 0.7).abs() < 1e-4);
+        assert_eq!(format!("{:?}", pad.shape), "Round");
+    }
+
+    #[test]
+    fn update_pad_dry_run_leaves_file_untouched() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("PadDry.PcbLib");
+        create_test_pcblib(&path);
+
+        let result = server.call_update_pad(&json!({
+            "filepath": path.to_string_lossy(),
+            "component_name": "CHIP_0402",
+            "designator": "1",
+            "updates": { "width": 0.9 },
+            "dry_run": true,
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "dry_run");
+        assert_eq!(parsed["dry_run"], true);
+
+        let lib = PcbLib::open(&path).unwrap();
+        assert!((lib.get("CHIP_0402").unwrap().pads[0].width - 0.6).abs() < 1e-4);
+    }
+
+    #[test]
+    fn update_pad_error_paths() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("PadErr.PcbLib");
+        create_test_pcblib(&path);
+        let filepath = path.to_string_lossy().to_string();
+
+        // Unknown footprint (with available list).
+        let result = server.call_update_pad(&json!({
+            "filepath": filepath,
+            "component_name": "NOPE",
+            "designator": "1",
+            "updates": { "width": 0.9 },
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("'NOPE' not found"));
+        assert!(get_result_text(&result).contains("CHIP_0402"));
+
+        // Unknown pad designator.
+        let result = server.call_update_pad(&json!({
+            "filepath": filepath,
+            "component_name": "CHIP_0402",
+            "designator": "99",
+            "updates": { "width": 0.9 },
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Pad '99' not found"));
+
+        // Invalid shape name.
+        let result = server.call_update_pad(&json!({
+            "filepath": filepath,
+            "component_name": "CHIP_0402",
+            "designator": "1",
+            "updates": { "shape": "hexagon" },
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Invalid shape 'hexagon'"));
+
+        // Non-positive dimensions are rejected.
+        let result = server.call_update_pad(&json!({
+            "filepath": filepath,
+            "component_name": "CHIP_0402",
+            "designator": "1",
+            "updates": { "width": -1.0 },
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("must be positive"));
+
+        // No recognised update keys.
+        let result = server.call_update_pad(&json!({
+            "filepath": filepath,
+            "component_name": "CHIP_0402",
+            "designator": "1",
+            "updates": { "bogus": 1.0 },
+        }));
+        assert!(result.is_error);
+        assert_eq!(get_result_text(&result), "No valid updates specified");
+    }
+
+    // ==================== update_primitive ====================
+
+    /// Builds a library whose single footprint carries a track, an arc-free
+    /// text and enough primitives to exercise `update_primitive`.
+    fn create_primitive_pcblib(path: &std::path::Path) {
+        let mut lib = PcbLib::new();
+        let mut fp = Footprint::new("PRIMS");
+        fp.add_pad(Pad::smd("1", 0.0, 0.0, 0.5, 0.5));
+        fp.add_track(Track::new(-1.0, -1.0, 1.0, -1.0, 0.2, Layer::TopOverlay));
+        lib.add(fp);
+        lib.save(path).expect("Failed to create primitives PcbLib");
+    }
+
+    #[test]
+    fn update_primitive_track_changes_persist() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Prim.PcbLib");
+        create_primitive_pcblib(&path);
+
+        let result = server.call_update_primitive(&json!({
+            "filepath": path.to_string_lossy(),
+            "component_name": "PRIMS",
+            "primitive_type": "track",
+            "index": 0,
+            "updates": { "width": 0.3, "layer": "Mechanical 1" },
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["primitive_type"], "track");
+        assert_eq!(parsed["index"], 0);
+        let changes = parsed["changes"].as_array().unwrap();
+        assert!(changes
+            .iter()
+            .any(|c| c["property"] == "width" && c["new"] == 0.3));
+        assert!(changes
+            .iter()
+            .any(|c| c["property"] == "layer" && c["new"] == "Mechanical 1"));
+
+        let lib = PcbLib::open(&path).unwrap();
+        let track = &lib.get("PRIMS").unwrap().tracks[0];
+        assert!((track.width - 0.3).abs() < 1e-4);
+        assert_eq!(track.layer, Layer::Mechanical1);
+    }
+
+    #[test]
+    fn update_primitive_dry_run_leaves_file_untouched() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("PrimDry.PcbLib");
+        create_primitive_pcblib(&path);
+
+        let result = server.call_update_primitive(&json!({
+            "filepath": path.to_string_lossy(),
+            "component_name": "PRIMS",
+            "primitive_type": "track",
+            "index": 0,
+            "updates": { "width": 0.5 },
+            "dry_run": true,
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "dry_run");
+
+        let lib = PcbLib::open(&path).unwrap();
+        assert!((lib.get("PRIMS").unwrap().tracks[0].width - 0.2).abs() < 1e-4);
+    }
+
+    #[test]
+    fn update_primitive_error_paths() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("PrimErr.PcbLib");
+        create_primitive_pcblib(&path);
+        let filepath = path.to_string_lossy().to_string();
+
+        // Index out of range.
+        let result = server.call_update_primitive(&json!({
+            "filepath": filepath,
+            "component_name": "PRIMS",
+            "primitive_type": "track",
+            "index": 7,
+            "updates": { "width": 0.3 },
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("out of range"));
+
+        // Invalid primitive type.
+        let result = server.call_update_primitive(&json!({
+            "filepath": filepath,
+            "component_name": "PRIMS",
+            "primitive_type": "sprocket",
+            "index": 0,
+            "updates": { "width": 0.3 },
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Invalid primitive_type 'sprocket'"));
+
+        // Invalid layer name.
+        let result = server.call_update_primitive(&json!({
+            "filepath": filepath,
+            "component_name": "PRIMS",
+            "primitive_type": "track",
+            "index": 0,
+            "updates": { "layer": "NotALayer" },
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Invalid layer: NotALayer"));
+
+        // Non-positive track width is rejected.
+        let result = server.call_update_primitive(&json!({
+            "filepath": filepath,
+            "component_name": "PRIMS",
+            "primitive_type": "track",
+            "index": 0,
+            "updates": { "width": 0.0 },
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("track width must be positive"));
+
+        // Missing required index.
+        let result = server.call_update_primitive(&json!({
+            "filepath": filepath,
+            "component_name": "PRIMS",
+            "primitive_type": "track",
+            "updates": { "width": 0.3 },
+        }));
+        assert!(result.is_error);
+        assert_eq!(
+            get_result_text(&result),
+            "Missing required parameter: index"
+        );
+    }
+}
