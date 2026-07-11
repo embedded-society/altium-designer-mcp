@@ -120,6 +120,20 @@ pub struct Text {
     /// template's `0x00` byte exactly.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub mirror: bool,
+    /// Whether this text is the component's Comment field (Altium `IsComment`,
+    /// geometry offset 40). Altium sets this on board-level comment strings so
+    /// the component's `CommentOn` visibility toggle applies. `false` (the
+    /// from-scratch default) reproduces the template's `0x00` byte exactly;
+    /// every fixture text carries `0x00` here.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_comment: bool,
+    /// Whether this text is the component's Designator field (Altium
+    /// `IsDesignator`, geometry offset 41 — the twin of [`Self::is_comment`]@40).
+    /// `false` (the from-scratch default) reproduces the template's `0x00` byte.
+    /// Note the `.Designator` special string works through its content alone;
+    /// this flag is a separate visibility marker that round-trips faithfully.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_designator: bool,
     /// TrueType font name (Altium `FontName`, geometry offset 46, UTF-16, 64-byte
     /// field). Only meaningful when `kind` is `TrueType`. Defaults to `"Arial"`,
     /// matching the template; a from-scratch default text reproduces the template's

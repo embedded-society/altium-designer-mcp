@@ -339,3 +339,235 @@ impl McpServer {
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::altium::pcblib::{Footprint, Pad, PcbLib};
+    use crate::altium::schlib::{Pin, PinOrientation, SchLib, Symbol};
+    use crate::mcp::tools::test_support::{
+        create_test_pcblib, create_test_schlib, create_test_server, get_result_text,
+        parse_result_json, test_temp_dir,
+    };
+    use serde_json::json;
+
+    #[test]
+    fn diff_libraries_missing_parameters() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+
+        let result = server.call_diff_libraries(&json!({}));
+        assert!(result.is_error);
+        assert_eq!(
+            get_result_text(&result),
+            "Missing required parameter: filepath_a"
+        );
+
+        let result = server.call_diff_libraries(&json!({ "filepath_a": "a.PcbLib" }));
+        assert!(result.is_error);
+        assert_eq!(
+            get_result_text(&result),
+            "Missing required parameter: filepath_b"
+        );
+    }
+
+    #[test]
+    fn diff_libraries_rejects_path_outside_allowed() {
+        let dir = test_temp_dir();
+        let other = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let outside = other.path().join("Outside.PcbLib");
+        create_test_pcblib(&outside);
+
+        let inside = dir.path().join("Inside.PcbLib");
+        create_test_pcblib(&inside);
+
+        let result = server.call_diff_libraries(&json!({
+            "filepath_a": outside.to_string_lossy(),
+            "filepath_b": inside.to_string_lossy(),
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Access denied"));
+    }
+
+    #[test]
+    fn diff_libraries_rejects_mismatched_extensions() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let pcb = dir.path().join("A.PcbLib");
+        let sch = dir.path().join("B.SchLib");
+        create_test_pcblib(&pcb);
+        create_test_schlib(&sch);
+
+        let result = server.call_diff_libraries(&json!({
+            "filepath_a": pcb.to_string_lossy(),
+            "filepath_b": sch.to_string_lossy(),
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("File types must match"));
+    }
+
+    #[test]
+    fn diff_libraries_rejects_unknown_extension() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let a = dir.path().join("A.txt");
+        let b = dir.path().join("B.txt");
+        std::fs::write(&a, b"x").unwrap();
+        std::fs::write(&b, b"x").unwrap();
+
+        let result = server.call_diff_libraries(&json!({
+            "filepath_a": a.to_string_lossy(),
+            "filepath_b": b.to_string_lossy(),
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Unknown file type"));
+    }
+
+    #[test]
+    fn diff_pcblibs_reports_added_removed_and_modified() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+
+        // Library A: the standard two-footprint fixture.
+        let path_a = dir.path().join("A.PcbLib");
+        create_test_pcblib(&path_a);
+
+        // Library B: CHIP_0402 modified (extra pad, new description),
+        // CHIP_0603 removed, CHIP_0805 added.
+        let mut lib_b = PcbLib::new();
+        let mut fp1 = Footprint::new("CHIP_0402");
+        fp1.description = "modified".to_string();
+        fp1.add_pad(Pad::smd("1", -0.5, 0.0, 0.6, 0.5));
+        fp1.add_pad(Pad::smd("2", 0.5, 0.0, 0.6, 0.5));
+        fp1.add_pad(Pad::smd("3", 1.5, 0.0, 0.6, 0.5));
+        lib_b.add(fp1);
+        let mut fp3 = Footprint::new("CHIP_0805");
+        fp3.add_pad(Pad::smd("1", -1.0, 0.0, 1.0, 1.3));
+        lib_b.add(fp3);
+        let path_b = dir.path().join("B.PcbLib");
+        lib_b.save(&path_b).unwrap();
+
+        let result = server.call_diff_libraries(&json!({
+            "filepath_a": path_a.to_string_lossy(),
+            "filepath_b": path_b.to_string_lossy(),
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["file_type"], "PcbLib");
+        assert_eq!(parsed["summary"]["components_in_a"], 2);
+        assert_eq!(parsed["summary"]["components_in_b"], 2);
+        assert_eq!(parsed["summary"]["added_count"], 1);
+        assert_eq!(parsed["summary"]["removed_count"], 1);
+        assert_eq!(parsed["summary"]["modified_count"], 1);
+        assert_eq!(parsed["summary"]["unchanged_count"], 0);
+        assert_eq!(parsed["added"], json!(["CHIP_0805"]));
+        assert_eq!(parsed["removed"], json!(["CHIP_0603"]));
+        assert_eq!(parsed["modified"][0]["name"], "CHIP_0402");
+        let changes = parsed["modified"][0]["changes"]
+            .as_array()
+            .expect("changes array");
+        assert!(changes
+            .iter()
+            .any(|c| c.as_str().unwrap().starts_with("description:")));
+        assert!(changes
+            .iter()
+            .any(|c| c.as_str().unwrap() == "pad_count: 2 -> 3"));
+    }
+
+    #[test]
+    fn diff_pcblibs_identical_libraries_report_no_changes() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path_a = dir.path().join("A.PcbLib");
+        let path_b = dir.path().join("B.PcbLib");
+        create_test_pcblib(&path_a);
+        create_test_pcblib(&path_b);
+
+        let result = server.call_diff_libraries(&json!({
+            "filepath_a": path_a.to_string_lossy(),
+            "filepath_b": path_b.to_string_lossy(),
+        }));
+        assert!(!result.is_error);
+
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["summary"]["added_count"], 0);
+        assert_eq!(parsed["summary"]["removed_count"], 0);
+        assert_eq!(parsed["summary"]["modified_count"], 0);
+        assert_eq!(parsed["summary"]["unchanged_count"], 2);
+    }
+
+    #[test]
+    fn diff_pcblibs_unreadable_file_is_an_error() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path_a = dir.path().join("A.PcbLib");
+        create_test_pcblib(&path_a);
+        let missing = dir.path().join("Missing.PcbLib");
+
+        let result = server.call_diff_libraries(&json!({
+            "filepath_a": missing.to_string_lossy(),
+            "filepath_b": path_a.to_string_lossy(),
+        }));
+        assert!(result.is_error);
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "error");
+    }
+
+    #[test]
+    fn diff_schlibs_reports_added_removed_and_modified() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+
+        let path_a = dir.path().join("A.SchLib");
+        create_test_schlib(&path_a);
+
+        // Library B: RESISTOR modified (designator + extra pin), CAPACITOR
+        // removed, INDUCTOR added.
+        let mut lib_b = SchLib::new();
+        let mut sym1 = Symbol::new("RESISTOR");
+        sym1.description = "Generic resistor".to_string();
+        sym1.designator = "RES?".to_string();
+        sym1.add_pin(Pin::new("1", "1", -20, 0, 10, PinOrientation::Left));
+        sym1.add_pin(Pin::new("2", "2", 20, 0, 10, PinOrientation::Right));
+        sym1.add_pin(Pin::new("3", "3", 0, 20, 10, PinOrientation::Up));
+        lib_b.add(sym1);
+        let mut sym3 = Symbol::new("INDUCTOR");
+        sym3.designator = "L?".to_string();
+        sym3.add_pin(Pin::new("1", "1", -20, 0, 10, PinOrientation::Left));
+        lib_b.add(sym3);
+        let path_b = dir.path().join("B.SchLib");
+        lib_b.save(&path_b).unwrap();
+
+        let result = server.call_diff_libraries(&json!({
+            "filepath_a": path_a.to_string_lossy(),
+            "filepath_b": path_b.to_string_lossy(),
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["file_type"], "SchLib");
+        assert_eq!(parsed["summary"]["added_count"], 1);
+        assert_eq!(parsed["summary"]["removed_count"], 1);
+        assert_eq!(parsed["summary"]["modified_count"], 1);
+        assert_eq!(parsed["added"], json!(["INDUCTOR"]));
+        assert_eq!(parsed["removed"], json!(["CAPACITOR"]));
+        assert_eq!(parsed["modified"][0]["name"], "RESISTOR");
+        let changes = parsed["modified"][0]["changes"]
+            .as_array()
+            .expect("changes array");
+        assert!(changes
+            .iter()
+            .any(|c| c.as_str().unwrap() == "designator: 'R?' -> 'RES?'"));
+        assert!(changes
+            .iter()
+            .any(|c| c.as_str().unwrap() == "pin_count: 2 -> 3"));
+        // The fixture rectangle only exists in A's RESISTOR.
+        assert!(changes
+            .iter()
+            .any(|c| c.as_str().unwrap() == "rectangle_count: 1 -> 0"));
+    }
+}

@@ -101,6 +101,9 @@ fn samples_pcblib_pad_shapes() {
             pad.hole_size, None,
             "pad {designator} is SMD and must have no hole",
         );
+        // Altium authors @60 = 1 for every pad, SMD included (probed: all four
+        // golden SMD pads carry 1) — the flag is independent of hole_size.
+        assert!(pad.is_plated, "pad {designator} is_plated (golden @60 = 1)");
         assert_eq!(pad.layer, Layer::TopLayer, "pad {designator} layer");
         assert!(
             approx_eq(pad.width, 1.524, 1e-2),
@@ -223,6 +226,7 @@ fn samples_pcblib_pad_stack() {
         "hole ~30 mil, got {:?}",
         pad.hole_size,
     );
+    assert!(pad.is_plated, "golden stack pad is plated (@60 = 1)");
 
     // Per-layer [top, mid, bottom]: 70 / 60 / 50 mil sizes.
     let sizes = pad
@@ -304,6 +308,27 @@ fn samples_pcblib_pad_holes() {
     for pad in &footprint.pads {
         assert_eq!(pad.hole_positive_tolerance, None);
         assert_eq!(pad.hole_negative_tolerance, None);
+    }
+
+    // Every golden through-hole pad is plated (@60 = 1, Altium's default), and
+    // the scripting-authored pads carry the nil identity GUIDs @126/@142
+    // (probed: all-zero bytes) — read back verbatim so a read-modify-write
+    // preserves them instead of regenerating fresh GUIDs.
+    let nil_guid = "{00000000-0000-0000-0000-000000000000}";
+    for pad in &footprint.pads {
+        assert!(pad.is_plated, "pad {} is_plated", pad.designator);
+        assert_eq!(
+            pad.identity_guid.as_deref(),
+            Some(nil_guid),
+            "pad {} GUID-A is the golden's nil GUID",
+            pad.designator,
+        );
+        assert_eq!(
+            pad.identity_guid_b.as_deref(),
+            Some(nil_guid),
+            "pad {} GUID-B is the golden's nil GUID",
+            pad.designator,
+        );
     }
 }
 
@@ -520,6 +545,10 @@ fn samples_pcblib_text_stroke() {
         // block; a default Altium stroke text is top-side, non-bold, Arial.
         assert!(!text.mirror, "text {content:?} mirror");
         assert!(!text.bold, "text {content:?} bold");
+        // Every golden text is a plain string: the IsComment@40 / IsDesignator@41
+        // markers carry 0x00 on disk (probed) and read back false.
+        assert!(!text.is_comment, "text {content:?} is_comment");
+        assert!(!text.is_designator, "text {content:?} is_designator");
         assert_eq!(text.font_name, "Arial", "text {content:?} font_name");
         assert!(
             approx_eq(text.height, height, 1e-2),

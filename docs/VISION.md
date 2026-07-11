@@ -26,35 +26,8 @@ This document describes the architectural vision for altium-designer-mcp.
 
 ## How It Works
 
-```text
-┌─────────────────────────────────────────────────────────────────────────┐
-│  AI-ASSISTED COMPONENT CREATION                                         │
-│                                                                         │
-│  Engineer                    AI                         MCP Server      │
-│    │                         │                              │           │
-│    │  "Create 0603 resistor" │                              │           │
-│    ├────────────────────────►│                              │           │
-│    │                         │                              │           │
-│    │                         │  AI reasons about:           │           │
-│    │                         │  • IPC-7351B pad sizes       │           │
-│    │                         │  • Courtyard margins         │           │
-│    │                         │  • Silkscreen style          │           │
-│    │                         │                              │           │
-│    │                         │  write_pcblib(primitives)    │           │
-│    │                         ├─────────────────────────────►│           │
-│    │                         │                              │           │
-│    │                         │                              │  Writes   │
-│    │                         │                              │  OLE file │
-│    │                         │                              │           │
-│    │                         │◄─────────────────────────────┤           │
-│    │                         │  { success: true }           │           │
-│    │                         │                              │           │
-│    │  "Done! Footprint       │                              │           │
-│    │   created in PcbLib"    │                              │           │
-│    │◄────────────────────────┤                              │           │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+See [README § How It Works](../README.md#how-it-works) for the sequence diagram of an
+AI-assisted component-creation call (engineer → AI → MCP server).
 
 ---
 

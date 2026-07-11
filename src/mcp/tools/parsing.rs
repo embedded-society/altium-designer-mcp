@@ -210,6 +210,13 @@ impl McpServer {
         let hole_size = json.get("hole_size").and_then(Value::as_f64);
         let is_smd = hole_size.map_or(true, |h| h <= 0.0); // SMD if no hole or hole size <= 0
 
+        // Plated hole (main-block byte @60). Altium defaults this to true for
+        // every pad, SMD included (matches the golden fixture and AltiumSharp).
+        let is_plated = json
+            .get("is_plated")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+
         let layer_str = json.get("layer").and_then(Value::as_str);
         let layer = match layer_str {
             Some(s) => Layer::parse(s).ok_or_else(|| {
@@ -317,6 +324,18 @@ impl McpServer {
         let hole_positive_tolerance = json.get("hole_positive_tolerance").and_then(Value::as_f64);
         let hole_negative_tolerance = json.get("hole_negative_tolerance").and_then(Value::as_f64);
 
+        // Identity GUIDs (extended tail @126/@142). Absent -> None, so the
+        // writer generates fresh per-pad GUIDs; a read-modify-write passes the
+        // read value back and preserves the on-disk bytes verbatim.
+        let identity_guid = json
+            .get("identity_guid")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let identity_guid_b = json
+            .get("identity_guid_b")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+
         Ok(Pad {
             designator: designator.to_string(),
             x,
@@ -326,6 +345,7 @@ impl McpServer {
             shape,
             layer,
             hole_size,
+            is_plated,
             hole_shape,
             hole_slot_length,
             hole_rotation,
@@ -353,6 +373,8 @@ impl McpServer {
             component_index: json_component_index(json),
             flags: json_flags(json),
             unique_id: json_unique_id(json),
+            identity_guid,
+            identity_guid_b,
         })
     }
 
@@ -640,6 +662,16 @@ impl McpServer {
         let italic = json.get("italic").and_then(Value::as_bool).unwrap_or(false);
         let bold = json.get("bold").and_then(Value::as_bool).unwrap_or(false);
         let mirror = json.get("mirror").and_then(Value::as_bool).unwrap_or(false);
+        // Comment/Designator field markers (geometry @40/@41). Absent -> false,
+        // the template bytes, so an unspecified text stays byte-identical.
+        let is_comment = json
+            .get("is_comment")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let is_designator = json
+            .get("is_designator")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let font_name = json
             .get("font_name")
             .and_then(Value::as_str)
@@ -682,6 +714,8 @@ impl McpServer {
             italic,
             bold,
             mirror,
+            is_comment,
+            is_designator,
             font_name,
             justification,
             is_inverted,
@@ -2132,6 +2166,38 @@ mod tests {
     }
 
     #[test]
+    fn parse_pad_reads_plating_and_identity_guids() {
+        // is_plated @60 and the two identity GUIDs @126/@142 flow from JSON so
+        // a read-modify-write preserves them.
+        let pad = McpServer::parse_pad(&json!({
+            "designator": "1", "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0,
+            "is_plated": false,
+            "identity_guid": "{A5172B29-10E4-C726-929A-64E441352E67}",
+            "identity_guid_b": "{00000000-0000-0000-0000-000000000000}",
+        }))
+        .expect("pad should parse");
+        assert!(!pad.is_plated);
+        assert_eq!(
+            pad.identity_guid.as_deref(),
+            Some("{A5172B29-10E4-C726-929A-64E441352E67}")
+        );
+        assert_eq!(
+            pad.identity_guid_b.as_deref(),
+            Some("{00000000-0000-0000-0000-000000000000}")
+        );
+
+        // Absent keys keep the from-scratch defaults: plated (Altium's default
+        // for every pad) and fresh writer-generated GUIDs (None).
+        let bare = McpServer::parse_pad(&json!({
+            "designator": "1", "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0,
+        }))
+        .expect("bare pad should parse");
+        assert!(bare.is_plated);
+        assert_eq!(bare.identity_guid, None);
+        assert_eq!(bare.identity_guid_b, None);
+    }
+
+    #[test]
     fn parse_pad_reads_thermal_relief_fields() {
         use crate::altium::pcblib::PowerPlaneConnectStyle;
         // Non-default thermal-relief / power-plane keys parse into the model.
@@ -2341,6 +2407,8 @@ mod tests {
             "italic": true,
             "bold": true,
             "mirror": true,
+            "is_comment": true,
+            "is_designator": true,
             "font_name": "Times New Roman",
             "justification": "top_right",
         }))
@@ -2350,6 +2418,8 @@ mod tests {
         assert!(text.italic);
         assert!(text.bold);
         assert!(text.mirror);
+        assert!(text.is_comment);
+        assert!(text.is_designator);
         assert_eq!(text.font_name, "Times New Roman");
         assert_eq!(text.justification, TextJustification::TopRight);
     }
@@ -2368,6 +2438,11 @@ mod tests {
         assert!(!text.italic);
         assert!(!text.bold);
         assert!(!text.mirror);
+        assert!(!text.is_comment, "absent is_comment stays template false");
+        assert!(
+            !text.is_designator,
+            "absent is_designator stays template false"
+        );
         assert_eq!(text.font_name, "Arial");
         assert_eq!(text.justification, TextJustification::BottomLeft);
     }

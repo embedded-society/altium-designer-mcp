@@ -513,6 +513,7 @@ impl McpServer {
                     "vias",
                     "fills",
                     "step_model",
+                    "model_3d",
                     "component_bodies"
                 ]
             );
@@ -656,6 +657,8 @@ impl McpServer {
                             "inverted_rect_height",
                             "inverted_rect_text_offset",
                             "inverted_rect_width",
+                            "is_comment",
+                            "is_designator",
                             "is_inverted",
                             "italic",
                             "justification",
@@ -762,6 +765,52 @@ impl McpServer {
                 }
             }
 
+            // Parse "model_3d" — read_pcblib's spelling of the same model
+            // reference (it emits the key for every footprint, null when there
+            // is no model), accepted so a read result replays into
+            // write_pcblib unchanged. `step_model` wins when both are given
+            // (it is the authoring-time spelling, incl. the embed switch);
+            // null is ignored. The fields mirror the Model3D serde shape
+            // (filepath + offsets/rotation).
+            if fp_json.get("step_model").is_none() {
+                if let Some(model_json) = fp_json.get("model_3d").filter(|v| !v.is_null()) {
+                    let model_path = model_json
+                        .get("filepath")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    // The save path embeds the file (std::fs::read) when the
+                    // path resolves to an existing file, so gate exactly that
+                    // case against the allow-list — the same arbitrary-file-
+                    // read defence as step_model. Bare model names replayed
+                    // from read_pcblib output don't exist on disk and are kept
+                    // as inert references, so they are not gated.
+                    if std::path::Path::new(model_path).is_file() {
+                        if let Err(e) = self.validate_path(model_path) {
+                            return ToolCallResult::error(e);
+                        }
+                    }
+                    footprint.model_3d = Some(Model3D {
+                        filepath: model_path.to_string(),
+                        x_offset: model_json
+                            .get("x_offset")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(0.0),
+                        y_offset: model_json
+                            .get("y_offset")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(0.0),
+                        z_offset: model_json
+                            .get("z_offset")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(0.0),
+                        rotation: model_json
+                            .get("rotation")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(0.0),
+                    });
+                }
+            }
+
             // Parse generic extruded 3D bodies (no STEP model). Each body is
             // defined by an optional 2D outline (auto-bounding-box from pads when
             // omitted) plus standoff/overall heights, on the Top/Bottom 3D Body
@@ -802,6 +851,12 @@ impl McpServer {
                     italic: false,
                     bold: false,
                     mirror: false,
+                    // The `.Designator` special string works through its content;
+                    // is_designator@41 stays at the template's 0x00 (byte-identity —
+                    // no golden carries a `.Designator` text to settle Altium's own
+                    // authoring value for this byte).
+                    is_comment: false,
+                    is_designator: false,
                     font_name: "Arial".to_string(),
                     // BottomLeft = the template's 0x03 anchor: the writer now honours
                     // @132, so keep the auto-designator on the template default to stay
@@ -1127,6 +1182,11 @@ impl McpServer {
                     "designator_unique_id",
                     "component_type",
                     "part_count",
+                    "display_mode_count",
+                    "current_part_id",
+                    "part_id_locked",
+                    "source_library_name",
+                    "target_file_name",
                     "pins",
                     "rectangles",
                     "round_rects",
@@ -1203,6 +1263,26 @@ impl McpServer {
                 {
                     symbol.part_count = part_count.clamp(1, 255) as u32;
                 }
+            }
+
+            // Parse the remaining symbol header fields (mirrors
+            // update_schlib_component): export_schlib emits them, so an
+            // export -> write_schlib round-trip must not reset them to
+            // defaults (e.g. collapsing a two-display-mode symbol to one).
+            if let Some(v) = sym_json.get("display_mode_count").and_then(Value::as_u64) {
+                symbol.display_mode_count = u32::try_from(v).unwrap_or(symbol.display_mode_count);
+            }
+            if let Some(v) = sym_json.get("current_part_id").and_then(Value::as_u64) {
+                symbol.current_part_id = u32::try_from(v).unwrap_or(symbol.current_part_id);
+            }
+            if let Some(v) = sym_json.get("part_id_locked").and_then(Value::as_bool) {
+                symbol.part_id_locked = v;
+            }
+            if let Some(v) = sym_json.get("source_library_name").and_then(Value::as_str) {
+                symbol.source_library_name = v.to_string();
+            }
+            if let Some(v) = sym_json.get("target_file_name").and_then(Value::as_str) {
+                symbol.target_file_name = v.to_string();
             }
 
             // Parse pins
@@ -2422,5 +2502,120 @@ mod tests {
     fn ieee_map_unknown_falls_back_to_u() {
         assert_eq!(ieee_designator_prefix("flux_capacitor"), "U");
         assert_eq!(ieee_designator_prefix(""), "U");
+    }
+
+    // ==================== extract_style ====================
+
+    mod extract_style {
+        use crate::altium::pcblib::{Footprint, Layer, Pad, PcbLib, Track};
+        use crate::mcp::tools::test_support::{
+            create_test_schlib, create_test_server, get_result_text, parse_result_json,
+            test_temp_dir,
+        };
+        use serde_json::json;
+
+        #[test]
+        fn extract_style_pcblib_reports_track_and_pad_statistics() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+
+            // Two footprints: three 0.2 mm overlay tracks and one 0.4 mm, plus
+            // four rectangular pads.
+            let mut lib = PcbLib::new();
+            let mut fp1 = Footprint::new("A");
+            fp1.add_pad(Pad::smd("1", -0.5, 0.0, 0.6, 0.5));
+            fp1.add_pad(Pad::smd("2", 0.5, 0.0, 0.6, 0.5));
+            fp1.add_track(Track::new(-1.0, -1.0, 1.0, -1.0, 0.2, Layer::TopOverlay));
+            fp1.add_track(Track::new(-1.0, 1.0, 1.0, 1.0, 0.2, Layer::TopOverlay));
+            lib.add(fp1);
+            let mut fp2 = Footprint::new("B");
+            fp2.add_pad(Pad::smd("1", -0.8, 0.0, 0.8, 0.8));
+            fp2.add_pad(Pad::smd("2", 0.8, 0.0, 0.8, 0.8));
+            fp2.add_track(Track::new(-2.0, -2.0, 2.0, -2.0, 0.2, Layer::TopOverlay));
+            fp2.add_track(Track::new(-2.0, 2.0, 2.0, 2.0, 0.4, Layer::TopOverlay));
+            lib.add(fp2);
+            let path = dir.path().join("Style.PcbLib");
+            lib.save(&path).unwrap();
+
+            let result = server.call_extract_style(&json!({
+                "filepath": path.to_string_lossy(),
+            }));
+            assert!(!result.is_error, "{}", get_result_text(&result));
+            let parsed = parse_result_json(&result);
+            assert_eq!(parsed["status"], "success");
+            assert_eq!(parsed["file_type"], "PcbLib");
+            assert_eq!(parsed["footprint_count"], 2);
+
+            let overlay = &parsed["style"]["track_widths_by_layer"]["Top Overlay"];
+            assert_eq!(overlay["count"], 4);
+            // Widths quantise to 0.01 mm for the most-common statistic.
+            assert!((overlay["most_common_mm"].as_f64().unwrap() - 0.2).abs() < 1e-9);
+            assert!((overlay["min_mm"].as_f64().unwrap() - 0.2).abs() < 1e-3);
+            assert!((overlay["max_mm"].as_f64().unwrap() - 0.4).abs() < 1e-3);
+
+            // `Pad::smd` creates rounded-rectangle pads.
+            assert_eq!(parsed["style"]["pad_shapes"]["RoundedRectangle"], 4);
+            assert_eq!(parsed["style"]["layers_used"]["Top Overlay"], 4);
+            assert_eq!(parsed["style"]["text_heights"], serde_json::Value::Null);
+        }
+
+        #[test]
+        fn extract_style_schlib_reports_pin_and_line_statistics() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Style.SchLib");
+            create_test_schlib(&path);
+
+            let result = server.call_extract_style(&json!({
+                "filepath": path.to_string_lossy(),
+            }));
+            assert!(!result.is_error, "{}", get_result_text(&result));
+            let parsed = parse_result_json(&result);
+            assert_eq!(parsed["status"], "success");
+            assert_eq!(parsed["file_type"], "SchLib");
+            assert_eq!(parsed["symbol_count"], 2);
+
+            // Four fixture pins, all 10 units long.
+            let pins = &parsed["style"]["pin_lengths"];
+            assert_eq!(pins["count"], 4);
+            assert_eq!(pins["min_units"], 10);
+            assert_eq!(pins["max_units"], 10);
+            assert_eq!(pins["most_common_units"], 10);
+
+            // One fixture rectangle contributes the only line width.
+            assert_eq!(parsed["style"]["line_widths"]["count"], 1);
+            assert_eq!(parsed["style"]["rectangles"]["filled_count"], 1);
+            assert_eq!(parsed["style"]["rectangles"]["unfilled_count"], 0);
+        }
+
+        #[test]
+        fn extract_style_error_paths() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+
+            let result = server.call_extract_style(&json!({}));
+            assert!(result.is_error);
+            assert_eq!(
+                get_result_text(&result),
+                "Missing required parameter: filepath"
+            );
+
+            // Unknown extension.
+            let txt = dir.path().join("x.txt");
+            let result = server.call_extract_style(&json!({
+                "filepath": txt.to_string_lossy(),
+            }));
+            assert!(result.is_error);
+            assert!(get_result_text(&result).contains("Unknown file type"));
+
+            // Unreadable library.
+            let missing = dir.path().join("Missing.PcbLib");
+            let result = server.call_extract_style(&json!({
+                "filepath": missing.to_string_lossy(),
+            }));
+            assert!(result.is_error);
+            let parsed = parse_result_json(&result);
+            assert_eq!(parsed["status"], "error");
+        }
     }
 }

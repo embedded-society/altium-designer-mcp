@@ -202,6 +202,7 @@ impl McpServer {
                                                 },
                                                 "layer": { "type": "string", "description": "Layer name: Top Layer, Bottom Layer, Multi-Layer (default for SMD)" },
                                                 "hole_size": { "type": "number", "description": "Hole diameter for through-hole pads (mm)" },
+                                                "is_plated": { "type": "boolean", "description": "Whether the hole is plated. Altium stores this for every pad (SMD included). Default: true" },
                                                 "hole_shape": {
                                                     "type": "string",
                                                     "enum": ["round", "square", "slot"],
@@ -239,6 +240,8 @@ impl McpServer {
                                                 "polygon_index": { "type": "integer", "description": "Polygon index (common header; 65535 = none). Normally omitted; preserved on a read-modify-write. Default: 65535" },
                                                 "component_index": { "type": "integer", "description": "Component index into the board component list (common header; -1 = free primitive). Normally omitted; preserved on a read-modify-write. Default: -1" },
                                                 "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" },
+                                                "identity_guid": { "type": "string", "description": "Per-pad identity GUID (braced string, e.g. \"{A5172B29-...}\"); preserved verbatim on read-modify-write, freshly generated if omitted" },
+                                                "identity_guid_b": { "type": "string", "description": "Pad-stack/footprint-scoped identity GUID (braced string); preserved verbatim on read-modify-write, freshly generated if omitted" },
                                                 "flags": { "type": ["string", "integer"], "description": "Primitive flags (optional). Accepts the name string read_pcblib emits (e.g. \"LOCKED\" or \"LOCKED | KEEPOUT\") or a raw bitmask integer (1=locked, 2=polygon, 4=keepout, 8=tenting-top, 16=tenting-bottom). Default: none" }
                                             },
                                             "required": ["designator", "x", "y", "width", "height"]
@@ -420,6 +423,8 @@ impl McpServer {
                                                 "bold": { "type": "boolean", "description": "Bold font style (TrueType). Default: false" },
                                                 "italic": { "type": "boolean", "description": "Italic font style (TrueType). Default: false" },
                                                 "mirror": { "type": "boolean", "description": "Mirror the text (bottom-side silkscreen). Default: false" },
+                                                "is_comment": { "type": "boolean", "description": "Mark this text as the component's Comment field (Altium IsComment). Preserved on read-modify-write. Default: false" },
+                                                "is_designator": { "type": "boolean", "description": "Mark this text as the component's Designator field (Altium IsDesignator). Preserved on read-modify-write. Default: false" },
                                                 "justification": { "type": "string", "enum": ["bottom_left", "bottom_center", "bottom_right", "middle_left", "middle_center", "middle_right", "top_left", "top_center", "top_right"], "description": "Text anchor / justification within its frame. Default: bottom_left" },
                                                 "stroke_width": { "type": "number", "description": "Stroke line width in mm (optional; defaults to Altium's ~4 mil)" },
                                                 "is_inverted": { "type": "boolean", "description": "Draw the text inverted (knockout): a filled bar with the glyphs punched out. Default: false" },
@@ -449,6 +454,17 @@ impl McpServer {
                                             "rotation": { "type": "number", "description": "Z rotation in degrees" }
                                         },
                                         "required": ["filepath"]
+                                    },
+                                    "model_3d": {
+                                        "type": ["object", "null"],
+                                        "description": "Alternative spelling of the same 3D-model reference, matching read_pcblib's output shape so a read result replays into write_pcblib unchanged. Ignored when 'step_model' is also given; null is accepted and ignored.",
+                                        "properties": {
+                                            "filepath": { "type": "string", "description": "Path to a .step file (embedded at save when it exists on disk) or a bare model name (kept as a reference)" },
+                                            "x_offset": { "type": "number" },
+                                            "y_offset": { "type": "number" },
+                                            "z_offset": { "type": "number" },
+                                            "rotation": { "type": "number", "description": "Z rotation in degrees" }
+                                        }
                                     },
                                     "component_bodies": {
                                         "type": "array",
@@ -558,6 +574,11 @@ impl McpServer {
                                     "designator_unique_id": { "type": "string", "description": "8-char unique ID of the designator record; preserved on read-modify-write, auto-generated if omitted" },
                                     "component_type": { "type": "string", "description": "Optional component category (e.g. 'resistor', 'capacitor', 'inductor', 'diode', 'transistor', 'connector', 'crystal', 'ic') used to derive the IEEE designator letter when 'designator_prefix' is not given. Unknown values default to 'U'." },
                                     "part_count": { "type": "integer", "description": "Number of parts for multi-part symbols (e.g., 2 for dual op-amp). Default: 1" },
+                                    "display_mode_count": { "type": "integer", "description": "Number of display modes (1 = normal only, 2+ = alternate/de-Morgan views). Default: 1" },
+                                    "current_part_id": { "type": "integer", "description": "Currently selected part (1-based). Default: 1" },
+                                    "part_id_locked": { "type": "boolean", "description": "Whether the part selection is locked. Default: false" },
+                                    "source_library_name": { "type": "string", "description": "Source library name recorded in the symbol header. Default: '*'" },
+                                    "target_file_name": { "type": "string", "description": "Target file name recorded in the symbol header. Default: '*'" },
                                     "pins": {
                                         "type": "array",
                                         "items": {
@@ -875,7 +896,7 @@ impl McpServer {
                                                 "x4": { "type": "number", "description": "Fourth control point X" },
                                                 "y4": { "type": "number", "description": "Fourth control point Y" },
                                                 "line_width": { "type": "integer", "description": "Curve width. Default: 1" },
-                                                "color": { "type": "integer", "description": "Curve BGR colour. Default: 32896 (dark red)" },
+                                                "color": { "type": "integer", "description": "Curve BGR colour. Default: 0x000080 (128, dark red)" },
                                                 "is_not_accessible": { "type": "boolean", "description": "Whether the curve is marked not-accessible (Altium tags every shape; default true)" },
                                                 "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" },
                                                 "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" }
@@ -896,7 +917,7 @@ impl McpServer {
                                                 "start_angle": { "type": "number", "description": "Start angle in degrees (0 = right, CCW). Default: 0" },
                                                 "end_angle": { "type": "number", "description": "End angle in degrees. Default: 360" },
                                                 "line_width": { "type": "integer", "description": "Arc width. Default: 1" },
-                                                "color": { "type": "integer", "description": "Arc BGR colour. Default: 32896 (dark red)" },
+                                                "color": { "type": "integer", "description": "Arc BGR colour. Default: 0x000080 (128, dark red)" },
                                                 "fill_color": { "type": "integer", "description": "Fill BGR colour (AreaColor). Default: 0" },
                                                 "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" },
                                                 "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" }
@@ -987,7 +1008,7 @@ impl McpServer {
                                                 "x": { "type": "number", "description": "X position. Default: 0" },
                                                 "y": { "type": "number", "description": "Y position. Default: 0" },
                                                 "font_id": { "type": "integer", "description": "Font ID. Default: 1" },
-                                                "color": { "type": "integer", "description": "BGR colour. Default: 0x800000 (dark red)" },
+                                                "color": { "type": "integer", "description": "BGR colour. Default: 0x800000 (dark blue)" },
                                                 "hidden": { "type": "boolean", "description": "Whether hidden. Default: false" },
                                                 "read_only_state": { "type": "integer", "description": "Read-only state (0=editable, 1=read-only). Default: 0" },
                                                 "param_type": { "type": "integer", "description": "Parameter type (0=String, 1=Boolean, 2=Integer, 3=Float). Default: 0" },

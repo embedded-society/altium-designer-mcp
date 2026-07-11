@@ -17,4 +17,6 @@ mod read_write;
 mod render;
 mod schlib_manage;
 mod step;
+#[cfg(test)]
+pub mod test_support;
 mod validation;

@@ -493,3 +493,389 @@ impl McpServer {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::altium::pcblib::{Footprint, Layer, Pad, PcbLib, Track};
+    use crate::altium::SchLib;
+    use crate::mcp::tools::test_support::{
+        create_test_schlib, create_test_server, get_result_text, parse_result_json, test_temp_dir,
+    };
+    use serde_json::json;
+
+    /// Builds a `PcbLib` whose footprints carry tracks on known layers.
+    fn create_tracked_pcblib(path: &std::path::Path) {
+        let mut lib = PcbLib::new();
+
+        let mut fp1 = Footprint::new("SOIC8");
+        fp1.add_pad(Pad::smd("1", -2.0, 0.0, 0.6, 1.5));
+        fp1.add_track(Track::new(-2.0, -2.0, 2.0, -2.0, 0.2, Layer::TopOverlay));
+        fp1.add_track(Track::new(-2.0, 2.0, 2.0, 2.0, 0.2, Layer::TopOverlay));
+        fp1.add_track(Track::new(-2.0, -2.0, -2.0, 2.0, 0.3, Layer::Mechanical1));
+        lib.add(fp1);
+
+        let mut fp2 = Footprint::new("SOIC16");
+        fp2.add_pad(Pad::smd("1", -3.0, 0.0, 0.6, 1.5));
+        fp2.add_track(Track::new(-3.0, -3.0, 3.0, -3.0, 0.2, Layer::TopOverlay));
+        lib.add(fp2);
+
+        lib.save(path).expect("Failed to create tracked PcbLib");
+    }
+
+    #[test]
+    fn batch_update_missing_required_arguments() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+
+        let result = server.call_batch_update(&json!({}));
+        assert!(result.is_error);
+        assert_eq!(
+            get_result_text(&result),
+            "Missing required parameter: filepath"
+        );
+
+        let result = server.call_batch_update(&json!({ "filepath": "x.PcbLib" }));
+        assert!(result.is_error);
+        assert_eq!(
+            get_result_text(&result),
+            "Missing required parameter: operation"
+        );
+
+        let result = server.call_batch_update(
+            &json!({ "filepath": "x.PcbLib", "operation": "update_track_width" }),
+        );
+        assert!(result.is_error);
+        assert_eq!(
+            get_result_text(&result),
+            "Missing required parameter: parameters"
+        );
+    }
+
+    #[test]
+    fn batch_update_rejects_unsupported_extension_and_unknown_operation() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+
+        let txt = dir.path().join("x.txt");
+        let result = server.call_batch_update(&json!({
+            "filepath": txt.to_string_lossy(),
+            "operation": "update_track_width",
+            "parameters": {},
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("only supports .PcbLib and .SchLib"));
+
+        let pcb = dir.path().join("Tracks.PcbLib");
+        create_tracked_pcblib(&pcb);
+        let result = server.call_batch_update(&json!({
+            "filepath": pcb.to_string_lossy(),
+            "operation": "frobnicate",
+            "parameters": {},
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Unknown PcbLib operation: frobnicate"));
+
+        let sch = dir.path().join("Syms.SchLib");
+        create_test_schlib(&sch);
+        let result = server.call_batch_update(&json!({
+            "filepath": sch.to_string_lossy(),
+            "operation": "frobnicate",
+            "parameters": {},
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Unknown SchLib operation: frobnicate"));
+    }
+
+    #[test]
+    fn update_track_width_changes_matching_tracks() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Tracks.PcbLib");
+        create_tracked_pcblib(&path);
+
+        let result = server.call_batch_update(&json!({
+            "filepath": path.to_string_lossy(),
+            "operation": "update_track_width",
+            "parameters": { "from_width": 0.2, "to_width": 0.15 },
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["dry_run"], false);
+        assert_eq!(parsed["total_tracks_updated"], 3);
+        assert_eq!(parsed["footprints_updated_count"], 2);
+        assert_eq!(parsed["footprints_updated"][0]["name"], "SOIC8");
+        assert_eq!(parsed["footprints_updated"][0]["tracks_updated"], 2);
+        assert_eq!(parsed["footprints_updated"][1]["name"], "SOIC16");
+
+        // The 0.2 mm tracks are now 0.15 mm; the 0.3 mm track is untouched.
+        let lib = PcbLib::open(&path).unwrap();
+        let fp1 = lib.get("SOIC8").unwrap();
+        assert!((fp1.tracks[0].width - 0.15).abs() < 1e-6);
+        assert!((fp1.tracks[1].width - 0.15).abs() < 1e-6);
+        assert!((fp1.tracks[2].width - 0.3).abs() < 1e-6);
+    }
+
+    #[test]
+    fn update_track_width_dry_run_leaves_file_untouched() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("TracksDry.PcbLib");
+        create_tracked_pcblib(&path);
+
+        let result = server.call_batch_update(&json!({
+            "filepath": path.to_string_lossy(),
+            "operation": "update_track_width",
+            "parameters": { "from_width": 0.2, "to_width": 0.15 },
+            "dry_run": true,
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "dry_run");
+        assert_eq!(parsed["dry_run"], true);
+        assert_eq!(parsed["total_tracks_updated"], 3);
+
+        // Nothing was written.
+        let lib = PcbLib::open(&path).unwrap();
+        assert!((lib.get("SOIC8").unwrap().tracks[0].width - 0.2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn update_track_width_validates_parameters() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("TracksBad.PcbLib");
+        create_tracked_pcblib(&path);
+        let filepath = path.to_string_lossy().to_string();
+
+        let result = server.call_batch_update(&json!({
+            "filepath": filepath,
+            "operation": "update_track_width",
+            "parameters": { "to_width": 0.15 },
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("from_width"));
+
+        let result = server.call_batch_update(&json!({
+            "filepath": filepath,
+            "operation": "update_track_width",
+            "parameters": { "from_width": 0.2 },
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("to_width"));
+
+        let result = server.call_batch_update(&json!({
+            "filepath": filepath,
+            "operation": "update_track_width",
+            "parameters": { "from_width": 0.2, "to_width": 0.0 },
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("to_width must be greater than 0"));
+
+        // Out-of-range width is rejected before it could saturate on save.
+        let result = server.call_batch_update(&json!({
+            "filepath": filepath,
+            "operation": "update_track_width",
+            "parameters": { "from_width": 0.2, "to_width": 99999.0 },
+        }));
+        assert!(result.is_error);
+    }
+
+    #[test]
+    fn rename_layer_moves_matching_primitives() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Layers.PcbLib");
+        create_tracked_pcblib(&path);
+
+        // camelCase alias is accepted for the source layer.
+        let result = server.call_batch_update(&json!({
+            "filepath": path.to_string_lossy(),
+            "operation": "rename_layer",
+            "parameters": { "from_layer": "TopOverlay", "to_layer": "Mechanical 13" },
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["from_layer"], "Top Overlay");
+        assert_eq!(parsed["to_layer"], "Mechanical 13");
+        assert_eq!(parsed["total_primitives_updated"], 3);
+        assert_eq!(parsed["footprints_updated_count"], 2);
+        assert_eq!(parsed["footprints_updated"][0]["tracks"], 2);
+        assert_eq!(parsed["footprints_updated"][0]["total"], 2);
+
+        let lib = PcbLib::open(&path).unwrap();
+        let fp1 = lib.get("SOIC8").unwrap();
+        assert_eq!(fp1.tracks[0].layer, Layer::Mechanical13);
+        assert_eq!(fp1.tracks[2].layer, Layer::Mechanical1);
+    }
+
+    #[test]
+    fn rename_layer_rejects_invalid_layer_names() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("LayersBad.PcbLib");
+        create_tracked_pcblib(&path);
+        let filepath = path.to_string_lossy().to_string();
+
+        let result = server.call_batch_update(&json!({
+            "filepath": filepath,
+            "operation": "rename_layer",
+            "parameters": { "from_layer": "NotALayer", "to_layer": "Top Overlay" },
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Invalid from_layer"));
+
+        let result = server.call_batch_update(&json!({
+            "filepath": filepath,
+            "operation": "rename_layer",
+            "parameters": { "from_layer": "Top Overlay", "to_layer": "NotALayer" },
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Invalid to_layer"));
+    }
+
+    #[test]
+    fn schlib_update_parameters_updates_and_adds() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("BatchParams.SchLib");
+        create_test_schlib(&path);
+        let filepath = path.to_string_lossy().to_string();
+
+        // Neither symbol has the parameter; add_if_missing creates it on both.
+        let result = server.call_batch_update(&json!({
+            "filepath": filepath,
+            "operation": "update_parameters",
+            "parameters": {
+                "param_name": "Manufacturer",
+                "param_value": "ACME",
+                "add_if_missing": true,
+            },
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["summary"]["symbols_updated"], 2);
+        assert_eq!(parsed["summary"]["parameters_added"], 2);
+        assert_eq!(parsed["summary"]["parameters_updated"], 0);
+        assert_eq!(parsed["updates"][0]["action"], "added");
+
+        // Second run with a symbol filter updates only the matching symbol.
+        let result = server.call_batch_update(&json!({
+            "filepath": filepath,
+            "operation": "update_parameters",
+            "parameters": {
+                "param_name": "Manufacturer",
+                "param_value": "Initech",
+                "symbol_filter": "^RES",
+            },
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["summary"]["symbols_updated"], 1);
+        assert_eq!(parsed["summary"]["parameters_updated"], 1);
+        assert_eq!(parsed["updates"][0]["symbol"], "RESISTOR");
+        assert_eq!(parsed["updates"][0]["old_value"], "ACME");
+        assert_eq!(parsed["updates"][0]["new_value"], "Initech");
+
+        let lib = SchLib::open(&path).unwrap();
+        assert_eq!(lib.get("RESISTOR").unwrap().parameters[0].value, "Initech");
+        assert_eq!(lib.get("CAPACITOR").unwrap().parameters[0].value, "ACME");
+    }
+
+    #[test]
+    fn schlib_update_parameters_dry_run_previews_without_writing() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("BatchDry.SchLib");
+        create_test_schlib(&path);
+
+        let result = server.call_batch_update(&json!({
+            "filepath": path.to_string_lossy(),
+            "operation": "update_parameters",
+            "parameters": {
+                "param_name": "Manufacturer",
+                "param_value": "ACME",
+                "add_if_missing": true,
+            },
+            "dry_run": true,
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "dry_run");
+        assert_eq!(parsed["updates"][0]["action"], "would_add");
+
+        // Nothing was written.
+        let lib = SchLib::open(&path).unwrap();
+        assert!(lib.get("RESISTOR").unwrap().parameters.is_empty());
+    }
+
+    #[test]
+    fn schlib_update_parameters_rejects_bad_input() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("BatchBad.SchLib");
+        create_test_schlib(&path);
+        let filepath = path.to_string_lossy().to_string();
+
+        let result = server.call_batch_update(&json!({
+            "filepath": filepath,
+            "operation": "update_parameters",
+            "parameters": { "param_value": "ACME" },
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("param_name"));
+
+        let result = server.call_batch_update(&json!({
+            "filepath": filepath,
+            "operation": "update_parameters",
+            "parameters": {
+                "param_name": "Manufacturer",
+                "param_value": "ACME",
+                "symbol_filter": "(unclosed",
+            },
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Invalid symbol_filter regex"));
+    }
+
+    #[test]
+    fn parse_layer_name_accepts_both_formats() {
+        assert_eq!(
+            McpServer::parse_layer_name("Top Layer"),
+            Some(crate::altium::pcblib::Layer::TopLayer)
+        );
+        assert_eq!(
+            McpServer::parse_layer_name("BottomOverlay"),
+            Some(crate::altium::pcblib::Layer::BottomOverlay)
+        );
+        assert_eq!(
+            McpServer::parse_layer_name("Mechanical7"),
+            Some(crate::altium::pcblib::Layer::Mechanical7)
+        );
+        assert_eq!(
+            McpServer::parse_layer_name("MidLayer3"),
+            Some(crate::altium::pcblib::Layer::MidLayer3)
+        );
+        assert_eq!(McpServer::parse_layer_name("NotALayer"), None);
+    }
+
+    #[test]
+    fn validate_ole_name_rules() {
+        assert!(McpServer::validate_ole_name("CHIP_0402").is_ok());
+        assert!(McpServer::validate_ole_name("").is_err());
+        for bad in [
+            "a/b", "a\\b", "a:b", "a*b", "a?b", "a\"b", "a<b", "a>b", "a|b",
+        ] {
+            assert!(
+                McpServer::validate_ole_name(bad).is_err(),
+                "'{bad}' should be rejected"
+            );
+        }
+    }
+}

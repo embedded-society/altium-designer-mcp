@@ -943,6 +943,11 @@ impl McpServer {
                         "description": symbol.description,
                         "designator": symbol.designator,
                         "part_count": symbol.part_count,
+                        "display_mode_count": symbol.display_mode_count,
+                        "current_part_id": symbol.current_part_id,
+                        "part_id_locked": symbol.part_id_locked,
+                        "source_library_name": symbol.source_library_name,
+                        "target_file_name": symbol.target_file_name,
                         "pins": symbol.pins,
                         "rectangles": symbol.rectangles,
                         "round_rects": symbol.round_rects,
@@ -1350,5 +1355,425 @@ impl McpServer {
         }
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use crate::altium::pcblib::{Footprint, PcbLib};
+    use crate::altium::schlib::{Pin, PinOrientation, SchLib, Symbol};
+    use crate::mcp::tools::test_support::{
+        create_test_pcblib, create_test_schlib, create_test_server, get_result_text,
+        parse_result_json, test_temp_dir,
+    };
+    use serde_json::json;
+
+    // ==================== delete_component ====================
+
+    #[test]
+    fn delete_component_pcblib_success_and_not_found() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Del.PcbLib");
+        create_test_pcblib(&path);
+
+        let result = server.call_delete_component(&json!({
+            "filepath": path.to_string_lossy(),
+            "component_names": ["CHIP_0402", "GHOST"],
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["file_type"], "PcbLib");
+        assert_eq!(parsed["original_count"], 2);
+        assert_eq!(parsed["deleted_count"], 1);
+        assert_eq!(parsed["remaining_count"], 1);
+        assert_eq!(parsed["results"][0]["name"], "CHIP_0402");
+        assert_eq!(parsed["results"][0]["status"], "deleted");
+        assert_eq!(parsed["results"][1]["name"], "GHOST");
+        assert_eq!(parsed["results"][1]["status"], "not_found");
+
+        let lib = PcbLib::open(&path).unwrap();
+        assert!(lib.get("CHIP_0402").is_none());
+        assert!(lib.get("CHIP_0603").is_some());
+    }
+
+    #[test]
+    fn delete_component_dry_run_leaves_file_untouched() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("DelDry.PcbLib");
+        create_test_pcblib(&path);
+
+        let result = server.call_delete_component(&json!({
+            "filepath": path.to_string_lossy(),
+            "component_names": ["CHIP_0402"],
+            "dry_run": true,
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "dry_run");
+        assert_eq!(parsed["results"][0]["status"], "would_delete");
+        assert_eq!(parsed["remaining_count"], 1);
+
+        let lib = PcbLib::open(&path).unwrap();
+        assert_eq!(lib.len(), 2, "dry run must not modify the library");
+    }
+
+    #[test]
+    fn delete_component_schlib_success() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Del.SchLib");
+        create_test_schlib(&path);
+
+        let result = server.call_delete_component(&json!({
+            "filepath": path.to_string_lossy(),
+            "component_names": ["CAPACITOR"],
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["file_type"], "SchLib");
+        assert_eq!(parsed["deleted_count"], 1);
+        assert_eq!(parsed["remaining_count"], 1);
+
+        let lib = SchLib::open(&path).unwrap();
+        assert!(lib.get("CAPACITOR").is_none());
+    }
+
+    #[test]
+    fn delete_component_rejects_bad_arguments() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+
+        let result = server.call_delete_component(&json!({}));
+        assert!(result.is_error);
+        assert_eq!(
+            get_result_text(&result),
+            "Missing required parameter: filepath"
+        );
+
+        let path = dir.path().join("DelBad.PcbLib");
+        create_test_pcblib(&path);
+        let result = server.call_delete_component(&json!({
+            "filepath": path.to_string_lossy(),
+            "component_names": [],
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("empty"));
+
+        let txt = dir.path().join("x.txt");
+        let result = server.call_delete_component(&json!({
+            "filepath": txt.to_string_lossy(),
+            "component_names": ["A"],
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Unknown file type"));
+    }
+
+    // ==================== validate_library ====================
+
+    #[test]
+    fn validate_library_pcblib_clean_fixture_is_valid() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Valid.PcbLib");
+        create_test_pcblib(&path);
+
+        let result = server.call_validate_library(&json!({
+            "filepath": path.to_string_lossy(),
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "valid");
+        assert_eq!(parsed["component_count"], 2);
+        assert_eq!(parsed["error_count"], 0);
+        assert_eq!(parsed["warning_count"], 0);
+        assert_eq!(parsed["issues"], json!([]));
+    }
+
+    #[test]
+    fn validate_library_pcblib_reports_warnings() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+
+        // Footprint with no pads at all → warning.
+        let mut lib = PcbLib::new();
+        lib.add(Footprint::new("BARE"));
+        let path = dir.path().join("Warn.PcbLib");
+        lib.save(&path).unwrap();
+
+        let result = server.call_validate_library(&json!({
+            "filepath": path.to_string_lossy(),
+        }));
+        assert!(!result.is_error);
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "warnings");
+        assert_eq!(parsed["warning_count"], 1);
+        assert_eq!(parsed["issues"][0]["severity"], "warning");
+        assert_eq!(parsed["issues"][0]["issue"], "Footprint has no pads");
+    }
+
+    #[test]
+    fn validate_library_schlib_reports_duplicate_pin_designators() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+
+        let mut lib = SchLib::new();
+        let mut sym = Symbol::new("BROKEN");
+        sym.add_pin(Pin::new("1", "1", -20, 0, 10, PinOrientation::Left));
+        sym.add_pin(Pin::new("1", "1", 20, 0, 10, PinOrientation::Right));
+        lib.add(sym);
+        let path = dir.path().join("Dup.SchLib");
+        lib.save(&path).unwrap();
+
+        let result = server.call_validate_library(&json!({
+            "filepath": path.to_string_lossy(),
+        }));
+        assert!(!result.is_error);
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "invalid");
+        assert!(parsed["error_count"].as_u64().unwrap() >= 1);
+        let issues = parsed["issues"].as_array().unwrap();
+        assert!(issues
+            .iter()
+            .any(|i| i["issue"] == "Duplicate pin designator: '1'"));
+        // The symbol has pins but no body graphics → also a warning.
+        assert!(issues.iter().any(|i| i["severity"] == "warning"));
+    }
+
+    #[test]
+    fn validate_library_unreadable_file_is_an_error() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let missing = dir.path().join("Missing.SchLib");
+
+        let result = server.call_validate_library(&json!({
+            "filepath": missing.to_string_lossy(),
+        }));
+        assert!(result.is_error);
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "error");
+    }
+
+    // ==================== export_library ====================
+
+    #[test]
+    fn export_library_pcblib_json_and_csv() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Export.PcbLib");
+        create_test_pcblib(&path);
+        let filepath = path.to_string_lossy().to_string();
+
+        let result = server.call_export_library(&json!({
+            "filepath": filepath,
+            "format": "json",
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["format"], "json");
+        assert_eq!(parsed["units"], "mm");
+        assert_eq!(parsed["component_count"], 2);
+        let footprints = parsed["footprints"].as_array().unwrap();
+        assert_eq!(footprints.len(), 2);
+        assert_eq!(footprints[0]["name"], "CHIP_0402");
+        assert_eq!(footprints[0]["pads"].as_array().unwrap().len(), 2);
+
+        let result = server.call_export_library(&json!({
+            "filepath": filepath,
+            "format": "csv",
+        }));
+        assert!(!result.is_error);
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["format"], "csv");
+        let csv = parsed["csv"].as_str().unwrap();
+        let lines: Vec<&str> = csv.lines().collect();
+        assert_eq!(lines.len(), 3, "header + 2 rows");
+        assert!(lines[0].starts_with("name,description,pad_count"));
+        assert!(lines[1].starts_with("CHIP_0402,0402 chip resistor,2,"));
+    }
+
+    #[test]
+    fn export_library_schlib_json_and_csv() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Export.SchLib");
+        create_test_schlib(&path);
+        let filepath = path.to_string_lossy().to_string();
+
+        let result = server.call_export_library(&json!({
+            "filepath": filepath,
+            "format": "json",
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["file_type"], "SchLib");
+        assert_eq!(parsed["component_count"], 2);
+        let symbols = parsed["symbols"].as_array().unwrap();
+        assert_eq!(symbols[0]["name"], "RESISTOR");
+        assert_eq!(symbols[0]["designator"], "R?");
+        assert_eq!(symbols[0]["pins"].as_array().unwrap().len(), 2);
+
+        let result = server.call_export_library(&json!({
+            "filepath": filepath,
+            "format": "csv",
+        }));
+        assert!(!result.is_error);
+        let parsed = parse_result_json(&result);
+        let csv = parsed["csv"].as_str().unwrap();
+        assert!(csv
+            .lines()
+            .any(|l| l.starts_with("RESISTOR,Generic resistor,R?,2,1,")));
+    }
+
+    #[test]
+    fn export_library_rejects_bad_arguments() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("ExportBad.PcbLib");
+        create_test_pcblib(&path);
+
+        let result = server.call_export_library(&json!({
+            "filepath": path.to_string_lossy(),
+        }));
+        assert!(result.is_error);
+        assert_eq!(
+            get_result_text(&result),
+            "Missing required parameter: format"
+        );
+
+        let result = server.call_export_library(&json!({
+            "filepath": path.to_string_lossy(),
+            "format": "xml",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Expected 'json' or 'csv'"));
+    }
+
+    // ==================== import_library ====================
+
+    #[test]
+    fn import_library_pcblib_round_trips_an_export() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let source = dir.path().join("ImpSource.PcbLib");
+        create_test_pcblib(&source);
+
+        // Export the fixture and import the payload into a new library.
+        let exported = parse_result_json(&server.call_export_library(&json!({
+            "filepath": source.to_string_lossy(),
+            "format": "json",
+        })));
+
+        let output = dir.path().join("ImpTarget.PcbLib");
+        let result = server.call_import_library(&json!({
+            "output_path": output.to_string_lossy(),
+            "json_data": {
+                "file_type": "PcbLib",
+                "footprints": exported["footprints"],
+            },
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["imported_count"], 2);
+        assert_eq!(parsed["total_count"], 2);
+        assert_eq!(parsed["append"], false);
+
+        let lib = PcbLib::open(&output).unwrap();
+        let fp = lib.get("CHIP_0402").unwrap();
+        assert_eq!(fp.pads.len(), 2);
+        assert_eq!(fp.description, "0402 chip resistor");
+    }
+
+    #[test]
+    fn import_library_schlib_append_mode() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let output = dir.path().join("ImpAppend.SchLib");
+        create_test_schlib(&output);
+
+        let result = server.call_import_library(&json!({
+            "output_path": output.to_string_lossy(),
+            "json_data": {
+                "file_type": "SchLib",
+                "symbols": [{
+                    "name": "DIODE",
+                    "description": "Generic diode",
+                    "designator": "D?",
+                    "pins": [
+                        { "designator": "1", "name": "A", "x": -20, "y": 0, "length": 10 },
+                        { "designator": "2", "name": "K", "x": 20, "y": 0, "length": 10 }
+                    ],
+                }],
+            },
+            "append": true,
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["imported_count"], 1);
+        assert_eq!(parsed["total_count"], 3);
+        assert_eq!(parsed["append"], true);
+
+        let lib = SchLib::open(&output).unwrap();
+        assert_eq!(lib.len(), 3);
+        assert_eq!(lib.get("DIODE").unwrap().pins.len(), 2);
+    }
+
+    #[test]
+    fn import_library_error_paths() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+
+        let result = server.call_import_library(&json!({}));
+        assert!(result.is_error);
+        assert_eq!(
+            get_result_text(&result),
+            "Missing required parameter: output_path"
+        );
+
+        let output = dir.path().join("ImpErr.PcbLib");
+        let result = server.call_import_library(&json!({
+            "output_path": output.to_string_lossy(),
+        }));
+        assert!(result.is_error);
+        assert_eq!(
+            get_result_text(&result),
+            "Missing required parameter: json_data"
+        );
+
+        // Payload without a footprints array.
+        let result = server.call_import_library(&json!({
+            "output_path": output.to_string_lossy(),
+            "json_data": { "file_type": "PcbLib" },
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("'footprints' array"));
+
+        // Indeterminate library type.
+        let unknown = dir.path().join("ImpErr.dat");
+        let result = server.call_import_library(&json!({
+            "output_path": unknown.to_string_lossy(),
+            "json_data": { "footprints": [] },
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Cannot determine library type"));
+
+        // Symbol JSON validation catches a pin without coordinates.
+        let sch_out = dir.path().join("ImpErr.SchLib");
+        let result = server.call_import_library(&json!({
+            "output_path": sch_out.to_string_lossy(),
+            "json_data": {
+                "symbols": [{
+                    "name": "BAD",
+                    "pins": [{ "designator": "1", "name": "A", "y": 0, "length": 10 }],
+                }],
+            },
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("missing required field 'x'"));
     }
 }

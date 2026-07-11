@@ -32,6 +32,9 @@ definitions served over `tools/list`. Coordinates are millimetres for `.PcbLib`
 footprints and schematic units (10 units = 1 grid square) for `.SchLib` symbols.
 ";
 
+/// Maximum prose width for the generated document (STYLE § General Rules).
+const MAX_PROSE_WIDTH: usize = 170;
+
 /// Renders the full Markdown reference for every registered tool.
 pub fn render_tools_markdown() -> String {
     let mut out = String::from(HEADER);
@@ -41,14 +44,62 @@ pub fn render_tools_markdown() -> String {
     for tool in &tools {
         let _ = writeln!(out, "\n## `{}`", tool.name);
         if let Some(desc) = &tool.description {
-            let _ = writeln!(out, "\n{}", desc.trim());
+            let _ = writeln!(out, "\n{}", wrap_prose(desc.trim()));
         }
         if let Some(example) = &tool.example {
             out.push_str("\n**Example**\n\n```json\n");
-            out.push_str(&serde_json::to_string_pretty(example).unwrap_or_default());
+            out.push_str(&to_json_pretty_4(example));
             out.push_str("\n```\n");
         }
         out.push_str(&render_params(&tool.input_schema));
+    }
+    out
+}
+
+/// Serialises `value` as pretty-printed JSON with 4-space indentation, so the
+/// generated examples comply with STYLE § JSON (the `serde_json` default is
+/// 2 spaces).
+fn to_json_pretty_4(value: &Value) -> String {
+    use serde::Serialize as _;
+
+    let mut buf = Vec::new();
+    let formatter = serde_json::ser::PrettyFormatter::with_indent(b"    ");
+    let mut ser = serde_json::Serializer::with_formatter(&mut buf, formatter);
+    if value.serialize(&mut ser).is_err() {
+        return String::new();
+    }
+    String::from_utf8(buf).unwrap_or_default()
+}
+
+/// Greedy word-wrap for prose paragraphs at [`MAX_PROSE_WIDTH`] columns,
+/// preserving the author's existing line breaks (STYLE § General Rules caps
+/// lines at 170 characters).
+fn wrap_prose(text: &str) -> String {
+    let mut out = String::new();
+    for (i, line) in text.lines().enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        if line.chars().count() <= MAX_PROSE_WIDTH {
+            out.push_str(line);
+            continue;
+        }
+        let mut column = 0;
+        for word in line.split_whitespace() {
+            let len = word.chars().count();
+            if column == 0 {
+                out.push_str(word);
+                column = len;
+            } else if column + 1 + len <= MAX_PROSE_WIDTH {
+                out.push(' ');
+                out.push_str(word);
+                column += 1 + len;
+            } else {
+                out.push('\n');
+                out.push_str(word);
+                column = len;
+            }
+        }
     }
     out
 }

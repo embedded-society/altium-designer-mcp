@@ -542,6 +542,30 @@ impl McpServer {
                     }));
                 }
 
+                // Compare plating (plated vs non-plated hole is an electrical
+                // difference, e.g. an NPTH mounting hole vs a through pad).
+                if pad_a.is_plated != pad_b.is_plated {
+                    changes.push(json!({
+                        "property": "is_plated",
+                        "a": pad_a.is_plated,
+                        "b": pad_b.is_plated
+                    }));
+                }
+
+                // Compare hole shape (round vs square vs slot).
+                if pad_a.hole_shape != pad_b.hole_shape {
+                    changes.push(json!({
+                        "property": "hole_shape",
+                        "a": pad_a.hole_shape,
+                        "b": pad_b.hole_shape
+                    }));
+                }
+
+                // The identity GUIDs (identity_guid / identity_guid_b) are
+                // deliberately NOT compared: they identify the pad instance,
+                // not its geometry or electrical behaviour — two otherwise
+                // identical pads with different GUIDs are the same pad.
+
                 changes
             },
         )
@@ -1521,6 +1545,8 @@ mod tests {
             italic: false,
             bold: false,
             mirror: false,
+            is_comment: false,
+            is_designator: false,
             font_name: "Arial".to_string(),
             justification: TextJustification::default(),
             is_inverted: false,
@@ -1593,6 +1619,51 @@ mod tests {
         assert!(
             !diffs[0].as_object().unwrap().contains_key("occurrence"),
             "unique keys must not carry an occurrence index"
+        );
+    }
+
+    #[test]
+    fn pads_differing_only_in_plating_report_modified() {
+        // is_plated is an electrical property (PTH vs NPTH); a pair identical
+        // in every geometric field but plating must still be flagged.
+        let pad_a = Pad::through_hole("1", 0.0, 0.0, 1.6, 1.6, 0.8);
+        let mut pad_b = pad_a.clone();
+        pad_b.is_plated = false;
+
+        let diffs = McpServer::compare_pads(&[pad_a], &[pad_b], 0.001);
+        assert_eq!(diffs.len(), 1, "the plating change must be detected");
+        assert_eq!(diffs[0]["status"], "modified");
+        assert_eq!(diffs[0]["changes"][0]["property"], "is_plated");
+        assert_eq!(diffs[0]["changes"][0]["a"], true);
+        assert_eq!(diffs[0]["changes"][0]["b"], false);
+    }
+
+    #[test]
+    fn pads_differing_only_in_hole_shape_report_modified() {
+        use crate::altium::pcblib::HoleShape;
+        let pad_a = Pad::through_hole("1", 0.0, 0.0, 1.6, 1.6, 0.8);
+        let mut pad_b = pad_a.clone();
+        pad_b.hole_shape = HoleShape::Slot;
+
+        let diffs = McpServer::compare_pads(&[pad_a], &[pad_b], 0.001);
+        assert_eq!(diffs.len(), 1, "the hole-shape change must be detected");
+        assert_eq!(diffs[0]["status"], "modified");
+        assert_eq!(diffs[0]["changes"][0]["property"], "hole_shape");
+    }
+
+    #[test]
+    fn pads_differing_only_in_identity_guids_report_identical() {
+        // The identity GUIDs are instance identity, not geometry — they are
+        // deliberately excluded from the pair-compare.
+        let pad_a = Pad::smd("1", 0.0, 0.0, 1.0, 1.0);
+        let mut pad_b = pad_a.clone();
+        pad_b.identity_guid = Some("{11111111-2222-3333-4444-555555555555}".to_string());
+        pad_b.identity_guid_b = Some("{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}".to_string());
+
+        let diffs = McpServer::compare_pads(&[pad_a], &[pad_b], 0.001);
+        assert!(
+            diffs.is_empty(),
+            "identity GUIDs alone are not a difference"
         );
     }
 
@@ -1727,5 +1798,195 @@ mod tests {
         let shapes_a = [Rectangle::new(0, 0, 10, 10), Rectangle::new(0, 0, 10, 10)];
         let shapes_b = [Rectangle::new(0, 0, 10, 10), Rectangle::new(0, 0, 10, 10)];
         assert!(compare_serialized(&shapes_a, &shapes_b).is_empty());
+    }
+
+    // ==================== call_compare_components dispatcher ====================
+
+    mod dispatcher {
+        use super::*;
+        use crate::altium::schlib::{Pin, PinOrientation, SchLib, Symbol};
+        use crate::mcp::tools::test_support::{
+            create_test_pcblib, create_test_schlib, create_test_server, get_result_text,
+            parse_result_json, test_temp_dir,
+        };
+
+        #[test]
+        fn compare_components_missing_parameters() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+
+            let result = server.call_compare_components(&json!({}));
+            assert!(result.is_error);
+            assert_eq!(
+                get_result_text(&result),
+                "Missing required parameter: filepath_a"
+            );
+
+            let result = server.call_compare_components(&json!({ "filepath_a": "a.PcbLib" }));
+            assert!(result.is_error);
+            assert_eq!(
+                get_result_text(&result),
+                "Missing required parameter: component_a"
+            );
+        }
+
+        #[test]
+        fn compare_components_rejects_mismatched_extensions() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let pcb = dir.path().join("A.PcbLib");
+            let sch = dir.path().join("B.SchLib");
+            create_test_pcblib(&pcb);
+            create_test_schlib(&sch);
+
+            let result = server.call_compare_components(&json!({
+                "filepath_a": pcb.to_string_lossy(),
+                "component_a": "CHIP_0402",
+                "filepath_b": sch.to_string_lossy(),
+                "component_b": "RESISTOR",
+            }));
+            assert!(result.is_error);
+            assert!(get_result_text(&result).contains("File types must match"));
+        }
+
+        #[test]
+        fn compare_components_rejects_path_outside_allowed() {
+            let dir = test_temp_dir();
+            let other = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let outside = other.path().join("Out.PcbLib");
+            create_test_pcblib(&outside);
+            let inside = dir.path().join("In.PcbLib");
+            create_test_pcblib(&inside);
+
+            let result = server.call_compare_components(&json!({
+                "filepath_a": outside.to_string_lossy(),
+                "component_a": "CHIP_0402",
+                "filepath_b": inside.to_string_lossy(),
+                "component_b": "CHIP_0402",
+            }));
+            assert!(result.is_error);
+            assert!(get_result_text(&result).contains("Access denied"));
+        }
+
+        #[test]
+        fn compare_footprints_identical_components() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Same.PcbLib");
+            create_test_pcblib(&path);
+
+            let result = server.call_compare_components(&json!({
+                "filepath_a": path.to_string_lossy(),
+                "component_a": "CHIP_0402",
+                "filepath_b": path.to_string_lossy(),
+                "component_b": "CHIP_0402",
+            }));
+            assert!(!result.is_error, "{}", get_result_text(&result));
+            let parsed = parse_result_json(&result);
+            assert_eq!(parsed["status"], "success");
+            assert_eq!(parsed["file_type"], "PcbLib");
+            assert_eq!(parsed["identical"], true);
+            assert_eq!(parsed["difference_count"], 0);
+            assert_eq!(parsed["summary"]["pads_a"], 2);
+            assert_eq!(parsed["summary"]["pads_b"], 2);
+        }
+
+        #[test]
+        fn compare_footprints_reports_differences() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Diff.PcbLib");
+            create_test_pcblib(&path);
+
+            // CHIP_0402 vs CHIP_0603: same pad count, different geometry and
+            // descriptions.
+            let result = server.call_compare_components(&json!({
+                "filepath_a": path.to_string_lossy(),
+                "component_a": "CHIP_0402",
+                "filepath_b": path.to_string_lossy(),
+                "component_b": "CHIP_0603",
+            }));
+            assert!(!result.is_error, "{}", get_result_text(&result));
+            let parsed = parse_result_json(&result);
+            assert_eq!(parsed["identical"], false);
+            assert!(parsed["difference_count"].as_u64().unwrap() >= 2);
+            let differences = parsed["differences"].as_array().unwrap();
+            assert!(differences.iter().any(|d| d["field"] == "description"));
+            assert!(differences.iter().any(|d| d["field"] == "pads"));
+        }
+
+        #[test]
+        fn compare_footprints_component_not_found() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("NotFound.PcbLib");
+            create_test_pcblib(&path);
+
+            let result = server.call_compare_components(&json!({
+                "filepath_a": path.to_string_lossy(),
+                "component_a": "GHOST",
+                "filepath_b": path.to_string_lossy(),
+                "component_b": "CHIP_0402",
+            }));
+            assert!(result.is_error);
+            assert!(get_result_text(&result).contains("'GHOST' not found"));
+        }
+
+        #[test]
+        fn compare_symbols_identical_components() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("SSame.SchLib");
+            create_test_schlib(&path);
+
+            let result = server.call_compare_components(&json!({
+                "filepath_a": path.to_string_lossy(),
+                "component_a": "RESISTOR",
+                "filepath_b": path.to_string_lossy(),
+                "component_b": "RESISTOR",
+            }));
+            assert!(!result.is_error, "{}", get_result_text(&result));
+            let parsed = parse_result_json(&result);
+            assert_eq!(parsed["status"], "success");
+            assert_eq!(parsed["file_type"], "SchLib");
+            assert_eq!(parsed["identical"], true);
+            assert_eq!(parsed["difference_count"], 0);
+            assert_eq!(parsed["summary"]["pins_a"], 2);
+            assert_eq!(parsed["summary"]["pins_b"], 2);
+        }
+
+        #[test]
+        fn compare_symbols_reports_pin_and_shape_differences() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path_a = dir.path().join("SDiffA.SchLib");
+            create_test_schlib(&path_a);
+
+            // A modified RESISTOR: moved pin 2, no rectangle, new description.
+            let mut lib_b = SchLib::new();
+            let mut sym = Symbol::new("RESISTOR");
+            sym.description = "Precision resistor".to_string();
+            sym.designator = "R?".to_string();
+            sym.add_pin(Pin::new("1", "1", -20, 0, 10, PinOrientation::Left));
+            sym.add_pin(Pin::new("2", "2", 30, 0, 10, PinOrientation::Right));
+            lib_b.add(sym);
+            let path_b = dir.path().join("SDiffB.SchLib");
+            lib_b.save(&path_b).unwrap();
+
+            let result = server.call_compare_components(&json!({
+                "filepath_a": path_a.to_string_lossy(),
+                "component_a": "RESISTOR",
+                "filepath_b": path_b.to_string_lossy(),
+                "component_b": "RESISTOR",
+            }));
+            assert!(!result.is_error, "{}", get_result_text(&result));
+            let parsed = parse_result_json(&result);
+            assert_eq!(parsed["identical"], false);
+            let differences = parsed["differences"].as_array().unwrap();
+            assert!(differences.iter().any(|d| d["field"] == "description"));
+            assert!(differences.iter().any(|d| d["field"] == "pins"));
+            assert!(differences.iter().any(|d| d["field"] == "rectangle_count"));
+        }
     }
 }

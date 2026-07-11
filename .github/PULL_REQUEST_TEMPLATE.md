@@ -34,7 +34,7 @@ See [CONTRIBUTING.md § Pull Requests](../CONTRIBUTING.md#pull-requests) for ful
 
 - [ ] CI checks pass (build, test, clippy, fmt)
 - [ ] Documentation updated if needed
-- [ ] CHANGELOG.md updated for user-facing changes
+- [ ] CHANGELOG.md updated for user-facing changes (once the changelog is initialised at the first release)
 
 ## Screenshots / Logs
 

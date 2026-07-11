@@ -727,6 +727,83 @@ mod tests {
     }
 
     #[test]
+    fn bytesless_embedded_image_does_not_steal_next_payload_same_symbol() {
+        // Regression: an `embed_image` image WITHOUT carried bytes used to be
+        // skipped by the writer while the reader still consumed a payload for
+        // it, so it stole the next embedded image's bytes. The writer now
+        // emits an empty placeholder entry, keeping the ordinals aligned.
+        let mut symbol = Symbol::new("BYTELESS_FIRST");
+
+        let mut byteless = Image::new(0, 0, 10, 6, r"C:\img\byteless.bmp");
+        byteless.embed_image = true; // no image_data
+        symbol.add_image(byteless);
+
+        let mut real = Image::new(0, 10, 10, 16, r"C:\img\real.bmp");
+        real.embed_image = true;
+        real.image_data = Some(vec![0x42, 0x4D, 0x99]);
+        symbol.add_image(real);
+
+        let mut lib = SchLib::new();
+        lib.add(symbol);
+        let mut buffer = Cursor::new(Vec::new());
+        lib.write(&mut buffer).expect("Failed to write SchLib");
+
+        buffer.set_position(0);
+        let read_lib = SchLib::read(buffer).expect("Failed to read SchLib");
+        let sym = read_lib.get("BYTELESS_FIRST").expect("Symbol not found");
+        let [a, b] = &sym.images[..] else {
+            panic!("expected exactly two images");
+        };
+        assert!(a.embed_image && b.embed_image, "both stay embedded");
+        assert_eq!(
+            a.image_data, None,
+            "the bytes-less image must NOT steal the next payload"
+        );
+        assert_eq!(
+            b.image_data.as_deref(),
+            Some([0x42, 0x4D, 0x99].as_slice()),
+            "the real image keeps its own payload"
+        );
+    }
+
+    #[test]
+    fn bytesless_embedded_image_does_not_steal_payload_across_symbols() {
+        // Same regression across symbol boundaries: the payload<->image match
+        // is in GLOBAL symbol order, so a bytes-less embedded image in an
+        // earlier symbol used to capture a later symbol's bytes.
+        let mut first = Symbol::new("A_BYTELESS");
+        let mut byteless = Image::new(0, 0, 10, 6, r"C:\img\byteless.bmp");
+        byteless.embed_image = true; // no image_data
+        first.add_image(byteless);
+
+        let mut second = Symbol::new("B_REAL");
+        let mut real = Image::new(0, 0, 10, 6, r"C:\img\real.bmp");
+        real.embed_image = true;
+        real.image_data = Some(vec![0xCA, 0xFE, 0xBA, 0xBE]);
+        second.add_image(real);
+
+        let mut lib = SchLib::new();
+        lib.add(first);
+        lib.add(second);
+        let mut buffer = Cursor::new(Vec::new());
+        lib.write(&mut buffer).expect("Failed to write SchLib");
+
+        buffer.set_position(0);
+        let read_lib = SchLib::read(buffer).expect("Failed to read SchLib");
+        let a = &read_lib.get("A_BYTELESS").expect("first symbol").images[0];
+        let b = &read_lib.get("B_REAL").expect("second symbol").images[0];
+        assert_eq!(
+            a.image_data, None,
+            "bytes-less image in the earlier symbol carries no bytes"
+        );
+        assert_eq!(
+            b.image_data.as_deref(),
+            Some([0xCA, 0xFE, 0xBA, 0xBE].as_slice()),
+            "the later symbol's image keeps its own payload"
+        );
+    }
+
+    #[test]
     fn roundtrip_text_frame() {
         // TextFrame (RECORD=28) round-trips through a full in-RAM library
         // write/read, with every field at a non-default value.
