@@ -13,10 +13,22 @@ impl McpServer {
     ///
     /// These are low-level file I/O and primitive placement tools.
     /// The AI handles IPC calculations and design decisions.
-    #[allow(clippy::too_many_lines)]
+    ///
+    /// Built from one helper per tool family: the `json!` schema literals
+    /// allocate their temporaries on the stack, and a single function holding
+    /// all of them breaches clippy's `large_stack_frames` threshold.
     pub(crate) fn get_tool_definitions() -> Vec<ToolDefinition> {
+        let mut tools = Self::reading_tool_definitions();
+        tools.extend(Self::style_tool_definitions());
+        tools.extend(Self::writing_tool_definitions());
+        tools.extend(Self::management_tool_definitions());
+        tools
+    }
+
+    /// Tool schemas for the library-reading family.
+    #[allow(clippy::too_many_lines)]
+    fn reading_tool_definitions() -> Vec<ToolDefinition> {
         vec![
-            // === Library Reading ===
             ToolDefinition {
                 name: "read_pcblib".to_string(),
                 example: Some(serde_json::json!({"name": "read_pcblib", "arguments": {"filepath": "./MyLibrary.PcbLib"}})),
@@ -122,29 +134,40 @@ impl McpServer {
                     "required": ["filepath"]
                 }),
             },
-            // === Style Extraction ===
-            ToolDefinition {
-                name: "extract_style".to_string(),
-                example: Some(serde_json::json!({"name": "extract_style", "arguments": {"filepath": "./MyLibrary.PcbLib"}})),
-                description: Some(
-                    "Extract style information from an existing Altium library file. Returns \
+        ]
+    }
+
+    /// Tool schemas for the style-extraction family.
+    fn style_tool_definitions() -> Vec<ToolDefinition> {
+        vec![ToolDefinition {
+            name: "extract_style".to_string(),
+            example: Some(
+                serde_json::json!({"name": "extract_style", "arguments": {"filepath": "./MyLibrary.PcbLib"}}),
+            ),
+            description: Some(
+                "Extract style information from an existing Altium library file. Returns \
                      statistics about track widths, colours, pin lengths, layer usage, and other \
                      styling parameters. Use this to learn from existing libraries and create \
                      consistent new components."
-                        .to_string(),
-                ),
-                input_schema: json!({
-                    "type": "object",
-                    "properties": {
-                        "filepath": {
-                            "type": "string",
-                            "description": "Path to the .PcbLib or .SchLib file"
-                        }
-                    },
-                    "required": ["filepath"]
-                }),
-            },
-            // === Library Writing ===
+                    .to_string(),
+            ),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "filepath": {
+                        "type": "string",
+                        "description": "Path to the .PcbLib or .SchLib file"
+                    }
+                },
+                "required": ["filepath"]
+            }),
+        }]
+    }
+
+    /// Tool schemas for the library-writing family.
+    #[allow(clippy::too_many_lines)]
+    fn writing_tool_definitions() -> Vec<ToolDefinition> {
+        vec![
             ToolDefinition {
                 name: "write_pcblib".to_string(),
                 example: Some(serde_json::json!({"name": "write_pcblib", "arguments": {"filepath": "./Passives.PcbLib", "footprints": [{"name": "RESC1608X55N", "description": "Chip resistor, 0603 (1608 metric)", "pads": [{"designator": "1", "x": -0.75, "y": 0, "width": 0.9, "height": 0.95}, {"designator": "2", "x": 0.75, "y": 0, "width": 0.9, "height": 0.95}], "tracks": [{"x1": -0.8, "y1": -0.425, "x2": 0.8, "y2": -0.425, "width": 0.12, "layer": "Top Overlay"}, {"x1": -0.8, "y1": 0.425, "x2": 0.8, "y2": 0.425, "width": 0.12, "layer": "Top Overlay"}], "regions": [{"vertices": [{"x": -1.45, "y": -0.73}, {"x": 1.45, "y": -0.73}, {"x": 1.45, "y": 0.73}, {"x": -1.45, "y": 0.73}], "layer": "Top Courtyard"}]}], "append": false}})),
@@ -1087,7 +1110,13 @@ impl McpServer {
                     "required": ["filepath", "documents"]
                 }),
             },
-            // === Library Management ===
+        ]
+    }
+
+    /// Tool schemas for the library-management family.
+    #[allow(clippy::too_many_lines)]
+    fn management_tool_definitions() -> Vec<ToolDefinition> {
+        vec![
             ToolDefinition {
                 name: "delete_component".to_string(),
                 example: Some(serde_json::json!({"name": "delete_component", "arguments": {"filepath": "./MyLibrary.PcbLib", "component_names": ["OLD_FOOTPRINT", "UNUSED_COMPONENT"], "dry_run": false}})),
