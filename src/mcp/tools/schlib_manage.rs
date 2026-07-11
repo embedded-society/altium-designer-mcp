@@ -483,3 +483,404 @@ impl McpServer {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use crate::altium::SchLib;
+    use crate::mcp::tools::test_support::{
+        create_test_schlib, create_test_server, get_result_text, parse_result_json, test_temp_dir,
+    };
+    use serde_json::json;
+
+    // ==================== manage_schlib_parameters ====================
+
+    #[test]
+    fn parameters_missing_required_arguments() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+
+        let result = server.call_manage_schlib_parameters(&json!({}));
+        assert!(result.is_error);
+        assert_eq!(
+            get_result_text(&result),
+            "Missing required parameter: filepath"
+        );
+
+        let result = server.call_manage_schlib_parameters(&json!({ "filepath": "x.SchLib" }));
+        assert!(result.is_error);
+        assert_eq!(
+            get_result_text(&result),
+            "Missing required parameter: component_name"
+        );
+
+        let result = server.call_manage_schlib_parameters(
+            &json!({ "filepath": "x.SchLib", "component_name": "RESISTOR" }),
+        );
+        assert!(result.is_error);
+        assert_eq!(
+            get_result_text(&result),
+            "Missing required parameter: operation"
+        );
+    }
+
+    #[test]
+    fn parameters_rejects_non_schlib_extension() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Lib.PcbLib");
+
+        let result = server.call_manage_schlib_parameters(&json!({
+            "filepath": path.to_string_lossy(),
+            "component_name": "RESISTOR",
+            "operation": "list",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("only supports SchLib files"));
+    }
+
+    #[test]
+    fn parameters_rejects_path_outside_allowed() {
+        let dir = test_temp_dir();
+        let other = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let outside = other.path().join("Out.SchLib");
+        create_test_schlib(&outside);
+
+        let result = server.call_manage_schlib_parameters(&json!({
+            "filepath": outside.to_string_lossy(),
+            "component_name": "RESISTOR",
+            "operation": "list",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Access denied"));
+    }
+
+    #[test]
+    fn parameters_add_get_list_set_delete_round_trip() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Params.SchLib");
+        create_test_schlib(&path);
+        let filepath = path.to_string_lossy().to_string();
+
+        // Add a parameter with optional placement.
+        let result = server.call_manage_schlib_parameters(&json!({
+            "filepath": filepath,
+            "component_name": "RESISTOR",
+            "operation": "add",
+            "parameter_name": "Tolerance",
+            "value": "1%",
+            "hidden": true,
+            "x": 5.0,
+            "y": -10.0,
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["operation"], "add");
+        assert_eq!(parsed["parameter"]["name"], "Tolerance");
+        assert_eq!(parsed["parameter"]["value"], "1%");
+
+        // Get it back (case-insensitive) — proves the write persisted.
+        let result = server.call_manage_schlib_parameters(&json!({
+            "filepath": filepath,
+            "component_name": "RESISTOR",
+            "operation": "get",
+            "parameter_name": "tolerance",
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["parameter"]["name"], "Tolerance");
+        assert_eq!(parsed["parameter"]["value"], "1%");
+        assert_eq!(parsed["parameter"]["hidden"], true);
+        assert_eq!(parsed["parameter"]["x"], 5.0);
+        assert_eq!(parsed["parameter"]["y"], -10.0);
+
+        // List includes it.
+        let result = server.call_manage_schlib_parameters(&json!({
+            "filepath": filepath,
+            "component_name": "RESISTOR",
+            "operation": "list",
+        }));
+        assert!(!result.is_error);
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["operation"], "list");
+        assert_eq!(parsed["count"], 1);
+        assert_eq!(parsed["parameters"][0]["name"], "Tolerance");
+
+        // Set updates value and visibility.
+        let result = server.call_manage_schlib_parameters(&json!({
+            "filepath": filepath,
+            "component_name": "RESISTOR",
+            "operation": "set",
+            "parameter_name": "Tolerance",
+            "value": "5%",
+            "hidden": false,
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["parameter"]["value"], "5%");
+        assert_eq!(parsed["parameter"]["hidden"], false);
+
+        // Verify on disk via the library layer (stable fields).
+        let lib = SchLib::open(&path).unwrap();
+        let sym = lib.get("RESISTOR").unwrap();
+        assert_eq!(sym.parameters.len(), 1);
+        assert_eq!(sym.parameters[0].name, "Tolerance");
+        assert_eq!(sym.parameters[0].value, "5%");
+        assert!(!sym.parameters[0].hidden);
+
+        // Delete removes it.
+        let result = server.call_manage_schlib_parameters(&json!({
+            "filepath": filepath,
+            "component_name": "RESISTOR",
+            "operation": "delete",
+            "parameter_name": "Tolerance",
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["deleted_parameter"], "Tolerance");
+
+        let lib = SchLib::open(&path).unwrap();
+        assert!(lib.get("RESISTOR").unwrap().parameters.is_empty());
+    }
+
+    #[test]
+    fn parameters_error_paths() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Err.SchLib");
+        create_test_schlib(&path);
+        let filepath = path.to_string_lossy().to_string();
+
+        // Unknown symbol.
+        let result = server.call_manage_schlib_parameters(&json!({
+            "filepath": filepath,
+            "component_name": "NOPE",
+            "operation": "list",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Symbol 'NOPE' not found"));
+
+        // Get a parameter that does not exist.
+        let result = server.call_manage_schlib_parameters(&json!({
+            "filepath": filepath,
+            "component_name": "RESISTOR",
+            "operation": "get",
+            "parameter_name": "Voltage",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Parameter 'Voltage' not found"));
+
+        // Set a parameter that does not exist.
+        let result = server.call_manage_schlib_parameters(&json!({
+            "filepath": filepath,
+            "component_name": "RESISTOR",
+            "operation": "set",
+            "parameter_name": "Voltage",
+            "value": "50V",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Use 'add' operation"));
+
+        // Delete a parameter that does not exist.
+        let result = server.call_manage_schlib_parameters(&json!({
+            "filepath": filepath,
+            "component_name": "RESISTOR",
+            "operation": "delete",
+            "parameter_name": "Voltage",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Parameter 'Voltage' not found"));
+
+        // Unknown operation.
+        let result = server.call_manage_schlib_parameters(&json!({
+            "filepath": filepath,
+            "component_name": "RESISTOR",
+            "operation": "rename",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Unknown operation: rename"));
+
+        // Add without value.
+        let result = server.call_manage_schlib_parameters(&json!({
+            "filepath": filepath,
+            "component_name": "RESISTOR",
+            "operation": "add",
+            "parameter_name": "Voltage",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Missing required parameter: value"));
+    }
+
+    #[test]
+    fn parameters_add_duplicate_is_rejected() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Dup.SchLib");
+        create_test_schlib(&path);
+        let filepath = path.to_string_lossy().to_string();
+
+        let add = json!({
+            "filepath": filepath,
+            "component_name": "CAPACITOR",
+            "operation": "add",
+            "parameter_name": "Voltage",
+            "value": "50V",
+        });
+        let result = server.call_manage_schlib_parameters(&add);
+        assert!(!result.is_error, "{}", get_result_text(&result));
+
+        let result = server.call_manage_schlib_parameters(&add);
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("already exists"));
+        assert!(get_result_text(&result).contains("Use 'set' operation"));
+    }
+
+    #[test]
+    fn parameters_add_rejects_out_of_range_coordinate() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Range.SchLib");
+        create_test_schlib(&path);
+
+        let result = server.call_manage_schlib_parameters(&json!({
+            "filepath": path.to_string_lossy(),
+            "component_name": "RESISTOR",
+            "operation": "add",
+            "parameter_name": "Voltage",
+            "value": "50V",
+            "x": 999_999.0,
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("parameter x"));
+    }
+
+    // ==================== manage_schlib_footprints ====================
+
+    #[test]
+    fn footprints_list_add_remove_round_trip() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Fps.SchLib");
+        create_test_schlib(&path);
+        let filepath = path.to_string_lossy().to_string();
+
+        // Initially empty.
+        let result = server.call_manage_schlib_footprints(&json!({
+            "filepath": filepath,
+            "component_name": "RESISTOR",
+            "operation": "list",
+        }));
+        assert!(!result.is_error);
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["count"], 0);
+
+        // Add a footprint link with description and library path.
+        let result = server.call_manage_schlib_footprints(&json!({
+            "filepath": filepath,
+            "component_name": "RESISTOR",
+            "operation": "add",
+            "footprint_name": "CHIP_0402",
+            "description": "0402 body",
+            "library_path": "Resistors.PcbLib",
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["footprint"], "CHIP_0402");
+
+        // List reflects the persisted link with its metadata.
+        let result = server.call_manage_schlib_footprints(&json!({
+            "filepath": filepath,
+            "component_name": "RESISTOR",
+            "operation": "list",
+        }));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["count"], 1);
+        assert_eq!(parsed["footprints"][0]["name"], "CHIP_0402");
+        assert_eq!(parsed["footprints"][0]["description"], "0402 body");
+        assert_eq!(parsed["footprints"][0]["library_path"], "Resistors.PcbLib");
+
+        // Duplicate add is rejected.
+        let result = server.call_manage_schlib_footprints(&json!({
+            "filepath": filepath,
+            "component_name": "RESISTOR",
+            "operation": "add",
+            "footprint_name": "chip_0402",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("already linked"));
+
+        // Remove it (case-insensitive).
+        let result = server.call_manage_schlib_footprints(&json!({
+            "filepath": filepath,
+            "component_name": "RESISTOR",
+            "operation": "remove",
+            "footprint_name": "chip_0402",
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["removed_footprint"], "chip_0402");
+
+        let lib = SchLib::open(&path).unwrap();
+        assert!(lib.get("RESISTOR").unwrap().footprints.is_empty());
+    }
+
+    #[test]
+    fn footprints_error_paths() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("FpErr.SchLib");
+        create_test_schlib(&path);
+        let filepath = path.to_string_lossy().to_string();
+
+        // Missing operation.
+        let result = server.call_manage_schlib_footprints(
+            &json!({ "filepath": filepath, "component_name": "RESISTOR" }),
+        );
+        assert!(result.is_error);
+        assert_eq!(
+            get_result_text(&result),
+            "Missing required parameter: operation"
+        );
+
+        // Missing footprint_name for add.
+        let result = server.call_manage_schlib_footprints(&json!({
+            "filepath": filepath,
+            "component_name": "RESISTOR",
+            "operation": "add",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Missing required parameter: footprint_name"));
+
+        // Removing a link that does not exist.
+        let result = server.call_manage_schlib_footprints(&json!({
+            "filepath": filepath,
+            "component_name": "RESISTOR",
+            "operation": "remove",
+            "footprint_name": "MISSING_FP",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Footprint 'MISSING_FP' not found"));
+
+        // Unknown symbol.
+        let result = server.call_manage_schlib_footprints(&json!({
+            "filepath": filepath,
+            "component_name": "NOPE",
+            "operation": "list",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Symbol 'NOPE' not found"));
+
+        // Unknown operation.
+        let result = server.call_manage_schlib_footprints(&json!({
+            "filepath": filepath,
+            "component_name": "RESISTOR",
+            "operation": "swap",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Unknown operation: swap"));
+    }
+}
