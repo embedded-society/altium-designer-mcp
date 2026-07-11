@@ -39,9 +39,12 @@ fn samples_exist() {
 fn samples_pcblib_pad_shapes() {
     let lib = PcbLib::open(sample("footprints.PcbLib")).expect("failed to open footprints.PcbLib");
 
-    // Fourteen footprints: twelve per-primitive-family footprints plus the two
-    // coverage-enrichment footprints (TEXT_STYLE, REGION_CUTOUT).
-    assert_eq!(lib.len(), 14, "expected exactly fourteen footprints");
+    // Fifteen footprints: twelve per-primitive-family footprints plus the three
+    // coverage-enrichment footprints (TEXT_STYLE, REGION_CUTOUT, TEXT_SPECIAL).
+    // Note: batch 4a authored TEXT_SPECIAL only — PAD_THERMAL is a documented
+    // negative (the thermal-relief/power-plane setters crash AD24's scripting
+    // engine on a fresh library pad; see GenerateSamples.pas).
+    assert_eq!(lib.len(), 15, "expected exactly fifteen footprints");
     let names = lib.names();
     for expected in [
         "PAD_SHAPES",
@@ -58,6 +61,7 @@ fn samples_pcblib_pad_shapes() {
         "EDGE",
         "TEXT_STYLE",
         "REGION_CUTOUT",
+        "TEXT_SPECIAL",
     ] {
         assert!(
             names.iter().any(|n| n == expected),
@@ -832,5 +836,80 @@ fn samples_pcblib_region_cutout() {
             .any(|(k, v)| k == "KEEPOUT" && v == "TRUE"),
         "the KEEPOUT flag is preserved in additional_parameters, got {:?}",
         r.additional_parameters
+    );
+}
+
+#[test]
+fn samples_pcblib_text_special() {
+    let lib = PcbLib::open(sample("footprints.PcbLib")).expect("failed to open footprints.PcbLib");
+    let fp = lib
+        .get("TEXT_SPECIAL")
+        .expect("TEXT_SPECIAL footprint not found");
+
+    // Two special text items authored in batch 4a: a Code-128 barcode ("BC128")
+    // and an inverted (knockout) TrueType text in a framed rectangle ("INV").
+    // First real-Altium ground truth for TextKind::BarCode and the inverted
+    // text-box descriptor (offsets 110-133), previously only
+    // self-round-trip-tested. Matched by content; on-disk order is not
+    // guaranteed.
+    assert_eq!(fp.text.len(), 2, "TEXT_SPECIAL has two text items");
+    let by_content = |content: &str| {
+        fp.text
+            .iter()
+            .find(|t| t.text == content)
+            .unwrap_or_else(|| panic!("text {content:?} not found"))
+    };
+
+    // Barcode: authored TextKind := eText_BarCode (+ eBarCode128 sizing, which
+    // the Text struct does not model — `kind` is the modelled surface).
+    let barcode = by_content("BC128");
+    assert_eq!(barcode.kind, TextKind::BarCode, "BC128 kind is BarCode");
+    assert_eq!(barcode.layer, Layer::TopOverlay, "BC128 layer");
+    assert!(!barcode.is_inverted, "BC128 is not inverted");
+    assert!(
+        approx_eq(barcode.height, 1.524, 1e-3),
+        "BC128 height: expected 60 mil = 1.524 mm, got {}",
+        barcode.height,
+    );
+
+    // Inverted TrueType: authored Inverted + UseInvertedRectangle +
+    // InvertedTTTextBorder = 10 mil. The rectangle dimensions themselves were
+    // auto-computed by Altium on save (not authored), so only the border is
+    // asserted exactly; the width/height must simply be present (Some) since
+    // UseInvertedRectangle is set.
+    let inv = by_content("INV");
+    assert_eq!(inv.kind, TextKind::TrueType, "INV kind is TrueType");
+    assert!(inv.is_inverted, "INV is inverted (knockout)");
+    assert!(inv.use_inverted_rectangle, "INV uses a framed rectangle");
+    assert_eq!(inv.font_name, "Arial", "INV TrueType font name");
+    assert!(
+        approx_eq(inv.inverted_border.expect("INV has a border"), 0.254, 1e-6),
+        "INV inverted_border: expected 10 mil = 0.254 mm, got {:?}",
+        inv.inverted_border,
+    );
+    // The auto-computed on-disk values (fixture ground truth): width 1,040,750
+    // internal units = 104.075 mil = 2.643505 mm; height 584,375 units =
+    // 58.4375 mil = 1.4843125 mm.
+    assert!(
+        approx_eq(
+            inv.inverted_rect_width.expect("INV has a rect width"),
+            2.643_505,
+            1e-5
+        ),
+        "INV inverted_rect_width: got {:?}",
+        inv.inverted_rect_width,
+    );
+    assert!(
+        approx_eq(
+            inv.inverted_rect_height.expect("INV has a rect height"),
+            1.484_312_5,
+            1e-5
+        ),
+        "INV inverted_rect_height: got {:?}",
+        inv.inverted_rect_height,
+    );
+    assert_eq!(
+        inv.inverted_rect_text_offset, None,
+        "INV text offset was not authored (zero on disk reads back None)"
     );
 }

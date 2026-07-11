@@ -356,6 +356,93 @@ begin
                                   PCBM_BoardRegisteration, Rgn.I_ObjectAddress);
 end;
 
+{ Through-hole pad with NON-DEFAULT thermal-relief / power-plane connection (the
+  PR-6 format fields). Names VERIFIED: PowerPlaneConnectStyle/Relief*/
+  PowerPlaneClearance from the AD24 IDE dump.
+  DOCUMENTED NEGATIVE (AD24, batch 4a): the pad-cache paste-mask pattern
+  (Padcache := Pad.GetState_Cache; Padcache.PasteMaskExpansionValid :=
+  eCacheManual; ...; Pad.SetState_Cache := Padcache) — although verified in
+  shipping scripts that operate on EXISTING board pads (SolderPasteGrid.pas,
+  SPI_Cleanup_LPW_Footprint.pas) — causes a native ACCESS VIOLATION in
+  ScriptingSystem.DLL ("Read of address 0x38" + runtime error 217) on a
+  freshly factory-created LIBRARY pad, the same unallocated-structure class
+  as the CRPercentage crash. Do not retry on a fresh pad; a mask-expansion
+  golden needs a different init sequence (or an existing-pad source). }
+procedure AddThPadThermal(Comp : IPCB_LibComponent; X : Integer; Nm : String);
+var
+    Pad : IPCB_Pad;
+begin
+    Pad := PCBServer.PCBObjectFactory(ePadObject, eNoDimension, eCreate_Default);
+    if Pad = nil then Exit;
+    Pad.Name     := Nm;
+    Pad.X        := MilsToCoord(X);
+    Pad.Y        := MilsToCoord(0);
+    Pad.Mode     := ePadMode_Simple;
+    Pad.Layer    := eMultiLayer;
+    Pad.TopShape := eRounded;
+    Pad.TopXSize := MilsToCoord(70);
+    Pad.TopYSize := MilsToCoord(70);
+    Pad.HoleType := eRoundHole;
+    Pad.HoleSize := MilsToCoord(35);
+    Pad.PowerPlaneConnectStyle := eDirectConnectToPlane;   { default is Relief }
+    Pad.ReliefConductorWidth   := MilsToCoord(15);
+    Pad.ReliefEntries          := 2;                       { default is 4 }
+    Pad.ReliefAirGap           := MilsToCoord(12);
+    Pad.PowerPlaneClearance    := MilsToCoord(25);
+    Comp.AddPCBObject(Pad);
+    PCBServer.SendMessageToRobots(Comp.I_ObjectAddress, c_Broadcast,
+                                  PCBM_BoardRegisteration, Pad.I_ObjectAddress);
+end;
+
+{ Barcode text (TextKind = eText_BarCode). Names VERIFIED from the AD24 IDE dump:
+  TextKind/BarCodeKind (eBarCode128) + BarCodeFullWidth/FullHeight/XMargin/
+  MinWidth/FontName/BarCodeInverted. }
+procedure AddTextBarcode(Comp : IPCB_LibComponent; X : Integer; Y : Integer;
+                         Content : String);
+var Txt : IPCB_Text;
+begin
+    Txt := PCBServer.PCBObjectFactory(eTextObject, eNoDimension, eCreate_Default);
+    if Txt = nil then Exit;
+    Txt.XLocation := MilsToCoord(X);
+    Txt.YLocation := MilsToCoord(Y);
+    Txt.Layer     := eTopOverlay;
+    Txt.Size      := MilsToCoord(60);
+    Txt.Rotation  := 0.0;
+    Txt.Text      := Content;
+    Txt.TextKind          := eText_BarCode;
+    Txt.BarCodeKind       := eBarCode128;
+    Txt.BarCodeFullWidth  := MilsToCoord(400);
+    Txt.BarCodeFullHeight := MilsToCoord(100);
+    Comp.AddPCBObject(Txt);
+    PCBServer.SendMessageToRobots(Comp.I_ObjectAddress, c_Broadcast,
+                                  PCBM_BoardRegisteration, Txt.I_ObjectAddress);
+end;
+
+{ Inverted (knockout) TrueType text in an inverted rectangle. Names VERIFIED from
+  the AD24 IDE dump: Inverted, UseInvertedRectangle, InvertedTTTextBorder,
+  TTFOffsetFromInvertedRect. }
+procedure AddTextInverted(Comp : IPCB_LibComponent; X : Integer; Y : Integer;
+                          Content : String);
+var Txt : IPCB_Text;
+begin
+    Txt := PCBServer.PCBObjectFactory(eTextObject, eNoDimension, eCreate_Default);
+    if Txt = nil then Exit;
+    Txt.XLocation := MilsToCoord(X);
+    Txt.YLocation := MilsToCoord(Y);
+    Txt.Layer     := eTopOverlay;
+    Txt.Size      := MilsToCoord(60);
+    Txt.Rotation  := 0.0;
+    Txt.Text      := Content;
+    Txt.UseTTFonts := True;
+    Txt.FontName   := 'Arial';
+    Txt.Inverted   := True;
+    Txt.UseInvertedRectangle := True;
+    Txt.InvertedTTTextBorder := MilsToCoord(10);
+    Comp.AddPCBObject(Txt);
+    PCBServer.SendMessageToRobots(Comp.I_ObjectAddress, c_Broadcast,
+                                  PCBM_BoardRegisteration, Txt.I_ObjectAddress);
+end;
+
 { ---- PcbLib authoring -------------------------------------------------------
 
   Footprints: PAD_SHAPES, PAD_HOLES, VIAS, TRACKS, ARCS, REGIONS, FILLS, TEXT_STROKE,
@@ -553,6 +640,38 @@ begin
     except
     end;
 
+    // DOCUMENTED NEGATIVE (AD24, batch 4a — bisect-confirmed): PAD_THERMAL stays
+    // disabled. Setting the pad thermal-relief / power-plane properties
+    // (PowerPlaneConnectStyle / ReliefConductorWidth / ReliefEntries /
+    // ReliefAirGap / PowerPlaneClearance) on a freshly factory-created LIBRARY
+    // pad crashes with a native ScriptingSystem.DLL access violation ("Read of
+    // address 0x38" + runtime error 217) — WITH or WITHOUT the explicit
+    // GetState_Cache block, so the plain setters are cache-backed too (same
+    // unallocated-structure class as the CRPercentage crash). Do not retry on a
+    // fresh pad; a thermal-relief golden needs a different init sequence.
+    // try
+    //     Comp := PCBServer.CreatePCBLibComp;
+    //     Comp.Name := 'PAD_THERMAL';
+    //     Lib.RegisterComponent(Comp);
+    //     PCBServer.PreProcess;
+    //     AddThPadThermal(Comp, 0, '1');
+    //     PCBServer.PostProcess;
+    // except
+    // end;
+
+    // TEXT_SPECIAL: a Code-128 barcode text and an inverted (knockout) TrueType
+    // text in an inverted rectangle (batch 4a).
+    try
+        Comp := PCBServer.CreatePCBLibComp;
+        Comp.Name := 'TEXT_SPECIAL';
+        Lib.RegisterComponent(Comp);
+        PCBServer.PreProcess;
+        AddTextBarcode(Comp, 0, 100, 'BC128');
+        AddTextInverted(Comp, 0, -100, 'INV');
+        PCBServer.PostProcess;
+    except
+    end;
+
     // NOTE: a PAD_ROUNDED footprint using CRPercentage[eTopLayer] was tried but the
     // indexed corner-radius setter on a freshly-created Simple pad causes a native
     // ACCESS VIOLATION in ScriptingSystem.DLL (runtime, not compile — escapes
@@ -746,6 +865,74 @@ begin
     Comp.AddSchObject(Img);
     SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast,
                                        SCHM_PrimitiveRegistration, Img.I_ObjectAddress);
+end;
+
+{ Pin carrying the binary-pin TRAILING-STRING fields: SwapId_Pin / SwapId_Part
+  (the swap-group tail strings) and DefaultValue. Names VERIFIED from the AD24
+  IDE dump (ISch_Pin: SwapId_Pin/SwapId_Part/SwapId_PartPin/SwapId_Pair :
+  WideString; DefaultValue : WideString). }
+procedure AddPinSwap(Comp : ISch_Component; Y : Integer; Desig : String; Nm : String);
+var
+    Pin : ISch_Pin;
+begin
+    Pin := SchServer.SchObjectFactory(ePin, eCreate_Default);
+    if Pin = nil then Exit;
+    Pin.Location             := Point(MilsToCoord(0), MilsToCoord(Y));
+    Pin.Orientation          := eRotate180;
+    Pin.PinLength            := MilsToCoord(200);
+    Pin.Electrical           := eElectricInput;
+    Pin.Designator           := Desig;
+    Pin.Name                 := Nm;
+    Pin.SwapId_Pin           := 'A';
+    Pin.SwapId_Part          := '1';
+    Pin.DefaultValue         := '3V3';
+    Pin.OwnerPartId          := 1;
+    Pin.OwnerPartDisplayMode := Comp.DisplayMode;
+    Comp.AddSchObject(Pin);
+    SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast,
+                                       SCHM_PrimitiveRegistration, Pin.I_ObjectAddress);
+end;
+
+{ OFF-GRID rectangle: coordinates carry a +5000 internal-unit remainder (0.5 mil)
+  so the saved record emits the graphic-shape `*_Frac` keys — the same +5000
+  pattern the FRACPINS pins use (proven). }
+procedure AddRectFrac(Comp : ISch_Component; X1 : Integer; Y1 : Integer;
+                      X2 : Integer; Y2 : Integer);
+var R : ISch_Rectangle;
+begin
+    R := SchServer.SchObjectFactory(eRectangle, eCreate_Default);
+    if R = nil then Exit;
+    R.Location          := Point(MilsToCoord(X1) + 5000, MilsToCoord(Y1) + 5000);
+    R.Corner            := Point(MilsToCoord(X2) + 5000, MilsToCoord(Y2) + 5000);
+    R.LineWidth         := eSmall;
+    R.Color             := $000000;
+    R.AreaColor         := $B0FFFF;
+    R.IsSolid           := True;
+    R.OwnerPartId       := 1;
+    R.OwnerPartDisplayMode := Comp.DisplayMode;
+    Comp.AddSchObject(R);
+    SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast,
+                                       SCHM_PrimitiveRegistration, R.I_ObjectAddress);
+end;
+
+{ OFF-GRID arc: centre carries a +5000 internal-unit remainder (0.5 mil), so the
+  record emits Location.X_Frac / Location.Y_Frac / Radius_Frac. }
+procedure AddSchArcFrac(Comp : ISch_Component; CX : Integer; CY : Integer; R : Integer);
+var Arc : ISch_Arc;
+begin
+    Arc := SchServer.SchObjectFactory(eArc, eCreate_Default);
+    if Arc = nil then Exit;
+    Arc.Location   := Point(MilsToCoord(CX) + 5000, MilsToCoord(CY) + 5000);
+    Arc.Radius     := MilsToCoord(R) + 5000;
+    Arc.StartAngle := 0;
+    Arc.EndAngle   := 270;
+    Arc.LineWidth  := eSmall;
+    Arc.Color      := $000000;
+    Arc.OwnerPartId          := 1;
+    Arc.OwnerPartDisplayMode := Comp.DisplayMode;
+    Comp.AddSchObject(Arc);
+    SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast,
+                                       SCHM_PrimitiveRegistration, Arc.I_ObjectAddress);
 end;
 
 { Bordered multi-line text frame (RECORD=28). All member names VERIFIED against the
@@ -1511,6 +1698,25 @@ begin
         Comp := NewSymbol(Lib, 'EMBIMGSYM', 'Embedded image', 1);
         if Comp <> nil then
             AddImageEmbedded(Comp, -20, -20, 20, 20, OUT_DIR + 'embed.bmp');
+    except
+    end;
+
+    { ---- SWAPPIN — a pin carrying SwapId_Pin/SwapId_Part + DefaultValue (batch 4a). ---- }
+    try
+        Comp := NewSymbol(Lib, 'SWAPPIN', 'Pin swap ids + default value', 1);
+        if Comp <> nil then
+            AddPinSwap(Comp, 0, '1', 'SWP');
+    except
+    end;
+
+    { ---- FRACSHAPES — off-grid rectangle + arc exercising the shape *_Frac keys (batch 4a). ---- }
+    try
+        Comp := NewSymbol(Lib, 'FRACSHAPES', 'Off-grid shapes', 1);
+        if Comp <> nil then
+        begin
+            AddRectFrac(Comp, -55, -25, 55, 25);
+            AddSchArcFrac(Comp, 0, 0, 40);
+        end;
     except
     end;
 

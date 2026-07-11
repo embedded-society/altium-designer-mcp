@@ -291,13 +291,26 @@ value = <key> + <key>_Frac / 100000
 
 This applies to every coordinate key — `Location.X`/`Y`, `Corner.X`/`Y`,
 `Radius`, `SecondaryRadius`, `CornerXRadius`/`CornerYRadius`, and the polyline /
-polygon vertices `X{n}`/`Y{n}`. The `_Frac` field is **non-negative** (range
-`0..=99999`); for negative coordinates the integer part is the **floor**, so e.g.
-`-28.995` is stored as `Location.X=-29` with `Location.X_Frac=500`
-(`-29 + 500/100000 = -28.995`). A `_Frac` of `0` is omitted, so integer-grid
-coordinates serialise exactly as before. When the fractional part rounds up to a
-whole unit it **carries** into the integer part (e.g. `4.999995` → `Radius=5`,
-no `_Frac`) rather than being clamped.
+polygon vertices `X{n}`/`Y{n}`. The `_Frac` field is **signed**: AD24 truncates
+the integer part **toward zero** and lets the fraction carry the coordinate's
+sign (range `-99999..=99999`, never opposite in sign to the integer part). The
+FRACSHAPES golden fixture stores `-5.45` as `Location.X=-5` with
+`Location.X_Frac=-45000` (`-5 + -45000/100000 = -5.45`). When the integer part
+is zero but the fraction is not, AD24 **omits the integer key entirely** (the
+golden arc centred at `0.05` carries only `Location.X_Frac=5000`, no
+`Location.X`); a plain on-grid zero still emits `<key>=0`. A `_Frac` of `0` is
+omitted, so integer-grid coordinates serialise exactly as before. When the
+fractional part rounds up to a whole unit it **carries** into the integer part
+(e.g. `4.999995` → `Radius=5`, no `_Frac`) rather than being clamped.
+
+> **Historical note:** versions of this crate before the signed-frac fix wrote
+> the *floor* form instead — a non-negative `_Frac` with a floored integer part
+> (`-5.45` → `Location.X=-6`, `Location.X_Frac=55000`). Both forms decode
+> identically under `value = int + frac / 100000`, and the reader parses the
+> fraction as a signed integer, so files written in either convention read
+> back correctly. (The pre-fix reader parsed `_Frac` as *unsigned*, silently
+> dropping the fractional part of every AD24-written negative off-grid
+> coordinate.)
 
 Binary pin records (Type 1) store integer coordinates only and do not use
 `_Frac`.
@@ -582,8 +595,8 @@ The designator record identifies the component (e.g., R?, U?, C?).
 | `Color` | int | Line colour (BGR) |
 
 > **Note:** Fractional radius values are stored multiplied by 100,000 for precision without floating point
-> (see [Fractional coordinates](#fractional-coordinates)). The fractional field is non-negative
-> (`0..=99999`); a value rounding up to a whole unit carries into the integer part rather than being clamped.
+> (see [Fractional coordinates](#fractional-coordinates) for the signed toward-zero convention).
+> A value rounding up to a whole unit carries into the integer part rather than being clamped.
 >
 > `Location.Y` may be omitted if the value is 0.
 >

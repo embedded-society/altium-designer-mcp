@@ -34,7 +34,8 @@ field. The fix is always to enrich them (see the workflow below).
   negative in the `.pas` next to the helper (and in the tables below) so it is not retried
   blindly. Known AD24 negatives: `Disabled`/`Dimmed` on a library rectangle,
   `ISch_RoundRectangle.Transparent`, `Pad.CRPercentage[...]` on a fresh Simple pad (native
-  crash).
+  crash), and the pad thermal-relief / power-plane setters on a fresh library pad (native
+  crash — see the Pad row).
 
 ## Coverage map
 
@@ -45,23 +46,23 @@ negative (Altium does not persist it — do not retry).
 
 | Primitive | Exercised today | Not exercised (❌) |
 |-----------|-----------------|--------------------|
-| Pad | shape (round/rect/oct/rrect), TH holes (round/square/slot), local stack, rotation, negative/far coords | thermal-relief (relief_*), power-plane connect style, paste/solder-mask expansion, testpoint flags, slot geometry on SMD, drill tolerances, jumper id, locked/keepout flags; 🚫 corner-radius `CRPercentage` (crashes on a fresh Simple pad — needs correct pad-stack init first) |
+| Pad | shape (round/rect/oct/rrect), TH holes (round/square/slot), local stack, rotation, negative/far coords | paste/solder-mask expansion, testpoint flags, slot geometry on SMD, drill tolerances, jumper id, locked/keepout flags; 🚫 corner-radius `CRPercentage` (crashes on a fresh Simple pad — needs correct pad-stack init first); 🚫 thermal-relief / power-plane setters (`PowerPlaneConnectStyle` / `ReliefConductorWidth` / `ReliefEntries` / `ReliefAirGap` / `PowerPlaneClearance` crash AD24's scripting engine with a native access violation on a fresh library pad, with or without `GetState_Cache` — batch 4a bisect; `PAD_THERMAL` stays disabled in the `.pas`) |
 | Via | simple TH, two pad/hole sizes | thermal-relief, power-plane, tenting flags, net index, paste-mask expansion, GUID |
 | Track | silk box + copper track, two widths, two layers | locked/keepout flags, net index |
 | Arc | full circle + quarter arc | fill/area colour, locked/keepout, net index |
 | Region | copper box + mechanical box; ✅ board-cutout representation (`ISBOARDCUTOUT=TRUE` + `KEEPOUT=TRUE`, relocated to the keep-out layer — `samples_pcblib_region_cutout`) | named region, net, arc-resolution/cavity/subpoly/union params |
 | Fill | axis-aligned + 45°-rotated copper | locked/keepout, net index |
-| Text | stroke text, Win-1252 chars, vertical (90°); ✅ TrueType `font_name`='Arial' + bold + italic + mirror (`TEXT_STYLE`) | justification, kind=BarCode, stroke_font variants, inverted-rect block, barcode block, char_set, union_index, net/component index, flags |
+| Text | stroke text, Win-1252 chars, vertical (90°); ✅ TrueType `font_name`='Arial' + bold + italic + mirror (`TEXT_STYLE`); ✅ kind=BarCode (`TEXT_SPECIAL` 'BC128'); ✅ inverted (knockout) text + inverted-rect descriptor (`TEXT_SPECIAL` 'INV': `is_inverted`, `use_inverted_rectangle`, `inverted_border`=10 mil, auto-computed rect width/height exact-asserted) | justification, stroke_font variants, barcode sizing block (not modelled), char_set, union_index, net/component index, flags |
 | ComponentBody | one extruded box (Mechanical) | embedded STEP model, cavity height, model 2D location/rotation, non-default colour/opacity, raw-outline precision |
 
 ### SchLib (`symbols.SchLib`)
 
 | Primitive | Exercised today | Not exercised (❌) |
 |-----------|-----------------|--------------------|
-| Pin | electrical types (all 8), orientations (0/90/180/270), name/designator visibility, edge decorations, dual-part `owner_part_id`; ✅ PinFrac off-grid coords (`FRACPINS`), ✅ PinSymbolLineWidth (`Symbol_LineWidth=eLarge`) | owner_part_display_mode (non-default), swap_id_group, part_and_sequence, default_value, graphically_locked |
+| Pin | electrical types (all 8), orientations (0/90/180/270), name/designator visibility, edge decorations, dual-part `owner_part_id`; ✅ PinFrac off-grid coords (`FRACPINS`), ✅ PinSymbolLineWidth (`Symbol_LineWidth=eLarge`); ✅ swap-id tail (`SWAPPIN`: `SwapId_Pin`→`swap_id_group`='A', `SwapId_Part`→`part_and_sequence`='1', `DefaultValue`→`default_value`='3V3') | owner_part_display_mode (non-default), graphically_locked |
 | Line | plain segments; ✅ line_style dashed + dotted (`SHAPESTYLE`) | is_not_accessible=false, display flags |
-| Arc | plain arcs | fill/area colour, is_not_accessible=false, `_Frac` coords, display flags |
-| Rectangle | plain rects; ✅ transparent (`SHAPESTYLE`), ✅ GraphicallyLocked (`LOCKFLAGS`) | line_style; 🚫 Disabled/Dimmed (authored but not persisted by AD24) |
+| Arc | plain arcs; ✅ `_Frac` coords (`FRACSHAPES`: centre (0.05, 0.05), radius 4.05 — AD24 omits the zero integer keys and stores frac-only) | fill/area colour, is_not_accessible=false, display flags |
+| Rectangle | plain rects; ✅ transparent (`SHAPESTYLE`), ✅ GraphicallyLocked (`LOCKFLAGS`); ✅ `_Frac` coords incl. negatives (`FRACSHAPES`: (-5.45, -2.45)–(5.55, 2.55)) | line_style; 🚫 Disabled/Dimmed (authored but not persisted by AD24) |
 | RoundRect | plain rounded rects | line_style, display flags; 🚫 transparent (authored but not persisted on a library round-rect) |
 | Ellipse | plain ellipses; ✅ transparent (batch 3) | display flags |
 | Polyline | plain polylines | line_style, start/end shapes, transparent, display flags |
@@ -80,14 +81,20 @@ negative (Altium does not persist it — do not retry).
 - **`unique_id`** — present in fixtures, so identity read is covered; but per-primitive GUID
   streams for populated cases are thin.
 - **Fractional coordinates** — the Pin `_Frac` path is golden-covered via the `PinFrac` aux
-  stream (`FRACPINS`); the text-record `*_Frac` key path on graphic shapes is still
-  unexercised (every fixture *shape* sits on the integer grid).
+  stream (`FRACPINS`); the text-record `*_Frac` key path on graphic shapes is now ✅
+  golden-covered too (`FRACSHAPES`, batch 4a). The golden exposed a real convention:
+  AD24 stores negative off-grid coordinates as **truncation toward zero with a SIGNED
+  `_Frac`** (`Location.X=-5|Location.X_Frac=-45000` = −5.45) and **omits a zero integer
+  key** when only the fraction is non-zero (`Location.X_Frac=5000` with no `Location.X`).
+  The reader previously parsed `_Frac` as unsigned and silently truncated every negative
+  off-grid coordinate; reader and writer now follow the signed toward-zero convention
+  (see `docs/SCHLIB_FORMAT.md` § Fractional coordinates).
 
 ## Remaining enrichment backlog (batch 4+)
 
-PcbLib: pad thermal-relief / power-plane (`PowerPlaneConnectStyle`) + mask expansion
-(`GetState_Cache`→`SetState_Cache` pattern); text inverted-rect + barcode (`BarCodeKind`);
-an embedded-STEP `ComponentBody`; a multi-layer spread footprint (internal-plane /
-mechanical / drill / keepout layers). SchLib: pin swap_id / part_and_sequence /
-default_value; off-grid graphic shapes (`*_Frac`); non-default `OwnerPartDisplayMode`.
-Each batch: extend the `.pas` → regenerate locally → commit binaries → exact assertions.
+PcbLib: pad mask expansion; an embedded-STEP `ComponentBody`; a multi-layer spread
+footprint (internal-plane / mechanical / drill / keepout layers). Pad thermal-relief /
+power-plane is 🚫 blocked on the scripting side (native crash on a fresh library pad —
+see the Pad row); a golden needs a different pad-init sequence. SchLib: non-default
+`OwnerPartDisplayMode`. Each batch: extend the `.pas` → regenerate locally → commit
+binaries → exact assertions.
