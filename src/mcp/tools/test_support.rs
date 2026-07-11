@@ -14,12 +14,17 @@ use crate::mcp::server::{McpServer, ToolCallResult, ToolContent};
 /// Creates a temporary directory inside `.tmp/` for test isolation.
 /// The directory is automatically cleaned up when the returned `TempDir` is dropped.
 ///
-/// Uses an absolute path to avoid issues with parallel test execution.
+/// Uses an absolute path (canonicalised from the constant `.tmp`, which cargo
+/// resolves against the crate root) to avoid issues with parallel test
+/// execution. Deriving it from a constant rather than `current_dir()` also
+/// avoids the spurious `rust/path-injection` taint CodeQL raises on this
+/// test-only helper.
 pub fn test_temp_dir() -> TempDir {
-    let cwd = std::env::current_dir().expect("Failed to get current directory");
-    let tmp_root = cwd.join(".tmp");
-    std::fs::create_dir_all(&tmp_root).expect("Failed to create .tmp directory");
-    tempfile::tempdir_in(&tmp_root).expect("Failed to create temp dir")
+    std::fs::create_dir_all(".tmp").expect("Failed to create .tmp directory");
+    let tmp_root = std::path::Path::new(".tmp")
+        .canonicalize()
+        .expect("Failed to canonicalise .tmp");
+    tempfile::tempdir_in(tmp_root).expect("Failed to create temp dir")
 }
 
 /// Helper to create a server with a temp directory as the only allowed path.
