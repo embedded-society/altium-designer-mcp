@@ -17,7 +17,7 @@ use crate::mcp::server::{McpServer, ToolCallResult, ToolContent};
 /// Uses an absolute path (canonicalised from the constant `.tmp`, which cargo
 /// resolves against the crate root) to avoid issues with parallel test
 /// execution. Deriving it from a constant rather than `current_dir()` also
-/// avoids the spurious `rust/path-injection` taint CodeQL raises on this
+/// avoids the spurious `rust/path-injection` taint `CodeQL` raises on this
 /// test-only helper.
 pub fn test_temp_dir() -> TempDir {
     std::fs::create_dir_all(".tmp").expect("Failed to create .tmp directory");
