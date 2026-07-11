@@ -71,6 +71,24 @@ $EmbedBmp = Join-Path $BridgeDir 'embed.bmp'
 )
 [System.IO.File]::WriteAllBytes($EmbedBmp, $bmpBytes)
 
+# Minimal syntactically-valid STEP file for the EMBSTEP embedded-model footprint
+# (batch 4b). If Altium's importer rejects a geometry-less STEP the DelphiScript
+# skips the body (guarded nil check) and the read test flags the gap — iterate
+# with a richer file then.
+$MinStep = Join-Path $BridgeDir 'minimal.step'
+@'
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION((''),'2;1');
+FILE_NAME('minimal.step','2026-07-11T00:00:00',(''),(''),'','','');
+FILE_SCHEMA(('AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }'));
+ENDSEC;
+DATA;
+#1=CARTESIAN_POINT('',(0.,0.,0.));
+ENDSEC;
+END-ISO-10303-21;
+'@ | Set-Content -Path $MinStep -Encoding ASCII
+
 Write-Host "Authoring sample libraries..."
 
 # Launch Altium with the generate script. The `^|` separator is what RunScript expects;

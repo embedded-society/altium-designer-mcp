@@ -51,11 +51,11 @@ fn pin_by_designator<'a>(symbol: &'a Symbol, designator: &str) -> &'a Pin {
 fn samples_schlib_structure() {
     let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
 
-    // Twenty-six Altium-authored symbols: fifteen per-primitive-family symbols
-    // plus eleven coverage-enrichment symbols (SHAPESTYLE, LOCKFLAGS, JUSTIFY,
+    // Twenty-seven Altium-authored symbols: fifteen per-primitive-family symbols
+    // plus twelve coverage-enrichment symbols (SHAPESTYLE, LOCKFLAGS, JUSTIFY,
     // FRACPINS, BEZIERSYM, PIESYM, IMAGESYM, TEXTFRAMESYM, EMBIMGSYM, SWAPPIN,
-    // FRACSHAPES) added to GenerateSamples.pas and regenerated on-site.
-    assert_eq!(lib.len(), 26, "expected exactly twenty-six symbols");
+    // FRACSHAPES, DISPMODE) added to GenerateSamples.pas and regenerated on-site.
+    assert_eq!(lib.len(), 27, "expected exactly twenty-seven symbols");
 
     let names = lib.names();
     for expected in [
@@ -85,6 +85,7 @@ fn samples_schlib_structure() {
         "EMBIMGSYM",
         "SWAPPIN",
         "FRACSHAPES",
+        "DISPMODE",
     ] {
         assert!(
             names.iter().any(|n| n == expected),
@@ -996,4 +997,63 @@ fn samples_schlib_swappin() {
         pin.default_value, "3V3",
         "DefaultValue lands in default_value"
     );
+}
+
+#[test]
+fn samples_schlib_dispmode() {
+    let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
+    let sym = lib.get("DISPMODE").expect("DISPMODE symbol not found");
+
+    // A DisplayModeCount=2 symbol with one rectangle per display mode — the
+    // first real-Altium golden for a non-default `OwnerPartDisplayMode` (it was
+    // self-round-trip only until this fixture). The RECORD=1 header carries
+    // `DisplayModeCount=2` verbatim.
+    assert_eq!(sym.display_mode_count, 2, "DisplayModeCount round-trips");
+    assert_eq!(sym.rectangles.len(), 2, "DISPMODE has two rectangles");
+
+    // Mode-0 (normal view) rectangle: (-5, -2.5)..(5, 2.5) units. The ±2.5 y
+    // coordinates are more signed-frac ground truth — the golden stores
+    // `Location.Y=-2|Location.Y_Frac=-50000` (truncation toward zero with a
+    // signed fraction) and `Corner.Y=2|Corner.Y_Frac=50000`.
+    let mode0 = sym
+        .rectangles
+        .iter()
+        .find(|r| r.display_flags.owner_part_display_mode == 0)
+        .expect("DISPMODE has a mode-0 rectangle");
+    assert!(
+        approx_eq(mode0.x1, -5.0) && approx_eq(mode0.y1, -2.5),
+        "mode-0 corner 1 (signed-frac y), got ({}, {})",
+        mode0.x1,
+        mode0.y1
+    );
+    assert!(
+        approx_eq(mode0.x2, 5.0) && approx_eq(mode0.y2, 2.5),
+        "mode-0 corner 2, got ({}, {})",
+        mode0.x2,
+        mode0.y2
+    );
+
+    // Mode-1 (alternate view) rectangle: (-6, -3)..(6, 3) units, carrying
+    // `OwnerPartDisplayMode=1` in its RECORD=14 line.
+    let mode1 = sym
+        .rectangles
+        .iter()
+        .find(|r| r.display_flags.owner_part_display_mode == 1)
+        .expect("DISPMODE has a mode-1 rectangle");
+    assert!(
+        approx_eq(mode1.x1, -6.0) && approx_eq(mode1.y1, -3.0),
+        "mode-1 corner 1, got ({}, {})",
+        mode1.x1,
+        mode1.y1
+    );
+    assert!(
+        approx_eq(mode1.x2, 6.0) && approx_eq(mode1.y2, 3.0),
+        "mode-1 corner 2, got ({}, {})",
+        mode1.x2,
+        mode1.y2
+    );
+
+    // Both rectangles belong to part 1 — display modes are orthogonal to parts.
+    assert_eq!(mode0.owner_part_id, 1, "mode-0 owner part");
+    assert_eq!(mode1.owner_part_id, 1, "mode-1 owner part");
 }

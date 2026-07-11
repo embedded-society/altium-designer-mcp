@@ -39,12 +39,13 @@ fn samples_exist() {
 fn samples_pcblib_pad_shapes() {
     let lib = PcbLib::open(sample("footprints.PcbLib")).expect("failed to open footprints.PcbLib");
 
-    // Fifteen footprints: twelve per-primitive-family footprints plus the three
-    // coverage-enrichment footprints (TEXT_STYLE, REGION_CUTOUT, TEXT_SPECIAL).
-    // Note: batch 4a authored TEXT_SPECIAL only — PAD_THERMAL is a documented
-    // negative (the thermal-relief/power-plane setters crash AD24's scripting
-    // engine on a fresh library pad; see GenerateSamples.pas).
-    assert_eq!(lib.len(), 15, "expected exactly fifteen footprints");
+    // Seventeen footprints: twelve per-primitive-family footprints plus the five
+    // coverage-enrichment footprints (TEXT_STYLE, REGION_CUTOUT, TEXT_SPECIAL,
+    // MULTILAYER, EMBSTEP). Note: PAD_THERMAL remains a documented negative — the
+    // thermal-relief/power-plane setters crash AD24's scripting engine on a fresh
+    // library pad in every sequence tried (batch 4b final bisect); see
+    // GenerateSamples.pas.
+    assert_eq!(lib.len(), 17, "expected exactly seventeen footprints");
     let names = lib.names();
     for expected in [
         "PAD_SHAPES",
@@ -62,6 +63,8 @@ fn samples_pcblib_pad_shapes() {
         "TEXT_STYLE",
         "REGION_CUTOUT",
         "TEXT_SPECIAL",
+        "MULTILAYER",
+        "EMBSTEP",
     ] {
         assert!(
             names.iter().any(|n| n == expected),
@@ -837,6 +840,129 @@ fn samples_pcblib_region_cutout() {
         "the KEEPOUT flag is preserved in additional_parameters, got {:?}",
         r.additional_parameters
     );
+}
+
+#[test]
+fn samples_pcblib_multilayer() {
+    let lib = PcbLib::open(sample("footprints.PcbLib")).expect("failed to open footprints.PcbLib");
+    let fp = lib
+        .get("MULTILAYER")
+        .expect("MULTILAYER footprint not found");
+
+    // Six 10-mil tracks (x -50..50 mil) stacked at y = 0/20/40/60/80/100 mil, one
+    // per exotic layer arm of `layer_from_id` — the first real-Altium golden for
+    // the mechanical / mid-copper / drill / internal-plane / keep-out IDs (58, 6,
+    // 55, 73, 39, 56). Byte-probe of MULTILAYER/Data confirmed the authored layer
+    // IDs verbatim. Tracks are matched by their y position (mm), never by index.
+    //
+    // Note the first row: the track authored on eMechanical2 (layer ID 58) reads
+    // back as `Layer::TopAssembly` — the reader's documented alias for ID 58 (the
+    // component-layer-pair name for Mechanical 2). The mapping is lossless on the
+    // wire: the writer maps both `TopAssembly` and `Mechanical2` back to ID 58.
+    assert_eq!(fp.tracks.len(), 6, "MULTILAYER has 6 tracks");
+
+    let expected: [(f64, Layer); 6] = [
+        (0.0, Layer::TopAssembly), // authored eMechanical2 (ID 58)
+        (0.508, Layer::MidLayer5),
+        (1.016, Layer::DrillGuide),
+        (1.524, Layer::DrillDrawing),
+        (2.032, Layer::InternalPlane1),
+        (2.54, Layer::KeepOut),
+    ];
+    for (y_mm, layer) in expected {
+        let track = fp
+            .tracks
+            .iter()
+            .find(|t| approx_eq(t.y1, y_mm, 1e-6) && approx_eq(t.y2, y_mm, 1e-6))
+            .unwrap_or_else(|| panic!("no horizontal track at y = {y_mm} mm"));
+        assert_eq!(track.layer, layer, "layer of the track at y = {y_mm} mm");
+        assert!(
+            approx_eq(track.x1, -1.27, 1e-6) && approx_eq(track.x2, 1.27, 1e-6),
+            "track at y = {y_mm} mm spans -50..50 mil, got x1={} x2={}",
+            track.x1,
+            track.x2,
+        );
+        assert!(
+            approx_eq(track.width, 0.254, 1e-6),
+            "track at y = {y_mm} mm is 10 mil wide, got {}",
+            track.width,
+        );
+    }
+}
+
+#[test]
+fn samples_pcblib_embstep() {
+    let lib = PcbLib::open(sample("footprints.PcbLib")).expect("failed to open footprints.PcbLib");
+    let fp = lib.get("EMBSTEP").expect("EMBSTEP footprint not found");
+
+    // A component body carrying an EMBEDDED minimal AP214 STEP model, authored via
+    // ModelFactory_FromFilename -> SetState_FromModel -> .Model. This is the first
+    // real-Altium golden for the embedded-model read path: the body's parameter
+    // record carries MODELID/MODEL.CHECKSUM/MODEL.NAME, and the library-level
+    // /Library/Models/Data + /Library/Models/0 streams carry the zlib-compressed
+    // model bytes. All values below were byte-probed from the fixture.
+    assert_eq!(fp.component_bodies.len(), 1, "EMBSTEP has 1 component body");
+    let body = &fp.component_bodies[0];
+
+    assert_eq!(
+        body.model_id, "{A0448C65-C10D-4882-92F6-D6E5A5C55B3D}",
+        "the body references the embedded model's GUID"
+    );
+    assert_eq!(body.model_name, "minimal.step", "MODEL.NAME");
+    assert!(body.embedded, "MODEL.EMBED=TRUE reads as embedded");
+    assert_eq!(
+        body.model_checksum, 1_975_055,
+        "MODEL.CHECKSUM round-trips verbatim"
+    );
+    // The model was imported unrotated and flush on the board.
+    assert!(approx_eq(body.rotation_x, 0.0, 1e-9), "MODEL.3D.ROTX");
+    assert!(approx_eq(body.rotation_y, 0.0, 1e-9), "MODEL.3D.ROTY");
+    assert!(approx_eq(body.rotation_z, 0.0, 1e-9), "MODEL.3D.ROTZ");
+    assert!(approx_eq(body.z_offset, 0.0, 1e-9), "MODEL.3D.DZ");
+    assert!(approx_eq(body.standoff_height, 0.0, 1e-9), "STANDOFFHEIGHT");
+    assert!(approx_eq(body.overall_height, 0.0, 1e-9), "OVERALLHEIGHT");
+    // CommonPrimitiveData layer byte 57 (also V7_LAYER=MECHANICAL1).
+    assert_eq!(body.layer, Layer::Mechanical1, "body layer");
+
+    // The referenced model must actually exist in the library's embedded-model
+    // store, resolved through the same lookup the reader uses (case-insensitive).
+    assert_eq!(lib.model_count(), 1, "the library embeds exactly one model");
+    let model = lib
+        .get_model(&body.model_id)
+        .expect("the body's MODELID resolves to an embedded model");
+    assert!(
+        model.id.eq_ignore_ascii_case(&body.model_id),
+        "model GUID matches the body reference, got {}",
+        model.id,
+    );
+    assert_eq!(model.name, "minimal.step", "embedded model name");
+    assert!(
+        std::path::Path::new(&model.name)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("step")),
+        "embedded model is a STEP file"
+    );
+
+    // /Library/Models/0 is zlib-compressed (189 bytes on disk); decompressed it
+    // is the 267-byte minimal.step text, a valid ISO-10303-21 exchange file.
+    assert_eq!(model.compressed_size, 189, "compressed stream size");
+    assert_eq!(model.data.len(), 267, "decompressed STEP size");
+    assert!(
+        model.data.starts_with(b"ISO-10303-21"),
+        "decompressed model data is STEP text"
+    );
+    assert!(
+        model.data.ends_with(b"END-ISO-10303-21;\r\n"),
+        "STEP terminator survives decompression"
+    );
+
+    // The backward-compatibility Model3D view resolves the filename through the
+    // embedded-model index.
+    let model_3d = fp
+        .model_3d
+        .as_ref()
+        .expect("model_3d is populated from the component body");
+    assert_eq!(model_3d.filepath, "minimal.step", "model_3d filepath");
 }
 
 #[test]

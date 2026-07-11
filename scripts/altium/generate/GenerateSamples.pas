@@ -394,6 +394,37 @@ begin
                                   PCBM_BoardRegisteration, Pad.I_ObjectAddress);
 end;
 
+{ Batch-4b RETRY of the thermal pad: create + register a PLAIN pad first, and only
+  then set the thermal-relief / power-plane properties — the 4a crash hit a pad
+  that was not yet part of a component, so the cache-backed setters may work once
+  the pad is registered (same theory as the CRPercentage stack-init hypothesis). }
+procedure AddThPadThermalPost(Comp : IPCB_LibComponent; X : Integer; Nm : String);
+var
+    Pad : IPCB_Pad;
+begin
+    Pad := PCBServer.PCBObjectFactory(ePadObject, eNoDimension, eCreate_Default);
+    if Pad = nil then Exit;
+    Pad.Name     := Nm;
+    Pad.X        := MilsToCoord(X);
+    Pad.Y        := MilsToCoord(0);
+    Pad.Mode     := ePadMode_Simple;
+    Pad.Layer    := eMultiLayer;
+    Pad.TopShape := eRounded;
+    Pad.TopXSize := MilsToCoord(70);
+    Pad.TopYSize := MilsToCoord(70);
+    Pad.HoleType := eRoundHole;
+    Pad.HoleSize := MilsToCoord(35);
+    Comp.AddPCBObject(Pad);
+    PCBServer.SendMessageToRobots(Comp.I_ObjectAddress, c_Broadcast,
+                                  PCBM_BoardRegisteration, Pad.I_ObjectAddress);
+    { Properties AFTER registration. }
+    Pad.PowerPlaneConnectStyle := eDirectConnectToPlane;   { default is Relief }
+    Pad.ReliefConductorWidth   := MilsToCoord(15);
+    Pad.ReliefEntries          := 2;                       { default is 4 }
+    Pad.ReliefAirGap           := MilsToCoord(12);
+    Pad.PowerPlaneClearance    := MilsToCoord(25);
+end;
+
 { Barcode text (TextKind = eText_BarCode). Names VERIFIED from the AD24 IDE dump:
   TextKind/BarCodeKind (eBarCode128) + BarCodeFullWidth/FullHeight/XMargin/
   MinWidth/FontName/BarCodeInverted. }
@@ -441,6 +472,28 @@ begin
     Comp.AddPCBObject(Txt);
     PCBServer.SendMessageToRobots(Comp.I_ObjectAddress, c_Broadcast,
                                   PCBM_BoardRegisteration, Txt.I_ObjectAddress);
+end;
+
+{ EMBEDDED STEP component body. Sequence VERIFIED from shipping scripts
+  (AutoSTEPplacer.pas, SPI_Cleanup_LPW_Footprint.pas): body factory ->
+  ModelFactory_FromFilename(file, false) -> SetState_FromModel -> .Model :=
+  -> AddPCBObject. If Altium's importer rejects the minimal STEP file, Model
+  comes back nil and we skip (the missing footprint then shows up in the read
+  tests -> iterate with a richer file). }
+procedure AddBodyStep(Comp : IPCB_LibComponent; AFilePath : String);
+var
+    Body  : IPCB_ComponentBody;
+    Model : IPCB_Model;
+begin
+    Body := PCBServer.PCBObjectFactory(eComponentBodyObject, eNoDimension, eCreate_Default);
+    if Body = nil then Exit;
+    Model := Body.ModelFactory_FromFilename(AFilePath, False);
+    if Model = nil then Exit;
+    Body.SetState_FromModel;
+    Body.Model := Model;
+    Comp.AddPCBObject(Body);
+    PCBServer.SendMessageToRobots(Comp.I_ObjectAddress, c_Broadcast,
+                                  PCBM_BoardRegisteration, Body.I_ObjectAddress);
 end;
 
 { ---- PcbLib authoring -------------------------------------------------------
@@ -640,24 +693,55 @@ begin
     except
     end;
 
-    // DOCUMENTED NEGATIVE (AD24, batch 4a — bisect-confirmed): PAD_THERMAL stays
-    // disabled. Setting the pad thermal-relief / power-plane properties
-    // (PowerPlaneConnectStyle / ReliefConductorWidth / ReliefEntries /
-    // ReliefAirGap / PowerPlaneClearance) on a freshly factory-created LIBRARY
-    // pad crashes with a native ScriptingSystem.DLL access violation ("Read of
-    // address 0x38" + runtime error 217) — WITH or WITHOUT the explicit
-    // GetState_Cache block, so the plain setters are cache-backed too (same
-    // unallocated-structure class as the CRPercentage crash). Do not retry on a
-    // fresh pad; a thermal-relief golden needs a different init sequence.
+    // FINAL DOCUMENTED NEGATIVE (AD24, batches 4a+4b): PAD_THERMAL cannot be
+    // authored by script. The thermal-relief / power-plane setters
+    // (PowerPlaneConnectStyle / Relief* / PowerPlaneClearance) crash with a
+    // native ScriptingSystem.DLL access violation ("Read of address 0x38" +
+    // runtime error 217) on a scripted library pad in EVERY tried sequence:
+    // before registration, after AddPCBObject + robot registration
+    // (AddThPadThermalPost), with and without the GetState_Cache block. The
+    // cache-backed pad structures evidently never exist for a scripted PcbLib
+    // pad in AD24. Do NOT retry; a thermal-relief golden would need a manually
+    // authored library (or a future AD fix).
     // try
     //     Comp := PCBServer.CreatePCBLibComp;
     //     Comp.Name := 'PAD_THERMAL';
     //     Lib.RegisterComponent(Comp);
     //     PCBServer.PreProcess;
-    //     AddThPadThermal(Comp, 0, '1');
+    //     AddThPadThermalPost(Comp, 0, '1');
     //     PCBServer.PostProcess;
     // except
     // end;
+
+    // MULTILAYER (batch 4b): one track per exotic layer so layer_from_id's arms
+    // get real golden coverage. All layer constants verified in shipping scripts.
+    try
+        Comp := PCBServer.CreatePCBLibComp;
+        Comp.Name := 'MULTILAYER';
+        Lib.RegisterComponent(Comp);
+        PCBServer.PreProcess;
+        AddTrack(Comp, -50, 0, 50, 0, 10, eMechanical2);
+        AddTrack(Comp, -50, 20, 50, 20, 10, eMidLayer5);
+        AddTrack(Comp, -50, 40, 50, 40, 10, eDrillGuide);
+        AddTrack(Comp, -50, 60, 50, 60, 10, eDrillDrawing);
+        AddTrack(Comp, -50, 80, 50, 80, 10, eInternalPlane1);
+        AddTrack(Comp, -50, 100, 50, 100, 10, eKeepOutLayer);
+        PCBServer.PostProcess;
+    except
+    end;
+
+    // EMBSTEP (batch 4b): a component body with an embedded STEP model, so the
+    // Library/Models embedded-model read path gets real golden coverage. The
+    // wrapper writes minimal.step into the bridge dir before launching.
+    try
+        Comp := PCBServer.CreatePCBLibComp;
+        Comp.Name := 'EMBSTEP';
+        Lib.RegisterComponent(Comp);
+        PCBServer.PreProcess;
+        AddBodyStep(Comp, OUT_DIR + 'minimal.step');
+        PCBServer.PostProcess;
+    except
+    end;
 
     // TEXT_SPECIAL: a Code-128 barcode text and an inverted (knockout) TrueType
     // text in an inverted rectangle (batch 4a).
@@ -891,6 +975,28 @@ begin
     Comp.AddSchObject(Pin);
     SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast,
                                        SCHM_PrimitiveRegistration, Pin.I_ObjectAddress);
+end;
+
+{ Rectangle assigned to an EXPLICIT display mode (for a DisplayModeCount=2
+  symbol) — exercises a non-default OwnerPartDisplayMode on a graphic shape.
+  DisplayModeCount : Integer verified in the AD24 IDE dump (ISch_Component). }
+procedure AddRectMode(Comp : ISch_Component; X1 : Integer; Y1 : Integer;
+                      X2 : Integer; Y2 : Integer; Mode : Integer);
+var R : ISch_Rectangle;
+begin
+    R := SchServer.SchObjectFactory(eRectangle, eCreate_Default);
+    if R = nil then Exit;
+    R.Location             := Point(MilsToCoord(X1), MilsToCoord(Y1));
+    R.Corner               := Point(MilsToCoord(X2), MilsToCoord(Y2));
+    R.LineWidth            := eSmall;
+    R.Color                := $000000;
+    R.AreaColor            := $B0FFFF;
+    R.IsSolid              := True;
+    R.OwnerPartId          := 1;
+    R.OwnerPartDisplayMode := Mode;
+    Comp.AddSchObject(R);
+    SchServer.RobotManager.SendMessage(Comp.I_ObjectAddress, c_BroadCast,
+                                       SCHM_PrimitiveRegistration, R.I_ObjectAddress);
 end;
 
 { OFF-GRID rectangle: coordinates carry a +5000 internal-unit remainder (0.5 mil)
@@ -1716,6 +1822,18 @@ begin
         begin
             AddRectFrac(Comp, -55, -25, 55, 25);
             AddSchArcFrac(Comp, 0, 0, 40);
+        end;
+    except
+    end;
+
+    { ---- DISPMODE — a two-display-mode symbol with a shape in each mode (batch 4b). ---- }
+    try
+        Comp := NewSymbol(Lib, 'DISPMODE', 'Alternate display mode', 1);
+        if Comp <> nil then
+        begin
+            Comp.DisplayModeCount := 2;
+            AddRectMode(Comp, -50, -25, 50, 25, 0);   { normal mode }
+            AddRectMode(Comp, -60, -30, 60, 30, 1);   { first alternate (de-Morgan) mode }
         end;
     except
     end;

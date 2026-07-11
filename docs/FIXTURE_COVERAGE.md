@@ -46,14 +46,14 @@ negative (Altium does not persist it — do not retry).
 
 | Primitive | Exercised today | Not exercised (❌) |
 |-----------|-----------------|--------------------|
-| Pad | shape (round/rect/oct/rrect), TH holes (round/square/slot), local stack, rotation, negative/far coords | paste/solder-mask expansion, testpoint flags, slot geometry on SMD, drill tolerances, jumper id, locked/keepout flags; 🚫 corner-radius `CRPercentage` (crashes on a fresh Simple pad — needs correct pad-stack init first); 🚫 thermal-relief / power-plane setters (`PowerPlaneConnectStyle` / `ReliefConductorWidth` / `ReliefEntries` / `ReliefAirGap` / `PowerPlaneClearance` crash AD24's scripting engine with a native access violation on a fresh library pad, with or without `GetState_Cache` — batch 4a bisect; `PAD_THERMAL` stays disabled in the `.pas`) |
+| Pad | shape (round/rect/oct/rrect), TH holes (round/square/slot), local stack, rotation, negative/far coords | paste/solder-mask expansion, testpoint flags, slot geometry on SMD, drill tolerances, jumper id, locked/keepout flags; 🚫 corner-radius `CRPercentage` (crashes on a fresh Simple pad — needs correct pad-stack init first); 🚫 **FINAL** thermal-relief / power-plane setters (`PowerPlaneConnectStyle` / `ReliefConductorWidth` / `ReliefEntries` / `ReliefAirGap` / `PowerPlaneClearance` crash AD24's ScriptingSystem.DLL with a native access violation in **every** scripted sequence tried — pre- and post-registration, with and without the `GetState_Cache` block; batch 4a + 4b bisects. `PAD_THERMAL` cannot be authored by script in AD24 and stays disabled in the `.pas`) |
 | Via | simple TH, two pad/hole sizes | thermal-relief, power-plane, tenting flags, net index, paste-mask expansion, GUID |
-| Track | silk box + copper track, two widths, two layers | locked/keepout flags, net index |
+| Track | silk box + copper track, two widths, two layers; ✅ multi-layer spread (`MULTILAYER`: six tracks on Mechanical 2 / Mid-Layer 5 / Drill Guide / Drill Drawing / Internal Plane 1 / Keep-Out — real golden coverage for `layer_from_id`'s exotic arms; ID 58 reads as the documented `TopAssembly` alias, `samples_pcblib_multilayer`) | locked/keepout flags, net index |
 | Arc | full circle + quarter arc | fill/area colour, locked/keepout, net index |
 | Region | copper box + mechanical box; ✅ board-cutout representation (`ISBOARDCUTOUT=TRUE` + `KEEPOUT=TRUE`, relocated to the keep-out layer — `samples_pcblib_region_cutout`) | named region, net, arc-resolution/cavity/subpoly/union params |
 | Fill | axis-aligned + 45°-rotated copper | locked/keepout, net index |
 | Text | stroke text, Win-1252 chars, vertical (90°); ✅ TrueType `font_name`='Arial' + bold + italic + mirror (`TEXT_STYLE`); ✅ kind=BarCode (`TEXT_SPECIAL` 'BC128'); ✅ inverted (knockout) text + inverted-rect descriptor (`TEXT_SPECIAL` 'INV': `is_inverted`, `use_inverted_rectangle`, `inverted_border`=10 mil, auto-computed rect width/height exact-asserted) | justification, stroke_font variants, barcode sizing block (not modelled), char_set, union_index, net/component index, flags |
-| ComponentBody | one extruded box (Mechanical) | embedded STEP model, cavity height, model 2D location/rotation, non-default colour/opacity, raw-outline precision |
+| ComponentBody | one extruded box (Mechanical); ✅ embedded STEP model (`EMBSTEP`: `MODELID`/`MODEL.CHECKSUM`/`MODEL.NAME` on the body + zlib model stream in `/Library/Models/0`, decompressed `ISO-10303-21` bytes exact-asserted — `samples_pcblib_embstep`) | cavity height, model 2D location/rotation, non-default colour/opacity, raw-outline precision |
 
 ### SchLib (`symbols.SchLib`)
 
@@ -77,7 +77,10 @@ negative (Altium does not persist it — do not retry).
 
 - **Universal display/lock flags** — `GraphicallyLocked` is golden-covered on Rectangle
   (`LOCKFLAGS`); `Disabled`/`Dimmed` are 🚫 documented AD24 negatives (not persisted on
-  library shapes); `OwnerPartDisplayMode` at a non-default value remains self-round-trip only.
+  library shapes); `OwnerPartDisplayMode` at a non-default value is now ✅ golden-covered
+  (`DISPMODE`: a `DisplayModeCount=2` symbol whose mode-1 rectangle carries
+  `OwnerPartDisplayMode=1` — `samples_schlib_dispmode`; the pin-record byte remains
+  self-round-trip only).
 - **`unique_id`** — present in fixtures, so identity read is covered; but per-primitive GUID
   streams for populated cases are thin.
 - **Fractional coordinates** — the Pin `_Frac` path is golden-covered via the `PinFrac` aux
@@ -90,11 +93,9 @@ negative (Altium does not persist it — do not retry).
   off-grid coordinate; reader and writer now follow the signed toward-zero convention
   (see `docs/SCHLIB_FORMAT.md` § Fractional coordinates).
 
-## Remaining enrichment backlog (batch 4+)
+## Remaining enrichment backlog (batch 5+)
 
-PcbLib: pad mask expansion; an embedded-STEP `ComponentBody`; a multi-layer spread
-footprint (internal-plane / mechanical / drill / keepout layers). Pad thermal-relief /
-power-plane is 🚫 blocked on the scripting side (native crash on a fresh library pad —
-see the Pad row); a golden needs a different pad-init sequence. SchLib: non-default
-`OwnerPartDisplayMode`. Each batch: extend the `.pas` → regenerate locally → commit
-binaries → exact assertions.
+PcbLib: pad mask expansion. Pad thermal-relief / power-plane is 🚫 **FINAL** on the
+scripting side (native crash on a fresh library pad in every sequence tried — see the
+Pad row); a golden would need a non-scripted authoring route. Each batch: extend the
+`.pas` → regenerate locally → commit binaries → exact assertions.
