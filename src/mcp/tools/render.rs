@@ -758,3 +758,145 @@ impl McpServer {
         output
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::altium::pcblib::{Footprint, PcbLib};
+    use crate::mcp::tools::test_support::{
+        create_test_pcblib, create_test_schlib, create_test_server, get_result_text,
+        parse_result_json, test_temp_dir,
+    };
+
+    #[test]
+    fn render_footprint_success() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Render.PcbLib");
+        create_test_pcblib(&path);
+
+        let result = server.call_render_footprint(&json!({
+            "filepath": path.to_string_lossy(),
+            "component_name": "CHIP_0402",
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["component_name"], "CHIP_0402");
+        let render = parsed["render"].as_str().unwrap();
+        assert!(render.starts_with("Footprint: CHIP_0402"));
+        assert!(render.contains("Pads: 2, Tracks: 0, Arcs: 0"));
+        assert!(render.contains('#'), "pads should be drawn: {render}");
+        assert!(render.contains("Legend: # = pad"));
+    }
+
+    #[test]
+    fn render_footprint_empty_footprint() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let mut lib = PcbLib::new();
+        lib.add(Footprint::new("EMPTY"));
+        let path = dir.path().join("Empty.PcbLib");
+        lib.save(&path).unwrap();
+
+        let result = server.call_render_footprint(&json!({
+            "filepath": path.to_string_lossy(),
+            "component_name": "EMPTY",
+        }));
+        assert!(!result.is_error);
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["render"], "Empty footprint (no primitives)");
+    }
+
+    #[test]
+    fn render_footprint_error_paths() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("RenderErr.PcbLib");
+        create_test_pcblib(&path);
+        let filepath = path.to_string_lossy().to_string();
+
+        let result = server.call_render_footprint(&json!({}));
+        assert!(result.is_error);
+        assert_eq!(
+            get_result_text(&result),
+            "Missing required parameter: filepath"
+        );
+
+        // Unknown footprint lists available ones as a hint.
+        let result = server.call_render_footprint(&json!({
+            "filepath": filepath,
+            "component_name": "GHOST",
+        }));
+        assert!(result.is_error);
+        let text = get_result_text(&result);
+        assert!(text.contains("'GHOST' not found"));
+        assert!(text.contains("CHIP_0402"));
+
+        // Non-positive scale is rejected.
+        let result = server.call_render_footprint(&json!({
+            "filepath": filepath,
+            "component_name": "CHIP_0402",
+            "scale": 0.0,
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("scale must be greater than 0"));
+    }
+
+    #[test]
+    fn render_symbol_success() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Render.SchLib");
+        create_test_schlib(&path);
+
+        let result = server.call_render_symbol(&json!({
+            "filepath": path.to_string_lossy(),
+            "component_name": "RESISTOR",
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["part_id"], 1);
+        let render = parsed["render"].as_str().unwrap();
+        assert!(render.starts_with("Symbol: RESISTOR (part 1/1)"));
+        assert!(render.contains("Pins: 2, Rectangles: 1, Lines: 0"));
+        assert!(render.contains('~'), "pin lines should be drawn: {render}");
+        assert!(render.contains("Legend: |-+ = rectangle"));
+    }
+
+    #[test]
+    fn render_symbol_error_paths() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("RenderErr.SchLib");
+        create_test_schlib(&path);
+        let filepath = path.to_string_lossy().to_string();
+
+        let result = server.call_render_symbol(&json!({
+            "filepath": filepath,
+        }));
+        assert!(result.is_error);
+        assert_eq!(
+            get_result_text(&result),
+            "Missing required parameter: component_name"
+        );
+
+        let result = server.call_render_symbol(&json!({
+            "filepath": filepath,
+            "component_name": "GHOST",
+        }));
+        assert!(result.is_error);
+        let text = get_result_text(&result);
+        assert!(text.contains("'GHOST' not found"));
+        assert!(text.contains("RESISTOR"));
+
+        let result = server.call_render_symbol(&json!({
+            "filepath": filepath,
+            "component_name": "RESISTOR",
+            "scale": -1.0,
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("scale must be greater than 0"));
+    }
+}

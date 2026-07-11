@@ -1052,3 +1052,511 @@ impl McpServer {
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mcp::tools::test_support::{
+        create_test_pcblib, create_test_schlib, create_test_server, get_result_text,
+        parse_result_json, test_temp_dir,
+    };
+
+    // ==================== search_components ====================
+
+    #[test]
+    fn search_components_glob_across_both_library_types() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let pcb = dir.path().join("Search.PcbLib");
+        let sch = dir.path().join("Search.SchLib");
+        create_test_pcblib(&pcb);
+        create_test_schlib(&sch);
+
+        let result = server.call_search_components(&json!({
+            "filepaths": [pcb.to_string_lossy(), sch.to_string_lossy()],
+            "pattern": "C*",
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["pattern_type"], "glob");
+        assert_eq!(parsed["libraries_searched"], 2);
+        assert_eq!(parsed["components_searched"], 4);
+        // CHIP_0402, CHIP_0603 (PcbLib) and CAPACITOR (SchLib) match "C*".
+        assert_eq!(parsed["matches_found"], 3);
+        let matches = parsed["matches"].as_array().unwrap();
+        assert!(matches
+            .iter()
+            .any(|m| m["name"] == "CHIP_0402" && m["type"] == "PcbLib"));
+        assert!(matches
+            .iter()
+            .any(|m| m["name"] == "CAPACITOR" && m["type"] == "SchLib"));
+        assert_eq!(parsed["errors"], Value::Null);
+    }
+
+    #[test]
+    fn search_components_regex_mode_is_case_insensitive() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let sch = dir.path().join("Regex.SchLib");
+        create_test_schlib(&sch);
+
+        let result = server.call_search_components(&json!({
+            "filepaths": [sch.to_string_lossy()],
+            "pattern": "res.stor",
+            "pattern_type": "regex",
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["matches_found"], 1);
+        assert_eq!(parsed["matches"][0]["name"], "RESISTOR");
+    }
+
+    #[test]
+    fn search_components_partial_status_on_unsupported_file() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let sch = dir.path().join("Ok.SchLib");
+        create_test_schlib(&sch);
+        let txt = dir.path().join("bad.txt");
+        std::fs::write(&txt, b"x").unwrap();
+
+        let result = server.call_search_components(&json!({
+            "filepaths": [sch.to_string_lossy(), txt.to_string_lossy()],
+            "pattern": "*",
+        }));
+        assert!(!result.is_error);
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "partial");
+        assert_eq!(parsed["matches_found"], 2);
+        let errors = parsed["errors"].as_array().unwrap();
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0]
+            .as_str()
+            .unwrap()
+            .contains("Unsupported file type"));
+    }
+
+    #[test]
+    fn search_components_rejects_bad_arguments() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let sch = dir.path().join("Bad.SchLib");
+        create_test_schlib(&sch);
+
+        let result = server.call_search_components(&json!({}));
+        assert!(result.is_error);
+        assert_eq!(
+            get_result_text(&result),
+            "Missing required parameter: filepaths"
+        );
+
+        let result = server.call_search_components(&json!({ "filepaths": [] }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("at least one path"));
+
+        let result = server.call_search_components(&json!({
+            "filepaths": [sch.to_string_lossy()],
+            "pattern": "x",
+            "pattern_type": "fuzzy",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("pattern_type must be one of"));
+
+        let result = server.call_search_components(&json!({
+            "filepaths": [sch.to_string_lossy()],
+            "pattern": "(unclosed",
+            "pattern_type": "regex",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Invalid pattern"));
+    }
+
+    #[test]
+    fn glob_to_regex_escapes_metacharacters() {
+        assert_eq!(McpServer::glob_to_regex("CHIP_*"), "CHIP_.*");
+        assert_eq!(McpServer::glob_to_regex("R?"), "R.");
+        assert_eq!(McpServer::glob_to_regex("a.b+c"), "a\\.b\\+c");
+    }
+
+    // ==================== get_component ====================
+
+    #[test]
+    fn get_component_pcblib_returns_full_footprint() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Get.PcbLib");
+        create_test_pcblib(&path);
+
+        let result = server.call_get_component(&json!({
+            "filepath": path.to_string_lossy(),
+            "component_name": "CHIP_0402",
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["type"], "PcbLib");
+        assert_eq!(parsed["units"], "mm");
+        assert_eq!(parsed["component"]["name"], "CHIP_0402");
+        assert_eq!(parsed["component"]["description"], "0402 chip resistor");
+        let pads = parsed["component"]["pads"].as_array().unwrap();
+        assert_eq!(pads.len(), 2);
+        assert_eq!(pads[0]["designator"], "1");
+    }
+
+    #[test]
+    fn get_component_schlib_returns_full_symbol() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Get.SchLib");
+        create_test_schlib(&path);
+
+        let result = server.call_get_component(&json!({
+            "filepath": path.to_string_lossy(),
+            "component_name": "RESISTOR",
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["type"], "SchLib");
+        assert_eq!(parsed["component"]["name"], "RESISTOR");
+        assert_eq!(parsed["component"]["designator"], "R?");
+        assert_eq!(parsed["component"]["pins"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            parsed["component"]["rectangles"].as_array().unwrap().len(),
+            1
+        );
+    }
+
+    #[test]
+    fn get_component_not_found_lists_available() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("GetErr.PcbLib");
+        create_test_pcblib(&path);
+
+        let result = server.call_get_component(&json!({
+            "filepath": path.to_string_lossy(),
+            "component_name": "GHOST",
+        }));
+        assert!(result.is_error);
+        let text = get_result_text(&result);
+        assert!(text.contains("'GHOST' not found"));
+        assert!(text.contains("CHIP_0402"));
+        assert!(text.contains("CHIP_0603"));
+    }
+
+    #[test]
+    fn get_component_rejects_bad_arguments() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+
+        let result = server.call_get_component(&json!({}));
+        assert!(result.is_error);
+        assert_eq!(
+            get_result_text(&result),
+            "Missing required parameter: filepath"
+        );
+
+        let txt = dir.path().join("x.txt");
+        let result = server.call_get_component(&json!({
+            "filepath": txt.to_string_lossy(),
+            "component_name": "A",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Unsupported file type"));
+    }
+
+    // ==================== component_exists ====================
+
+    #[test]
+    fn component_exists_reports_per_name_status() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Exists.PcbLib");
+        create_test_pcblib(&path);
+
+        let result = server.call_component_exists(&json!({
+            "filepath": path.to_string_lossy(),
+            "component_names": ["CHIP_0402", "GHOST", "CHIP_0603"],
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["checked_count"], 3);
+        assert_eq!(parsed["exists_count"], 2);
+        assert_eq!(parsed["all_exist"], false);
+        assert_eq!(parsed["results"][0]["exists"], true);
+        assert_eq!(parsed["results"][1]["name"], "GHOST");
+        assert_eq!(parsed["results"][1]["exists"], false);
+        assert_eq!(parsed["results"][2]["exists"], true);
+    }
+
+    #[test]
+    fn component_exists_schlib_all_exist() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Exists.SchLib");
+        create_test_schlib(&path);
+
+        let result = server.call_component_exists(&json!({
+            "filepath": path.to_string_lossy(),
+            "component_names": ["RESISTOR", "CAPACITOR"],
+        }));
+        assert!(!result.is_error);
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["all_exist"], true);
+        assert_eq!(parsed["exists_count"], 2);
+    }
+
+    #[test]
+    fn component_exists_rejects_bad_arguments() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("ExistsBad.PcbLib");
+        create_test_pcblib(&path);
+
+        let result = server.call_component_exists(&json!({
+            "filepath": path.to_string_lossy(),
+        }));
+        assert!(result.is_error);
+        assert_eq!(
+            get_result_text(&result),
+            "Missing required parameter: component_names"
+        );
+
+        let result = server.call_component_exists(&json!({
+            "filepath": path.to_string_lossy(),
+            "component_names": [],
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("empty"));
+
+        let txt = dir.path().join("x.txt");
+        let result = server.call_component_exists(&json!({
+            "filepath": txt.to_string_lossy(),
+            "component_names": ["A"],
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Unsupported file type"));
+    }
+
+    // ==================== update_component ====================
+
+    #[test]
+    fn update_component_pcblib_replaces_footprint() {
+        use crate::altium::PcbLib;
+
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Update.PcbLib");
+        create_test_pcblib(&path);
+
+        let result = server.call_update_component(&json!({
+            "filepath": path.to_string_lossy(),
+            "component_name": "CHIP_0402",
+            "footprint": {
+                "description": "reworked 0402",
+                "pads": [
+                    { "designator": "1", "x": -0.55, "y": 0.0, "width": 0.65, "height": 0.55 },
+                    { "designator": "2", "x": 0.55, "y": 0.0, "width": 0.65, "height": 0.55 },
+                    { "designator": "3", "x": 0.0, "y": 0.6, "width": 0.4, "height": 0.4 }
+                ],
+                "tracks": [
+                    { "x1": -1.0, "y1": -0.6, "x2": 1.0, "y2": -0.6, "width": 0.15, "layer": "Top Overlay" }
+                ],
+            },
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["file_type"], "PcbLib");
+        assert_eq!(parsed["renamed"], false);
+        assert_eq!(parsed["old_description"], "0402 chip resistor");
+        assert_eq!(parsed["component_count"], 2);
+
+        let lib = PcbLib::open(&path).unwrap();
+        let fp = lib.get("CHIP_0402").unwrap();
+        assert_eq!(fp.description, "reworked 0402");
+        assert_eq!(fp.pads.len(), 3);
+        assert_eq!(fp.tracks.len(), 1);
+    }
+
+    #[test]
+    fn update_component_pcblib_dry_run_previews_changes() {
+        use crate::altium::PcbLib;
+
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("UpdateDry.PcbLib");
+        create_test_pcblib(&path);
+
+        let result = server.call_update_component(&json!({
+            "filepath": path.to_string_lossy(),
+            "component_name": "CHIP_0402",
+            "footprint": {
+                "description": "changed",
+                "pads": [
+                    { "designator": "1", "x": -0.5, "y": 0.0, "width": 0.6, "height": 0.5 }
+                ],
+            },
+            "dry_run": true,
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "dry_run");
+        assert_eq!(parsed["would_rename"], false);
+        let changes = parsed["changes"].as_array().unwrap();
+        assert!(changes
+            .iter()
+            .any(|c| c.as_str().unwrap().starts_with("description:")));
+        assert!(changes
+            .iter()
+            .any(|c| c.as_str().unwrap() == "pad_count: 2 -> 1"));
+
+        // Nothing was written.
+        let lib = PcbLib::open(&path).unwrap();
+        assert_eq!(lib.get("CHIP_0402").unwrap().pads.len(), 2);
+    }
+
+    #[test]
+    fn update_component_schlib_replaces_symbol() {
+        use crate::altium::SchLib;
+
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Update.SchLib");
+        create_test_schlib(&path);
+
+        let result = server.call_update_component(&json!({
+            "filepath": path.to_string_lossy(),
+            "component_name": "RESISTOR",
+            "symbol": {
+                "description": "Precision resistor",
+                "designator": "R?",
+                "part_count": 2,
+                "pins": [
+                    { "designator": "1", "name": "1", "x": -30, "y": 0, "length": 10, "orientation": "left" },
+                    { "designator": "2", "name": "2", "x": 30, "y": 0, "length": 10, "orientation": "right" }
+                ],
+                "rectangles": [
+                    { "x1": -20, "y1": -10, "x2": 20, "y2": 10 }
+                ],
+                "lines": [
+                    { "x1": -20, "y1": 0, "x2": 20, "y2": 0 }
+                ],
+                "parameters": [
+                    { "name": "Tolerance", "value": "0.1%" }
+                ],
+                "labels": [
+                    { "x": 0, "y": 15, "text": "precision" }
+                ],
+            },
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["file_type"], "SchLib");
+        assert_eq!(parsed["renamed"], false);
+        assert_eq!(parsed["old_description"], "Generic resistor");
+
+        let lib = SchLib::open(&path).unwrap();
+        let sym = lib.get("RESISTOR").unwrap();
+        assert_eq!(sym.description, "Precision resistor");
+        assert_eq!(sym.part_count, 2);
+        assert_eq!(sym.pins.len(), 2);
+        assert_eq!(sym.pins[0].x, -30);
+        assert_eq!(sym.lines.len(), 1);
+        assert_eq!(sym.labels.len(), 1);
+        assert_eq!(sym.parameters[0].name, "Tolerance");
+        assert_eq!(sym.parameters[0].value, "0.1%");
+    }
+
+    #[test]
+    fn update_component_schlib_dry_run_previews_family_counts() {
+        use crate::altium::SchLib;
+
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("UpdateDry.SchLib");
+        create_test_schlib(&path);
+
+        let result = server.call_update_component(&json!({
+            "filepath": path.to_string_lossy(),
+            "component_name": "CAPACITOR",
+            "symbol": {
+                "designator": "C?",
+                "pins": [
+                    { "designator": "1", "name": "1", "x": -20, "y": 0, "length": 10 }
+                ],
+            },
+            "dry_run": true,
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "dry_run");
+        let changes = parsed["changes"].as_array().unwrap();
+        assert!(changes
+            .iter()
+            .any(|c| c.as_str().unwrap() == "pin_count: 2 -> 1"));
+
+        // Nothing was written.
+        let lib = SchLib::open(&path).unwrap();
+        assert_eq!(lib.get("CAPACITOR").unwrap().pins.len(), 2);
+    }
+
+    #[test]
+    fn update_component_error_paths() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let pcb = dir.path().join("UpdErr.PcbLib");
+        let sch = dir.path().join("UpdErr.SchLib");
+        create_test_pcblib(&pcb);
+        create_test_schlib(&sch);
+
+        let result = server.call_update_component(&json!({}));
+        assert!(result.is_error);
+        assert_eq!(
+            get_result_text(&result),
+            "Missing required parameter: filepath"
+        );
+
+        // PcbLib update requires a footprint payload.
+        let result = server.call_update_component(&json!({
+            "filepath": pcb.to_string_lossy(),
+            "component_name": "CHIP_0402",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Missing required parameter: footprint"));
+
+        // SchLib update requires a symbol payload.
+        let result = server.call_update_component(&json!({
+            "filepath": sch.to_string_lossy(),
+            "component_name": "RESISTOR",
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("Missing required parameter: symbol"));
+
+        // Unknown component lists the available ones.
+        let result = server.call_update_component(&json!({
+            "filepath": pcb.to_string_lossy(),
+            "component_name": "GHOST",
+            "footprint": { "pads": [] },
+        }));
+        assert!(result.is_error);
+        let text = get_result_text(&result);
+        assert!(text.contains("'GHOST' not found"));
+        assert!(text.contains("CHIP_0402"));
+
+        // Out-of-range geometry is rejected before save.
+        let result = server.call_update_component(&json!({
+            "filepath": pcb.to_string_lossy(),
+            "component_name": "CHIP_0402",
+            "footprint": {
+                "pads": [
+                    { "designator": "1", "x": 999_999.0, "y": 0.0, "width": 0.6, "height": 0.5 }
+                ],
+            },
+        }));
+        assert!(result.is_error);
+    }
+}
