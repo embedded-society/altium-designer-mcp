@@ -513,6 +513,7 @@ impl McpServer {
                     "vias",
                     "fills",
                     "step_model",
+                    "model_3d",
                     "component_bodies"
                 ]
             );
@@ -761,6 +762,52 @@ impl McpServer {
                             additional_parameters: Vec::new(),
                         });
                     }
+                }
+            }
+
+            // Parse "model_3d" — read_pcblib's spelling of the same model
+            // reference (it emits the key for every footprint, null when there
+            // is no model), accepted so a read result replays into
+            // write_pcblib unchanged. `step_model` wins when both are given
+            // (it is the authoring-time spelling, incl. the embed switch);
+            // null is ignored. The fields mirror the Model3D serde shape
+            // (filepath + offsets/rotation).
+            if fp_json.get("step_model").is_none() {
+                if let Some(model_json) = fp_json.get("model_3d").filter(|v| !v.is_null()) {
+                    let model_path = model_json
+                        .get("filepath")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    // The save path embeds the file (std::fs::read) when the
+                    // path resolves to an existing file, so gate exactly that
+                    // case against the allow-list — the same arbitrary-file-
+                    // read defence as step_model. Bare model names replayed
+                    // from read_pcblib output don't exist on disk and are kept
+                    // as inert references, so they are not gated.
+                    if std::path::Path::new(model_path).is_file() {
+                        if let Err(e) = self.validate_path(model_path) {
+                            return ToolCallResult::error(e);
+                        }
+                    }
+                    footprint.model_3d = Some(Model3D {
+                        filepath: model_path.to_string(),
+                        x_offset: model_json
+                            .get("x_offset")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(0.0),
+                        y_offset: model_json
+                            .get("y_offset")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(0.0),
+                        z_offset: model_json
+                            .get("z_offset")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(0.0),
+                        rotation: model_json
+                            .get("rotation")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(0.0),
+                    });
                 }
             }
 
@@ -1129,6 +1176,11 @@ impl McpServer {
                     "designator_prefix",
                     "component_type",
                     "part_count",
+                    "display_mode_count",
+                    "current_part_id",
+                    "part_id_locked",
+                    "source_library_name",
+                    "target_file_name",
                     "pins",
                     "rectangles",
                     "round_rects",
@@ -1192,6 +1244,26 @@ impl McpServer {
                 {
                     symbol.part_count = part_count.clamp(1, 255) as u32;
                 }
+            }
+
+            // Parse the remaining symbol header fields (mirrors
+            // update_schlib_component): export_schlib emits them, so an
+            // export -> write_schlib round-trip must not reset them to
+            // defaults (e.g. collapsing a two-display-mode symbol to one).
+            if let Some(v) = sym_json.get("display_mode_count").and_then(Value::as_u64) {
+                symbol.display_mode_count = u32::try_from(v).unwrap_or(symbol.display_mode_count);
+            }
+            if let Some(v) = sym_json.get("current_part_id").and_then(Value::as_u64) {
+                symbol.current_part_id = u32::try_from(v).unwrap_or(symbol.current_part_id);
+            }
+            if let Some(v) = sym_json.get("part_id_locked").and_then(Value::as_bool) {
+                symbol.part_id_locked = v;
+            }
+            if let Some(v) = sym_json.get("source_library_name").and_then(Value::as_str) {
+                symbol.source_library_name = v.to_string();
+            }
+            if let Some(v) = sym_json.get("target_file_name").and_then(Value::as_str) {
+                symbol.target_file_name = v.to_string();
             }
 
             // Parse pins

@@ -455,6 +455,17 @@ impl McpServer {
                                         },
                                         "required": ["filepath"]
                                     },
+                                    "model_3d": {
+                                        "type": ["object", "null"],
+                                        "description": "Alternative spelling of the same 3D-model reference, matching read_pcblib's output shape so a read result replays into write_pcblib unchanged. Ignored when 'step_model' is also given; null is accepted and ignored.",
+                                        "properties": {
+                                            "filepath": { "type": "string", "description": "Path to a .step file (embedded at save when it exists on disk) or a bare model name (kept as a reference)" },
+                                            "x_offset": { "type": "number" },
+                                            "y_offset": { "type": "number" },
+                                            "z_offset": { "type": "number" },
+                                            "rotation": { "type": "number", "description": "Z rotation in degrees" }
+                                        }
+                                    },
                                     "component_bodies": {
                                         "type": "array",
                                         "description": "Generic extruded 3D bodies (no STEP file). Each is an extruded shape defined by an outline + heights, useful for giving parts a 3D height when no STEP model is available.",
@@ -560,6 +571,11 @@ impl McpServer {
                                     "designator_prefix": { "type": "string", "description": "Reference-designator class letter, e.g. 'R' for resistors, 'U' for ICs. Written as '<prefix>?'. If omitted, falls back to 'component_type' (IEEE 315 / ASME Y14.44 mapping), then to 'U'." },
                                     "component_type": { "type": "string", "description": "Optional component category (e.g. 'resistor', 'capacitor', 'inductor', 'diode', 'transistor', 'connector', 'crystal', 'ic') used to derive the IEEE designator letter when 'designator_prefix' is not given. Unknown values default to 'U'." },
                                     "part_count": { "type": "integer", "description": "Number of parts for multi-part symbols (e.g., 2 for dual op-amp). Default: 1" },
+                                    "display_mode_count": { "type": "integer", "description": "Number of display modes (1 = normal only, 2+ = alternate/de-Morgan views). Default: 1" },
+                                    "current_part_id": { "type": "integer", "description": "Currently selected part (1-based). Default: 1" },
+                                    "part_id_locked": { "type": "boolean", "description": "Whether the part selection is locked. Default: false" },
+                                    "source_library_name": { "type": "string", "description": "Source library name recorded in the symbol header. Default: '*'" },
+                                    "target_file_name": { "type": "string", "description": "Target file name recorded in the symbol header. Default: '*'" },
                                     "pins": {
                                         "type": "array",
                                         "items": {
@@ -876,7 +892,7 @@ impl McpServer {
                                                 "x4": { "type": "number", "description": "Fourth control point X" },
                                                 "y4": { "type": "number", "description": "Fourth control point Y" },
                                                 "line_width": { "type": "integer", "description": "Curve width. Default: 1" },
-                                                "color": { "type": "integer", "description": "Curve BGR colour. Default: 32896 (dark red)" },
+                                                "color": { "type": "integer", "description": "Curve BGR colour. Default: 0x000080 (128, dark red)" },
                                                 "is_not_accessible": { "type": "boolean", "description": "Whether the curve is marked not-accessible (Altium tags every shape; default true)" },
                                                 "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" },
                                                 "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" }
@@ -897,7 +913,7 @@ impl McpServer {
                                                 "start_angle": { "type": "number", "description": "Start angle in degrees (0 = right, CCW). Default: 0" },
                                                 "end_angle": { "type": "number", "description": "End angle in degrees. Default: 360" },
                                                 "line_width": { "type": "integer", "description": "Arc width. Default: 1" },
-                                                "color": { "type": "integer", "description": "Arc BGR colour. Default: 32896 (dark red)" },
+                                                "color": { "type": "integer", "description": "Arc BGR colour. Default: 0x000080 (128, dark red)" },
                                                 "fill_color": { "type": "integer", "description": "Fill BGR colour (AreaColor). Default: 0" },
                                                 "owner_part_id": { "type": "integer", "description": "Part number (1-based). Default: 1" },
                                                 "unique_id": { "type": "string", "description": "8-char Altium unique ID; preserved on read-modify-write, auto-generated if omitted" }
@@ -987,7 +1003,7 @@ impl McpServer {
                                                 "x": { "type": "number", "description": "X position. Default: 0" },
                                                 "y": { "type": "number", "description": "Y position. Default: 0" },
                                                 "font_id": { "type": "integer", "description": "Font ID. Default: 1" },
-                                                "color": { "type": "integer", "description": "BGR colour. Default: 0x800000 (dark red)" },
+                                                "color": { "type": "integer", "description": "BGR colour. Default: 0x800000 (dark blue)" },
                                                 "hidden": { "type": "boolean", "description": "Whether hidden. Default: false" },
                                                 "read_only_state": { "type": "integer", "description": "Read-only state (0=editable, 1=read-only). Default: 0" },
                                                 "param_type": { "type": "integer", "description": "Parameter type (0=String, 1=Boolean, 2=Integer, 3=Float). Default: 0" },

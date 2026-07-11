@@ -238,13 +238,22 @@ impl McpServer {
 
         let mut extracted: Vec<Value> = Vec::new();
         let mut errors: Vec<Value> = Vec::new();
+        // Output names already claimed in this extraction, lower-cased because
+        // Windows file systems are case-insensitive. Colliding names get a
+        // `-1`, `-2`, ... suffix instead of silently overwriting each other.
+        let mut used_names: std::collections::HashSet<String> = std::collections::HashSet::new();
 
         for model in models {
             // model.name comes from inside the (caller-supplied) library. Reduce
             // it to a bare filename so a crafted name cannot use an absolute path
-            // or ".." segments to escape out_dir via Path::join, then re-validate
-            // the resolved path against the allow-list (defence in depth).
-            let Some(safe_name) = std::path::Path::new(&model.name).file_name() else {
+            // or ".." segments to escape out_dir via Path::join, sanitise the
+            // Windows-invalid characters write_pcblib also rejects (a raw `:`
+            // would write an NTFS alternate data stream), then re-validate the
+            // resolved path against the allow-list (defence in depth).
+            let Some(safe_name) = std::path::Path::new(&model.name)
+                .file_name()
+                .and_then(|n| crate::util::sanitise_file_name(&n.to_string_lossy()))
+            else {
                 errors.push(json!({
                     "id": model.id,
                     "name": model.name,
@@ -252,7 +261,8 @@ impl McpServer {
                 }));
                 continue;
             };
-            let output_file = out_dir.join(safe_name);
+            let unique_name = Self::deduplicate_file_name(&safe_name, &mut used_names);
+            let output_file = out_dir.join(&unique_name);
             if let Err(e) = self.validate_path(&output_file.to_string_lossy()) {
                 errors.push(json!({
                     "id": model.id,
@@ -291,6 +301,31 @@ impl McpServer {
             "errors": errors,
         });
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
+    }
+
+    /// Returns `name` if unclaimed, otherwise the first `stem-N.ext`
+    /// (`N` = 1, 2, ...) not yet in `used`, and records the result. Claims are
+    /// tracked lower-cased because Windows file systems are case-insensitive —
+    /// two models named `A.step` and `a.step` must not overwrite each other.
+    fn deduplicate_file_name(name: &str, used: &mut std::collections::HashSet<String>) -> String {
+        if used.insert(name.to_lowercase()) {
+            return name.to_string();
+        }
+        let path = std::path::Path::new(name);
+        let stem = path
+            .file_stem()
+            .map_or_else(|| name.to_string(), |s| s.to_string_lossy().into_owned());
+        let ext = path
+            .extension()
+            .map(|e| format!(".{}", e.to_string_lossy()))
+            .unwrap_or_default();
+        for n in 1.. {
+            let candidate = format!("{stem}-{n}{ext}");
+            if used.insert(candidate.to_lowercase()) {
+                return candidate;
+            }
+        }
+        unreachable!("some suffix is always free")
     }
 
     /// Extracts STEP models used by a specific footprint.
@@ -463,5 +498,84 @@ impl McpServer {
                 }
             },
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::altium::pcblib::EmbeddedModel;
+    use std::collections::HashSet;
+
+    /// Creates a temporary directory inside `.tmp/` for test isolation.
+    fn test_temp_dir() -> tempfile::TempDir {
+        let cwd = std::env::current_dir().expect("Failed to get current directory");
+        let tmp_root = cwd.join(".tmp");
+        std::fs::create_dir_all(&tmp_root).expect("Failed to create .tmp directory");
+        tempfile::tempdir_in(&tmp_root).expect("Failed to create temp dir")
+    }
+
+    #[test]
+    fn deduplicate_file_name_appends_suffix_before_extension() {
+        let mut used = HashSet::new();
+        assert_eq!(
+            McpServer::deduplicate_file_name("model.step", &mut used),
+            "model.step"
+        );
+        assert_eq!(
+            McpServer::deduplicate_file_name("model.step", &mut used),
+            "model-1.step"
+        );
+        assert_eq!(
+            McpServer::deduplicate_file_name("model.step", &mut used),
+            "model-2.step"
+        );
+        // Case-insensitive: on Windows `MODEL.STEP` would overwrite
+        // `model.step`, and `MODEL-1`/`MODEL-2` are claimed too, so the first
+        // free suffix is -3.
+        assert_eq!(
+            McpServer::deduplicate_file_name("MODEL.STEP", &mut used),
+            "MODEL-3.STEP"
+        );
+        // No extension: suffix goes at the end.
+        assert_eq!(McpServer::deduplicate_file_name("raw", &mut used), "raw");
+        assert_eq!(McpServer::deduplicate_file_name("raw", &mut used), "raw-1");
+    }
+
+    #[test]
+    fn extract_all_sanitises_and_deduplicates_model_names() {
+        // Probe scenario: two models sharing one name must both survive (no
+        // silent overwrite), and a name with a colon must not reach the file
+        // system raw (on NTFS `foo:bar.step` writes an alternate data stream).
+        let temp = test_temp_dir();
+        let server = McpServer::new(vec![temp.path().to_path_buf()]);
+        let out_dir = temp.path().join("out");
+
+        let m1 = EmbeddedModel::new("{ID-1}", "dup.step", b"first".to_vec());
+        let m2 = EmbeddedModel::new("{ID-2}", "dup.step", b"second".to_vec());
+        let m3 = EmbeddedModel::new("{ID-3}", "foo:bar.step", b"third".to_vec());
+        let models = [&m1, &m2, &m3];
+
+        let result =
+            server.extract_all_step_models("lib.PcbLib", Some(&out_dir.to_string_lossy()), &models);
+        assert!(!result.is_error, "extraction succeeds");
+
+        assert_eq!(
+            std::fs::read(out_dir.join("dup.step")).expect("first file"),
+            b"first"
+        );
+        assert_eq!(
+            std::fs::read(out_dir.join("dup-1.step")).expect("deduplicated second file"),
+            b"second"
+        );
+        assert_eq!(
+            std::fs::read(out_dir.join("foo_bar.step")).expect("sanitised third file"),
+            b"third",
+            "the colon must be replaced, not written as an NTFS stream"
+        );
+        // Exactly three files — nothing overwritten, no stray `foo` stub from
+        // an alternate-data-stream write.
+        let count = std::fs::read_dir(&out_dir).expect("read out dir").count();
+        assert_eq!(count, 3, "all three models extracted as separate files");
     }
 }
