@@ -811,6 +811,8 @@ mod tests {
             italic: false,
             bold: false,
             mirror: false,
+            is_comment: false,
+            is_designator: false,
             font_name: "Arial".to_string(),
             justification: TextJustification::MiddleCenter,
             is_inverted: false,
@@ -838,6 +840,8 @@ mod tests {
             italic: false,
             bold: false,
             mirror: false,
+            is_comment: false,
+            is_designator: false,
             font_name: "Arial".to_string(),
             justification: TextJustification::TopLeft,
             is_inverted: false,
@@ -893,6 +897,8 @@ mod tests {
             italic: false,
             bold: false,
             mirror: false,
+            is_comment: false,
+            is_designator: false,
             font_name: "Arial".to_string(),
             justification: TextJustification::MiddleCenter,
             is_inverted: false,
@@ -936,6 +942,8 @@ mod tests {
             italic: true,
             bold: false,
             mirror: false,
+            is_comment: false,
+            is_designator: false,
             font_name: "Arial".to_string(),
             justification: TextJustification::MiddleCenter,
             is_inverted: false,
@@ -978,6 +986,8 @@ mod tests {
             italic: false,
             bold: false,
             mirror: false,
+            is_comment: false,
+            is_designator: false,
             font_name: "Arial".to_string(),
             // BottomLeft is the from-scratch default; it encodes to the template's 0x03.
             justification: TextJustification::BottomLeft,
@@ -1000,6 +1010,11 @@ mod tests {
         assert_eq!(geom[45], 0x00, "non-italic must stay template default");
         // PR-10 byte-identity: every new/wired field's default equals the template byte.
         assert_eq!(geom[35], 0x00, "default mirror must stay template 0x00");
+        assert_eq!(geom[40], 0x00, "default is_comment must stay template 0x00");
+        assert_eq!(
+            geom[41], 0x00,
+            "default is_designator must stay template 0x00"
+        );
         assert_eq!(geom[44], 0x00, "default bold must stay template 0x00");
         assert_eq!(
             geom[132], 0x03,
@@ -1034,6 +1049,8 @@ mod tests {
             italic: true,
             bold: true,
             mirror: true,
+            is_comment: false,
+            is_designator: false,
             font_name: "Times New Roman".to_string(),
             justification: TextJustification::TopRight,
             is_inverted: false,
@@ -1068,6 +1085,136 @@ mod tests {
     }
 
     #[test]
+    fn text_comment_designator_flags_round_trip() {
+        // IsComment@40 / IsDesignator@41 (previously dropped on read) must
+        // survive encode -> decode; a plain text keeps both false.
+        let mut original = Footprint::new("TEXT_FLAGS");
+        let mut text = Text {
+            x: 0.0,
+            y: 0.0,
+            text: ".Designator".to_string(),
+            height: 1.0,
+            layer: Layer::TopOverlay,
+            rotation: 0.0,
+            kind: TextKind::Stroke,
+            stroke_font: None,
+            stroke_width: None,
+            italic: false,
+            bold: false,
+            mirror: false,
+            is_comment: false,
+            is_designator: true,
+            font_name: "Arial".to_string(),
+            justification: TextJustification::BottomLeft,
+            is_inverted: false,
+            inverted_border: None,
+            use_inverted_rectangle: false,
+            inverted_rect_width: None,
+            inverted_rect_height: None,
+            inverted_rect_text_offset: None,
+            flags: PcbFlags::empty(),
+            net_index: 0xFFFF,
+            polygon_index: 0xFFFF,
+            component_index: -1,
+            unique_id: None,
+        };
+        original.add_text(text.clone());
+        text.text = ".Comment".to_string();
+        text.is_comment = true;
+        text.is_designator = false;
+        original.add_text(text.clone());
+        text.text = "plain".to_string();
+        text.is_comment = false;
+        original.add_text(text);
+
+        let data = writer::encode_data_stream(&original).expect("encode");
+        let mut decoded = Footprint::new("TEXT_FLAGS");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        assert_eq!(decoded.text.len(), 3);
+        let by_content = |c: &str| {
+            decoded
+                .text
+                .iter()
+                .find(|t| t.text == c)
+                .unwrap_or_else(|| panic!("text {c:?} not found"))
+        };
+        let designator = by_content(".Designator");
+        assert!(designator.is_designator, "is_designator must round-trip");
+        assert!(!designator.is_comment);
+        let comment = by_content(".Comment");
+        assert!(comment.is_comment, "is_comment must round-trip");
+        assert!(!comment.is_designator);
+        let plain = by_content("plain");
+        assert!(!plain.is_comment, "plain text keeps is_comment false");
+        assert!(!plain.is_designator, "plain text keeps is_designator false");
+    }
+
+    #[test]
+    fn pad_is_plated_round_trips() {
+        // is_plated @60 (previously derived from hole_size on write and dropped
+        // on read) must survive encode -> decode, both at the default (true —
+        // Altium's for every pad, SMD included) and explicitly unplated.
+        let mut original = Footprint::new("PAD_PLATED");
+        original.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 0.6));
+        let mut unplated = Pad::through_hole("2", 2.0, 0.0, 1.6, 1.6, 0.8);
+        unplated.is_plated = false;
+        original.add_pad(unplated);
+
+        let data = writer::encode_data_stream(&original).expect("encode");
+        let mut decoded = Footprint::new("PAD_PLATED");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        assert_eq!(decoded.pads.len(), 2);
+        let smd = decoded.pads.iter().find(|p| p.designator == "1").unwrap();
+        assert!(smd.is_plated, "SMD pad reads back Altium's plated default");
+        let th = decoded.pads.iter().find(|p| p.designator == "2").unwrap();
+        assert!(!th.is_plated, "explicitly unplated hole must round-trip");
+    }
+
+    #[test]
+    fn pad_identity_guids_round_trip() {
+        // The two per-pad identity GUIDs @126/@142 (previously write-only fresh
+        // values) now read back verbatim, so encode -> decode -> encode
+        // reproduces the same GUID bytes instead of regenerating them.
+        let mut original = Footprint::new("PAD_GUIDS");
+        original.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 0.6));
+
+        let data = writer::encode_data_stream(&original).expect("encode");
+        let mut decoded = Footprint::new("PAD_GUIDS");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        assert_eq!(decoded.pads.len(), 1);
+        let pad = &decoded.pads[0];
+        let nil = "{00000000-0000-0000-0000-000000000000}";
+        let guid_a = pad.identity_guid.as_deref().expect("GUID-A read back");
+        let guid_b = pad.identity_guid_b.as_deref().expect("GUID-B read back");
+        assert_ne!(guid_a, nil, "fresh GUID-A is non-nil");
+        assert_ne!(guid_a, guid_b, "GUID-A and GUID-B are independent");
+        // Braced uppercase GUID shape.
+        assert!(
+            guid_a.starts_with('{') && guid_a.ends_with('}') && guid_a.len() == 38,
+            "GUID string shape: {guid_a}"
+        );
+
+        // Re-encoding the decoded footprint preserves the exact GUID bytes: the
+        // second stream carries them verbatim rather than fresh randoms.
+        let data2 = writer::encode_data_stream(&decoded).expect("re-encode");
+        let mut decoded2 = Footprint::new("PAD_GUIDS");
+        reader::parse_data_stream(&mut decoded2, &data2, None);
+        assert_eq!(
+            decoded2.pads[0].identity_guid.as_deref(),
+            Some(guid_a),
+            "GUID-A must be replayed verbatim on re-encode"
+        );
+        assert_eq!(
+            decoded2.pads[0].identity_guid_b.as_deref(),
+            Some(guid_b),
+            "GUID-B must be replayed verbatim on re-encode"
+        );
+    }
+
+    #[test]
     fn text_inverted_rect_round_trip() {
         // A framed inverted (knockout) text must survive encode -> decode for the
         // whole inverted-rect descriptor: IsInverted@110, InvertedBorder@111,
@@ -1087,6 +1234,8 @@ mod tests {
             italic: false,
             bold: false,
             mirror: false,
+            is_comment: false,
+            is_designator: false,
             font_name: "Arial".to_string(),
             justification: TextJustification::MiddleCenter,
             is_inverted: true,
@@ -1145,6 +1294,8 @@ mod tests {
             italic: false,
             bold: false,
             mirror: false,
+            is_comment: false,
+            is_designator: false,
             font_name: "Arial".to_string(),
             justification: TextJustification::MiddleCenter,
             is_inverted: false,
@@ -1196,6 +1347,8 @@ mod tests {
             italic: false,
             bold: false,
             mirror: false,
+            is_comment: false,
+            is_designator: false,
             font_name: "Arial".to_string(),
             justification: TextJustification::MiddleCenter,
             is_inverted: false,

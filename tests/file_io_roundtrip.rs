@@ -158,6 +158,8 @@ fn pcblib_file_roundtrip_all_primitives() {
         italic: false,
         bold: false,
         mirror: false,
+        is_comment: false,
+        is_designator: false,
         font_name: "Arial".to_string(),
         justification: TextJustification::default(),
         is_inverted: false,
