@@ -359,6 +359,37 @@ fn push_coord(parts: &mut Vec<String>, key: &str, value: f64) {
     }
 }
 
+/// Formats the `|IndexInSheet=<n>` token for a content record, or an empty
+/// string for the first content record (index 0), which Altium omits.
+///
+/// Real AD24 numbers a symbol's content records (every graphic shape, every
+/// user Label/Parameter record AND every binary pin) with ONE shared 0-based
+/// counter in stream order, omitting the token at 0 — confirmed against both
+/// the regenerated golden fixture (`scripts/samples/symbols.SchLib`) and real
+/// Altium-authored libraries. Pins carry no text token (the binary pin record
+/// has no `IndexInSheet` field) but still consume a counter slot: a real
+/// Altium symbol with parameters 0..2, two pins, then a rectangle stores
+/// `IndexInSheet=5` on the rectangle. The value is purely positional, so the
+/// writer derives it; nothing is stored on the primitive structs. The token
+/// sits immediately after `IsNotAccesible` (before `OwnerPartId`), matching
+/// the golden token order `|RECORD=12|IsNotAccesible=T|IndexInSheet=1|…`.
+fn index_in_sheet(index: usize) -> String {
+    if index == 0 {
+        String::new()
+    } else {
+        format!("|IndexInSheet={index}")
+    }
+}
+
+/// Pushes the `IndexInSheet=<n>` token into a `parts` vector joined by `|`,
+/// skipping index 0 (omitted by Altium). The list-style equivalent of
+/// [`index_in_sheet`].
+fn push_index_in_sheet(parts: &mut Vec<String>, index: usize) {
+    if index != 0 {
+        parts.push(format!("IndexInSheet={index}"));
+    }
+}
+
 /// Emits the four universal display/lock flags as `|KEY=VALUE` tokens, each
 /// only when non-default. Matching Altium's omit-when-default behaviour, a shape
 /// carrying only defaults emits nothing here (so its record stays byte-identical
@@ -416,10 +447,10 @@ fn encode_rectangle(rect: &Rectangle, index: usize) -> String {
     // and omit it when zero.
     let line_style = nonzero("LineStyleExt", u32::from(rect.line_style));
     format!(
-        "|RECORD=14|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T\
+        "|RECORD=14|IsNotAccesible=T{}|OwnerPartId={}\
          {}{}{}{}\
          |LineWidth={}{}{}{}{}|Transparent={}{}|UniqueID={}",
-        index,
+        index_in_sheet(index),
         rect.owner_part_id,
         coord_param("Location.X", rect.x1),
         coord_param("Location.Y", rect.y1),
@@ -446,10 +477,10 @@ fn encode_line(line: &Line, index: usize) -> String {
     };
     let line_style = nonzero("LineStyle", u32::from(line.line_style));
     format!(
-        "|RECORD=13|IndexInSheet={}|OwnerPartId={}{}{}{}{}{}|LineWidth={}{}{}{}|UniqueID={}",
-        index,
-        line.owner_part_id,
+        "|RECORD=13{}{}|OwnerPartId={}{}{}{}{}|LineWidth={}{}{}{}|UniqueID={}",
         not_accessible,
+        index_in_sheet(index),
+        line.owner_part_id,
         coord_param("Location.X", line.x1),
         coord_param("Location.Y", line.y1),
         coord_param("Corner.X", line.x2),
@@ -472,15 +503,17 @@ fn encode_line(line: &Line, index: usize) -> String {
 fn encode_parameter(param: &Parameter, index: usize) -> String {
     let (px, px_frac) = coord::split(param.x);
     let (py, py_frac) = coord::split(param.y);
-    let mut parts = vec![
-        "RECORD=41".to_string(),
-        format!("IndexInSheet={index}"),
+    let mut parts = vec!["RECORD=41".to_string()];
+    // Golden RECORD=41 order: IndexInSheet (0 omitted) directly after RECORD,
+    // then OwnerPartId (parameters carry no IsNotAccesible token).
+    push_index_in_sheet(&mut parts, index);
+    parts.extend([
         format!("OwnerPartId={}", param.owner_part_id),
         format!("Location.X={px}"),
         format!("Location.Y={py}"),
         format!("Color={}", param.color),
         format!("FontID={}", param.font_id),
-    ];
+    ]);
     // Fractional companions (omitted when zero, so integer positions are unchanged).
     if px_frac != 0 {
         parts.push(format!("Location.X_Frac={px_frac}"));
@@ -538,12 +571,12 @@ fn encode_designator(designator: &str) -> String {
 
 /// Encodes a polyline record.
 fn encode_polyline(polyline: &Polyline, index: usize) -> String {
-    let mut parts = vec![
-        "RECORD=6".to_string(),
-        format!("IndexInSheet={index}"),
+    let mut parts = vec!["RECORD=6".to_string()];
+    push_index_in_sheet(&mut parts, index);
+    parts.extend([
         format!("OwnerPartId={}", polyline.owner_part_id),
         format!("LineWidth={}", polyline.line_width),
-    ];
+    ]);
     if polyline.color != 0 {
         parts.push(format!("Color={}", polyline.color));
     }
@@ -579,16 +612,14 @@ fn encode_polyline(polyline: &Polyline, index: usize) -> String {
 
 /// Encodes a polygon record.
 fn encode_polygon(polygon: &Polygon, index: usize) -> String {
-    let mut parts = vec![
-        "RECORD=7".to_string(),
-        format!("IndexInSheet={index}"),
-        format!("OwnerPartId={}", polygon.owner_part_id),
-    ];
+    let mut parts = vec!["RECORD=7".to_string()];
     // Altium tags polygons IsNotAccesible (its own single-'s' spelling); emit
     // only when set, so a `false` polygon omits the key and round-trips as false.
     if polygon.is_not_accessible {
         parts.push("IsNotAccesible=T".to_string());
     }
+    push_index_in_sheet(&mut parts, index);
+    parts.push(format!("OwnerPartId={}", polygon.owner_part_id));
     parts.push(format!("LineWidth={}", polygon.line_width));
     // Altium omits Color / AreaColor when zero (AddNonZero).
     if polygon.line_color != 0 {
@@ -635,10 +666,10 @@ fn encode_arc(arc: &Arc, index: usize) -> String {
         ""
     };
     format!(
-        "|RECORD=12|IndexInSheet={}|OwnerPartId={}{}{}{}{}|StartAngle={}|EndAngle={}|LineWidth={}{}{}{}|UniqueID={}",
-        index,
-        arc.owner_part_id,
+        "|RECORD=12{}{}|OwnerPartId={}{}{}{}|StartAngle={}|EndAngle={}|LineWidth={}{}{}{}|UniqueID={}",
         not_accessible,
+        index_in_sheet(index),
+        arc.owner_part_id,
         coord_param("Location.X", arc.x),
         coord_param("Location.Y", arc.y),
         coord_param("Radius", arc.radius),
@@ -661,10 +692,10 @@ fn encode_bezier(bezier: &Bezier, index: usize) -> String {
         ""
     };
     format!(
-        "|RECORD=5|IndexInSheet={}|OwnerPartId={}{}|LineWidth={}{}|LocationCount=4{}{}{}{}{}{}{}{}|UniqueID={}",
-        index,
-        bezier.owner_part_id,
+        "|RECORD=5{}{}|OwnerPartId={}|LineWidth={}{}|LocationCount=4{}{}{}{}{}{}{}{}|UniqueID={}",
         not_accessible,
+        index_in_sheet(index),
+        bezier.owner_part_id,
         bezier.line_width,
         nonzero("Color", bezier.color),
         coord_param("X1", bezier.x1),
@@ -696,10 +727,10 @@ fn encode_pie(pie: &Pie, index: usize) -> String {
         ""
     };
     format!(
-        "|RECORD=9|IndexInSheet={}|OwnerPartId={}{}{}{}{}|StartAngle={}|EndAngle={}|LineWidth={}{}{}{}{}{}|UniqueID={}",
-        index,
-        pie.owner_part_id,
+        "|RECORD=9{}{}|OwnerPartId={}{}{}{}|StartAngle={}|EndAngle={}|LineWidth={}{}{}{}{}{}|UniqueID={}",
         not_accessible,
+        index_in_sheet(index),
+        pie.owner_part_id,
         coord_param("Location.X", pie.x),
         coord_param("Location.Y", pie.y),
         coord_param("Radius", pie.radius),
@@ -719,14 +750,12 @@ fn encode_pie(pie: &Pie, index: usize) -> String {
 /// border, fill, filename, flags). Embedded image bytes live in `/Storage` and
 /// are not written here.
 fn encode_image(image: &Image, index: usize) -> String {
-    let mut parts = vec![
-        "RECORD=30".to_string(),
-        format!("IndexInSheet={index}"),
-        format!("OwnerPartId={}", image.owner_part_id),
-    ];
+    let mut parts = vec!["RECORD=30".to_string()];
     if image.is_not_accessible {
         parts.push("IsNotAccesible=T".to_string());
     }
+    push_index_in_sheet(&mut parts, index);
+    parts.push(format!("OwnerPartId={}", image.owner_part_id));
     // Bounding box: Location (corner 1) + Corner (corner 2), each with optional _Frac.
     push_coord(&mut parts, "Location.X", image.x1);
     push_coord(&mut parts, "Location.Y", image.y1);
@@ -771,17 +800,20 @@ fn encode_image(image: &Image, index: usize) -> String {
 /// Encodes a text frame record (`RECORD=28`) — a bordered multi-line text box.
 ///
 /// Token order and omit-when-default behaviour match Altium's own output (both
-/// the regenerated golden and `AltiumSharp`'s from-scratch record): no
-/// `IndexInSheet` is written (Altium emits none for this record), `LineWidth` /
-/// `LineStyle` / `Color` / `AreaColor` / `TextColor` / `FontID` / `Alignment` /
-/// `Orientation` only when non-zero, the `T`-flags only when true, and
-/// `TextMargin` as a coordinate whose zero integer part is omitted (a default
-/// frame carries only `TextMargin_Frac=5`).
-fn encode_text_frame(frame: &TextFrame) -> String {
+/// the regenerated golden and `AltiumSharp`'s from-scratch record):
+/// `IndexInSheet` follows the shared content counter like every other shape
+/// (the golden frame carries no token because it is the symbol's first content
+/// record — slot 0, which Altium omits), `LineWidth` / `LineStyle` / `Color` /
+/// `AreaColor` / `TextColor` / `FontID` / `Alignment` / `Orientation` only when
+/// non-zero, the `T`-flags only when true, and `TextMargin` as a coordinate
+/// whose zero integer part is omitted (a default frame carries only
+/// `TextMargin_Frac=5`).
+fn encode_text_frame(frame: &TextFrame, index: usize) -> String {
     let mut parts = vec!["RECORD=28".to_string()];
     if frame.is_not_accessible {
         parts.push("IsNotAccesible=T".to_string());
     }
+    push_index_in_sheet(&mut parts, index);
     parts.push(format!("OwnerPartId={}", frame.owner_part_id));
     // Frame box: Location (corner 1) + Corner (corner 2), each with optional _Frac.
     push_coord(&mut parts, "Location.X", frame.x1);
@@ -856,8 +888,8 @@ fn encode_ellipse(ellipse: &Ellipse, index: usize) -> String {
         ""
     };
     format!(
-        "|RECORD=8|IndexInSheet={}|OwnerPartId={}{}{}{}{}|LineWidth={}{}{}{}{}{}|UniqueID={}",
-        index,
+        "|RECORD=8{}|OwnerPartId={}{}{}{}{}|LineWidth={}{}{}{}{}{}|UniqueID={}",
+        index_in_sheet(index),
         ellipse.owner_part_id,
         coord_param("Location.X", ellipse.x),
         coord_param("Location.Y", ellipse.y),
@@ -885,11 +917,11 @@ fn encode_round_rect(round_rect: &RoundRect, index: usize) -> String {
         ""
     };
     format!(
-        "|RECORD=10|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T\
+        "|RECORD=10|IsNotAccesible=T{}|OwnerPartId={}\
          {}{}{}{}\
          {}{}\
          |LineWidth={}{}{}{}{}{}{}|UniqueID={}",
-        index,
+        index_in_sheet(index),
         round_rect.owner_part_id,
         coord_param("Location.X", round_rect.x1),
         coord_param("Location.Y", round_rect.y1),
@@ -917,13 +949,13 @@ fn encode_elliptical_arc(arc: &EllipticalArc, index: usize) -> String {
     // (scaled by 100,000), carrying near-boundary values into the integer part.
     // See [`super::coord`] for the shared encoding.
     format!(
-        "|RECORD=11|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T\
+        "|RECORD=11|IsNotAccesible=T{}|OwnerPartId={}\
          {}{}\
          {}\
          {}\
          |StartAngle={}|EndAngle={}\
          |LineWidth={}{}{}|UniqueID={}",
-        index,
+        index_in_sheet(index),
         arc.owner_part_id,
         coord_param("Location.X", arc.x),
         coord_param("Location.Y", arc.y),
@@ -951,8 +983,8 @@ fn encode_label(label: &Label, index: usize) -> String {
     };
     let is_hidden = if label.is_hidden { "|IsHidden=T" } else { "" };
     format!(
-        "|RECORD=4|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T{}{}{}|FontID={}|Orientation={}|Justification={}{}{}{}|{}|UniqueID={}",
-        index,
+        "|RECORD=4|IsNotAccesible=T{}|OwnerPartId={}{}{}{}|FontID={}|Orientation={}|Justification={}{}{}{}|{}|UniqueID={}",
+        index_in_sheet(index),
         label.owner_part_id,
         coord_param("Location.X", label.x),
         coord_param("Location.Y", label.y),
@@ -983,8 +1015,8 @@ fn encode_text(text: &Text, index: usize) -> String {
     format!(
         // RECORD=3 is the Text-annotation id (the reader dispatches 3 -> parse_text,
         // 4 -> parse_label); emitting 4 here made a Text round-trip back as a Label.
-        "|RECORD=3|IndexInSheet={}|OwnerPartId={}|IsNotAccesible=T{}{}{}|FontID={}|Orientation={}|Justification={}{}{}|{}|UniqueID={}",
-        index,
+        "|RECORD=3|IsNotAccesible=T{}|OwnerPartId={}{}{}{}|FontID={}|Orientation={}|Justification={}{}{}|{}|UniqueID={}",
+        index_in_sheet(index),
         text.owner_part_id,
         coord_param("Location.X", text.x),
         coord_param("Location.Y", text.y),
@@ -1091,6 +1123,10 @@ use crate::util::generate_unique_id;
 /// Returns an error if any pin coordinates exceed the i16 range (±32767).
 pub fn encode_data_stream(symbol: &Symbol) -> crate::altium::error::AltiumResult<Vec<u8>> {
     let mut data = Vec::new();
+    // The shared IndexInSheet counter over content records (shapes, user
+    // labels/parameters AND pins) in stream order; slot 0's token is omitted
+    // and the header / system designator records stay at -1. See
+    // [`index_in_sheet`] for the golden-confirmed rule.
     let mut index_counter = 0usize;
 
     // 1. Component header
@@ -1117,8 +1153,11 @@ pub fn encode_data_stream(symbol: &Symbol) -> crate::altium::error::AltiumResult
     // 4. Pins (binary format)
     for pin in &symbol.pins {
         write_binary_pin(&mut data, pin)?;
-        // Pins occupy an ordinal slot too; advance so later records' IndexInSheet
-        // values match Altium's primitive numbering.
+        // Pins consume an IndexInSheet counter slot even though the binary pin
+        // record stores no such field — confirmed against real Altium-authored
+        // libraries, where a symbol with parameters 0..2, two pins, then a
+        // rectangle stores IndexInSheet=5 on the rectangle (slots 3 and 4 are
+        // the pins).
         index_counter += 1;
     }
 
@@ -1164,11 +1203,11 @@ pub fn encode_data_stream(symbol: &Symbol) -> crate::altium::error::AltiumResult
         index_counter += 1;
     }
 
-    // 8d. Text frames (RECORD=28). Altium writes no IndexInSheet key for this
-    // record, but a frame still occupies an ordinal slot, so the counter
-    // advances to keep later records' IndexInSheet values in step.
+    // 8d. Text frames (RECORD=28) share the content counter like every other
+    // shape (the golden frame carries no token only because it sits at slot 0,
+    // which the shared 0-omitted rule drops).
     for text_frame in &symbol.text_frames {
-        let record = encode_text_frame(text_frame);
+        let record = encode_text_frame(text_frame, index_counter);
         write_text_record(&mut data, &record)?;
         index_counter += 1;
     }
@@ -1398,7 +1437,7 @@ mod tests {
         // TEXTFRAME_TEST.SchLib golden), token for token. Only the trailing
         // UniqueID (freshly generated) differs.
         let frame = TextFrame::new(-20, -10, 20, 10, "Test Frame");
-        let s = encode_text_frame(&frame);
+        let s = encode_text_frame(&frame, 0);
         assert!(
             s.starts_with(
                 "|RECORD=28|IsNotAccesible=T|OwnerPartId=1\
@@ -1423,6 +1462,190 @@ mod tests {
         ] {
             assert!(!s.contains(absent), "default frame must omit {absent}: {s}");
         }
+    }
+
+    /// Splits an encoded Data stream into per-record text (binary pin records
+    /// come back as `"<PIN>"` markers) for token-order assertions.
+    fn stream_records(data: &[u8]) -> Vec<String> {
+        let mut records = Vec::new();
+        let mut off = 0;
+        while off + 4 <= data.len() {
+            let len = data[off] as usize
+                | ((data[off + 1] as usize) << 8)
+                | ((data[off + 2] as usize) << 16);
+            let flags = data[off + 3];
+            if flags == 1 {
+                records.push("<PIN>".to_string());
+            } else {
+                records.push(String::from_utf8_lossy(&data[off + 4..off + 4 + len]).into_owned());
+            }
+            off += 4 + len;
+        }
+        records
+    }
+
+    #[test]
+    fn index_in_sheet_golden_sequence_across_shapes() {
+        // The golden rule (LINES / SHAPESTYLE fixtures): all content records
+        // share ONE 0-based counter in stream order, slot 0's token is omitted,
+        // and the token sits right after IsNotAccesible (before OwnerPartId).
+        let mut symbol = Symbol::new("SEQ");
+        symbol.add_line(Line::new(-10, 0, 10, 0));
+        symbol.add_line(Line::new(0, -10, 0, 10));
+        symbol.add_line(Line::new(-10, -10, 10, 10));
+
+        let data = encode_data_stream(&symbol).expect("encode");
+        let records = stream_records(&data);
+        let lines: Vec<&String> = records
+            .iter()
+            .filter(|t| t.starts_with("|RECORD=13"))
+            .collect();
+        assert_eq!(lines.len(), 3);
+        assert!(
+            !lines[0].contains("IndexInSheet"),
+            "first content record (slot 0) omits the token: {}",
+            lines[0]
+        );
+        assert!(
+            lines[1].starts_with("|RECORD=13|IsNotAccesible=T|IndexInSheet=1|OwnerPartId=1|"),
+            "second record carries =1 right after IsNotAccesible: {}",
+            lines[1]
+        );
+        assert!(
+            lines[2].starts_with("|RECORD=13|IsNotAccesible=T|IndexInSheet=2|OwnerPartId=1|"),
+            "third record carries =2: {}",
+            lines[2]
+        );
+    }
+
+    #[test]
+    fn index_in_sheet_pins_consume_counter_slots() {
+        // Golden-confirmed against real Altium-authored libraries: binary pins
+        // store no IndexInSheet token but DO consume counter slots (a real
+        // symbol with parameters 0..2, two pins, then a rectangle stores
+        // IndexInSheet=5 on the rectangle). Emission order here is parameter
+        // (slot 0, omitted), rectangle (1), two pins (2, 3), line (4).
+        let mut symbol = Symbol::new("PINSLOTS");
+        symbol.add_parameter(Parameter::new("Value", "10k"));
+        symbol.add_rectangle(Rectangle::new(-5, -5, 5, 5));
+        symbol.add_pin(Pin::new("A", "1", -10, 0, 5, PinOrientation::Left));
+        symbol.add_pin(Pin::new("B", "2", 10, 0, 5, PinOrientation::Right));
+        symbol.add_line(Line::new(-5, 0, 5, 0));
+
+        let data = encode_data_stream(&symbol).expect("encode");
+        let records = stream_records(&data);
+        let param = records
+            .iter()
+            .find(|t| t.starts_with("|RECORD=41") && !t.contains("OwnerPartId=-1"))
+            .expect("user parameter present");
+        assert!(
+            !param.contains("IndexInSheet"),
+            "slot-0 parameter omits the token: {param}"
+        );
+        let rect = records
+            .iter()
+            .find(|t| t.starts_with("|RECORD=14"))
+            .expect("rectangle present");
+        assert!(
+            rect.contains("|IndexInSheet=1|"),
+            "rectangle takes slot 1: {rect}"
+        );
+        let line = records
+            .iter()
+            .find(|t| t.starts_with("|RECORD=13"))
+            .expect("line present");
+        assert!(
+            line.contains("|IndexInSheet=4|"),
+            "line after two pins takes slot 4 (pins consumed 2 and 3): {line}"
+        );
+    }
+
+    #[test]
+    fn index_in_sheet_single_shape_symbol_emits_no_token() {
+        // Byte-identity gate: a from-scratch single-shape symbol emits NO
+        // IndexInSheet on the shape (slot 0 omitted), so its output bytes are
+        // unchanged; only the header keeps its -1.
+        let mut symbol = Symbol::new("ONESHAPE");
+        symbol.add_rectangle(Rectangle::new(-5, -5, 5, 5));
+
+        let data = encode_data_stream(&symbol).expect("encode");
+        let records = stream_records(&data);
+        let rect = records
+            .iter()
+            .find(|t| t.starts_with("|RECORD=14"))
+            .expect("rectangle present");
+        assert!(
+            !rect.contains("IndexInSheet"),
+            "single content record omits the token: {rect}"
+        );
+        let header = &records[0];
+        assert!(
+            header.contains("|IndexInSheet=-1|"),
+            "component header keeps -1: {header}"
+        );
+    }
+
+    #[test]
+    fn index_in_sheet_system_designator_keeps_minus_one() {
+        // The trailing system Designator record (RECORD=34) stays at -1
+        // regardless of how many content slots precede it.
+        let mut symbol = Symbol::new("SYSREC");
+        symbol.designator = "U?".to_string();
+        symbol.add_rectangle(Rectangle::new(-5, -5, 5, 5));
+        symbol.add_rectangle(Rectangle::new(-3, -3, 3, 3));
+
+        let data = encode_data_stream(&symbol).expect("encode");
+        let records = stream_records(&data);
+        let designator = records
+            .iter()
+            .find(|t| t.starts_with("|RECORD=34"))
+            .expect("designator present");
+        assert!(
+            designator.contains("|IndexInSheet=-1|"),
+            "system designator keeps -1: {designator}"
+        );
+    }
+
+    #[test]
+    fn index_in_sheet_symbol_round_trips_through_cursor() {
+        // An in-RAM Cursor round-trip still parses every primitive with the
+        // positional IndexInSheet tokens present (the reader ignores them).
+        let mut symbol = Symbol::new("RT");
+        symbol.designator = "U?".to_string();
+        symbol.add_parameter(Parameter::new("Value", "10k"));
+        symbol.add_rectangle(Rectangle::new(-10, -10, 10, 10));
+        symbol.add_pin(Pin::new("A", "1", -15, 0, 5, PinOrientation::Left));
+        symbol.add_pin(Pin::new("B", "2", 15, 0, 5, PinOrientation::Right));
+        symbol.add_line(Line::new(-10, 0, 10, 0));
+        symbol.add_label(Label {
+            x: 0.0,
+            y: 12.0,
+            text: "hello".to_string(),
+            font_id: 1,
+            color: 0,
+            justification: TextJustification::BottomLeft,
+            rotation: 0.0,
+            is_mirrored: false,
+            is_hidden: false,
+            owner_part_id: 1,
+            display_flags: ShapeDisplayFlags::default(),
+            unique_id: None,
+        });
+
+        let mut lib = crate::altium::schlib::SchLib::new();
+        lib.add(symbol);
+        let mut buf = std::io::Cursor::new(Vec::new());
+        lib.write(&mut buf).expect("library should serialise");
+        buf.set_position(0);
+        let back_lib =
+            crate::altium::schlib::SchLib::read(buf).expect("library should deserialise");
+        let sym = back_lib.get("RT").expect("symbol RT round-trips");
+        assert_eq!(sym.parameters.len(), 1);
+        assert_eq!(sym.rectangles.len(), 1);
+        assert_eq!(sym.pins.len(), 2);
+        assert_eq!(sym.lines.len(), 1);
+        assert_eq!(sym.labels.len(), 1);
+        assert_eq!(sym.designator, "U?");
     }
 
     #[test]
