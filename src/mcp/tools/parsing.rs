@@ -1379,6 +1379,11 @@ impl McpServer {
             .map(ToString::to_string);
         // EE-meaningful display fields (omit-when-default).
         let orientation = json_i32(json, "orientation").unwrap_or(0);
+        // Altium anchor id 0-8 (0 = bottom-left ... 8 = top-right); default 0.
+        let justification = json
+            .get("justification")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as u8;
         let show_name = json
             .get("show_name")
             .and_then(Value::as_bool)
@@ -1409,6 +1414,7 @@ impl McpServer {
             read_only_state,
             param_type,
             orientation,
+            justification,
             show_name,
             hide_name,
             description,
@@ -1469,6 +1475,13 @@ impl McpServer {
             .get("transparent")
             .and_then(Value::as_bool)
             .unwrap_or(false);
+        // `is_not_accessible` previously unmodelled; read from JSON (matches
+        // the name `read_schlib` exposes). Altium tags every polyline, so
+        // default true.
+        let is_not_accessible = json
+            .get("is_not_accessible")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
         let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
 
         Some(Polyline {
@@ -1480,6 +1493,7 @@ impl McpServer {
             end_line_shape,
             line_shape_size,
             transparent,
+            is_not_accessible,
             owner_part_id,
             display_flags: parse_schlib_display_flags(json),
             unique_id: json_unique_id(json),
@@ -1883,6 +1897,13 @@ impl McpServer {
             .get("transparent")
             .and_then(Value::as_bool)
             .unwrap_or(false);
+        // `is_not_accessible` previously unmodelled; read from JSON (matches
+        // the name `read_schlib` exposes). Altium tags every ellipse, so
+        // default true.
+        let is_not_accessible = json
+            .get("is_not_accessible")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
         let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
 
         Some(Ellipse {
@@ -1895,6 +1916,7 @@ impl McpServer {
             fill_color,
             filled,
             transparent,
+            is_not_accessible,
             owner_part_id,
             display_flags: parse_schlib_display_flags(json),
             unique_id: json_unique_id(json),
@@ -2494,6 +2516,46 @@ mod tests {
         }))
         .expect("ellipse should parse");
         assert!(el.transparent);
+    }
+
+    #[test]
+    fn parse_schlib_ellipse_and_polyline_read_is_not_accessible() {
+        // Absent defaults true (Altium tags every ellipse/polyline); an explicit
+        // false must round-trip through the JSON write path.
+        let el = McpServer::parse_schlib_ellipse(&json!({
+            "x": 0.0, "y": 0.0, "radius_x": 5.0, "radius_y": 3.0,
+        }))
+        .expect("ellipse should parse");
+        assert!(el.is_not_accessible, "ellipse defaults true");
+        let el = McpServer::parse_schlib_ellipse(&json!({
+            "x": 0.0, "y": 0.0, "radius_x": 5.0, "radius_y": 3.0,
+            "is_not_accessible": false,
+        }))
+        .expect("ellipse should parse");
+        assert!(!el.is_not_accessible, "explicit false is honoured");
+
+        let points = json!([{ "x": 0.0, "y": 0.0 }, { "x": 5.0, "y": 5.0 }]);
+        let pl = McpServer::parse_schlib_polyline(&json!({ "points": points }))
+            .expect("polyline should parse");
+        assert!(pl.is_not_accessible, "polyline defaults true");
+        let pl = McpServer::parse_schlib_polyline(
+            &json!({ "points": points, "is_not_accessible": false }),
+        )
+        .expect("polyline should parse");
+        assert!(!pl.is_not_accessible, "explicit false is honoured");
+    }
+
+    #[test]
+    fn parse_schlib_parameter_reads_justification() {
+        // Altium anchor id 0-8 (golden JUSTIFY: 8 = top-right); absent = 0.
+        let p = McpServer::parse_schlib_parameter(&json!({
+            "name": "Value", "value": "10k", "justification": 8,
+        }))
+        .expect("parameter should parse");
+        assert_eq!(p.justification, 8);
+        let p = McpServer::parse_schlib_parameter(&json!({ "name": "Value" }))
+            .expect("parameter should parse");
+        assert_eq!(p.justification, 0, "absent justification defaults to 0");
     }
 
     // --- PR-R1: round-trip preservation of a primitive's `unique_id` (identity

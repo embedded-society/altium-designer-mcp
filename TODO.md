@@ -43,11 +43,6 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
 
 Outstanding SchLib field fidelity all needs an Altium-authored golden to settle — see §B.
 
-### A5. Byte-order cosmetics (lowest value — last)
-
-- [ ] ⚪ Canonical field order (`IsNotAccesible` first, etc.) + `F3` angle formatting (`360.000`) +
-      omit zero-valued vertices, golden-verified. Reader is order-independent → pure byte-identity.
-
 ---
 
 ## B. Live-Altium gaps (~50) — now UNBLOCKED by the on-site harness
@@ -63,14 +58,11 @@ Outstanding SchLib field fidelity all needs an Altium-authored golden to settle 
 - [ ] **WideStrings Tier 2**: text SubRecord-1 offset-115 `wideStringIndex`, the dot/empty-filtered
       index base vs Altium's unfiltered, UTF-16-vs-Win1252 encoding, and the root-vs-per-component
       reader path — needs a real multi-text footprint as the oracle.
-- [ ] **SchLib `IsNotAccesible` on Ellipse / Polyline**: these two emit no token today, so adding the
-      field changes from-scratch bytes — confirm the default against a golden ellipse/polyline first.
 - [ ] **SchLib Component (RECORD=1) header fields**: remaining is the component `UniqueID`
       (AltiumSharp carries it, but a fresh symbol would emit a brand-new random id — not
-      byte-identical) and the dropped header fields (`DesignItemId` / `ComponentKind` / `LibraryPath`
+      byte-identical; the golden headers also order it before `AreaColor` and omit `AllPinCount`
+      when 0) and the dropped header fields (`DesignItemId` / `ComponentKind` / `LibraryPath`
       / `SheetPartFileName` / `IndexInSheet` / `OwnerPartId`) — need golden fixtures.
-- [ ] **SchLib Designator position**: emit `Location.X/Y` instead of the hardcoded `Y=-6` / omitted
-      `X`; the from-scratch default magnitude (Altium ~`X=-5, Y=5`) is unverified without a golden.
 - [ ] **SchLib Implementation structural**: `MapDefiner` (RECORD=47) pin→pad map, the 46/48 payload
       bodies + cross-record `OwnerIndex` chain, honouring `IsCurrent` on write, `DataFileCount` > 1.
 - [ ] **PcbLib ComponentBody remaining**: `IDENTIFIER` (comma-separated codepoint list — would

@@ -355,11 +355,12 @@ the polyline / polygon vertices `X{n}`/`Y{n}`. The `_Frac` field is **signed**:
 AD24 truncates the integer part **toward zero** and lets the fraction carry the
 coordinate's sign (range `-99999..=99999`, never opposite in sign to the integer
 part). The FRACSHAPES golden fixture stores `-5.45` as `Location.X=-5` with
-`Location.X_Frac=-45000` (`-5 + -45000/100000 = -5.45`). When the integer part
-is zero but the fraction is not, AD24 **omits the integer key entirely** (the
-golden arc centred at `0.05` carries only `Location.X_Frac=5000`, no
-`Location.X`); a plain on-grid zero still emits `<key>=0`. A `_Frac` of `0` is
-omitted, so integer-grid coordinates serialise exactly as before. When the
+`Location.X_Frac=-45000` (`-5 + -45000/100000 = -5.45`). AD24 **omits every
+zero coordinate key**, integer and `_Frac` alike: the golden arc centred at
+`0.05` carries only `Location.X_Frac=5000` (no `Location.X`), the LINES golden
+line `(0,0)→(10,0)` carries only `Corner.X=10`, and the POLYLINES golden
+vertices omit their zero `X{n}`/`Y{n}` halves. The reader defaults every
+absent coordinate key to `0`; integer-grid coordinates carry no `_Frac`. When the
 fractional part rounds up to a whole unit it **carries** into the integer part
 (e.g. `4.999995` → `Radius=5`, no `_Frac`) rather than being clamped.
 
@@ -405,8 +406,9 @@ the regenerated fixture and real Altium-authored libraries):
   counter slot: a real Altium symbol with parameters 0-2, two pins, then a rectangle stores
   `IndexInSheet=5` on the rectangle (slots 3 and 4 are the pins).
 - The component header (RECORD=1) and the trailing system Designator (RECORD=34) / Comment
-  (RECORD=41) records carry `IndexInSheet=-1`; RECORD=44/46/48 carry no token and RECORD=45
-  carries `-1`.
+  (RECORD=41, `OwnerPartId=-1`) records carry the `IndexInSheet=-1` sentinel and do **not**
+  consume a counter slot (the golden DISPMODE system Comment stores `IndexInSheet=-1` while the
+  rectangles keep slots 0 and 1); RECORD=44/46/48 carry no token and RECORD=45 carries `-1`.
 - The value is purely positional, so this crate derives it on write rather than storing it.
 
 ## Common Text Record Fields
@@ -425,7 +427,10 @@ Most text records include these standard fields (see
 | `UniqueID` | string | 8-char alphanumeric identifier, last key |
 
 The four universal display/lock flags (`GraphicallyLocked`, `Disabled`, `Dimmed`,
-`OwnerPartDisplayMode`) are modelled on **all** shape records.
+`OwnerPartDisplayMode`) are modelled on **all** shape records and sit **immediately after
+`OwnerPartId`** (golden: `…|OwnerPartId=1|OwnerPartDisplayMode=1|Location.X=…` on the DISPMODE
+rectangle, `…|OwnerPartId=1|GraphicallyLocked=T|…` on LOCKFLAGS), in the order
+`OwnerPartDisplayMode`, `GraphicallyLocked`, `Disabled`, `Dimmed`.
 
 ## Component Header (RECORD=1)
 
@@ -465,13 +470,16 @@ general-purpose text annotation and RECORD=4 as a label.
 | Property | Type | Description |
 |----------|------|-------------|
 | `Location.X` / `Location.Y` | coord | Anchor position |
+| `Orientation` | int | 0-3 = 0°/90°/180°/270°; omit at 0 |
+| `Justification` | int | Text alignment (see below); omit at 0 |
+| `Color` | int | Text colour (BGR; omit at 0) |
+| `FontId` | int | Font-table reference (default 1; always written) |
 | `Text` / `%UTF8%Text` | string | Content |
-| `FontId` | int | Font-table reference (default 1) |
-| `Color` | int | Text colour (BGR; absent = 0) |
-| `Orientation` | int | 0-3 = 0°/90°/180°/270° |
-| `Justification` | int | Text alignment (see below) |
-| `IsMirrored` | bool | Emit only when `T` |
 | `IsHidden` | bool | Emit only when `T` |
+| `IsMirrored` | bool | Emit only when `T` |
+
+Keys in golden order: `Orientation` and `Justification` sit between the coordinates and
+`Color`/`FontID` (the JUSTIFY golden stores `…|Location.X=-10|Justification=8|FontID=1|Text=TR|…`).
 
 **Orientation values:** `orientation = (rotation_degrees / 90) % 4`.
 
@@ -497,14 +505,16 @@ general-purpose text annotation and RECORD=4 as a label.
 
 | Property | Type | Description |
 |----------|------|-------------|
+| `IsNotAccesible` | bool | Emit only when `T` (the golden tags every polyline) |
 | `LineWidth` | int | Line width index (always written) |
+| `LineStyle` | int | 0=Solid, 1=Dashed, 2=Dotted; omit at 0 |
+| `StartLineShape` / `EndLineShape` | int | Endpoint shapes (see below); omit at 0 |
+| `LineShapeSize` | int | Size of endpoint shapes; omit at 0 |
 | `Color` | int | Line colour (BGR; omit at 0) |
-| `LineStyle` | int | 0=Solid, 1=Dashed, 2=Dotted |
-| `StartLineShape` / `EndLineShape` | int | Endpoint shapes (see below) |
-| `LineShapeSize` | int | Size of endpoint shapes |
+| `Transparent` | bool | Emit only when `T`, before `LocationCount` |
 | `LocationCount` | int | Vertex count (minimum 2) |
-| `X{n}` / `Y{n}` | coord | Vertices, 1-indexed |
-| `Transparent` | bool | Emit only when `T` |
+| `X{n}` / `Y{n}` | coord | Vertices, 1-indexed (zero halves omitted) |
+| `LineStyleExt` | int | Style companion after the vertices, same value as `LineStyle`; omit at 0 |
 
 **Line shapes:**
 
@@ -528,9 +538,9 @@ general-purpose text annotation and RECORD=4 as a label.
 | `AreaColor` | int | Fill colour (BGR; omit at 0) |
 | `LineStyle` | int | 0=Solid, 1=Dashed, 2=Dotted; omit at 0 |
 | `IsSolid` | bool | Whether **filled**; emit only when `T` (absent = unfilled) |
+| `Transparent` | bool | Emit only when `T`, before `LocationCount` (SHAPESTYLE golden) |
 | `LocationCount` | int | Vertex count (minimum 3) |
-| `X{n}` / `Y{n}` | coord | Vertices, 1-indexed |
-| `Transparent` | bool | Emit only when `T` |
+| `X{n}` / `Y{n}` | coord | Vertices, 1-indexed (zero halves omitted) |
 
 > **Note:** `IsSolid` is the **fill** flag, not a border style.
 
@@ -538,6 +548,7 @@ general-purpose text annotation and RECORD=4 as a label.
 
 | Property | Type | Description |
 |----------|------|-------------|
+| `IsNotAccesible` | bool | Emit only when `T` (the golden tags every ellipse) |
 | `Location.X` / `Location.Y` | coord | Centre |
 | `Radius` | coord | X radius |
 | `SecondaryRadius` | coord | Y radius; defaults to `Radius` when absent (circle) |
@@ -555,8 +566,8 @@ A filled circular sector.
 | `IsNotAccesible` | bool | Emit only when `T` |
 | `Location.X` / `Location.Y` | coord | Centre |
 | `Radius` | coord | Radius |
-| `StartAngle` / `EndAngle` | float | Degrees (defaults 0.0 / 360.0) |
-| `LineWidth` | int | Border width index |
+| `LineWidth` | int | Border width index (before the angles) |
+| `StartAngle` / `EndAngle` | float | Degrees, 3-decimal form (`30.000`); `StartAngle` omitted at 0, `EndAngle` always written (defaults 0.0 / 360.0 on read) |
 | `Color` / `AreaColor` | int | Border / fill colour (BGR; omit at 0) |
 | `IsSolid` | bool | Filled; emit only when `T` |
 | `Transparent` | bool | Emit only when `T` |
@@ -581,8 +592,8 @@ A filled circular sector.
 | `Location.X` / `Location.Y` | coord | Centre |
 | `Radius` (+ `Radius_Frac`) | coord | Primary radius |
 | `SecondaryRadius` (+ `_Frac`) | coord | Secondary radius; defaults to `Radius` when absent |
-| `StartAngle` / `EndAngle` | float | Degrees (defaults 0.0 / 360.0 = full ellipse) |
-| `LineWidth` | int | Line width |
+| `LineWidth` | int | Line width (before the angles) |
+| `StartAngle` / `EndAngle` | float | Degrees, 3-decimal form; `StartAngle` omitted at 0, `EndAngle` always written (defaults 0.0 / 360.0 = full ellipse on read) |
 | `Color` / `AreaColor` | int | Line / fill colour (BGR; omit at 0) |
 
 > **Note:** a fractional radius rounding up to a whole unit carries into the integer part rather
@@ -595,12 +606,9 @@ A filled circular sector.
 | `IsNotAccesible` | bool | Emit only when `T` |
 | `Location.X` / `Location.Y` | coord | Centre |
 | `Radius` | coord | Arc radius |
-| `StartAngle` / `EndAngle` | float | Degrees (defaults 0.0 / 360.0 = full circle) |
-| `LineWidth` | int | Line width |
+| `LineWidth` | int | Line width (before the angles, per the ARCS golden) |
+| `StartAngle` / `EndAngle` | float | Degrees, 3-decimal form (`EndAngle=360.000`); `StartAngle` omitted at 0, `EndAngle` always written (defaults 0.0 / 360.0 = full circle on read) |
 | `Color` / `AreaColor` | int | Line / fill colour (BGR; omit at 0) |
-
-> **Note:** Altium formats angles with three decimals (`45.000`); this crate currently emits the
-> shortest float form. The reader accepts either (byte-order cosmetics tracked in TODO §A5).
 
 ### Line (RECORD=13)
 
@@ -610,8 +618,9 @@ A filled circular sector.
 | `Location.X` / `Location.Y` | coord | Start point |
 | `Corner.X` / `Corner.Y` | coord | End point |
 | `LineWidth` | int | Line width index |
-| `Color` | int | Line colour (BGR; omit at 0) |
 | `LineStyle` | int | 0=Solid, 1=Dashed, 2=Dotted; omit at 0 |
+| `Color` | int | Line colour (BGR; omit at 0) |
+| `LineStyleExt` | int | Style companion, same value as `LineStyle`; omit at 0 (a golden dashed line carries BOTH `LineStyle=1` and `LineStyleExt=1`; the reader accepts either) |
 
 ### Rectangle (RECORD=14)
 
@@ -624,7 +633,7 @@ A filled circular sector.
 | `Color` / `AreaColor` | int | Border / fill colour (BGR; omit at 0) |
 | `LineStyleExt` | int | Border style — rectangles store the line style in `LineStyleExt`, NOT `LineStyle`; omit at 0 |
 | `IsSolid` | bool | Filled; emit only when `T` |
-| `Transparent` | bool | `T`/`F` (this crate always writes it) |
+| `Transparent` | bool | Emit only when `T` (the golden's unfilled rectangle carries neither `IsSolid` nor `Transparent`) |
 
 ### TextFrame (RECORD=28)
 
@@ -637,15 +646,18 @@ A bordered multi-line text box. All keys below are omit-when-default (note the d
 | `Location.X` / `Location.Y` | coord | First corner |
 | `Corner.X` / `Corner.Y` | coord | Second corner |
 | `LineWidth` | int | Border width; omit at 0 |
+| `Color` | int | Border colour (BGR; omit at 0) |
 | `LineStyle` | int | Border style; omit at 0 |
-| `Color` / `AreaColor` / `TextColor` | int | Border / fill / text colours (BGR; omit at 0) |
-| `FontID` | int | Font reference; omit at 0 |
+| `AreaColor` | int | Fill colour (BGR; **always written**, even 0) |
+| `TextColor` | int | Text colour (BGR; omit at 0) |
+| `FontID` | int | Font reference (**always written**) |
 | `IsSolid` / `ShowBorder` | bool | Emit only when `T` |
-| `Alignment` | int | Text alignment; omit at 0 |
-| `WordWrap` / `ClipToRect` / `Transparent` | bool | Emit only when `T` |
-| `Text` / `%UTF8%Text` | string | Multi-line content (always written) |
 | `Orientation` | int | 0-3; omit at 0 |
-| `TextMargin` (+ `_Frac`) | coord | Margin — a coordinate whose zero integer part Altium omits entirely (a default frame carries only `TextMargin_Frac=5`) |
+| `Alignment` | int | Text alignment; omit at 0 |
+| `WordWrap` / `ClipToRect` | bool | Emit only when `T` |
+| `Text` / `%UTF8%Text` | string | Multi-line content (always written) |
+| `TextMargin` (+ `_Frac`) | coord | Margin, following the omit-every-zero-key coordinate rule (a default frame carries only `TextMargin_Frac=5`) |
+| `Transparent` | bool | Emit only when `T`, after `TextMargin` |
 
 ### Image (RECORD=30)
 
@@ -671,32 +683,33 @@ A parameter-record variant selected by `Name=Designator`. As written by this cra
 
 | Property | Value |
 |----------|-------|
-| `IndexInSheet` / `OwnerPartId` | -1 / -1 (system record) |
-| `Location.Y` | -6 (hardcoded; `Location.X` omitted) |
+| `IndexInSheet` / `OwnerPartId` | -1 / -1 (system record; no counter slot) |
+| `Location.X` / `Location.Y` | Designator position, modelled on the symbol (golden default -5 / 5; zero keys omitted) |
 | `Color` | 8388608 (dark blue) |
 | `FontID` | 1 |
 | `Text` / `%UTF8%Text` | Designator text (e.g. `R?`) |
 | `Name` | `Designator` |
 | `ReadOnlyState` | 1 |
-| `UniqueID` | 8-char id |
+| `UniqueID` | 8-char id, preserved from read (generated only when absent) |
 
 ### Parameter (RECORD=41)
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `IndexInSheet` | int | Shared content counter, directly after `RECORD` (parameters carry no `IsNotAccesible` token) |
-| `OwnerPartId` | int | Part ownership |
-| `Location.X` / `Location.Y` | coord | Position (integer keys always written; `_Frac` companions appended after `FontID`) |
-| `Color` | int | Text colour (BGR; always written, default 8388608) |
+| `IndexInSheet` | int | Shared content counter for **user** parameters (`OwnerPartId >= 1`, 0 omitted); the `-1` sentinel for **system** parameters (`OwnerPartId=-1`, no counter slot). Directly after `RECORD` (parameters carry no `IsNotAccesible` token) |
+| `OwnerPartId` | int | Part ownership (-1 = system Comment-class record) |
+| `Location.X` / `Location.Y` | coord | Position; every zero key omitted, `_Frac` companions adjacent to their integer keys |
+| `Orientation` | int | 0-3; omit at 0 |
+| `Justification` | int | Text anchor 0-8 (same table as Label); omit at 0 (golden JUSTIFY carries `Justification=8`/`=4`) |
+| `Color` | int | Text colour (BGR; omit at 0 — the golden's user parameters carry no key) |
 | `FontID` | int | Font reference (always written) |
 | `IsHidden` | bool | Emit only when `T` |
-| `ReadOnlyState` | int | Omit at 0 |
-| `ParamType` | int | 0=String, 1=Boolean, 2=Integer, 3=Float; omit at 0 |
-| `Orientation` | int | 0-3; omit at 0 |
-| `ShowName` / `HideName` / `IsConfigurable` | bool | Emit only when `T` |
 | `Text` / `%UTF8%Text` | string | Parameter value; omit when empty |
-| `Description` | string | Omit when empty |
 | `Name` | string | Parameter name (always written) |
+| `ReadOnlyState` | int | Omit at 0 (after `Name`, per real Altium output) |
+| `ParamType` | int | 0=String, 1=Boolean, 2=Integer, 3=Float; omit at 0 |
+| `ShowName` / `HideName` / `IsConfigurable` | bool | Emit only when `T` |
+| `Description` | string | Omit when empty |
 
 ### Implementation chain (RECORD=44/45/46/47/48)
 
@@ -741,7 +754,7 @@ Read-side defaults when properties are absent:
 | `OwnerPartDisplayMode` | 0 | |
 | `IndexInSheet` | positional | Shared 0-based content counter; slot 0 omitted; `-1` on header/system records |
 | `LineWidth` | 1 | Except TextFrame (0) |
-| `Color` / `AreaColor` | 0 (black) | Absent colour keys read as 0 — EXCEPT the Parameter record's `Color`, which defaults to 8388608 (dark blue) |
+| `Color` / `AreaColor` | 0 (black) | Absent colour keys read as 0 on every record (Altium omits zero colours) |
 | `SecondaryRadius` | = `Radius` | Ellipse, EllipticalArc |
 | `PartCount` | stored − 1 | No floor at 1 |
 | Booleans | false | Only `=T` is ever written |
@@ -749,27 +762,31 @@ Read-side defaults when properties are absent:
 ## Symbol Writing Order
 
 When writing symbol data, this crate encodes records in this specific order (the shared
-`IndexInSheet` counter runs across steps 2-15):
+`IndexInSheet` counter runs across steps 2-17; the designator and system parameters keep the
+`-1` sentinel and consume no slot):
 
 1. Component header (RECORD=1)
-2. Parameters (RECORD=41)
-3. Rectangles (RECORD=14) — before the pins so a solid body does not paint over pin names
-4. Pins (binary records; each consumes an `IndexInSheet` slot)
-5. Lines (RECORD=13)
-6. Polylines (RECORD=6)
-7. Polygons (RECORD=7)
-8. Arcs (RECORD=12)
-9. Pies (RECORD=9)
-10. Images (RECORD=30)
-11. Text frames (RECORD=28)
-12. Bezier curves (RECORD=5)
-13. Ellipses (RECORD=8)
-14. Rounded rectangles (RECORD=10)
-15. Elliptical arcs (RECORD=11)
-16. Labels (RECORD=4)
-17. Text annotations (RECORD=3)
+2. Rectangles (RECORD=14) — before the pins so a solid body does not paint over pin names
+3. Pins (binary records; each consumes an `IndexInSheet` slot)
+4. Lines (RECORD=13)
+5. Polylines (RECORD=6)
+6. Polygons (RECORD=7)
+7. Arcs (RECORD=12)
+8. Pies (RECORD=9)
+9. Images (RECORD=30)
+10. Text frames (RECORD=28)
+11. Bezier curves (RECORD=5)
+12. Ellipses (RECORD=8)
+13. Rounded rectangles (RECORD=10)
+14. Elliptical arcs (RECORD=11)
+15. Labels (RECORD=4)
+16. Text annotations (RECORD=3)
+17. User parameters (RECORD=41, `OwnerPartId >= 1`) — after the graphic content, matching the
+    golden stream order (JUSTIFY stores labels at slots 0-3, user parameters at 4-5)
 18. Designator (RECORD=34, when non-empty)
-19. Implementation list (RECORD=44), then per footprint model: RECORD=45 + RECORD=46 + RECORD=48
+19. System parameters (RECORD=41, `OwnerPartId = -1`) — after the designator, as the golden
+    orders them
+20. Implementation list (RECORD=44), then per footprint model: RECORD=45 + RECORD=46 + RECORD=48
 
 The stream ends with the last record's payload — there is **no** trailing end marker (see the Data
 Stream Format section and issue #68).

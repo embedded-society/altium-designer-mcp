@@ -322,6 +322,21 @@ fn samples_schlib_lines() {
             "missing line {endpoints:?}",
         );
     }
+
+    // The golden authors the designator record at Location.X=-5|Location.Y=5
+    // with a stable UniqueID; position and identity must read back (they were
+    // previously dropped and re-hardcoded/regenerated on write).
+    assert!(
+        approx_eq(symbol.designator_x, -5.0) && approx_eq(symbol.designator_y, 5.0),
+        "golden designator position must read back as (-5, 5), got ({}, {})",
+        symbol.designator_x,
+        symbol.designator_y
+    );
+    let uid = symbol
+        .designator_unique_id
+        .as_deref()
+        .expect("golden designator UniqueID must be preserved on read");
+    assert_eq!(uid.len(), 8, "designator UniqueID is an 8-char Altium id");
 }
 
 #[test]
@@ -590,6 +605,14 @@ fn samples_schlib_ellipses() {
         "ellipse geometry"
     );
     assert!(!ellipse.filled, "ellipse is not filled");
+
+    // The golden tags every ellipse IsNotAccesible=T; the field must read back.
+    for e in &symbol.ellipses {
+        assert!(
+            e.is_not_accessible,
+            "golden ellipse must read IsNotAccesible=T"
+        );
+    }
 }
 
 #[test]
@@ -603,6 +626,12 @@ fn samples_schlib_polylines() {
         polyline.points,
         vec![(0.0, 0.0), (10.0, 5.0), (0.0, 10.0)],
         "polyline points",
+    );
+
+    // The golden tags every polyline IsNotAccesible=T; the field must read back.
+    assert!(
+        polyline.is_not_accessible,
+        "golden polyline must read IsNotAccesible=T"
     );
 }
 
@@ -721,8 +750,7 @@ fn samples_schlib_justify() {
 
     // Labels prove three distinct justifications round-trip from a real Altium
     // file: BottomLeft (default), MiddleCenter (authored eJustify_Center), and
-    // TopRight. (The SchLib `Parameter` struct does not model justification, so
-    // this is asserted on the labels only.)
+    // TopRight.
     let has = |j: TextJustification| sym.labels.iter().any(|l| l.justification == j);
     assert!(
         has(TextJustification::TopRight),
@@ -740,6 +768,27 @@ fn samples_schlib_justify() {
         has(TextJustification::BottomLeft),
         "JUSTIFY must carry a BottomLeft label"
     );
+
+    // Parameter justification (the golden carries `Justification=8` on Value
+    // and `Justification=4` on the hidden Tol) — previously dropped on read.
+    let param = |name: &str| -> &Parameter {
+        sym.parameters
+            .iter()
+            .find(|p| p.name == name)
+            .unwrap_or_else(|| panic!("JUSTIFY parameter {name:?} not found"))
+    };
+    assert_eq!(
+        param("Value").justification,
+        8,
+        "Value parameter is top-right justified (Justification=8)"
+    );
+    let tol = param("Tol");
+    assert_eq!(
+        tol.justification, 4,
+        "Tol parameter is centre justified (Justification=4)"
+    );
+    assert_eq!(tol.orientation, 1, "Tol parameter is rotated 90 degrees");
+    assert!(tol.hidden, "Tol parameter is hidden");
 }
 
 #[test]
@@ -1056,4 +1105,242 @@ fn samples_schlib_dispmode() {
     // Both rectangles belong to part 1 — display modes are orthogonal to parts.
     assert_eq!(mode0.owner_part_id, 1, "mode-0 owner part");
     assert_eq!(mode1.owner_part_id, 1, "mode-1 owner part");
+}
+
+// ---------------------------------------------------------------------------
+// Read-modify-write byte fidelity against the golden.
+//
+// These read a symbol from the Altium-authored golden and re-encode it with
+// our writer, then compare the emitted records against the golden's exact
+// record text (dumped byte-for-byte from scripts/samples/symbols.SchLib).
+// Only the RECORD=1 component header is excluded (its UniqueID / AllPinCount
+// fidelity is tracked separately in TODO §B); every content, designator and
+// system-parameter record must match the golden token-for-token.
+// ---------------------------------------------------------------------------
+
+/// Re-encodes `name` from the golden and returns its records as text (the
+/// trailing NUL trimmed; binary pin records surface as `"<PIN>"`), excluding
+/// the RECORD=1 component header.
+fn reencoded_records(lib: &SchLib, name: &str) -> Vec<String> {
+    let symbol = lib.get(name).unwrap_or_else(|| panic!("{name} not found"));
+    let data = altium_designer_mcp::altium::schlib::writer::encode_data_stream(symbol)
+        .expect("re-encode golden symbol");
+    let mut records = Vec::new();
+    let mut off = 0;
+    while off + 4 <= data.len() {
+        let len =
+            data[off] as usize | ((data[off + 1] as usize) << 8) | ((data[off + 2] as usize) << 16);
+        let flags = data[off + 3];
+        if flags == 1 {
+            records.push("<PIN>".to_string());
+        } else {
+            records.push(
+                String::from_utf8_lossy(&data[off + 4..off + 4 + len])
+                    .trim_end_matches('\0')
+                    .to_string(),
+            );
+        }
+        off += 4 + len;
+    }
+    records.remove(0); // RECORD=1 header (see doc comment)
+    records
+}
+
+#[test]
+fn samples_schlib_rmw_dispmode_matches_golden_records() {
+    // The F1 headline proof: the system Comment keeps its IndexInSheet=-1
+    // sentinel (no counter slot), the first rectangle stays at slot 0 (token
+    // omitted) and the second at =1 — the full stream re-encodes exactly.
+    let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
+    assert_eq!(
+        reencoded_records(&lib, "DISPMODE"),
+        [
+            "|RECORD=14|IsNotAccesible=T|OwnerPartId=1|Location.X=-5|Location.Y=-2|Location.Y_Frac=-50000|Corner.X=5|Corner.Y=2|Corner.Y_Frac=50000|LineWidth=1|AreaColor=11599871|IsSolid=T|UniqueID=ODNTDFPU",
+            "|RECORD=14|IsNotAccesible=T|IndexInSheet=1|OwnerPartId=1|OwnerPartDisplayMode=1|Location.X=-6|Location.Y=-3|Corner.X=6|Corner.Y=3|LineWidth=1|AreaColor=11599871|IsSolid=T|UniqueID=IELVGVKJ",
+            "|RECORD=34|IndexInSheet=-1|OwnerPartId=-1|Location.X=-5|Location.Y=5|Color=8388608|FontID=1|Text=U?|Name=Designator|ReadOnlyState=1|UniqueID=SMDBFRGL",
+            "|RECORD=41|IndexInSheet=-1|OwnerPartId=-1|Location.X=-5|Location.Y=-15|Color=8388608|FontID=1|Text=*|Name=Comment|UniqueID=SBJHPTML",
+            "|RECORD=44",
+        ]
+    );
+}
+
+#[test]
+fn samples_schlib_rmw_lines_matches_golden_records() {
+    // F2 proof: every zero coordinate key stays omitted on re-encode (the
+    // golden line (0,0)->(10,0) carries only Corner.X=10).
+    let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
+    assert_eq!(
+        reencoded_records(&lib, "LINES"),
+        [
+            "|RECORD=13|IsNotAccesible=T|OwnerPartId=1|Corner.X=10|LineWidth=1|UniqueID=FCYPDKZN",
+            "|RECORD=13|IsNotAccesible=T|IndexInSheet=1|OwnerPartId=1|Corner.Y=10|LineWidth=1|UniqueID=JMQVUFCD",
+            "|RECORD=13|IsNotAccesible=T|IndexInSheet=2|OwnerPartId=1|Corner.X=10|Corner.Y=10|LineWidth=1|UniqueID=DYQARGHF",
+            "|RECORD=34|IndexInSheet=-1|OwnerPartId=-1|Location.X=-5|Location.Y=5|Color=8388608|FontID=1|Text=U?|Name=Designator|ReadOnlyState=1|UniqueID=ASDZUIEM",
+            "|RECORD=41|IndexInSheet=-1|OwnerPartId=-1|Location.X=-5|Location.Y=-15|Color=8388608|FontID=1|Text=*|Name=Comment|UniqueID=GYQMZDTX",
+            "|RECORD=44",
+        ]
+    );
+}
+
+#[test]
+fn samples_schlib_rmw_arcs_and_fracshapes_match_golden_records() {
+    // F3.6 proof: LineWidth precedes the 3-decimal angles and a zero
+    // StartAngle is omitted (EndAngle=360.000 / 90.000 / 270.000), plus the
+    // FRACSHAPES signed-frac coordinates re-encode exactly.
+    let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
+    assert_eq!(
+        reencoded_records(&lib, "ARCS"),
+        [
+            "|RECORD=12|IsNotAccesible=T|OwnerPartId=1|Radius=5|LineWidth=1|EndAngle=360.000|UniqueID=WNJAMTGY",
+            "|RECORD=12|IsNotAccesible=T|IndexInSheet=1|OwnerPartId=1|Location.Y=-20|Radius=5|LineWidth=1|EndAngle=90.000|UniqueID=USLKBUSP",
+            "|RECORD=34|IndexInSheet=-1|OwnerPartId=-1|Location.X=-5|Location.Y=5|Color=8388608|FontID=1|Text=U?|Name=Designator|ReadOnlyState=1|UniqueID=LTWNMYJP",
+            "|RECORD=41|IndexInSheet=-1|OwnerPartId=-1|Location.X=-5|Location.Y=-15|Color=8388608|FontID=1|Text=*|Name=Comment|UniqueID=SQPHRIRA",
+            "|RECORD=44",
+        ]
+    );
+    assert_eq!(
+        reencoded_records(&lib, "FRACSHAPES"),
+        [
+            "|RECORD=14|IsNotAccesible=T|OwnerPartId=1|Location.X=-5|Location.X_Frac=-45000|Location.Y=-2|Location.Y_Frac=-45000|Corner.X=5|Corner.X_Frac=55000|Corner.Y=2|Corner.Y_Frac=55000|LineWidth=1|AreaColor=11599871|IsSolid=T|UniqueID=VKRDSRLW",
+            "|RECORD=12|IsNotAccesible=T|IndexInSheet=1|OwnerPartId=1|Location.X_Frac=5000|Location.Y_Frac=5000|Radius=4|Radius_Frac=5000|LineWidth=1|EndAngle=270.000|UniqueID=JAISQJHX",
+            "|RECORD=34|IndexInSheet=-1|OwnerPartId=-1|Location.X=-5|Location.Y=5|Color=8388608|FontID=1|Text=U?|Name=Designator|ReadOnlyState=1|UniqueID=DAAXULYF",
+            "|RECORD=41|IndexInSheet=-1|OwnerPartId=-1|Location.X=-5|Location.Y=-15|Color=8388608|FontID=1|Text=*|Name=Comment|UniqueID=DPBAJSZG",
+            "|RECORD=44",
+        ]
+    );
+}
+
+#[test]
+fn samples_schlib_rmw_justify_and_params_match_golden_records() {
+    // F3.2/F3.9 proof: user parameters keep the golden token order (Location,
+    // Orientation, Justification, FontID, IsHidden, Text, Name), the zero
+    // Color stays omitted, and they follow the labels on the shared content
+    // counter (slots 4 and 5, exactly as the golden stores).
+    let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
+    assert_eq!(
+        reencoded_records(&lib, "JUSTIFY"),
+        [
+            "|RECORD=4|IsNotAccesible=T|OwnerPartId=1|Location.X=-10|Location.Y=10|FontID=1|Text=BL|UniqueID=ACYBKFVW",
+            "|RECORD=4|IsNotAccesible=T|IndexInSheet=1|OwnerPartId=1|Location.X=-10|Location.Y=5|Justification=4|FontID=1|Text=CC|UniqueID=YTFHWNMI",
+            "|RECORD=4|IsNotAccesible=T|IndexInSheet=2|OwnerPartId=1|Location.X=-10|Justification=8|FontID=1|Text=TR|UniqueID=CJCQRBLJ",
+            "|RECORD=4|IsNotAccesible=T|IndexInSheet=3|OwnerPartId=1|Location.X=-10|Location.Y=-5|Orientation=1|FontID=1|Text=ROT90|UniqueID=IDQKERMA",
+            "|RECORD=41|IndexInSheet=4|OwnerPartId=1|Location.X=10|Location.Y=10|Justification=8|FontID=1|Text=1k|Name=Value|UniqueID=NEHWQTTU",
+            "|RECORD=41|IndexInSheet=5|OwnerPartId=1|Location.X=10|Location.Y=5|Orientation=1|Justification=4|FontID=1|IsHidden=T|Text=5%|Name=Tol|UniqueID=FZATTLUK",
+            "|RECORD=34|IndexInSheet=-1|OwnerPartId=-1|Location.X=-5|Location.Y=5|Color=8388608|FontID=1|Text=U?|Name=Designator|ReadOnlyState=1|UniqueID=ABWZNYSQ",
+            "|RECORD=41|IndexInSheet=-1|OwnerPartId=-1|Location.X=-5|Location.Y=-15|Color=8388608|FontID=1|Text=*|Name=Comment|UniqueID=YZOSGIDV",
+            "|RECORD=44",
+        ]
+    );
+    assert_eq!(
+        reencoded_records(&lib, "PARAMS"),
+        [
+            "|RECORD=41|OwnerPartId=1|Location.X=5|Location.Y=40|FontID=1|Text=10k|Name=Value|UniqueID=GADODMNF",
+            "|RECORD=41|IndexInSheet=1|OwnerPartId=1|Location.X=5|Location.Y=45|FontID=1|IsHidden=T|Text=100nF|Name=Comment|UniqueID=NHWFFDTP",
+            "|RECORD=34|IndexInSheet=-1|OwnerPartId=-1|Location.X=-5|Location.Y=5|Color=8388608|FontID=1|Text=U?|Name=Designator|ReadOnlyState=1|UniqueID=XFLFRTGP",
+            "|RECORD=41|IndexInSheet=-1|OwnerPartId=-1|Location.X=-5|Location.Y=-15|Color=8388608|FontID=1|Text=*|Name=Comment|UniqueID=SXCVEESM",
+            "|RECORD=44",
+        ]
+    );
+}
+
+#[test]
+fn samples_schlib_rmw_polyline_ellipse_bezier_textframe_match_golden_records() {
+    // F3.1 (IsNotAccesible on ellipse/polyline), F3.4 (zero polyline style
+    // keys omitted), F2 (zero vertices omitted) and F4 (text frame token
+    // order with unconditional AreaColor/FontID) all re-encode exactly.
+    let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
+    assert_eq!(
+        reencoded_records(&lib, "POLYLINES"),
+        [
+            "|RECORD=6|IsNotAccesible=T|OwnerPartId=1|LineWidth=1|LocationCount=3|X2=10|Y2=5|Y3=10|UniqueID=IEYJUDXC",
+            "|RECORD=34|IndexInSheet=-1|OwnerPartId=-1|Location.X=-5|Location.Y=5|Color=8388608|FontID=1|Text=U?|Name=Designator|ReadOnlyState=1|UniqueID=WTSVHJIG",
+            "|RECORD=41|IndexInSheet=-1|OwnerPartId=-1|Location.X=-5|Location.Y=-15|Color=8388608|FontID=1|Text=*|Name=Comment|UniqueID=XVLJQMAQ",
+            "|RECORD=44",
+        ]
+    );
+    assert_eq!(
+        reencoded_records(&lib, "ELLIPSES"),
+        [
+            "|RECORD=8|IsNotAccesible=T|OwnerPartId=1|Radius=5|SecondaryRadius=5|LineWidth=1|AreaColor=65535|IsSolid=T|UniqueID=NXDNREIT",
+            "|RECORD=8|IsNotAccesible=T|IndexInSheet=1|OwnerPartId=1|Location.X=20|Radius=8|SecondaryRadius=4|LineWidth=1|AreaColor=65535|UniqueID=WLVBMNUS",
+            "|RECORD=34|IndexInSheet=-1|OwnerPartId=-1|Location.X=-5|Location.Y=5|Color=8388608|FontID=1|Text=U?|Name=Designator|ReadOnlyState=1|UniqueID=VRYVUQEJ",
+            "|RECORD=41|IndexInSheet=-1|OwnerPartId=-1|Location.X=-5|Location.Y=-15|Color=8388608|FontID=1|Text=*|Name=Comment|UniqueID=QHSKZEGZ",
+            "|RECORD=44",
+        ]
+    );
+    assert_eq!(
+        reencoded_records(&lib, "BEZIERSYM"),
+        [
+            "|RECORD=5|IsNotAccesible=T|OwnerPartId=1|LineWidth=1|LocationCount=4|X1=-10|X2=-5|Y2=8|X3=5|Y3=8|X4=10|UniqueID=JSQWLQHD",
+            "|RECORD=34|IndexInSheet=-1|OwnerPartId=-1|Location.X=-5|Location.Y=5|Color=8388608|FontID=1|Text=U?|Name=Designator|ReadOnlyState=1|UniqueID=OIGYBMXZ",
+            "|RECORD=41|IndexInSheet=-1|OwnerPartId=-1|Location.X=-5|Location.Y=-15|Color=8388608|FontID=1|Text=*|Name=Comment|UniqueID=ZVXINTHS",
+            "|RECORD=44",
+        ]
+    );
+    assert_eq!(
+        reencoded_records(&lib, "TEXTFRAMESYM"),
+        [
+            "|RECORD=28|IsNotAccesible=T|OwnerPartId=1|Location.X=-10|Location.Y=-5|Corner.X=10|Corner.Y=5|LineWidth=1|AreaColor=11599871|TextColor=8388608|FontID=1|IsSolid=T|ShowBorder=T|Alignment=1|WordWrap=T|ClipToRect=T|Text=Frame text|TextMargin_Frac=20000|UniqueID=PSBHQHBJ",
+            "|RECORD=34|IndexInSheet=-1|OwnerPartId=-1|Location.X=-5|Location.Y=5|Color=8388608|FontID=1|Text=U?|Name=Designator|ReadOnlyState=1|UniqueID=LDPXQTGW",
+            "|RECORD=41|IndexInSheet=-1|OwnerPartId=-1|Location.X=-5|Location.Y=-15|Color=8388608|FontID=1|Text=*|Name=Comment|UniqueID=IRGIXFIZ",
+            "|RECORD=44",
+        ]
+    );
+}
+
+#[test]
+fn samples_schlib_rmw_shapestyle_records_match_golden_ignoring_stream_order() {
+    // SHAPESTYLE mixes shape families, and our writer groups families in a
+    // fixed order while the golden stream interleaves them — so the shared
+    // IndexInSheet slots differ by position. Every record must still match a
+    // golden record exactly once with the positional IndexInSheet token
+    // stripped (proving the F3.5 LineStyle+LineStyleExt dual-key emission and
+    // the F3.3/polygon Transparent placement byte-exactly), and the emitted
+    // slots must still be the golden's {omitted, 1..5}.
+    let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
+    let strip = |s: &str| -> String {
+        match (s.find("|IndexInSheet="), s.find("|OwnerPartId=")) {
+            (Some(a), Some(b)) if a < b => format!("{}{}", &s[..a], &s[b..]),
+            _ => s.to_string(),
+        }
+    };
+    let mut ours: Vec<String> = reencoded_records(&lib, "SHAPESTYLE")
+        .iter()
+        .map(|s| strip(s))
+        .collect();
+    let mut golden: Vec<String> = [
+        "|RECORD=13|IsNotAccesible=T|OwnerPartId=1|Location.X=-20|LineWidth=1|LineStyle=1|LineStyleExt=1|UniqueID=CWJAILHF",
+        "|RECORD=13|IsNotAccesible=T|IndexInSheet=1|OwnerPartId=1|Corner.X=20|LineWidth=1|LineStyle=2|LineStyleExt=2|UniqueID=LUUVYAAJ",
+        "|RECORD=14|IsNotAccesible=T|IndexInSheet=2|OwnerPartId=1|Location.X=-10|Location.Y=-10|Corner.X=10|Corner.Y=-5|LineWidth=1|AreaColor=65535|IsSolid=T|UniqueID=ZUSIIVGA",
+        "|RECORD=14|IsNotAccesible=T|IndexInSheet=3|OwnerPartId=1|Location.X=-10|Location.Y=5|Corner.X=10|Corner.Y=10|LineWidth=1|AreaColor=11599871|IsSolid=T|Transparent=T|UniqueID=NUNKJAWX",
+        "|RECORD=7|IsNotAccesible=T|IndexInSheet=4|OwnerPartId=1|LineWidth=1|AreaColor=65280|IsSolid=T|Transparent=T|LocationCount=3|X1=-5|Y1=12|X2=5|Y2=12|X3=5|Y3=17|UniqueID=HVIMIANR",
+        "|RECORD=8|IsNotAccesible=T|IndexInSheet=5|OwnerPartId=1|Location.X=15|Location.Y=10|Radius=3|SecondaryRadius=2|LineWidth=1|AreaColor=11599871|IsSolid=T|Transparent=T|UniqueID=OULMQULV",
+        "|RECORD=34|IndexInSheet=-1|OwnerPartId=-1|Location.X=-5|Location.Y=5|Color=8388608|FontID=1|Text=U?|Name=Designator|ReadOnlyState=1|UniqueID=DVZWHKPJ",
+        "|RECORD=41|IndexInSheet=-1|OwnerPartId=-1|Location.X=-5|Location.Y=-15|Color=8388608|FontID=1|Text=*|Name=Comment|UniqueID=WKKBBVMD",
+        "|RECORD=44",
+    ]
+    .iter()
+    .map(|s| strip(s))
+    .collect();
+    ours.sort();
+    golden.sort();
+    assert_eq!(ours, golden, "SHAPESTYLE records (IndexInSheet-stripped)");
+
+    // The shared counter itself must still produce the golden slot set.
+    let slots: Vec<Option<i32>> = reencoded_records(&lib, "SHAPESTYLE")
+        .iter()
+        .filter(|s| !s.contains("OwnerPartId=-1") && !s.ends_with("RECORD=44"))
+        .map(|s| {
+            s.find("|IndexInSheet=")
+                .map(|a| s[a + 14..].split('|').next().unwrap().parse().unwrap())
+        })
+        .collect();
+    let mut numbered: Vec<i32> = slots.iter().filter_map(|s| *s).collect();
+    numbered.sort_unstable();
+    assert_eq!(
+        slots.iter().filter(|s| s.is_none()).count(),
+        1,
+        "exactly one content record sits at slot 0 (token omitted)"
+    );
+    assert_eq!(numbered, vec![1, 2, 3, 4, 5], "content slots 1..5");
 }

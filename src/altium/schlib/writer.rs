@@ -315,43 +315,65 @@ fn nonzero(key: &str, value: u32) -> String {
     }
 }
 
-/// Emits an Altium coordinate parameter: `|<key>=<int>` followed by
-/// `|<key>_Frac=<frac>` when the (signed) fractional part is non-zero (omitted
-/// otherwise, so integer-grid coordinates stay byte-identical to
-/// pre-fractional output). Matching AD24, a zero integer part is omitted when
-/// the fraction is non-zero (the FRACSHAPES golden arc stores centre 0.05 as
-/// `Location.X_Frac=5000` with no `Location.X` key); an on-grid zero still
-/// emits `|<key>=0` as before. See [`super::coord`] for the toward-zero /
-/// signed-fraction split.
+/// Emits an Altium coordinate parameter: `|<key>=<int>` when the integer part
+/// is non-zero, followed by `|<key>_Frac=<frac>` when the (signed) fractional
+/// part is non-zero. AD24 omits **every** zero coordinate key (its
+/// `AddCoordParam` writes each half only when non-zero): the LINES golden line
+/// (0,0)→(10,0) carries only `Corner.X=10`, and the FRACSHAPES golden arc
+/// stores centre 0.05 as `Location.X_Frac=5000` with no `Location.X` key. A
+/// coordinate of exactly 0 therefore emits nothing; [`super::coord::read`]
+/// defaults the absent keys back to 0 on read. See [`super::coord`] for the
+/// toward-zero / signed-fraction split.
 fn coord_param(key: &str, value: f64) -> String {
+    use std::fmt::Write as _;
     let (int, frac) = coord::split(value);
-    if frac == 0 {
-        format!("|{key}={int}")
-    } else if int == 0 {
-        format!("|{key}_Frac={frac}")
-    } else {
-        format!("|{key}={int}|{key}_Frac={frac}")
+    let mut out = String::new();
+    if int != 0 {
+        let _ = write!(out, "|{key}={int}");
     }
+    if frac != 0 {
+        let _ = write!(out, "|{key}_Frac={frac}");
+    }
+    out
+}
+
+/// Formats an angle the way AD24 does: three decimal places with a period
+/// separator (the ARCS golden stores `EndAngle=360.000`, the PIESYM golden
+/// `StartAngle=30.000`).
+fn format_angle(angle: f64) -> String {
+    format!("{angle:.3}")
+}
+
+/// Emits Altium's arc angle pair: `StartAngle` only when non-zero, `EndAngle`
+/// always, both in the 3-decimal [`format_angle`] form — the ARCS golden
+/// quarter arc carries only `EndAngle=90.000`.
+fn angle_params(start_angle: f64, end_angle: f64) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    if start_angle != 0.0 {
+        let _ = write!(out, "|StartAngle={}", format_angle(start_angle));
+    }
+    let _ = write!(out, "|EndAngle={}", format_angle(end_angle));
+    out
 }
 
 /// Pushes a numbered polyline/polygon vertex (`X{n}`/`Y{n}`) into a `parts`
-/// vector that is later joined by `|`, emitting `X{n}_Frac`/`Y{n}_Frac` only when
-/// the (signed) fractional part is non-zero. Mirrors [`coord_param`] for the
-/// list-style records that build their text from `parts.join("|")`, including
-/// the omit-zero-integer-when-fractional rule.
+/// vector that is later joined by `|`. Mirrors [`coord_param`] for the
+/// list-style records that build their text from `parts.join("|")`: every zero
+/// key (integer or `_Frac`) is omitted, matching AD24's `AddSchVertex` — the
+/// POLYLINES golden vertices carry no `X1`/`Y1`/`X3` keys for the zero halves.
 fn push_point(parts: &mut Vec<String>, n: usize, x: f64, y: f64) {
     push_coord(parts, &format!("X{n}"), x);
     push_coord(parts, &format!("Y{n}"), y);
 }
 
-/// Pushes a named coordinate (`KEY=int` + optional `KEY_Frac=frac`) into a
-/// `parts` vector joined by `|`. The named equivalent of [`push_point`] /
-/// [`coord_param`] for list-style records, following the same AD24 rules: the
-/// `_Frac` companion is omitted when zero, and a zero integer part is omitted
-/// when the fraction is non-zero.
+/// Pushes a named coordinate (`KEY=int` + `KEY_Frac=frac`, each only when
+/// non-zero) into a `parts` vector joined by `|`. The list-style equivalent of
+/// [`coord_param`], following the same AD24 rule: every zero coordinate key is
+/// omitted (the reader defaults absent keys back to 0).
 fn push_coord(parts: &mut Vec<String>, key: &str, value: f64) {
     let (int, frac) = coord::split(value);
-    if int != 0 || frac == 0 {
+    if int != 0 {
         parts.push(format!("{key}={int}"));
     }
     if frac != 0 {
@@ -395,9 +417,22 @@ fn push_index_in_sheet(parts: &mut Vec<String>, index: usize) {
 /// carrying only defaults emits nothing here (so its record stays byte-identical
 /// to pre-flag output). Bool flags emit `=T` when set; `OwnerPartDisplayMode`
 /// emits its integer when non-zero.
+///
+/// The tokens sit immediately after `OwnerPartId`, matching the golden
+/// (`…|OwnerPartId=1|OwnerPartDisplayMode=1|Location.X=…` on the DISPMODE
+/// rectangle, `…|OwnerPartId=1|GraphicallyLocked=T|Location.X=…` on LOCKFLAGS)
+/// and `AltiumSharp`'s `AddCommonProperties`, whose intra-flag order
+/// (`OwnerPartDisplayMode` first) this mirrors.
 fn write_display_flags(flags: ShapeDisplayFlags) -> String {
     use std::fmt::Write as _;
     let mut out = String::new();
+    if flags.owner_part_display_mode != 0 {
+        let _ = write!(
+            out,
+            "|OwnerPartDisplayMode={}",
+            flags.owner_part_display_mode
+        );
+    }
     if flags.graphically_locked {
         out.push_str("|GraphicallyLocked=T");
     }
@@ -407,20 +442,21 @@ fn write_display_flags(flags: ShapeDisplayFlags) -> String {
     if flags.dimmed {
         out.push_str("|Dimmed=T");
     }
-    if flags.owner_part_display_mode != 0 {
-        let _ = write!(
-            out,
-            "|OwnerPartDisplayMode={}",
-            flags.owner_part_display_mode
-        );
-    }
     out
 }
 
 /// Pushes the universal display/lock flags into a `parts` vector that is later
 /// joined by `|` (the list-style encoders: parameter, polyline, polygon). Each
-/// key is pushed only when non-default, mirroring [`write_display_flags`].
+/// key is pushed only when non-default, mirroring [`write_display_flags`]
+/// (including its immediately-after-`OwnerPartId` placement and intra-flag
+/// order).
 fn push_display_flags(parts: &mut Vec<String>, flags: ShapeDisplayFlags) {
+    if flags.owner_part_display_mode != 0 {
+        parts.push(format!(
+            "OwnerPartDisplayMode={}",
+            flags.owner_part_display_mode
+        ));
+    }
     if flags.graphically_locked {
         parts.push("GraphicallyLocked=T".to_string());
     }
@@ -430,28 +466,29 @@ fn push_display_flags(parts: &mut Vec<String>, flags: ShapeDisplayFlags) {
     if flags.dimmed {
         parts.push("Dimmed=T".to_string());
     }
-    if flags.owner_part_display_mode != 0 {
-        parts.push(format!(
-            "OwnerPartDisplayMode={}",
-            flags.owner_part_display_mode
-        ));
-    }
 }
 
 /// Encodes a rectangle record.
 fn encode_rectangle(rect: &Rectangle, index: usize) -> String {
-    let transparent = if rect.transparent { "T" } else { "F" };
-    // Altium emits IsSolid only when the shape is filled, and omits it otherwise.
+    // Altium emits IsSolid only when the shape is filled and Transparent only
+    // when true (the RECTS golden's unfilled rectangle carries neither key —
+    // never `Transparent=F`).
     let is_solid = if rect.filled { "|IsSolid=T" } else { "" };
+    let transparent = if rect.transparent {
+        "|Transparent=T"
+    } else {
+        ""
+    };
     // Rectangles store the line style in LineStyleExt (Altium omits LineStyle),
     // and omit it when zero.
     let line_style = nonzero("LineStyleExt", u32::from(rect.line_style));
     format!(
-        "|RECORD=14|IsNotAccesible=T{}|OwnerPartId={}\
+        "|RECORD=14|IsNotAccesible=T{}|OwnerPartId={}{}\
          {}{}{}{}\
-         |LineWidth={}{}{}{}{}|Transparent={}{}|UniqueID={}",
+         |LineWidth={}{}{}{}{}{}|UniqueID={}",
         index_in_sheet(index),
         rect.owner_part_id,
+        write_display_flags(rect.display_flags),
         coord_param("Location.X", rect.x1),
         coord_param("Location.Y", rect.y1),
         coord_param("Corner.X", rect.x2),
@@ -462,7 +499,6 @@ fn encode_rectangle(rect: &Rectangle, index: usize) -> String {
         line_style,
         is_solid,
         transparent,
-        write_display_flags(rect.display_flags),
         rect.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
 }
@@ -475,66 +511,84 @@ fn encode_line(line: &Line, index: usize) -> String {
     } else {
         ""
     };
+    // A styled line carries BOTH keys (the SHAPESTYLE golden dashed line stores
+    // `LineStyle=1|LineStyleExt=1`), each omitted when zero (Solid); the golden
+    // order is LineWidth, LineStyle, [Color,] LineStyleExt.
     let line_style = nonzero("LineStyle", u32::from(line.line_style));
+    let line_style_ext = nonzero("LineStyleExt", u32::from(line.line_style));
     format!(
-        "|RECORD=13{}{}|OwnerPartId={}{}{}{}{}|LineWidth={}{}{}{}|UniqueID={}",
+        "|RECORD=13{}{}|OwnerPartId={}{}{}{}{}{}|LineWidth={}{}{}{}|UniqueID={}",
         not_accessible,
         index_in_sheet(index),
         line.owner_part_id,
+        write_display_flags(line.display_flags),
         coord_param("Location.X", line.x1),
         coord_param("Location.Y", line.y1),
         coord_param("Corner.X", line.x2),
         coord_param("Corner.Y", line.y2),
         line.line_width,
-        nonzero("Color", line.color),
         line_style,
-        write_display_flags(line.display_flags),
+        nonzero("Color", line.color),
+        line_style_ext,
         line.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
 }
 
 /// Encodes a parameter record.
 ///
-/// Follows Altium's conventions: `IsHidden` is emitted only when hidden (never
-/// `=F`), `ReadOnlyState` / `ParamType` / `Orientation` only when non-zero,
-/// `ShowName` / `HideName` / `IsConfigurable` only when set, `Text` /
-/// `Description` only when non-empty, and the read `UniqueID` is preserved.
-#[allow(clippy::similar_names)] // px/py are the obvious names for the x/y integer parts
+/// Follows Altium's conventions and golden-verified token order (`Location`,
+/// `Orientation`, `Justification`, `Color`, `FontID`, `IsHidden`, `Text`,
+/// `Name`, `ReadOnlyState`, … — the JUSTIFY golden and real Altium-authored
+/// `CrossRef` parameters agree): `IsHidden` is emitted only when hidden (never
+/// `=F`), `ReadOnlyState` / `ParamType` / `Orientation` / `Justification` /
+/// `Color` only when non-zero, `ShowName` / `HideName` / `IsConfigurable` only
+/// when set, `Text` / `Description` only when non-empty, and the read
+/// `UniqueID` is preserved.
+///
+/// A **system** parameter — the Altium-authored `Comment`/`Designator`-class
+/// record with `owner_part_id == -1` — carries the `IndexInSheet=-1` sentinel
+/// (every golden symbol's system Comment stores
+/// `|RECORD=41|IndexInSheet=-1|OwnerPartId=-1|`) and never a content-counter
+/// slot; `index` is ignored for it. User parameters (`owner_part_id >= 1`)
+/// follow the shared 0-based content counter like every other record.
 fn encode_parameter(param: &Parameter, index: usize) -> String {
-    let (px, px_frac) = coord::split(param.x);
-    let (py, py_frac) = coord::split(param.y);
     let mut parts = vec!["RECORD=41".to_string()];
-    // Golden RECORD=41 order: IndexInSheet (0 omitted) directly after RECORD,
-    // then OwnerPartId (parameters carry no IsNotAccesible token).
-    push_index_in_sheet(&mut parts, index);
-    parts.extend([
-        format!("OwnerPartId={}", param.owner_part_id),
-        format!("Location.X={px}"),
-        format!("Location.Y={py}"),
-        format!("Color={}", param.color),
-        format!("FontID={}", param.font_id),
-    ]);
-    // Fractional companions (omitted when zero, so integer positions are unchanged).
-    if px_frac != 0 {
-        parts.push(format!("Location.X_Frac={px_frac}"));
+    // IndexInSheet (system sentinel or counter, 0 omitted) directly after
+    // RECORD, then OwnerPartId (parameters carry no IsNotAccesible token).
+    if param.owner_part_id == -1 {
+        parts.push("IndexInSheet=-1".to_string());
+    } else {
+        push_index_in_sheet(&mut parts, index);
     }
-    if py_frac != 0 {
-        parts.push(format!("Location.Y_Frac={py_frac}"));
+    parts.push(format!("OwnerPartId={}", param.owner_part_id));
+    push_display_flags(&mut parts, param.display_flags);
+    // Coordinates with their `_Frac` companions adjacent, every zero key omitted.
+    push_coord(&mut parts, "Location.X", param.x);
+    push_coord(&mut parts, "Location.Y", param.y);
+    // EE-meaningful display fields, each omit-when-default so a from-scratch
+    // parameter stays byte-identical to Altium.
+    if param.orientation != 0 {
+        parts.push(format!("Orientation={}", param.orientation));
     }
+    if param.justification != 0 {
+        parts.push(format!("Justification={}", param.justification));
+    }
+    if param.color != 0 {
+        parts.push(format!("Color={}", param.color));
+    }
+    parts.push(format!("FontID={}", param.font_id));
     if param.hidden {
         parts.push("IsHidden=T".to_string());
     }
+    if !param.value.is_empty() {
+        parts.push(text_field("Text", &param.value));
+    }
+    parts.push(format!("Name={}", param.name));
     if param.read_only_state != 0 {
         parts.push(format!("ReadOnlyState={}", param.read_only_state));
     }
     if param.param_type != 0 {
         parts.push(format!("ParamType={}", param.param_type));
-    }
-    // EE-meaningful display fields, each omit-when-default so a from-scratch
-    // parameter stays byte-identical to Altium (the golden's parameters carry
-    // none of these keys).
-    if param.orientation != 0 {
-        parts.push(format!("Orientation={}", param.orientation));
     }
     if param.show_name {
         parts.push("ShowName=T".to_string());
@@ -545,14 +599,9 @@ fn encode_parameter(param: &Parameter, index: usize) -> String {
     if param.is_configurable {
         parts.push("IsConfigurable=T".to_string());
     }
-    if !param.value.is_empty() {
-        parts.push(text_field("Text", &param.value));
-    }
     if !param.description.is_empty() {
         parts.push(format!("Description={}", param.description));
     }
-    parts.push(format!("Name={}", param.name));
-    push_display_flags(&mut parts, param.display_flags);
     parts.push(format!(
         "UniqueID={}",
         param.unique_id.clone().unwrap_or_else(generate_unique_id)
@@ -560,44 +609,77 @@ fn encode_parameter(param: &Parameter, index: usize) -> String {
     format!("|{}", parts.join("|"))
 }
 
-/// Encodes a designator record.
-fn encode_designator(designator: &str) -> String {
+/// Encodes the system designator record (`RECORD=34`).
+///
+/// Golden-verified form: `|RECORD=34|IndexInSheet=-1|OwnerPartId=-1
+/// |Location.X=-5|Location.Y=5|Color=8388608|FontID=1|Text=<designator>
+/// |Name=Designator|ReadOnlyState=1|UniqueID=…`. The position comes from the
+/// symbol's `designator_x`/`designator_y` (defaults −5/5 per the golden, each
+/// zero key omitted per AD24's coordinate rule) and the read `UniqueID` is
+/// reused so a read-modify-write is deterministic (a fresh one is generated
+/// only when absent).
+fn encode_designator(symbol: &Symbol) -> String {
     format!(
-        "|RECORD=34|IndexInSheet=-1|OwnerPartId=-1|Location.Y=-6|Color=8388608|FontID=1|{}|Name=Designator|ReadOnlyState=1|UniqueID={}",
-        text_field("Text", designator),
-        generate_unique_id()
+        "|RECORD=34|IndexInSheet=-1|OwnerPartId=-1{}{}|Color=8388608|FontID=1|{}|Name=Designator|ReadOnlyState=1|UniqueID={}",
+        coord_param("Location.X", symbol.designator_x),
+        coord_param("Location.Y", symbol.designator_y),
+        text_field("Text", &symbol.designator),
+        symbol
+            .designator_unique_id
+            .clone()
+            .unwrap_or_else(generate_unique_id)
     )
 }
 
 /// Encodes a polyline record.
+///
+/// Golden/`AltiumSharp` token order: `LineWidth`, then `LineStyle` /
+/// `StartLineShape` / `EndLineShape` / `LineShapeSize` / `Color` (each only
+/// when non-zero, matching the POLYLINES golden which carries none of them),
+/// `Transparent` (only when true) before `LocationCount`, the vertices, and a
+/// trailing `LineStyleExt` companion when styled (mirroring the styled-line
+/// dual-key rule).
 fn encode_polyline(polyline: &Polyline, index: usize) -> String {
     let mut parts = vec!["RECORD=6".to_string()];
+    // Altium tags polylines IsNotAccesible (its own single-'s' spelling); emit
+    // only when set (the golden polyline carries IsNotAccesible=T).
+    if polyline.is_not_accessible {
+        parts.push("IsNotAccesible=T".to_string());
+    }
     push_index_in_sheet(&mut parts, index);
-    parts.extend([
-        format!("OwnerPartId={}", polyline.owner_part_id),
-        format!("LineWidth={}", polyline.line_width),
-    ]);
+    parts.push(format!("OwnerPartId={}", polyline.owner_part_id));
+    push_display_flags(&mut parts, polyline.display_flags);
+    parts.push(format!("LineWidth={}", polyline.line_width));
+    if polyline.line_style != 0 {
+        parts.push(format!("LineStyle={}", polyline.line_style));
+    }
+    if polyline.start_line_shape != 0 {
+        parts.push(format!("StartLineShape={}", polyline.start_line_shape));
+    }
+    if polyline.end_line_shape != 0 {
+        parts.push(format!("EndLineShape={}", polyline.end_line_shape));
+    }
+    if polyline.line_shape_size != 0 {
+        parts.push(format!("LineShapeSize={}", polyline.line_shape_size));
+    }
     if polyline.color != 0 {
         parts.push(format!("Color={}", polyline.color));
     }
-    parts.extend([
-        format!("LineStyle={}", polyline.line_style),
-        format!("StartLineShape={}", polyline.start_line_shape),
-        format!("EndLineShape={}", polyline.end_line_shape),
-        format!("LineShapeSize={}", polyline.line_shape_size),
-        format!("LocationCount={}", polyline.points.len()),
-    ]);
+    // Altium emits Transparent only when true; absent means opaque.
+    if polyline.transparent {
+        parts.push("Transparent=T".to_string());
+    }
+    parts.push(format!("LocationCount={}", polyline.points.len()));
 
     for (i, (x, y)) in polyline.points.iter().enumerate() {
         push_point(&mut parts, i + 1, *x, *y);
     }
 
-    // Altium emits Transparent only when true; absent means opaque.
-    if polyline.transparent {
-        parts.push("Transparent=T".to_string());
+    // A styled polyline carries the LineStyleExt companion after the vertices
+    // (AltiumSharp's golden-derived placement), omitted when Solid.
+    if polyline.line_style != 0 {
+        parts.push(format!("LineStyleExt={}", polyline.line_style));
     }
-
-    push_display_flags(&mut parts, polyline.display_flags);
 
     parts.push(format!(
         "UniqueID={}",
@@ -620,6 +702,7 @@ fn encode_polygon(polygon: &Polygon, index: usize) -> String {
     }
     push_index_in_sheet(&mut parts, index);
     parts.push(format!("OwnerPartId={}", polygon.owner_part_id));
+    push_display_flags(&mut parts, polygon.display_flags);
     parts.push(format!("LineWidth={}", polygon.line_width));
     // Altium omits Color / AreaColor when zero (AddNonZero).
     if polygon.line_color != 0 {
@@ -632,22 +715,20 @@ fn encode_polygon(polygon: &Polygon, index: usize) -> String {
     if polygon.line_style != 0 {
         parts.push(format!("LineStyle={}", polygon.line_style));
     }
-    // Altium emits IsSolid only when filled, and omits it otherwise.
+    // Altium emits IsSolid only when filled and Transparent only when true,
+    // both BEFORE LocationCount (the SHAPESTYLE golden polygon stores
+    // `…|IsSolid=T|Transparent=T|LocationCount=3|…`).
     if polygon.filled {
         parts.push("IsSolid=T".to_string());
+    }
+    if polygon.transparent {
+        parts.push("Transparent=T".to_string());
     }
     parts.push(format!("LocationCount={}", polygon.points.len()));
 
     for (i, (x, y)) in polygon.points.iter().enumerate() {
         push_point(&mut parts, i + 1, *x, *y);
     }
-
-    // Altium emits Transparent only when true; absent means opaque.
-    if polygon.transparent {
-        parts.push("Transparent=T".to_string());
-    }
-
-    push_display_flags(&mut parts, polygon.display_flags);
 
     parts.push(format!(
         "UniqueID={}",
@@ -657,7 +738,9 @@ fn encode_polygon(polygon: &Polygon, index: usize) -> String {
     format!("|{}", parts.join("|"))
 }
 
-/// Encodes an arc record.
+/// Encodes an arc record. Golden token order (the ARCS fixture): `LineWidth`
+/// BEFORE the angles, `StartAngle` omitted when 0, `EndAngle` always in the
+/// 3-decimal form (`EndAngle=360.000`).
 fn encode_arc(arc: &Arc, index: usize) -> String {
     // Altium tags arcs IsNotAccesible (its own single-'s' spelling); emit only when set.
     let not_accessible = if arc.is_not_accessible {
@@ -666,24 +749,24 @@ fn encode_arc(arc: &Arc, index: usize) -> String {
         ""
     };
     format!(
-        "|RECORD=12{}{}|OwnerPartId={}{}{}{}|StartAngle={}|EndAngle={}|LineWidth={}{}{}{}|UniqueID={}",
+        "|RECORD=12{}{}|OwnerPartId={}{}{}{}{}|LineWidth={}{}{}{}|UniqueID={}",
         not_accessible,
         index_in_sheet(index),
         arc.owner_part_id,
+        write_display_flags(arc.display_flags),
         coord_param("Location.X", arc.x),
         coord_param("Location.Y", arc.y),
         coord_param("Radius", arc.radius),
-        arc.start_angle,
-        arc.end_angle,
         arc.line_width,
+        angle_params(arc.start_angle, arc.end_angle),
         nonzero("Color", arc.color),
         nonzero("AreaColor", arc.fill_color),
-        write_display_flags(arc.display_flags),
         arc.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
 }
 
-/// Encodes a Bezier curve record.
+/// Encodes a Bezier curve record. Zero control-point halves are omitted per
+/// AD24's coordinate rule (the BEZIERSYM golden carries no `Y1`/`Y4` keys).
 fn encode_bezier(bezier: &Bezier, index: usize) -> String {
     // Altium tags Beziers IsNotAccesible (its own single-'s' spelling); emit only when set.
     let not_accessible = if bezier.is_not_accessible {
@@ -719,7 +802,9 @@ fn encode_pie(pie: &Pie, index: usize) -> String {
     } else {
         ""
     };
-    // Altium emits IsSolid only when filled, Transparent only when true.
+    // Altium emits IsSolid only when filled, Transparent only when true. The
+    // PIESYM golden orders LineWidth BEFORE the 3-decimal angles
+    // (`…|Radius=5|LineWidth=1|StartAngle=30.000|EndAngle=210.000|AreaColor=…`).
     let is_solid = if pie.filled { "|IsSolid=T" } else { "" };
     let transparent = if pie.transparent {
         "|Transparent=T"
@@ -727,21 +812,20 @@ fn encode_pie(pie: &Pie, index: usize) -> String {
         ""
     };
     format!(
-        "|RECORD=9{}{}|OwnerPartId={}{}{}{}|StartAngle={}|EndAngle={}|LineWidth={}{}{}{}{}{}|UniqueID={}",
+        "|RECORD=9{}{}|OwnerPartId={}{}{}{}{}|LineWidth={}{}{}{}{}{}|UniqueID={}",
         not_accessible,
         index_in_sheet(index),
         pie.owner_part_id,
+        write_display_flags(pie.display_flags),
         coord_param("Location.X", pie.x),
         coord_param("Location.Y", pie.y),
         coord_param("Radius", pie.radius),
-        pie.start_angle,
-        pie.end_angle,
         pie.line_width,
+        angle_params(pie.start_angle, pie.end_angle),
         nonzero("Color", pie.line_color),
         nonzero("AreaColor", pie.fill_color),
         is_solid,
         transparent,
-        write_display_flags(pie.display_flags),
         pie.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
 }
@@ -756,7 +840,9 @@ fn encode_image(image: &Image, index: usize) -> String {
     }
     push_index_in_sheet(&mut parts, index);
     parts.push(format!("OwnerPartId={}", image.owner_part_id));
-    // Bounding box: Location (corner 1) + Corner (corner 2), each with optional _Frac.
+    push_display_flags(&mut parts, image.display_flags);
+    // Bounding box: Location (corner 1) + Corner (corner 2), each half omitted
+    // when zero per AD24's coordinate rule.
     push_coord(&mut parts, "Location.X", image.x1);
     push_coord(&mut parts, "Location.Y", image.y1);
     push_coord(&mut parts, "Corner.X", image.x2);
@@ -789,7 +875,6 @@ fn encode_image(image: &Image, index: usize) -> String {
     if !image.file_name.is_empty() {
         parts.push(format!("FileName={}", image.file_name));
     }
-    push_display_flags(&mut parts, image.display_flags);
     parts.push(format!(
         "UniqueID={}",
         image.unique_id.clone().unwrap_or_else(generate_unique_id)
@@ -800,13 +885,16 @@ fn encode_image(image: &Image, index: usize) -> String {
 /// Encodes a text frame record (`RECORD=28`) — a bordered multi-line text box.
 ///
 /// Token order and omit-when-default behaviour match Altium's own output (both
-/// the regenerated golden and `AltiumSharp`'s from-scratch record):
+/// the regenerated golden and `AltiumSharp`'s golden-derived writer):
 /// `IndexInSheet` follows the shared content counter like every other shape
 /// (the golden frame carries no token because it is the symbol's first content
-/// record — slot 0, which Altium omits), `LineWidth` / `LineStyle` / `Color` /
-/// `AreaColor` / `TextColor` / `FontID` / `Alignment` / `Orientation` only when
-/// non-zero, the `T`-flags only when true, and `TextMargin` as a coordinate
-/// whose zero integer part is omitted (a default frame carries only
+/// record — slot 0, which Altium omits); then `[LineWidth][Color][LineStyle]
+/// AreaColor [TextColor] FontID [IsSolid] [ShowBorder] [Orientation]
+/// [Alignment] [WordWrap] [ClipToRect] Text TextMargin[_Frac] [Transparent]`.
+/// `AreaColor` and `FontID` are written unconditionally (Altium emits
+/// `AreaColor=16777215|FontID=1` even on a from-scratch frame); the bracketed
+/// keys are omitted when zero/false. `TextMargin` is a coordinate following
+/// AD24's omit-every-zero-key rule (a default frame carries only
 /// `TextMargin_Frac=5`).
 fn encode_text_frame(frame: &TextFrame, index: usize) -> String {
     let mut parts = vec!["RECORD=28".to_string()];
@@ -815,7 +903,9 @@ fn encode_text_frame(frame: &TextFrame, index: usize) -> String {
     }
     push_index_in_sheet(&mut parts, index);
     parts.push(format!("OwnerPartId={}", frame.owner_part_id));
-    // Frame box: Location (corner 1) + Corner (corner 2), each with optional _Frac.
+    push_display_flags(&mut parts, frame.display_flags);
+    // Frame box: Location (corner 1) + Corner (corner 2), each half omitted
+    // when zero per AD24's coordinate rule.
     push_coord(&mut parts, "Location.X", frame.x1);
     push_coord(&mut parts, "Location.Y", frame.y1);
     push_coord(&mut parts, "Corner.X", frame.x2);
@@ -823,26 +913,25 @@ fn encode_text_frame(frame: &TextFrame, index: usize) -> String {
     if frame.line_width != 0 {
         parts.push(format!("LineWidth={}", frame.line_width));
     }
-    if frame.line_style != 0 {
-        parts.push(format!("LineStyle={}", frame.line_style));
-    }
     if frame.color != 0 {
         parts.push(format!("Color={}", frame.color));
     }
-    if frame.area_color != 0 {
-        parts.push(format!("AreaColor={}", frame.area_color));
+    if frame.line_style != 0 {
+        parts.push(format!("LineStyle={}", frame.line_style));
     }
+    parts.push(format!("AreaColor={}", frame.area_color));
     if frame.text_color != 0 {
         parts.push(format!("TextColor={}", frame.text_color));
     }
-    if frame.font_id != 0 {
-        parts.push(format!("FontID={}", frame.font_id));
-    }
+    parts.push(format!("FontID={}", frame.font_id));
     if frame.is_solid {
         parts.push("IsSolid=T".to_string());
     }
     if frame.show_border {
         parts.push("ShowBorder=T".to_string());
+    }
+    if frame.orientation != 0 {
+        parts.push(format!("Orientation={}", frame.orientation));
     }
     if frame.alignment != 0 {
         parts.push(format!("Alignment={}", frame.alignment));
@@ -853,24 +942,12 @@ fn encode_text_frame(frame: &TextFrame, index: usize) -> String {
     if frame.clip_to_rect {
         parts.push("ClipToRect=T".to_string());
     }
+    // Text is always written (with %UTF8% promotion, like Label/Text).
+    parts.push(text_field("Text", &frame.text));
+    push_coord(&mut parts, "TextMargin", frame.text_margin);
     if frame.transparent {
         parts.push("Transparent=T".to_string());
     }
-    // Text is always written (with %UTF8% promotion, like Label/Text).
-    parts.push(text_field("Text", &frame.text));
-    if frame.orientation != 0 {
-        parts.push(format!("Orientation={}", frame.orientation));
-    }
-    // TextMargin is a coordinate whose zero integer part Altium omits entirely
-    // (unlike Location/Corner, which always carry the integer key).
-    let (margin_int, margin_frac) = coord::split(frame.text_margin);
-    if margin_int != 0 {
-        parts.push(format!("TextMargin={margin_int}"));
-    }
-    if margin_frac != 0 {
-        parts.push(format!("TextMargin_Frac={margin_frac}"));
-    }
-    push_display_flags(&mut parts, frame.display_flags);
     parts.push(format!(
         "UniqueID={}",
         frame.unique_id.clone().unwrap_or_else(generate_unique_id)
@@ -879,6 +956,13 @@ fn encode_text_frame(frame: &TextFrame, index: usize) -> String {
 }
 
 fn encode_ellipse(ellipse: &Ellipse, index: usize) -> String {
+    // Altium tags ellipses IsNotAccesible (its own single-'s' spelling); emit
+    // only when set (the ELLIPSES golden carries IsNotAccesible=T).
+    let not_accessible = if ellipse.is_not_accessible {
+        "|IsNotAccesible=T"
+    } else {
+        ""
+    };
     // Altium emits IsSolid only when filled, and omits it otherwise.
     let is_solid = if ellipse.filled { "|IsSolid=T" } else { "" };
     // Altium emits Transparent only when true; absent means opaque.
@@ -888,9 +972,11 @@ fn encode_ellipse(ellipse: &Ellipse, index: usize) -> String {
         ""
     };
     format!(
-        "|RECORD=8{}|OwnerPartId={}{}{}{}{}|LineWidth={}{}{}{}{}{}|UniqueID={}",
+        "|RECORD=8{}{}|OwnerPartId={}{}{}{}{}{}|LineWidth={}{}{}{}{}|UniqueID={}",
+        not_accessible,
         index_in_sheet(index),
         ellipse.owner_part_id,
+        write_display_flags(ellipse.display_flags),
         coord_param("Location.X", ellipse.x),
         coord_param("Location.Y", ellipse.y),
         coord_param("Radius", ellipse.radius_x),
@@ -900,7 +986,6 @@ fn encode_ellipse(ellipse: &Ellipse, index: usize) -> String {
         nonzero("AreaColor", ellipse.fill_color),
         is_solid,
         transparent,
-        write_display_flags(ellipse.display_flags),
         ellipse.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
 }
@@ -909,6 +994,8 @@ fn encode_ellipse(ellipse: &Ellipse, index: usize) -> String {
 fn encode_round_rect(round_rect: &RoundRect, index: usize) -> String {
     // Altium emits IsSolid only when filled, and omits it otherwise.
     let is_solid = if round_rect.filled { "|IsSolid=T" } else { "" };
+    // LineStyle sits between LineWidth and Color (AltiumSharp's golden-derived
+    // order), omitted when zero (Solid).
     let line_style = nonzero("LineStyle", u32::from(round_rect.line_style));
     // Altium emits Transparent only when true; absent means opaque.
     let transparent = if round_rect.transparent {
@@ -917,12 +1004,13 @@ fn encode_round_rect(round_rect: &RoundRect, index: usize) -> String {
         ""
     };
     format!(
-        "|RECORD=10|IsNotAccesible=T{}|OwnerPartId={}\
+        "|RECORD=10|IsNotAccesible=T{}|OwnerPartId={}{}\
          {}{}{}{}\
          {}{}\
-         |LineWidth={}{}{}{}{}{}{}|UniqueID={}",
+         |LineWidth={}{}{}{}{}{}|UniqueID={}",
         index_in_sheet(index),
         round_rect.owner_part_id,
+        write_display_flags(round_rect.display_flags),
         coord_param("Location.X", round_rect.x1),
         coord_param("Location.Y", round_rect.y1),
         coord_param("Corner.X", round_rect.x2),
@@ -930,12 +1018,11 @@ fn encode_round_rect(round_rect: &RoundRect, index: usize) -> String {
         coord_param("CornerXRadius", round_rect.corner_x_radius),
         coord_param("CornerYRadius", round_rect.corner_y_radius),
         round_rect.line_width,
+        line_style,
         nonzero("Color", round_rect.line_color),
         nonzero("AreaColor", round_rect.fill_color),
-        line_style,
         is_solid,
         transparent,
-        write_display_flags(round_rect.display_flags),
         round_rect
             .unique_id
             .clone()
@@ -943,7 +1030,8 @@ fn encode_round_rect(round_rect: &RoundRect, index: usize) -> String {
     )
 }
 
-/// Encodes an elliptical arc record.
+/// Encodes an elliptical arc record. Like [`encode_arc`], `LineWidth` precedes
+/// the 3-decimal angles and a zero `StartAngle` is omitted.
 fn encode_elliptical_arc(arc: &EllipticalArc, index: usize) -> String {
     // Each radius splits into an integer part plus a signed `_Frac` companion
     // (scaled by 100,000), carrying near-boundary values into the integer part.
@@ -953,24 +1041,25 @@ fn encode_elliptical_arc(arc: &EllipticalArc, index: usize) -> String {
          {}{}\
          {}\
          {}\
-         |StartAngle={}|EndAngle={}\
-         |LineWidth={}{}{}|UniqueID={}",
+         |LineWidth={}{}{}{}|UniqueID={}",
         index_in_sheet(index),
         arc.owner_part_id,
         coord_param("Location.X", arc.x),
         coord_param("Location.Y", arc.y),
         coord_param("Radius", arc.radius),
         coord_param("SecondaryRadius", arc.secondary_radius),
-        arc.start_angle,
-        arc.end_angle,
         arc.line_width,
+        angle_params(arc.start_angle, arc.end_angle),
         nonzero("Color", arc.color),
         nonzero("AreaColor", arc.fill_color),
         arc.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
 }
 
-/// Encodes a label record.
+/// Encodes a label record. Golden token order (the LABELS / JUSTIFY fixtures):
+/// `Orientation` and `Justification` sit between the coordinates and
+/// `Color`/`FontID`, each omitted when zero
+/// (`…|Location.X=-10|Justification=8|FontID=1|Text=TR|…`).
 fn encode_label(label: &Label, index: usize) -> String {
     #[allow(clippy::cast_possible_truncation)]
     let orientation = (label.rotation / 90.0).round() as i32 % 4;
@@ -982,25 +1071,28 @@ fn encode_label(label: &Label, index: usize) -> String {
         ""
     };
     let is_hidden = if label.is_hidden { "|IsHidden=T" } else { "" };
+    #[allow(clippy::cast_sign_loss)] // orientation is %4-bounded, non-negative
+    let orientation_token = nonzero("Orientation", orientation.rem_euclid(4) as u32);
     format!(
-        "|RECORD=4|IsNotAccesible=T{}|OwnerPartId={}{}{}{}|FontID={}|Orientation={}|Justification={}{}{}{}|{}|UniqueID={}",
+        "|RECORD=4|IsNotAccesible=T{}|OwnerPartId={}{}{}{}{}{}{}|FontID={}|{}{}{}|UniqueID={}",
         index_in_sheet(index),
         label.owner_part_id,
+        write_display_flags(label.display_flags),
         coord_param("Location.X", label.x),
         coord_param("Location.Y", label.y),
+        orientation_token,
+        nonzero("Justification", u32::from(justification)),
         nonzero("Color", label.color),
         label.font_id,
-        orientation,
-        justification,
-        is_mirrored,
-        is_hidden,
-        write_display_flags(label.display_flags),
         text_field("Text", &label.text),
+        is_hidden,
+        is_mirrored,
         label.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
 }
 
-/// Encodes a text annotation record.
+/// Encodes a text annotation record. Token order mirrors [`encode_label`]
+/// (the golden's RECORD=3/4 records share the layout).
 fn encode_text(text: &Text, index: usize) -> String {
     #[allow(clippy::cast_possible_truncation)]
     let orientation = (text.rotation / 90.0).round() as i32 % 4;
@@ -1012,21 +1104,23 @@ fn encode_text(text: &Text, index: usize) -> String {
         ""
     };
     let is_hidden = if text.is_hidden { "|IsHidden=T" } else { "" };
+    #[allow(clippy::cast_sign_loss)] // orientation is %4-bounded, non-negative
+    let orientation_token = nonzero("Orientation", orientation.rem_euclid(4) as u32);
     format!(
         // RECORD=3 is the Text-annotation id (the reader dispatches 3 -> parse_text,
         // 4 -> parse_label); emitting 4 here made a Text round-trip back as a Label.
-        "|RECORD=3|IsNotAccesible=T{}|OwnerPartId={}{}{}{}|FontID={}|Orientation={}|Justification={}{}{}|{}|UniqueID={}",
+        "|RECORD=3|IsNotAccesible=T{}|OwnerPartId={}{}{}{}{}{}|FontID={}|{}{}{}|UniqueID={}",
         index_in_sheet(index),
         text.owner_part_id,
         coord_param("Location.X", text.x),
         coord_param("Location.Y", text.y),
+        orientation_token,
+        nonzero("Justification", u32::from(justification)),
         nonzero("Color", text.color),
         text.font_id,
-        orientation,
-        justification,
-        is_mirrored,
-        is_hidden,
         text_field("Text", &text.text),
+        is_hidden,
+        is_mirrored,
         text.unique_id.clone().unwrap_or_else(generate_unique_id)
     )
 }
@@ -1121,24 +1215,20 @@ use crate::util::generate_unique_id;
 /// # Errors
 ///
 /// Returns an error if any pin coordinates exceed the i16 range (±32767).
+#[allow(clippy::too_many_lines)] // one straight-line emission step per primitive family
 pub fn encode_data_stream(symbol: &Symbol) -> crate::altium::error::AltiumResult<Vec<u8>> {
     let mut data = Vec::new();
     // The shared IndexInSheet counter over content records (shapes, user
     // labels/parameters AND pins) in stream order; slot 0's token is omitted
-    // and the header / system designator records stay at -1. See
-    // [`index_in_sheet`] for the golden-confirmed rule.
+    // and the header, system designator AND system parameters
+    // (owner_part_id == -1) stay at the -1 sentinel without consuming a slot.
+    // See [`index_in_sheet`] and [`encode_parameter`] for the golden-confirmed
+    // rules.
     let mut index_counter = 0usize;
 
     // 1. Component header
     let header = encode_component_header(symbol);
     write_text_record(&mut data, &header)?;
-
-    // 2. Parameters (Value, Part Number, etc.)
-    for param in &symbol.parameters {
-        let record = encode_parameter(param, index_counter);
-        write_text_record(&mut data, &record)?;
-        index_counter += 1;
-    }
 
     // 3. Rectangles — written before the pins so the body shape sits at the
     //    back. Emitting pins first lets a solid-filled body paint over the pin
@@ -1254,9 +1344,31 @@ pub fn encode_data_stream(symbol: &Symbol) -> crate::altium::error::AltiumResult
         index_counter += 1;
     }
 
-    // 15. Designator
+    // 14b. USER parameters (owner_part_id >= 1) — emitted after the graphic
+    // content, matching the golden stream order (JUSTIFY stores its labels at
+    // content slots 0..3 and its user parameters at 4..5). Each consumes a
+    // shared-counter slot like any other content record.
+    for param in symbol.parameters.iter().filter(|p| p.owner_part_id != -1) {
+        let record = encode_parameter(param, index_counter);
+        write_text_record(&mut data, &record)?;
+        index_counter += 1;
+    }
+
+    // 15. Designator (system record, IndexInSheet=-1 — no counter slot).
     if !symbol.designator.is_empty() {
-        let record = encode_designator(&symbol.designator);
+        let record = encode_designator(symbol);
+        write_text_record(&mut data, &record)?;
+    }
+
+    // 15b. SYSTEM parameters (owner_part_id == -1, the Altium-authored
+    // Comment-class records): golden order puts them after the designator, and
+    // they carry the IndexInSheet=-1 sentinel WITHOUT consuming a counter slot
+    // (the golden DISPMODE system Comment stores
+    // `|RECORD=41|IndexInSheet=-1|OwnerPartId=-1|` while the rectangles keep
+    // slots 0 and 1). Regressing them onto the counter destroyed the -1 and
+    // shifted every later content index by one on read-modify-write.
+    for param in symbol.parameters.iter().filter(|p| p.owner_part_id == -1) {
+        let record = encode_parameter(param, 0);
         write_text_record(&mut data, &record)?;
     }
 
@@ -1477,7 +1589,11 @@ mod tests {
             if flags == 1 {
                 records.push("<PIN>".to_string());
             } else {
-                records.push(String::from_utf8_lossy(&data[off + 4..off + 4 + len]).into_owned());
+                records.push(
+                    String::from_utf8_lossy(&data[off + 4..off + 4 + len])
+                        .trim_end_matches('\0')
+                        .to_string(),
+                );
             }
             off += 4 + len;
         }
@@ -1523,8 +1639,10 @@ mod tests {
         // Golden-confirmed against real Altium-authored libraries: binary pins
         // store no IndexInSheet token but DO consume counter slots (a real
         // symbol with parameters 0..2, two pins, then a rectangle stores
-        // IndexInSheet=5 on the rectangle). Emission order here is parameter
-        // (slot 0, omitted), rectangle (1), two pins (2, 3), line (4).
+        // IndexInSheet=5 on the rectangle). Emission order here is rectangle
+        // (slot 0, omitted), two pins (1, 2), line (3), then the user
+        // parameter (4) — user parameters follow the graphic content,
+        // matching the golden stream order (JUSTIFY).
         let mut symbol = Symbol::new("PINSLOTS");
         symbol.add_parameter(Parameter::new("Value", "10k"));
         symbol.add_rectangle(Rectangle::new(-5, -5, 5, 5));
@@ -1534,29 +1652,81 @@ mod tests {
 
         let data = encode_data_stream(&symbol).expect("encode");
         let records = stream_records(&data);
-        let param = records
-            .iter()
-            .find(|t| t.starts_with("|RECORD=41") && !t.contains("OwnerPartId=-1"))
-            .expect("user parameter present");
-        assert!(
-            !param.contains("IndexInSheet"),
-            "slot-0 parameter omits the token: {param}"
-        );
         let rect = records
             .iter()
             .find(|t| t.starts_with("|RECORD=14"))
             .expect("rectangle present");
         assert!(
-            rect.contains("|IndexInSheet=1|"),
-            "rectangle takes slot 1: {rect}"
+            !rect.contains("IndexInSheet"),
+            "slot-0 rectangle omits the token: {rect}"
         );
         let line = records
             .iter()
             .find(|t| t.starts_with("|RECORD=13"))
             .expect("line present");
         assert!(
-            line.contains("|IndexInSheet=4|"),
-            "line after two pins takes slot 4 (pins consumed 2 and 3): {line}"
+            line.contains("|IndexInSheet=3|"),
+            "line after two pins takes slot 3 (pins consumed 1 and 2): {line}"
+        );
+        let param = records
+            .iter()
+            .find(|t| t.starts_with("|RECORD=41") && !t.contains("OwnerPartId=-1"))
+            .expect("user parameter present");
+        assert!(
+            param.contains("|IndexInSheet=4|"),
+            "user parameter follows the shapes at slot 4: {param}"
+        );
+    }
+
+    #[test]
+    fn system_parameter_keeps_minus_one_and_consumes_no_slot() {
+        // F1 regression test, pinned to the golden DISPMODE sequence exactly:
+        // the system Comment (owner_part_id == -1) carries the IndexInSheet=-1
+        // sentinel and does NOT consume a content-counter slot — the first
+        // rectangle stays at slot 0 (token omitted) and the second at =1, as
+        // the golden stores. Feeding system parameters through the shared
+        // counter destroyed the -1 and shifted every content index by one on
+        // read-modify-write.
+        let mut symbol = Symbol::new("DISPMODE");
+        symbol.designator = "U?".to_string();
+        let mut comment = Parameter::new("Comment", "*");
+        comment.owner_part_id = -1;
+        comment.x = -5.0;
+        comment.y = -15.0;
+        comment.unique_id = Some("SBJHPTML".to_string());
+        symbol.add_parameter(comment);
+        let mut rect1 = Rectangle::new(-5.0, -2.5, 5.0, 2.5);
+        rect1.line_color = 0; // the golden rectangles omit Color (0)
+        rect1.unique_id = Some("ODNTDFPU".to_string());
+        symbol.add_rectangle(rect1);
+        let mut rect2 = Rectangle::new(-6, -3, 6, 3);
+        rect2.line_color = 0;
+        rect2.display_flags.owner_part_display_mode = 1;
+        rect2.unique_id = Some("IELVGVKJ".to_string());
+        symbol.add_rectangle(rect2);
+
+        let data = encode_data_stream(&symbol).expect("encode");
+        let records = stream_records(&data);
+        // Golden DISPMODE record text, byte for byte.
+        assert!(
+            records.iter().any(|t| t
+                == "|RECORD=14|IsNotAccesible=T|OwnerPartId=1|Location.X=-5|Location.Y=-2\
+                    |Location.Y_Frac=-50000|Corner.X=5|Corner.Y=2|Corner.Y_Frac=50000\
+                    |LineWidth=1|AreaColor=11599871|IsSolid=T|UniqueID=ODNTDFPU"),
+            "first rectangle (slot 0, token omitted) must match the golden exactly: {records:#?}"
+        );
+        assert!(
+            records.iter().any(|t| t
+                == "|RECORD=14|IsNotAccesible=T|IndexInSheet=1|OwnerPartId=1\
+                    |OwnerPartDisplayMode=1|Location.X=-6|Location.Y=-3|Corner.X=6|Corner.Y=3\
+                    |LineWidth=1|AreaColor=11599871|IsSolid=T|UniqueID=IELVGVKJ"),
+            "second rectangle (slot 1) must match the golden exactly: {records:#?}"
+        );
+        assert!(
+            records.iter().any(|t| t
+                == "|RECORD=41|IndexInSheet=-1|OwnerPartId=-1|Location.X=-5|Location.Y=-15\
+                    |Color=8388608|FontID=1|Text=*|Name=Comment|UniqueID=SBJHPTML"),
+            "system Comment keeps the -1 sentinel and the golden token order: {records:#?}"
         );
     }
 
@@ -2067,6 +2237,7 @@ mod tests {
                 end_line_shape: 0,
                 line_shape_size: 0,
                 transparent: false,
+                is_not_accessible: true,
                 owner_part_id: 1,
                 display_flags: ShapeDisplayFlags::default(),
                 unique_id: Some("ABCD1234".to_string()),

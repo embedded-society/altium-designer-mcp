@@ -962,6 +962,9 @@ impl McpServer {
                             "name": symbol.name,
                             "description": symbol.description,
                             "designator": symbol.designator,
+                            "designator_x": symbol.designator_x,
+                            "designator_y": symbol.designator_y,
+                            "designator_unique_id": symbol.designator_unique_id,
                             "part_count": symbol.part_count,
                             "pins": symbol.pins,
                             "rectangles": symbol.rectangles,
@@ -1119,6 +1122,9 @@ impl McpServer {
                     "description",
                     "designator",
                     "designator_prefix",
+                    "designator_x",
+                    "designator_y",
+                    "designator_unique_id",
                     "component_type",
                     "part_count",
                     "pins",
@@ -1177,6 +1183,19 @@ impl McpServer {
                     str::to_string,
                 );
             symbol.designator = designator;
+
+            // Designator text position (RECORD=34 Location.X/Y) and identity.
+            // Defaults -5/5 per the AD24 golden; the unique id is reused when
+            // supplied (e.g. a read-modify-write) so the record is deterministic.
+            if let Some(x) = sym_json.get("designator_x").and_then(Value::as_f64) {
+                symbol.designator_x = x;
+            }
+            if let Some(y) = sym_json.get("designator_y").and_then(Value::as_f64) {
+                symbol.designator_y = y;
+            }
+            if let Some(uid) = sym_json.get("designator_unique_id").and_then(Value::as_str) {
+                symbol.designator_unique_id = Some(uid.to_string());
+            }
 
             // Parse part_count for multi-part symbols (e.g., dual op-amp)
             if let Some(part_count) = sym_json.get("part_count").and_then(Value::as_u64) {
@@ -1327,6 +1346,7 @@ impl McpServer {
                             "line_shape_size",
                             "line_style",
                             "line_width",
+                            "is_not_accessible",
                             "owner_part_id",
                             "points",
                             "start_line_shape",
@@ -1570,6 +1590,7 @@ impl McpServer {
                             "filled",
                             "line_color",
                             "line_width",
+                            "is_not_accessible",
                             "owner_part_id",
                             "radius_x",
                             "radius_y",
@@ -1662,6 +1683,7 @@ impl McpServer {
                             "param_type",
                             "unique_id",
                             "orientation",
+                            "justification",
                             "show_name",
                             "hide_name",
                             "description",
