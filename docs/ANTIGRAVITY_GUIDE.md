@@ -133,12 +133,12 @@ The example prompts and workflows are identical regardless of client — see
 [CLAUDE_CODE_GUIDE.md § Example Workflows](CLAUDE_CODE_GUIDE.md#example-workflows) for the full
 set. A couple to start with:
 
-```
+```text
 Create an IPC-7351B compliant 0603 chip resistor footprint and save it to
 ./MyLibrary.PcbLib
 ```
 
-```
+```text
 Read ./ExistingLibrary.PcbLib and describe the footprints it contains.
 What silkscreen style does it use?
 ```

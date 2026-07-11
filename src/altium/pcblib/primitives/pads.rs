@@ -67,6 +67,13 @@ pub struct Pad {
     )]
     pub hole_size: Option<f64>,
 
+    /// Whether the hole is plated — main-block byte @60. Altium stores this as
+    /// an independent bool defaulting to `1` for every pad, SMD included (the
+    /// golden fixture's SMD pads all carry `1` here, matching `AltiumSharp`'s
+    /// `PcbPad.IsPlated = true` default), so the from-scratch default is `true`.
+    #[serde(default = "default_true")]
+    pub is_plated: bool,
+
     /// Hole shape for through-hole pads.
     #[serde(default, skip_serializing_if = "is_default_hole_shape")]
     pub hole_shape: HoleShape,
@@ -237,6 +244,28 @@ pub struct Pad {
     /// Unique ID assigned by Altium (8-character alphanumeric string).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unique_id: Option<String>,
+
+    /// Per-pad identity GUID — extended-tail bytes @126-141 ("GUID-A"), read
+    /// back verbatim as a braced uppercase GUID string (Windows little-endian
+    /// byte order, matching `AltiumSharp`'s `PcbPad.IdentityGuid`). A loaded
+    /// pad round-trips its exact bytes (the scripting-authored golden carries
+    /// the nil GUID `{00000000-…}` — preserved, not regenerated); `None` (the
+    /// from-scratch default) makes the writer generate a fresh random GUID per
+    /// pad, exactly the historical behaviour.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity_guid: Option<String>,
+
+    /// Pad-stack / footprint-scoped identity GUID — extended-tail bytes
+    /// @142-157 ("GUID-B", the twin of [`Self::identity_guid`]). Same
+    /// round-trip-verbatim / fresh-when-`None` semantics.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity_guid_b: Option<String>,
+}
+
+/// Default `true` for serde (Altium's plated-hole default; see
+/// [`Pad::is_plated`]).
+const fn default_true() -> bool {
+    true
 }
 
 /// Helper for serde to skip default hole shape in serialisation.
@@ -301,6 +330,7 @@ impl Pad {
             shape: PadShape::RoundedRectangle,
             layer: Layer::TopLayer,
             hole_size: None,
+            is_plated: true,
             hole_shape: HoleShape::Round,
             hole_slot_length: 0.0,
             hole_rotation: 0.0,
@@ -328,6 +358,8 @@ impl Pad {
             polygon_index: default_polygon_index(),
             component_index: default_component_index(),
             unique_id: None,
+            identity_guid: None,
+            identity_guid_b: None,
         }
     }
 
@@ -350,6 +382,7 @@ impl Pad {
             shape: PadShape::Round,
             layer: Layer::MultiLayer,
             hole_size: Some(hole_size),
+            is_plated: true,
             hole_shape: HoleShape::Round,
             hole_slot_length: 0.0,
             hole_rotation: 0.0,
@@ -377,6 +410,8 @@ impl Pad {
             polygon_index: default_polygon_index(),
             component_index: default_component_index(),
             unique_id: None,
+            identity_guid: None,
+            identity_guid_b: None,
         }
     }
 }

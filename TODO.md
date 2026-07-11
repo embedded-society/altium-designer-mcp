@@ -24,12 +24,9 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
 
 ### A1. PcbLib primitives (code bugs + missing features)
 
-- [ ] 🟠 **Pad** — remaining (mostly golden / on-site / fidelity-gated): `is_plated` @SR5+60
-      read-back; identity GUIDs @+126/+142 read-back; **multi-entry** full-stack tail (count>1);
-      oblong/oval SMD pads should route to the 651 size/shape block (golden shows 651, we emit
-      empty). *(slot length @+263 / hole rotation @+267 — DONE.)*
-- [ ] 🟠 **Text**: `isComment` @40 / `isDesignator` @41 flags (still dropped on read).
-      *(mirror @35, TrueType font-name @46-109, bold @44, inverted-rect @110-133 — DONE.)*
+- [ ] 🟠 **Pad** — remaining (golden / on-site / fidelity-gated): **multi-entry** full-stack
+      tail (count>1); oblong/oval SMD pads should route to the 651 size/shape block (golden
+      shows 651, we emit empty).
 
 ### A2. PcbLib stream / container layer
 
@@ -86,16 +83,13 @@ Outstanding SchLib field fidelity all needs an Altium-authored golden to settle 
 
 ## D. Release & distribution (no release exists yet)
 
-- [ ] Cut the **first tagged release** so non-Rust users get a prebuilt binary (flagged in #68).
+- [ ] Cut the **first tagged release** so non-Rust users get a prebuilt binary — everything is
+      release-ready (`CHANGELOG` carries the content under `[Unreleased]`; `release.yml` validates
+      the tag against `Cargo.toml`), but **the tag is deferred until the maintainer triggers it
+      personally**. Tag-day steps: stamp the changelog heading/date, `git tag v0.1.0`, push, watch
+      the Release workflow, verify artefacts.
 - [ ] Consider a `.dxt` Claude Desktop extension for one-click install (pattern from
       coffeenmusic/altium-mcp).
-
-## E. Issues
-
-- [ ] **#68** — core fixes shipped and generated libraries now verified to open in real Altium 24.
-      Close once the reporter confirms (or declare verified on the strength of the on-site PASS).
-- [ ] **#113** — via block (#114), round-trip fidelity, and extruded ComponentBody (#133) largely
-      cover this; review the remaining items and close.
 
 ## F. Docs / AI workflow
 

@@ -35,7 +35,7 @@ function Resolve-AltiumExe {
 
     $exe = ($line -replace '^\s*ALTIUM_EXE\s*=', '').Trim().Trim('"')
     if (-not (Test-Path $exe)) {
-        throw "ALTIUM_EXE path does not exist: $exe (check scripts\.env.local)."
+        throw "ALTIUM_EXE path does not exist: $exe (check the repo-root .env.local)."
     }
     return (Resolve-Path $exe).Path
 }

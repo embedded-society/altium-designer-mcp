@@ -208,6 +208,7 @@ The `shape` property on pads controls the copper shape. Use this to indicate pin
 | Rounded Rectangle | `"rounded_rectangle"` | Default for SMD pads (most common) |
 | Round | `"round"` or `"circle"` | Circular pads, default for through-hole (both values are equivalent) |
 | Oval | `"oval"` | Oblong pads for constrained spaces |
+| Octagonal | `"octagonal"` | Eight-sided pads (chamfered corners) |
 
 **Example — marking pin 1 with a rectangular pad:**
 
@@ -335,6 +336,9 @@ Configuration file location:
 |--------|-------------|
 | `allowed_paths` | Array of directory paths where library files can be accessed (default: current directory) |
 | `logging.level` | Log level: trace, debug, info, warn, error (default: warn) |
+| `logging.audit_log_path` | Path to an append-only JSON-lines audit log of destructive operations (default: null — no audit log is written) |
+| `rate_limit.max_burst` | Maximum burst of mutating operations before throttling; read-only tools are never rate limited (default: 120) |
+| `rate_limit.refill_per_sec` | Token-bucket refill rate for mutating operations, in tokens per second (default: 30.0) |
 
 ---
 
@@ -413,27 +417,16 @@ automatically removed to prevent unbounded disk usage.
 - `reorder_components`
 - `batch_update`
 - `bulk_rename`
+- `repair_library`
+- `manage_schlib_parameters`
+- `manage_schlib_footprints`
 - `write_pcblib` / `write_schlib` (when overwriting)
 - `import_library` (when overwriting)
-
-**Disabling backups:** All write operations accept a `create_backup` parameter (default: `true`).
-Set to `false` to skip backup creation:
-
-```json
-{
-    "name": "delete_component",
-    "arguments": {
-        "filepath": "./MyLibrary.PcbLib",
-        "component_names": ["OLD_COMPONENT"],
-        "create_backup": false
-    }
-}
-```
 
 **Managing backups:** Use `list_backups` to view available backups and `restore_backup` to
 recover from a previous version.
 
-**Dry-run support:** Most destructive operations support `dry_run=true` to preview changes
+**Dry-run support:** These operations support `dry_run=true` to preview changes
 without modifying files:
 
 - `delete_component` — preview which components would be deleted
@@ -441,9 +434,8 @@ without modifying files:
 - `update_pad` / `update_primitive` — preview property changes
 - `bulk_rename` — preview name changes
 - `repair_library` — preview orphaned references to remove
-- `copy_component` / `rename_component` / `reorder_components`
-- `write_pcblib` / `write_schlib` / `import_library`
-- `copy_component_cross_library` / `merge_libraries`
+- `batch_update` — preview library-wide updates
+- `copy_component` / `rename_component` / `merge_libraries`
 
 ---
 
@@ -469,20 +461,14 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## Development
 
-### Running Tests
-
 ```bash
 cargo test
 ```
 
 Tests are self-contained and generate their own data programmatically. Temporary files are created in `.tmp/` (git-ignored) and automatically cleaned up.
 
-### Code Quality
-
-```bash
-cargo fmt --check  # Check formatting
-cargo clippy       # Lint
-```
+The full build, formatting, and lint commands are canonical in
+[CONTRIBUTING.md § Development Setup](CONTRIBUTING.md#development-setup).
 
 ---
 
@@ -503,10 +489,12 @@ GNU General Public License v3.0 — see [LICENCE](LICENCE).
 
 ## Sample Files
 
-Sample Altium library files are included in the `scripts/` folder for **manual debugging only**.
-Automated tests do not depend on these files.
+Altium-authored sample libraries are committed under `scripts/samples/` as **golden fixtures**:
+the reader tests (`tests/samples_pcblib.rs`, `tests/samples_schlib.rs`) parse them in CI as
+ground truth. The PowerShell/DelphiScript tooling that (re)generates them needs a real Altium
+installation and is manual-only.
 
-See [scripts/README.md](scripts/README.md) for details on available sample files and analysis scripts.
+See [scripts/README.md](scripts/README.md) for details on the sample files and the on-site tooling.
 
 ---
 
@@ -516,7 +504,7 @@ This project stands on the shoulders of several excellent open-source efforts, a
 for each:
 
 - **[AltiumSharp](https://github.com/issus/AltiumSharp)** (MIT) — the most complete open Altium
-  reader/writer. Used as the authoritative reference (its DTOs, binary serializers, and golden
+  reader/writer. Used as the authoritative reference (its DTOs, binary serialisation code, and golden
   `TestData`) for verifying our binary format against ground truth.
 - **[pyAltiumLib](https://github.com/ChrisHoyer/pyAltiumLib)** — an independent Python reader, used
   as our CI **readability oracle** (`tests/integration/`) to check that generated files actually

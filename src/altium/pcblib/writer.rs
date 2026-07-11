@@ -641,9 +641,23 @@ fn build_pad_extended_tail(pad: &Pad) -> [u8; 141] {
     // 114-117: v7 layer id (derived from the pad's layer)
     tail[114 - START..118 - START]
         .copy_from_slice(&v7_layer_id(layer_to_id(pad.layer)).to_le_bytes());
-    // 126-141 / 142-157: two per-pad identity GUIDs
-    tail[126 - START..142 - START].copy_from_slice(&generate_guid());
-    tail[142 - START..158 - START].copy_from_slice(&generate_guid());
+    // 126-141 / 142-157: the two per-pad identity GUIDs (GUID-A / GUID-B). A
+    // read-back value (braced GUID string) is replayed verbatim so a loaded pad
+    // round-trips its exact bytes — including the golden's nil GUIDs; `None`
+    // (from scratch) generates a fresh random GUID per pad, the historical
+    // behaviour (mirrors AltiumSharp's PadBuilder Guid.NewGuid defaults).
+    tail[126 - START..142 - START].copy_from_slice(
+        &pad.identity_guid
+            .as_deref()
+            .and_then(guid_bytes_from_string)
+            .unwrap_or_else(generate_guid),
+    );
+    tail[142 - START..158 - START].copy_from_slice(
+        &pad.identity_guid_b
+            .as_deref()
+            .and_then(guid_bytes_from_string)
+            .unwrap_or_else(generate_guid),
+    );
     // 162-165 / 166-169: drill tolerances. `None` leaves the template's
     // 0x7FFFFFFF "unset" sentinel (byte-identical); `Some(mm)` writes the raw.
     if let Some(tol) = pad.hole_positive_tolerance {
@@ -727,8 +741,11 @@ fn encode_pad_geometry(pad: &Pad) -> Vec<u8> {
     // Rotation - offsets 52-59 (8-byte double)
     write_f64(&mut block, pad.rotation);
 
-    // Is plated - offset 60
-    block.push(u8::from(pad.hole_size.is_some()));
+    // Is plated - offset 60. Altium stores this as an independent bool that
+    // defaults to 1 for every pad, SMD included (the golden fixture's SMD pads
+    // all carry 1; AltiumSharp's PcbPad.IsPlated defaults to true). The writer
+    // previously derived it from hole_size, wrongly emitting 0 for SMD pads.
+    block.push(u8::from(pad.is_plated));
 
     // Extended tail - offsets 61-201 (141 bytes)
     block.extend_from_slice(&build_pad_extended_tail(pad));
@@ -1107,6 +1124,13 @@ pub fn encode_text_geometry(text: &Text) -> Vec<u8> {
     if let Some(width) = text.stroke_width {
         block[36..40].copy_from_slice(&from_mm(width).to_le_bytes());
     }
+
+    // Comment/Designator field markers (offsets 40/41, IsComment/IsDesignator).
+    // Defaults false reproduce the template's 0x00 bytes (every golden text
+    // carries 0x00 at both offsets); offsets verified against AltiumSharp
+    // ReadText (B(40)/B(41)) and its writer (b[40]/b[41]).
+    block[40] = u8::from(text.is_comment);
+    block[41] = u8::from(text.is_designator);
 
     // Font bold (offset 44, FontBold — twin of italic@45). Default false
     // reproduces the template's 0x00.
@@ -1817,6 +1841,17 @@ fn generate_guid() -> [u8; 16] {
     *Uuid::new_v4().as_bytes()
 }
 
+/// Converts a braced GUID string (as read back by the pad parser, e.g.
+/// `{A5172B29-…}`) to Altium's on-disk 16-byte Windows little-endian layout —
+/// the inverse of the reader's `guid_string_from_bytes`, so a read value
+/// re-encodes byte-identically. Returns `None` for an unparseable string (the
+/// caller falls back to a fresh GUID, like the `None` field default).
+fn guid_bytes_from_string(guid: &str) -> Option<[u8; 16]> {
+    use uuid::Uuid;
+    let trimmed = guid.trim_start_matches('{').trim_end_matches('}');
+    Uuid::parse_str(trimmed).ok().map(|uuid| uuid.to_bytes_le())
+}
+
 // =============================================================================
 // Per-Component WideStrings Writing
 // =============================================================================
@@ -1952,6 +1987,92 @@ mod tests {
     }
 
     #[test]
+    fn pad_is_plated_byte_defaults_to_one() {
+        // @60 is an independent bool Altium defaults to 1 for EVERY pad, SMD
+        // included (golden fixture + AltiumSharp `IsPlated = true`). The writer
+        // previously derived it from hole_size, wrongly emitting 0 for SMD pads.
+        let smd = Pad::smd("1", 0.0, 0.0, 1.0, 0.6);
+        assert_eq!(encode_pad_geometry(&smd)[60], 1, "SMD pad plated @60");
+
+        let th = Pad::through_hole("2", 0.0, 0.0, 1.6, 1.6, 0.8);
+        assert_eq!(encode_pad_geometry(&th)[60], 1, "TH pad plated @60");
+
+        let mut unplated = Pad::through_hole("3", 0.0, 0.0, 1.6, 1.6, 0.8);
+        unplated.is_plated = false;
+        assert_eq!(encode_pad_geometry(&unplated)[60], 0, "unplated pad @60");
+    }
+
+    #[test]
+    fn pad_explicit_identity_guids_encode_verbatim() {
+        // A read-back identity GUID (braced string) must re-encode to its exact
+        // on-disk bytes @126-141/@142-157 (Windows little-endian layout, the
+        // inverse of the reader's guid_string_from_bytes). The golden's nil
+        // GUIDs must round-trip as zeros, not be regenerated.
+        let mut pad = Pad::smd("1", 0.0, 0.0, 1.0, 0.6);
+        pad.identity_guid = Some("{A5172B29-10E4-C726-929A-64E441352E67}".to_string());
+        pad.identity_guid_b = Some("{00000000-0000-0000-0000-000000000000}".to_string());
+        let geom = encode_pad_geometry(&pad);
+        assert_eq!(
+            &geom[126..142],
+            &guid_bytes_from_string("{A5172B29-10E4-C726-929A-64E441352E67}").unwrap(),
+            "explicit GUID-A must be replayed verbatim @126"
+        );
+        assert_eq!(
+            &geom[142..158],
+            &[0u8; 16],
+            "the nil GUID-B must round-trip as zeros @142"
+        );
+
+        // `None` keeps the historical fresh-per-pad behaviour: two independent
+        // non-zero GUIDs that differ between encodes.
+        let fresh = Pad::smd("2", 0.0, 0.0, 1.0, 0.6);
+        let g1 = encode_pad_geometry(&fresh);
+        let g2 = encode_pad_geometry(&fresh);
+        assert_ne!(&g1[126..142], &[0u8; 16], "fresh GUID-A is non-zero");
+        assert_ne!(&g1[126..142], &g1[142..158], "GUID-A differs from GUID-B");
+        assert_ne!(&g1[126..142], &g2[126..142], "fresh GUIDs are per-encode");
+    }
+
+    #[test]
+    fn text_comment_designator_flags_encode_at_offsets() {
+        use crate::altium::TextJustification;
+        // IsComment@40 / IsDesignator@41 overlay the template's 0x00 bytes
+        // (offsets verified against AltiumSharp b[40]/b[41]).
+        let text = Text {
+            x: 0.0,
+            y: 0.0,
+            text: "C1".to_string(),
+            height: 1.0,
+            layer: Layer::TopOverlay,
+            rotation: 0.0,
+            kind: TextKind::Stroke,
+            stroke_font: None,
+            stroke_width: None,
+            italic: false,
+            bold: false,
+            mirror: false,
+            is_comment: true,
+            is_designator: true,
+            font_name: "Arial".to_string(),
+            justification: TextJustification::BottomLeft,
+            is_inverted: false,
+            inverted_border: None,
+            use_inverted_rectangle: false,
+            inverted_rect_width: None,
+            inverted_rect_height: None,
+            inverted_rect_text_offset: None,
+            flags: PcbFlags::empty(),
+            net_index: 0xFFFF,
+            polygon_index: 0xFFFF,
+            component_index: -1,
+            unique_id: None,
+        };
+        let geom = encode_text_geometry(&text);
+        assert_eq!(geom[40], 0x01, "IsComment @40");
+        assert_eq!(geom[41], 0x01, "IsDesignator @41");
+    }
+
+    #[test]
     fn common_indices_default_to_ff_bytes() {
         // Byte-identity guard (oracle): a from-scratch primitive's connectivity
         // indices default to "none" (net=0xFFFF, polygon=0xFFFF, component=-1 ->
@@ -2013,6 +2134,8 @@ mod tests {
             italic: false,
             bold: false,
             mirror: false,
+            is_comment: false,
+            is_designator: false,
             font_name: "Arial".to_string(),
             justification: TextJustification::BottomLeft,
             is_inverted: false,
@@ -2075,6 +2198,8 @@ mod tests {
             italic: false,
             bold: false,
             mirror: false,
+            is_comment: false,
+            is_designator: false,
             font_name: "Arial".to_string(),
             justification: TextJustification::BottomLeft,
             is_inverted: true,
@@ -2832,6 +2957,8 @@ mod tests {
             italic: false,
             bold: false,
             mirror: false,
+            is_comment: false,
+            is_designator: false,
             font_name: "Arial".to_string(),
             justification: TextJustification::MiddleCenter,
             is_inverted: false,
