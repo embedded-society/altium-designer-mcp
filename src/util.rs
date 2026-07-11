@@ -65,6 +65,38 @@ pub fn escape_csv_field(field: &str) -> String {
     }
 }
 
+/// Characters Windows forbids in file names (also the set `write_pcblib` /
+/// `write_schlib` reject in component names). Shared so every producer of an
+/// on-disk name applies the same rule.
+pub const FILE_NAME_INVALID_CHARS: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
+
+/// Sanitises a single file-name component derived from untrusted data (e.g. a
+/// model name read out of a library) so it is safe to join onto a directory.
+///
+/// Replaces [`FILE_NAME_INVALID_CHARS`] and ASCII control characters with `_`
+/// — notably `:`, which on NTFS would otherwise write an alternate data
+/// stream (`foo:bar.step`) — and trims trailing dots/spaces (invalid in
+/// Windows names). Returns `None` when nothing usable remains.
+#[must_use]
+pub fn sanitise_file_name(name: &str) -> Option<String> {
+    let cleaned: String = name
+        .chars()
+        .map(|c| {
+            if FILE_NAME_INVALID_CHARS.contains(&c) || c.is_control() {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let cleaned = cleaned.trim_end_matches(['.', ' ']);
+    if cleaned.is_empty() || cleaned.chars().all(|c| c == '_') {
+        None
+    } else {
+        Some(cleaned.to_string())
+    }
+}
+
 /// Generates an 8-character uppercase A–Z identifier for Altium `UniqueID`
 /// fields (library `FileHeader`, schematic records, etc.).
 ///
@@ -108,6 +140,38 @@ mod tests {
         assert!(id.chars().all(|c| c.is_ascii_uppercase()));
         // Successive calls differ (counter advances).
         assert_ne!(generate_unique_id(), generate_unique_id());
+    }
+
+    #[test]
+    fn sanitise_file_name_replaces_windows_invalid_chars() {
+        // The NTFS alternate-data-stream vector: `foo:bar.step` must not keep
+        // the colon (writing it would create a hidden stream on `foo`).
+        assert_eq!(
+            sanitise_file_name("foo:bar.step").as_deref(),
+            Some("foo_bar.step")
+        );
+        assert_eq!(
+            sanitise_file_name("a<b>c\"d/e\\f|g?h*i.step").as_deref(),
+            Some("a_b_c_d_e_f_g_h_i.step")
+        );
+        // Control characters are replaced too; trailing dots/spaces trimmed.
+        assert_eq!(
+            sanitise_file_name("mo\u{7}del.step. ").as_deref(),
+            Some("mo_del.step")
+        );
+        // A clean name passes through untouched.
+        assert_eq!(
+            sanitise_file_name("RESC1005X04L.step").as_deref(),
+            Some("RESC1005X04L.step")
+        );
+    }
+
+    #[test]
+    fn sanitise_file_name_rejects_unusable_names() {
+        assert_eq!(sanitise_file_name(""), None);
+        assert_eq!(sanitise_file_name("..."), None);
+        assert_eq!(sanitise_file_name("   "), None);
+        assert_eq!(sanitise_file_name("::"), None, "nothing but replacements");
     }
 
     #[test]

@@ -84,6 +84,9 @@ impl SchLib {
         // matched to the next `EmbedImage=T` image in global symbol order,
         // exactly like `AltiumSharp`'s `ParseStorageImageData`. An absent or
         // header-only stream (the common case) leaves every image untouched.
+        // An EMPTY payload (the writer's placeholder for a bytes-less embedded
+        // image) still consumes its ordinal slot but maps back to `None`, so a
+        // bytes-less image round-trips without stealing the next payload.
         if let Some(raw) = crate::altium::read_stream_opt(&mut cfb, "/Storage") {
             let mut payloads = storage::parse_icon_storage(&raw).into_iter();
             'attach: for symbol in lib.symbols.values_mut() {
@@ -91,7 +94,7 @@ impl SchLib {
                     let Some(data) = payloads.next() else {
                         break 'attach;
                     };
-                    image.image_data = Some(data);
+                    image.image_data = if data.is_empty() { None } else { Some(data) };
                 }
             }
         }

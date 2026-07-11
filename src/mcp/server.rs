@@ -1930,7 +1930,8 @@ mod tests {
             "filepath": lib_path.to_string_lossy(),
             "symbols": [{
                 "name": "ALL", "designator_prefix": "U",
-                "pins": [],
+                "pins": [{"designator": "1", "name": "P1", "x": 0, "y": 0,
+                    "length": 10, "orientation": "right"}],
                 "rectangles": [{"x1": -10, "y1": -10, "x2": 10, "y2": 10,
                     "line_width": 1, "line_color": 128, "fill_color": 11_599_871,
                     "filled": true, "owner_part_id": 1}],
@@ -1947,6 +1948,12 @@ mod tests {
                     "fill_color": 11_599_871, "filled": true, "owner_part_id": 1}],
                 "arcs": [{"x": 0, "y": 0, "radius": 5, "start_angle": 0,
                     "end_angle": 360, "line_width": 1, "color": 128, "owner_part_id": 1}],
+                "pies": [{"x": 0, "y": 0, "radius": 5, "start_angle": 45,
+                    "end_angle": 135, "line_width": 1, "line_color": 128,
+                    "fill_color": 11_599_871, "filled": true, "transparent": false,
+                    "is_not_accessible": true, "owner_part_id": 1,
+                    "graphically_locked": false, "disabled": false, "dimmed": false,
+                    "owner_part_display_mode": 0}],
                 "ellipses": [{"x": 0, "y": 0, "radius_x": 5, "radius_y": 3,
                     "line_width": 1, "line_color": 128, "fill_color": 11_599_871,
                     "filled": true, "owner_part_id": 1}],
@@ -2046,6 +2053,58 @@ mod tests {
     }
 
     #[test]
+    fn export_schlib_write_schlib_round_trip_preserves_symbol_header_fields() {
+        // The five symbol header fields beyond part_count are emitted by
+        // export_schlib and must survive a replay through write_schlib —
+        // previously the allow-list rejected them and the create path never
+        // parsed them, so an export -> write round-trip collapsed e.g. a
+        // two-display-mode symbol back to one.
+        let temp = test_temp_dir();
+        let src_path = temp.path().join("hdr_src.SchLib");
+        let dst_path = temp.path().join("hdr_dst.SchLib");
+        let server = create_test_server(temp.path());
+
+        let mut symbol = Symbol::new("HDR");
+        symbol.designator = "U?".to_string();
+        symbol.display_mode_count = 2;
+        symbol.current_part_id = 2;
+        symbol.part_id_locked = true;
+        symbol.source_library_name = "SrcLib".to_string();
+        symbol.target_file_name = "Tgt.SchLib".to_string();
+        let mut lib = SchLib::new();
+        lib.add(symbol);
+        lib.save(&src_path).expect("save source library");
+
+        let export = McpServer::export_schlib(&src_path.to_string_lossy(), "json");
+        assert!(!export.is_error, "export failed");
+        let export_json: Value =
+            serde_json::from_str(get_result_text(&export)).expect("export output is JSON");
+        assert_eq!(
+            export_json["symbols"][0]["display_mode_count"], 2,
+            "export must emit display_mode_count"
+        );
+
+        let write_args = json!({
+            "filepath": dst_path.to_string_lossy(),
+            "symbols": export_json["symbols"],
+        });
+        let result = server.call_write_schlib(&write_args);
+        assert!(
+            !result.is_error,
+            "exported symbols must replay into write_schlib, got: {}",
+            get_result_text(&result)
+        );
+
+        let reread = SchLib::open(&dst_path).expect("reopen destination");
+        let sym = reread.get("HDR").expect("symbol present");
+        assert_eq!(sym.display_mode_count, 2, "display_mode_count preserved");
+        assert_eq!(sym.current_part_id, 2, "current_part_id preserved");
+        assert!(sym.part_id_locked, "part_id_locked preserved");
+        assert_eq!(sym.source_library_name, "SrcLib");
+        assert_eq!(sym.target_file_name, "Tgt.SchLib");
+    }
+
+    #[test]
     fn write_pcblib_accepts_all_primitive_fields() {
         // Companion to the SchLib guard: text (layer/stroke_width), region
         // (layer) and component_bodies must survive the footprint allow-list.
@@ -2071,6 +2130,66 @@ mod tests {
             !result.is_error,
             "all pcblib primitive fields must be accepted, got: {}",
             get_result_text(&result)
+        );
+    }
+
+    #[test]
+    fn read_pcblib_output_replays_into_write_pcblib() {
+        // read_pcblib emits "model_3d" for every footprint (null when there is
+        // no model, populated from the first ComponentBody otherwise); the
+        // write allow-list must accept that spelling or a read result cannot
+        // be replayed. FP_BODY exercises the non-null shape, FP_PLAIN the null.
+        let temp = test_temp_dir();
+        let src_path = temp.path().join("replay_src.PcbLib");
+        let dst_path = temp.path().join("replay_dst.PcbLib");
+        let server = create_test_server(temp.path());
+
+        let write_args = json!({
+            "filepath": src_path.to_string_lossy(),
+            "footprints": [
+                {
+                    "name": "FP_BODY",
+                    "pads": [{"designator": "1", "x": 0, "y": 0, "width": 1, "height": 1}],
+                    "component_bodies": [{"layer": "Top 3D Body", "overall_height": 1.2,
+                        "outline": [{"x": -1, "y": -1}, {"x": 1, "y": -1},
+                            {"x": 1, "y": 1}, {"x": -1, "y": 1}]}]
+                },
+                {
+                    "name": "FP_PLAIN",
+                    "pads": [{"designator": "1", "x": 0, "y": 0, "width": 1, "height": 1}]
+                }
+            ]
+        });
+        let write_result = server.call_write_pcblib(&write_args);
+        assert!(
+            !write_result.is_error,
+            "source write failed: {}",
+            get_result_text(&write_result)
+        );
+
+        let read_result = server.call_read_pcblib(&json!({"filepath": src_path.to_string_lossy()}));
+        assert!(!read_result.is_error, "read failed");
+        let read_json: Value =
+            serde_json::from_str(get_result_text(&read_result)).expect("read output is JSON");
+        let footprints = read_json["footprints"].clone();
+        assert!(
+            footprints
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|fp| fp.get("model_3d").is_some_and(|m| !m.is_null())),
+            "precondition: read output carries a non-null model_3d"
+        );
+
+        let replay_args = json!({
+            "filepath": dst_path.to_string_lossy(),
+            "footprints": footprints,
+        });
+        let replay_result = server.call_write_pcblib(&replay_args);
+        assert!(
+            !replay_result.is_error,
+            "read_pcblib output must replay into write_pcblib without error, got: {}",
+            get_result_text(&replay_result)
         );
     }
 

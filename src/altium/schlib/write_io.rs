@@ -48,17 +48,26 @@ impl SchLib {
             }
         }
 
-        // Root Storage stream (Altium's icon storage). Always present. Each
-        // image with `embed_image` AND carried bytes contributes one
-        // compressed entry, named with the image's `file_name` (real AD24
-        // stores the full source file path there; the reader matches by order,
-        // not name). With no embedded images the stream is just the header
-        // param block — byte-identical to the pre-embedded-image output.
+        // Root Storage stream (Altium's icon storage). Always present. EVERY
+        // image with `embed_image` contributes exactly one compressed entry,
+        // named with the image's `file_name` (real AD24 stores the full source
+        // file path there; the reader matches by order, not name). An embedded
+        // image without carried bytes emits an EMPTY entry rather than being
+        // skipped: the reader assigns payloads to `EmbedImage=T` images purely
+        // by ordinal, so skipping would shift every later payload onto the
+        // wrong image (including across symbols). With no embedded images the
+        // stream is just the header param block — byte-identical to the
+        // pre-embedded-image output.
         let entries: Vec<(&str, &[u8])> = symbols
             .iter()
             .flat_map(|s| s.images.iter())
             .filter(|i| i.embed_image)
-            .filter_map(|i| i.image_data.as_deref().map(|d| (i.file_name.as_str(), d)))
+            .map(|i| {
+                (
+                    i.file_name.as_str(),
+                    i.image_data.as_deref().unwrap_or_default(),
+                )
+            })
             .collect();
         let storage_stream = storage::encode_icon_storage(&entries)?;
         crate::altium::write_stream(&mut cfb, "/Storage", &storage_stream)?;
