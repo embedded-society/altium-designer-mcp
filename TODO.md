@@ -43,15 +43,6 @@ Durable task list for the post-reverse-engineering fix campaign and the on-site 
 
 Outstanding SchLib field fidelity all needs an Altium-authored golden to settle — see §B.
 
-### A4. Doc rewrites (high correctness value, doc-only)
-
-- [ ] `docs/PCBLIB_FORMAT.md`: rewrite **Via** (single 321-byte block), **Text** (252-byte),
-      **Region** (single block + `holeCount`), **Fill** tail, **Track/Arc** extended tails,
-      **ComponentBody** (one block; drop the invented SNAPCOUNT / Block 1-2).
-- [ ] `docs/SCHLIB_FORMAT.md`: complete every per-record field table (omit-when-default, DXP units,
-      `*_Frac`, BGR colours); binary-pin `Description` + `FormalType` + `SwapIdGroup` /
-      `PartAndSequence` / `DefaultValue`.
-
 ### A5. Byte-order cosmetics (lowest value — last)
 
 - [ ] ⚪ Canonical field order (`IsNotAccesible` first, etc.) + `F3` angle formatting (`360.000`) +
