@@ -101,7 +101,7 @@ When submitting:
 - [ ] Markdown lints cleanly (`markdownlint-cli2 "**/*.md"`)
 - [ ] File paths are validated and path-traversal tests cover any new file-touching tool (see [Security Considerations](#security-considerations))
 - [ ] Documentation is updated if needed
-- [ ] CHANGELOG.md is updated for user-facing changes
+- [ ] CHANGELOG.md is updated for user-facing changes (once the changelog is initialised at the first release)
 - [ ] Commit messages follow [conventional commits](#commit-messages)
 
 #### PR Process
@@ -268,18 +268,23 @@ cargo test module_name::
 | `CHANGELOG.md` | User-facing change history |
 | `docs/VISION.md` | Core principle and architectural rationale |
 | `docs/ARCHITECTURE.md` | System architecture and module layout |
-| `docs/AI_WORKFLOW.md` | AI usage workflow, primitive schemas, IPC reference |
+| `docs/AI_WORKFLOW.md` | AI usage workflow, symbol pin conventions, IPC reference |
+| `docs/AGENT_GUIDE.md` | Invariants for an agent driving the server (units, pin geometry, sandbox) |
 | `docs/CLAUDE_CODE_GUIDE.md` | Step-by-step Claude Code setup guide |
+| `docs/ANTIGRAVITY_GUIDE.md` | Google Antigravity setup guide |
 | `docs/SECURITY.md` | Security threat model and design rationale |
 | `docs/errors.md` | Error reference catalogue |
+| `docs/TOOLS.md` | Generated tool reference (source of truth: `src/mcp/tool_definitions.rs`) |
 | `docs/PCBLIB_FORMAT.md` | `.PcbLib` binary format reference |
 | `docs/SCHLIB_FORMAT.md` | `.SchLib` binary format reference |
+| `docs/FIXTURE_COVERAGE.md` | Golden-fixture coverage map for the Altium-authored samples |
+| `docs/COVERAGE_AUDIT.md` | Point-in-time feature-coverage audit snapshot and roadmap |
 | Rustdoc comments | API documentation |
 
 ### Updating Documentation
 
 - Update `README.md` for user-facing changes
-- Update `CHANGELOG.md` for all notable changes
+- Update `CHANGELOG.md` for all notable changes (once the changelog is initialised at the first release)
 - Update rustdoc comments when changing public APIs
 - Keep examples up to date and working
 
@@ -299,12 +304,14 @@ Avoid duplicating information across files. Each piece of information should hav
 | Security threat model and design | `docs/SECURITY.md` |
 | Error reference catalogue | `docs/errors.md` |
 | Formatting rules | `.editorconfig` and `STYLE.md` |
-| MCP tools reference | `README.md` § MCP Tools |
+| MCP tools reference | `docs/TOOLS.md` (generated from `src/mcp/tool_definitions.rs`; `README.md` § MCP Tools is the categorised overview) |
 | Primitive types | `README.md` § Primitive Types |
 | Altium layers | `README.md` § Standard Altium Layers |
 | Configuration options | `README.md` § Configuration |
 | Core principle/vision | `docs/VISION.md` |
-| Primitive JSON schemas | `docs/AI_WORKFLOW.md` § Primitive Types |
+| Source tree / module layout | `docs/ARCHITECTURE.md` § Component Overview |
+| Primitive JSON schemas | `docs/TOOLS.md` (generated from `src/mcp/tool_definitions.rs`) |
+| Symbol pin conventions | `docs/AI_WORKFLOW.md` § Symbol Pin Conventions |
 | IPC standards reference | `docs/AI_WORKFLOW.md` § IPC Standards Reference |
 | `.PcbLib` binary format | `docs/PCBLIB_FORMAT.md` |
 | `.SchLib` binary format | `docs/SCHLIB_FORMAT.md` |

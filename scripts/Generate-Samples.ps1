@@ -14,7 +14,7 @@
     On-site only: needs Altium Designer installed (developed against AD24). Never CI.
 
 .PARAMETER AltiumExe
-    Path to X2.EXE. Read from scripts\.env.local (ALTIUM_EXE) when omitted.
+    Path to X2.EXE. Read from the repo-root .env.local (ALTIUM_EXE) when omitted.
 
 .PARAMETER TimeoutSeconds
     How long to wait for Altium to finish authoring (default 300).

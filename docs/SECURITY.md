@@ -45,7 +45,7 @@ The following are within scope and have concrete controls behind them.
 | Internal-path disclosure in error messages | Denial message is generic; file errors render only the final path component | generic denial `src/mcp/server.rs`; `sanitise_path_for_client` `src/altium/error.rs` |
 | Runaway-write / backup-thrash DoS (e.g. an AI loop) | Token-bucket rate limiter gates **mutating** tools only | gate `src/mcp/server.rs`; `is_mutating_tool` `src/mcp/server.rs` |
 | Malformed / truncated / hostile `.PcbLib` / `.SchLib` input | Parsers return `Err`, never panic, on arbitrary bytes — proven by property tests | `tests/property_tests.rs` |
-| Decompression bombs / oversized embedded 3D models | Each embedded model is decompressed through a bounded reader; output beyond `MAX_DECOMPRESSED_MODEL_BYTES` (256 MiB) is rejected and the model skipped, so a high-ratio zlib stream cannot exhaust memory | `decompress_model_data` / `decompress_capped` `src/altium/pcblib/reader.rs` |
+| Decompression bombs / oversized embedded 3D models | Each embedded model is decompressed through a bounded reader; output beyond `MAX_DECOMPRESSED_MODEL_BYTES` (256 MiB) is rejected and the model skipped, so a high-ratio zlib stream cannot exhaust memory | `decompress_model_data` / `decompress_capped` `src/altium/pcblib/reader/models.rs` |
 
 A note on the parser guarantee: the no-panic property is not merely asserted, it is
 exercised. The property tests both feed purely random bytes (rejected early at the OLE

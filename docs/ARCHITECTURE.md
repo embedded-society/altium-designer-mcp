@@ -35,6 +35,7 @@ src/
 │   ├── mod.rs                   # Shared helpers: Windows-1252, OLE names, atomic save
 │   ├── error.rs                 # Altium-specific errors (path-sanitised Display)
 │   ├── bytes.rs                 # Bounds-checked little-endian scalar readers
+│   ├── base64_opt.rs            # Serde base64 codec for embedded image bytes
 │   ├── framing.rs               # Shared block / Pascal-string / C-string frames
 │   ├── text.rs                  # TextJustification (shared enum)
 │   ├── serde_round.rs           # 6-decimal f64 rounding on serialise
@@ -57,7 +58,8 @@ src/
 │       ├── writer.rs            # Record encoding (omit-when-default)
 │       ├── primitives/          # Pin, shapes, text, footprint models
 │       ├── coord.rs             # Fractional (_Frac) coordinate codec
-│       └── pin_aux.rs           # PinFrac / PinSymbolLineWidth aux streams
+│       ├── pin_aux.rs           # PinFrac / PinSymbolLineWidth aux streams
+│       └── storage.rs           # /Storage stream + compressed-storage framing
 │
 └── mcp/                         # MCP server implementation
     ├── mod.rs                   # Module exports
@@ -73,41 +75,9 @@ src/
 
 ## Data Flow: Component Creation
 
-```text
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ CREATE FOOTPRINT: AI calculates dimensions, tool writes file                 │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  Engineer              AI                            MCP Server             │
-│    │                    │                                │                  │
-│    │  "Create 0603"     │                                │                  │
-│    ├───────────────────►│                                │                  │
-│    │                    │                                │                  │
-│    │                    │  AI reasons about:             │                  │
-│    │                    │  • IPC-7351B formulas          │                  │
-│    │                    │  • Pad size calculation        │                  │
-│    │                    │  • Courtyard margins           │                  │
-│    │                    │  • Silkscreen placement        │                  │
-│    │                    │                                │                  │
-│    │                    │  write_pcblib                  │                  │
-│    │                    │  { filepath, footprints: [{    │                  │
-│    │                    │      name, pads, tracks,       │                  │
-│    │                    │      arcs, regions, text }]}   │                  │
-│    │                    ├───────────────────────────────►│                  │
-│    │                    │                                │                  │
-│    │                    │                                │  Write OLE file  │
-│    │                    │                                │  with primitives │
-│    │                    │                                │                  │
-│    │                    │◄───────────────────────────────┤                  │
-│    │                    │  { success: true }             │                  │
-│    │                    │                                │                  │
-│    │◄───────────────────┤                                │                  │
-│    │  "Footprint        │                                │                  │
-│    │   RESC1608X55N     │                                │                  │
-│    │   created!"        │                                │                  │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+See [README § How It Works](../README.md#how-it-works) for the sequence diagram of a
+component-creation call (engineer → AI → MCP server): the AI computes the geometry and
+calls `write_pcblib` / `write_schlib`; the server writes the OLE compound document.
 
 ---
 
@@ -155,23 +125,9 @@ See [README.md § MCP Tools](../README.md#mcp-tools) for the complete tool refer
 
 ## Security Considerations
 
-### File Access
-
-- The MCP server only accesses paths configured in the config file
-- No arbitrary file system access
-- Path traversal attacks are prevented
-
-### Input Validation
-
-- Primitive coordinates and dimensions are validated
-- Invalid inputs return clear error messages
-- No code execution from user input
-
-### Error Handling
-
-- Internal errors are logged but not exposed to users
-- Sensitive paths are sanitised in error messages
-- Stack traces are only shown in debug mode
+See [docs/SECURITY.md](SECURITY.md) for the threat model, the concrete controls
+(path confinement, error sanitisation, rate limiting, bounded decompression), and
+where each lives in the source.
 
 ---
 
