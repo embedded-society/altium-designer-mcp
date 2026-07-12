@@ -136,15 +136,11 @@ jobs:
             - name: Build (release)
               run: cargo build --release --verbose
 
+            # Includes tests/mcp_e2e.rs, which spawns the built binary over
+            # stdio and drives tool dispatch + the request/response envelope
+            # (formerly the Python tests/integration/test_mcp_tools.py harness).
             - name: Run tests
               run: cargo test --verbose
-
-            # Drive the built binary over stdio with the Python MCP harness.
-            # Linux only: one run is enough to cover tool dispatch + the
-            # request/response envelope, and python3 is preinstalled there.
-            - name: Run Python integration tests
-              if: runner.os == 'Linux'
-              run: python3 tests/integration/test_mcp_tools.py
 
             # Independent-reader gate: confirm generated files are Altium-readable
             # (issue #68) by parsing them with pyaltiumlib. Dependencies are pinned
