@@ -2735,4 +2735,357 @@ mod tests {
             assert!(r.is_error);
         }
     }
+
+    // ==================== read/write handler success paths ====================
+
+    mod handler_success_paths {
+        use crate::altium::pcblib::{Footprint, Pad, PcbLib};
+        use crate::mcp::tools::test_support::{
+            create_test_pcblib, create_test_schlib, create_test_server, get_result_text,
+            parse_result_json, test_temp_dir,
+        };
+        use serde_json::json;
+
+        // ---- write_pcblib 3D-body summary sources ----
+
+        #[test]
+        fn write_pcblib_component_body_reports_extruded() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Body.PcbLib");
+            let r = server.call_write_pcblib(&json!({
+                "filepath": path.to_string_lossy(),
+                "footprints": [{
+                    "name": "BODYFP",
+                    "pads": [{ "designator": "1", "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0 }],
+                    "component_bodies": [{ "overall_height": 2.5, "standoff_height": 0.1 }],
+                }],
+            }));
+            assert!(!r.is_error, "{}", get_result_text(&r));
+            let p = parse_result_json(&r);
+            assert_eq!(p["status"], "success");
+            assert_eq!(p["footprint_count"], 1);
+            assert_eq!(p["bodies"][0]["source"], "extruded");
+            assert_eq!(p["bodies"][0]["assumed_height"], false);
+        }
+
+        #[test]
+        fn write_pcblib_step_model_external_reports_step_external() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Ext.PcbLib");
+            let r = server.call_write_pcblib(&json!({
+                "filepath": path.to_string_lossy(),
+                "footprints": [{
+                    "name": "EXTMODEL",
+                    "pads": [{ "designator": "1", "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0 }],
+                    "step_model": { "filepath": "models/CHIP.step", "embed": false, "rotation": 90.0, "z_offset": 0.5 },
+                }],
+            }));
+            assert!(!r.is_error, "{}", get_result_text(&r));
+            let p = parse_result_json(&r);
+            assert_eq!(p["bodies"][0]["source"], "step-external");
+        }
+
+        #[test]
+        fn write_pcblib_auto_3d_body_reports_auto_extruded() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Auto.PcbLib");
+            let r = server.call_write_pcblib(&json!({
+                "filepath": path.to_string_lossy(),
+                "auto_3d_body": true,
+                "footprints": [{
+                    "name": "AUTO",
+                    "pads": [{ "designator": "1", "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0 }],
+                }],
+            }));
+            assert!(!r.is_error, "{}", get_result_text(&r));
+            let p = parse_result_json(&r);
+            assert_eq!(p["bodies"][0]["source"], "auto-extruded");
+            assert_eq!(p["bodies"][0]["assumed_height"], true);
+            assert!(p["bodies"][0]["action_required"].is_string());
+        }
+
+        #[test]
+        fn write_pcblib_silk_over_pad_warns() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Silk.PcbLib");
+            let r = server.call_write_pcblib(&json!({
+                "filepath": path.to_string_lossy(),
+                "footprints": [{
+                    "name": "SILK",
+                    "pads": [{ "designator": "1", "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0 }],
+                    "tracks": [{ "x1": -2.0, "y1": 0.0, "x2": 2.0, "y2": 0.0, "width": 0.2, "layer": "Top Overlay" }],
+                }],
+            }));
+            assert!(!r.is_error, "{}", get_result_text(&r));
+            let p = parse_result_json(&r);
+            let warnings = p["warnings"].as_array().unwrap();
+            assert!(!warnings.is_empty());
+            assert_eq!(warnings[0]["type"], "silk_over_pad");
+            assert_eq!(warnings[0]["pad"], "1");
+        }
+
+        #[test]
+        fn write_pcblib_append_adds_to_existing() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Append.PcbLib");
+            let fp = |name: &str| json!({ "name": name, "pads": [{ "designator": "1", "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0 }] });
+            server.call_write_pcblib(&json!({
+                "filepath": path.to_string_lossy(), "footprints": [fp("A")],
+            }));
+            let r = server.call_write_pcblib(&json!({
+                "filepath": path.to_string_lossy(), "append": true, "footprints": [fp("B")],
+            }));
+            assert!(!r.is_error, "{}", get_result_text(&r));
+            assert_eq!(parse_result_json(&r)["footprint_count"], 2);
+        }
+
+        // ---- read_pcblib emission + compact + pagination ----
+
+        #[test]
+        fn read_pcblib_emits_vias_fills_bodies_and_is_compact() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Rich.PcbLib");
+            server.call_write_pcblib(&json!({
+                "filepath": path.to_string_lossy(),
+                "footprints": [{
+                    "name": "RICH",
+                    "pads": [{ "designator": "1", "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0 }],
+                    "vias": [{ "x": 0.0, "y": 0.0, "diameter": 0.6, "hole_size": 0.3 }],
+                    "fills": [{ "x1": -1.0, "y1": -1.0, "x2": 1.0, "y2": 1.0, "layer": "Top Layer" }],
+                    "component_bodies": [{ "overall_height": 2.0 }],
+                }],
+            }));
+
+            let r = server.call_read_pcblib(&json!({ "filepath": path.to_string_lossy() }));
+            assert!(!r.is_error, "{}", get_result_text(&r));
+            let p = parse_result_json(&r);
+            assert_eq!(p["status"], "success");
+            assert_eq!(p["compact"], true);
+            assert_eq!(p["units"], "mm");
+            let fp0 = &p["footprints"][0];
+            assert_eq!(fp0["vias"].as_array().unwrap().len(), 1);
+            assert_eq!(fp0["fills"].as_array().unwrap().len(), 1);
+            assert_eq!(fp0["component_bodies"].as_array().unwrap().len(), 1);
+        }
+
+        #[test]
+        fn read_pcblib_non_compact_and_pagination() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Page.PcbLib");
+            create_test_pcblib(&path); // 2 footprints
+
+            let non_compact = server
+                .call_read_pcblib(&json!({ "filepath": path.to_string_lossy(), "compact": false }));
+            assert_eq!(parse_result_json(&non_compact)["compact"], false);
+
+            let paged = server.call_read_pcblib(&json!({
+                "filepath": path.to_string_lossy(), "limit": 1, "offset": 0,
+            }));
+            let p = parse_result_json(&paged);
+            assert_eq!(p["returned_count"], 1);
+            assert_eq!(p["has_more"], true);
+
+            let named = server.call_read_pcblib(&json!({
+                "filepath": path.to_string_lossy(), "component_name": "CHIP_0402",
+            }));
+            let p = parse_result_json(&named);
+            assert_eq!(p["returned_count"], 1);
+            assert_eq!(p["has_more"], false);
+        }
+
+        // ---- read_schlib emission + write_schlib deep ----
+
+        #[test]
+        fn write_then_read_schlib_emits_parameters_and_footprints() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Sym.SchLib");
+            let w = server.call_write_schlib(&json!({
+                "filepath": path.to_string_lossy(),
+                "symbols": [{
+                    "name": "R1",
+                    "component_type": "resistor",
+                    "pins": [
+                        { "name": "1", "designator": "1", "x": -20, "y": 0, "length": 10, "orientation": "left" },
+                        { "name": "2", "designator": "2", "x": 20, "y": 0, "length": 10, "orientation": "right" },
+                    ],
+                    "parameters": [{ "name": "Value", "value": "10k" }],
+                    "footprints": [{ "name": "CHIP_0402", "library_path": "parts.PcbLib" }],
+                }],
+            }));
+            assert!(!w.is_error, "{}", get_result_text(&w));
+            let wp = parse_result_json(&w);
+            assert_eq!(wp["symbol_count"], 1);
+            // geometry echo: left pin tip = x - length.
+            assert_eq!(wp["geometry"][0]["pins"][0]["tip"]["x"], -30);
+            assert_eq!(wp["geometry"][0]["bounding_box"]["min_x"], -30);
+
+            let r = server.call_read_schlib(&json!({ "filepath": path.to_string_lossy() }));
+            let p = parse_result_json(&r);
+            assert_eq!(p["units"], "schematic units (10 = 1 grid)");
+            let sym = &p["symbols"][0];
+            assert_eq!(sym["parameters"].as_array().unwrap().len(), 1);
+            assert_eq!(sym["footprints"].as_array().unwrap().len(), 1);
+        }
+
+        #[test]
+        fn write_schlib_component_type_sets_designator_prefix() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Cap.SchLib");
+            server.call_write_schlib(&json!({
+                "filepath": path.to_string_lossy(),
+                "symbols": [{
+                    "name": "C1",
+                    "component_type": "capacitor",
+                    "part_count": 2,
+                    "pins": [{ "name": "1", "designator": "1", "x": -20, "y": 0, "length": 10, "orientation": "left" }],
+                }],
+            }));
+            let r = server.call_read_schlib(&json!({ "filepath": path.to_string_lossy() }));
+            let sym = &parse_result_json(&r)["symbols"][0];
+            assert_eq!(sym["designator"], "C?");
+            assert_eq!(sym["part_count"], 2);
+        }
+
+        // ---- write_libpkg (fully uncovered) ----
+
+        #[test]
+        fn write_libpkg_success_and_errors() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Proj.LibPkg");
+            let r = server.call_write_libpkg(&json!({
+                "filepath": path.to_string_lossy(),
+                "documents": ["Symbols.SchLib", "Footprints.PcbLib"],
+            }));
+            assert!(!r.is_error, "{}", get_result_text(&r));
+            let p = parse_result_json(&r);
+            assert_eq!(p["status"], "success");
+            assert_eq!(p["count"], 2);
+            assert!(p["note"].as_str().unwrap().contains("Compile"));
+
+            // Wrong extension and empty documents are errors.
+            let bad_ext = dir.path().join("x.txt");
+            assert!(
+                server
+                    .call_write_libpkg(
+                        &json!({ "filepath": bad_ext.to_string_lossy(), "documents": ["a.SchLib"] })
+                    )
+                    .is_error
+            );
+            assert!(
+                server
+                    .call_write_libpkg(
+                        &json!({ "filepath": path.to_string_lossy(), "documents": [] })
+                    )
+                    .is_error
+            );
+        }
+
+        // ---- list_components metadata + pagination ----
+
+        #[test]
+        fn list_components_pcblib_metadata_and_pagination() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("L.PcbLib");
+            create_test_pcblib(&path);
+
+            let meta = server.call_list_components(&json!({
+                "filepath": path.to_string_lossy(), "include_metadata": true,
+            }));
+            let p = parse_result_json(&meta);
+            assert_eq!(p["file_type"], "PcbLib");
+            assert_eq!(p["include_metadata"], true);
+            assert_eq!(p["components"][0]["pad_count"], 2);
+            assert_eq!(p["components"][0]["has_3d_model"], false);
+
+            let paged = server.call_list_components(&json!({
+                "filepath": path.to_string_lossy(), "limit": 1, "offset": 0,
+            }));
+            let p = parse_result_json(&paged);
+            assert_eq!(p["returned_count"], 1);
+            assert_eq!(p["has_more"], true);
+        }
+
+        #[test]
+        fn list_components_schlib_metadata() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("L.SchLib");
+            create_test_schlib(&path);
+            let r = server.call_list_components(&json!({
+                "filepath": path.to_string_lossy(), "include_metadata": true,
+            }));
+            let p = parse_result_json(&r);
+            assert_eq!(p["file_type"], "SchLib");
+            assert_eq!(p["components"][0]["pin_count"], 2);
+        }
+
+        // ---- extract_style statistic branches ----
+
+        #[test]
+        fn extract_style_pcblib_text_heights_non_null() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("T.PcbLib");
+            // write_pcblib auto-injects a .Designator text (height 1.0) per footprint.
+            server.call_write_pcblib(&json!({
+                "filepath": path.to_string_lossy(),
+                "footprints": [{ "name": "F", "pads": [{ "designator": "1", "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0 }] }],
+            }));
+            let r = server.call_extract_style(&json!({ "filepath": path.to_string_lossy() }));
+            let p = parse_result_json(&r);
+            assert!(p["style"]["text_heights"]["count"].as_u64().unwrap() >= 1);
+        }
+
+        #[test]
+        fn extract_style_pcblib_pad_shape_distribution() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Shapes.PcbLib");
+            let mut lib = PcbLib::new();
+            let mut fp = Footprint::new("MIX");
+            fp.add_pad(Pad::smd("1", -1.0, 0.0, 0.6, 0.5)); // RoundedRectangle
+            fp.add_pad(Pad::through_hole("2", 1.0, 0.0, 0.8, 0.8, 0.4)); // Round, Multi-Layer
+            lib.add(fp);
+            lib.save(&path).unwrap();
+
+            let r = server.call_extract_style(&json!({ "filepath": path.to_string_lossy() }));
+            let p = parse_result_json(&r);
+            let shapes = &p["style"]["pad_shapes"];
+            assert_eq!(shapes["RoundedRectangle"], 1);
+            assert_eq!(shapes["Round"], 1);
+            assert!(p["style"]["layers_used"].get("Multi-Layer").is_some());
+        }
+
+        #[test]
+        fn extract_style_schlib_unfilled_rect_and_lines() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("S.SchLib");
+            server.call_write_schlib(&json!({
+                "filepath": path.to_string_lossy(),
+                "symbols": [{
+                    "name": "S",
+                    "pins": [{ "name": "1", "designator": "1", "x": -20, "y": 0, "length": 10, "orientation": "left" }],
+                    "rectangles": [{ "x1": -10, "y1": -5, "x2": 10, "y2": 5, "filled": false }],
+                    "lines": [{ "x1": -5, "y1": 0, "x2": 5, "y2": 0, "line_width": 1 }],
+                }],
+            }));
+            let r = server.call_extract_style(&json!({ "filepath": path.to_string_lossy() }));
+            let p = parse_result_json(&r);
+            assert_eq!(p["style"]["rectangles"]["unfilled_count"], 1);
+            assert_eq!(p["style"]["rectangles"]["filled_count"], 0);
+            assert!(p["style"]["line_widths"]["count"].as_u64().unwrap() >= 1);
+        }
+    }
 }
