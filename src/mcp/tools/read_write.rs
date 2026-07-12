@@ -2618,4 +2618,121 @@ mod tests {
             assert_eq!(parsed["status"], "error");
         }
     }
+
+    // ==================== read/write handler error paths ====================
+
+    mod handler_error_paths {
+        use crate::mcp::tools::test_support::{
+            create_test_pcblib, create_test_server, get_result_text, test_temp_dir,
+        };
+        use serde_json::json;
+
+        #[test]
+        fn read_pcblib_missing_filepath() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let r = server.call_read_pcblib(&json!({}));
+            assert!(r.is_error);
+            assert_eq!(get_result_text(&r), "Missing required parameter: filepath");
+        }
+
+        #[test]
+        fn read_pcblib_denied_path_outside_allowed() {
+            let allowed = test_temp_dir();
+            let outside = test_temp_dir();
+            let server = create_test_server(allowed.path());
+            // Create a real library so its parent canonicalises — the denial is
+            // about the path being outside the allow-list, not a missing file.
+            let path = outside.path().join("X.PcbLib");
+            create_test_pcblib(&path);
+            let r = server.call_read_pcblib(&json!({ "filepath": path.to_string_lossy() }));
+            assert!(r.is_error);
+            assert!(
+                get_result_text(&r).contains("Access denied"),
+                "{}",
+                get_result_text(&r)
+            );
+        }
+
+        #[test]
+        fn read_pcblib_nonexistent_file_is_error() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Nope.PcbLib");
+            let r = server.call_read_pcblib(&json!({ "filepath": path.to_string_lossy() }));
+            assert!(r.is_error);
+        }
+
+        #[test]
+        fn write_pcblib_missing_filepath_then_footprints() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let r = server.call_write_pcblib(&json!({}));
+            assert!(r.is_error);
+            assert_eq!(get_result_text(&r), "Missing required parameter: filepath");
+
+            let path = dir.path().join("W.PcbLib");
+            let r = server.call_write_pcblib(&json!({ "filepath": path.to_string_lossy() }));
+            assert!(r.is_error);
+            assert_eq!(
+                get_result_text(&r),
+                "Missing required parameter: footprints"
+            );
+        }
+
+        #[test]
+        fn write_pcblib_denied_path_outside_allowed() {
+            let allowed = test_temp_dir();
+            let outside = test_temp_dir();
+            let server = create_test_server(allowed.path());
+            let path = outside.path().join("W.PcbLib");
+            let r = server.call_write_pcblib(&json!({
+                "filepath": path.to_string_lossy(),
+                "footprints": [{ "name": "X", "pads": [] }],
+                "append": false,
+            }));
+            assert!(r.is_error);
+            assert!(
+                get_result_text(&r).contains("Access denied"),
+                "{}",
+                get_result_text(&r)
+            );
+        }
+
+        #[test]
+        fn read_schlib_missing_filepath() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let r = server.call_read_schlib(&json!({}));
+            assert!(r.is_error);
+            assert_eq!(get_result_text(&r), "Missing required parameter: filepath");
+        }
+
+        #[test]
+        fn write_schlib_missing_filepath_then_symbols() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let r = server.call_write_schlib(&json!({}));
+            assert!(r.is_error);
+            assert_eq!(get_result_text(&r), "Missing required parameter: filepath");
+
+            let path = dir.path().join("W.SchLib");
+            let r = server.call_write_schlib(&json!({ "filepath": path.to_string_lossy() }));
+            assert!(r.is_error);
+            assert_eq!(get_result_text(&r), "Missing required parameter: symbols");
+        }
+
+        #[test]
+        fn list_components_missing_filepath_and_nonexistent() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let r = server.call_list_components(&json!({}));
+            assert!(r.is_error);
+            assert_eq!(get_result_text(&r), "Missing required parameter: filepath");
+
+            let path = dir.path().join("Nope.PcbLib");
+            let r = server.call_list_components(&json!({ "filepath": path.to_string_lossy() }));
+            assert!(r.is_error);
+        }
+    }
 }
