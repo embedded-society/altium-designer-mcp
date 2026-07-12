@@ -131,31 +131,3 @@ class McpTestClient:
             return json.loads(text)
         except json.JSONDecodeError:
             return {"_text": text}
-
-
-class TestRunner:
-    """Tiny test runner that tracks pass/fail counts."""
-
-    def __init__(self):
-        self.passed = 0
-        self.failed = 0
-        self.total = 0
-
-    def check(self, condition, description, actual=None, expected=None):
-        self.total += 1
-        if condition:
-            print(f"  PASS: {description}")
-            self.passed += 1
-        else:
-            detail = f" (expected {expected}, got {actual})" if expected is not None else (
-                f" (got {actual})" if actual is not None else ""
-            )
-            print(f"  FAIL: {description}{detail}")
-            self.failed += 1
-
-    def summary(self):
-        print()
-        print("=" * 44)
-        print(f"Results: {self.passed} passed, {self.failed} failed, {self.total} total")
-        print("=" * 44)
-        return 0 if self.failed == 0 else 1
