@@ -436,4 +436,30 @@ mod tests {
             assert_eq!(etype.to_id(), id);
         }
     }
+
+    #[test]
+    fn pin_electrical_type_unknown_id_defaults_to_passive() {
+        assert_eq!(PinElectricalType::from_id(99), PinElectricalType::Passive);
+    }
+
+    #[test]
+    fn pin_orientation_up_and_down_flags() {
+        assert_eq!(PinOrientation::Up.to_flags(), (true, false));
+        assert_eq!(PinOrientation::Down.to_flags(), (true, true));
+    }
+
+    #[test]
+    fn pin_symbol_round_trips_all_ids() {
+        for id in 0..=21 {
+            assert_eq!(
+                PinSymbol::from_id(id).to_id(),
+                id,
+                "id {id} did not round-trip"
+            );
+        }
+        // Out-of-range ids fall back to the undecorated symbol (id 0).
+        assert_eq!(PinSymbol::from_id(99), PinSymbol::None);
+        assert_eq!(PinSymbol::from_id(255), PinSymbol::None);
+        assert_eq!(PinSymbol::None.to_id(), 0);
+    }
 }

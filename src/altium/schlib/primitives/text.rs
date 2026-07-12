@@ -352,3 +352,30 @@ impl Parameter {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{Parameter, TextFrame};
+
+    #[test]
+    fn text_frame_new_stores_geometry_text_and_defaults() {
+        let tf = TextFrame::new(-10, -5, 10, 5, "hello");
+        assert_eq!(tf.text, "hello");
+        assert!((tf.x1 - -10.0).abs() < 1e-9);
+        assert!((tf.y2 - 5.0).abs() < 1e-9);
+        // Documented defaults.
+        assert!(tf.show_border);
+        assert!(tf.word_wrap);
+        assert!(tf.clip_to_rect);
+        assert_eq!(tf.owner_part_id, 1);
+    }
+
+    #[test]
+    fn parameter_new_stores_name_value_and_defaults() {
+        let p = Parameter::new("Value", "10k");
+        assert_eq!(p.name, "Value");
+        assert_eq!(p.value, "10k");
+        assert!(!p.hidden);
+        assert_eq!(p.owner_part_id, 1);
+    }
+}

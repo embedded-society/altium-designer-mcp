@@ -815,3 +815,39 @@ impl Via {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{MaskExpansionMode, PowerPlaneConnectStyle};
+
+    #[test]
+    fn mask_expansion_mode_round_trips_and_defaults() {
+        for (id, mode) in [
+            (0, MaskExpansionMode::None),
+            (1, MaskExpansionMode::FromRule),
+            (2, MaskExpansionMode::Manual),
+        ] {
+            assert_eq!(MaskExpansionMode::from_id(id), mode);
+            assert_eq!(mode.to_id(), id);
+        }
+        // Unknown bytes fall back to the design-rule default.
+        assert_eq!(MaskExpansionMode::from_id(99), MaskExpansionMode::FromRule);
+    }
+
+    #[test]
+    fn power_plane_connect_style_round_trips_and_defaults() {
+        for (id, style) in [
+            (0, PowerPlaneConnectStyle::Relief),
+            (1, PowerPlaneConnectStyle::Direct),
+            (2, PowerPlaneConnectStyle::NoConnect),
+        ] {
+            assert_eq!(PowerPlaneConnectStyle::from_id(id), style);
+            assert_eq!(style.to_id(), id);
+        }
+        // Unknown bytes fall back to thermal relief (Altium's default).
+        assert_eq!(
+            PowerPlaneConnectStyle::from_id(99),
+            PowerPlaneConnectStyle::Relief
+        );
+    }
+}
