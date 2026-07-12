@@ -1938,4 +1938,304 @@ mod tests {
         assert!(result.is_error);
         assert!(get_result_text(&result).contains("empty"));
     }
+
+    // ==================== dry-run, cross-library and merge deep paths ====================
+
+    mod deep_coverage {
+        use super::*;
+
+        #[test]
+        fn copy_component_schlib_dry_run() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("CopyDry.SchLib");
+            create_test_schlib(&path);
+            let r = server.call_copy_component(&json!({
+                "filepath": path.to_string_lossy(),
+                "source_name": "RESISTOR",
+                "target_name": "RESISTOR_COPY",
+                "dry_run": true,
+            }));
+            assert!(!r.is_error, "{}", get_result_text(&r));
+            let p = parse_result_json(&r);
+            assert_eq!(p["status"], "dry_run");
+            assert_eq!(p["file_type"], "SchLib");
+            assert!(SchLib::open(&path).unwrap().get("RESISTOR_COPY").is_none());
+        }
+
+        #[test]
+        fn rename_component_pcblib_dry_run() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("RenameDry.PcbLib");
+            create_test_pcblib(&path);
+            let r = server.call_rename_component(&json!({
+                "filepath": path.to_string_lossy(),
+                "old_name": "CHIP_0402",
+                "new_name": "CHIP_0402_R",
+                "dry_run": true,
+            }));
+            assert!(!r.is_error, "{}", get_result_text(&r));
+            let p = parse_result_json(&r);
+            assert_eq!(p["status"], "dry_run");
+            assert_eq!(p["file_type"], "PcbLib");
+            let lib = PcbLib::open(&path).unwrap();
+            assert!(lib.get("CHIP_0402").is_some());
+            assert!(lib.get("CHIP_0402_R").is_none());
+        }
+
+        /// Builds a `PcbLib` whose footprint references an embedded model id that
+        /// is NOT present in the library (a dangling reference).
+        fn lib_with_missing_model(path: &std::path::Path, model_id: &str) {
+            let mut lib = PcbLib::new();
+            let mut fp = Footprint::new("QFN_MISSING");
+            fp.add_pad(Pad::smd("1", -1.0, 0.0, 0.3, 0.8));
+            fp.add_component_body(ComponentBody::new(model_id, "missing.step"));
+            lib.add(fp);
+            lib.save(path).unwrap();
+        }
+
+        #[test]
+        fn cross_library_copy_pcblib_missing_model_ignored() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let source = dir.path().join("Missing.PcbLib");
+            lib_with_missing_model(&source, "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}");
+            let target = dir.path().join("MissingTarget.PcbLib");
+
+            let r = server.call_copy_component_cross_library(&json!({
+                "source_filepath": source.to_string_lossy(),
+                "target_filepath": target.to_string_lossy(),
+                "component_name": "QFN_MISSING",
+                "ignore_missing_models": true,
+            }));
+            assert!(!r.is_error, "{}", get_result_text(&r));
+            let p = parse_result_json(&r);
+            assert_eq!(p["status"], "success");
+            assert_eq!(p["embedded_models_copied"], 0);
+            let warnings = p["warnings"].as_array().unwrap();
+            assert!(warnings
+                .iter()
+                .any(|w| w.as_str().unwrap_or("").contains("component body")));
+            let out = PcbLib::open(&target).unwrap();
+            assert_eq!(out.get("QFN_MISSING").unwrap().component_bodies.len(), 0);
+        }
+
+        #[test]
+        fn cross_library_copy_pcblib_missing_model_errors() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let source = dir.path().join("MissingErr.PcbLib");
+            lib_with_missing_model(&source, "{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}");
+            let r = server.call_copy_component_cross_library(&json!({
+                "source_filepath": source.to_string_lossy(),
+                "target_filepath": dir.path().join("Err.PcbLib").to_string_lossy(),
+                "component_name": "QFN_MISSING",
+            }));
+            assert!(r.is_error);
+            assert!(get_result_text(&r).contains("missing embedded model"));
+        }
+
+        #[test]
+        fn cross_library_copy_pcblib_preserve_external_paths() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let model_id = "{11111111-2222-3333-4444-555555555555}";
+            let mut lib = PcbLib::new();
+            let mut fp = Footprint::new("QFN16");
+            fp.add_pad(Pad::smd("1", -1.0, 0.0, 0.3, 0.8));
+            fp.add_component_body(ComponentBody::new(model_id, "QFN16.step"));
+            lib.add(fp);
+            lib.add_model(EmbeddedModel::new(
+                model_id,
+                "QFN16.step",
+                b"ISO-10303-21; test".to_vec(),
+            ));
+            let source = dir.path().join("Preserve.PcbLib");
+            lib.save(&source).unwrap();
+            let target = dir.path().join("PreserveTarget.PcbLib");
+
+            let r = server.call_copy_component_cross_library(&json!({
+                "source_filepath": source.to_string_lossy(),
+                "target_filepath": target.to_string_lossy(),
+                "component_name": "QFN16",
+                "preserve_external_paths": true,
+            }));
+            assert!(!r.is_error, "{}", get_result_text(&r));
+            let p = parse_result_json(&r);
+            assert_eq!(p["preserve_external_paths"], true);
+            assert_eq!(p["embedded_models_copied"], 1);
+            assert!(p["warnings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|w| w.as_str().unwrap_or("").contains("preserved")));
+        }
+
+        #[test]
+        fn cross_library_copy_pcblib_into_existing_target() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let source = dir.path().join("XSrc.PcbLib");
+            create_test_pcblib(&source);
+            let target = dir.path().join("XDst.PcbLib");
+            create_test_pcblib(&target); // pre-existing target
+            let r = server.call_copy_component_cross_library(&json!({
+                "source_filepath": source.to_string_lossy(),
+                "target_filepath": target.to_string_lossy(),
+                "component_name": "CHIP_0402",
+                "new_name": "CHIP_0402_IMPORTED",
+            }));
+            assert!(!r.is_error, "{}", get_result_text(&r));
+            assert_eq!(parse_result_json(&r)["target_component_count"], 3);
+        }
+
+        #[test]
+        fn cross_library_copy_schlib_into_existing_target() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let source = dir.path().join("SXSrc.SchLib");
+            create_test_schlib(&source);
+            let target = dir.path().join("SXDst.SchLib");
+            create_test_schlib(&target);
+            let r = server.call_copy_component_cross_library(&json!({
+                "source_filepath": source.to_string_lossy(),
+                "target_filepath": target.to_string_lossy(),
+                "component_name": "RESISTOR",
+                "new_name": "RESISTOR_IMPORTED",
+            }));
+            assert!(!r.is_error, "{}", get_result_text(&r));
+            let p = parse_result_json(&r);
+            assert_eq!(p["file_type"], "SchLib");
+            assert_eq!(p["target_component_count"], 3);
+        }
+
+        #[test]
+        fn merge_libraries_rejects_mixed_types() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let pcb = dir.path().join("Mix.PcbLib");
+            create_test_pcblib(&pcb);
+            let sch = dir.path().join("Mix.SchLib");
+            create_test_schlib(&sch);
+
+            let r = server.call_merge_libraries(&json!({
+                "source_filepaths": [pcb.to_string_lossy(), sch.to_string_lossy()],
+                "target_filepath": dir.path().join("Out.PcbLib").to_string_lossy(),
+            }));
+            assert!(r.is_error);
+            assert!(get_result_text(&r).contains("same type"));
+
+            let r = server.call_merge_libraries(&json!({
+                "source_filepaths": [pcb.to_string_lossy()],
+                "target_filepath": dir.path().join("Out.SchLib").to_string_lossy(),
+            }));
+            assert!(r.is_error);
+            assert!(get_result_text(&r).contains("Target library type"));
+        }
+
+        #[test]
+        fn merge_libraries_pcblib_rename_into_existing_target() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let target = dir.path().join("ExMerge.PcbLib");
+            create_test_pcblib(&target);
+            let a = dir.path().join("SA.PcbLib");
+            create_test_pcblib(&a);
+            let b = dir.path().join("SB.PcbLib");
+            create_test_pcblib(&b);
+            let r = server.call_merge_libraries(&json!({
+                "source_filepaths": [a.to_string_lossy(), b.to_string_lossy()],
+                "target_filepath": target.to_string_lossy(),
+                "on_duplicate": "rename",
+            }));
+            assert!(!r.is_error, "{}", get_result_text(&r));
+            let p = parse_result_json(&r);
+            assert_eq!(p["renamed_count"], 4);
+            assert_eq!(p["final_count"], 6);
+            let lib = PcbLib::open(&target).unwrap();
+            assert!(lib.get("CHIP_0402_1").is_some());
+            assert!(lib.get("CHIP_0402_2").is_some()); // proves the counter loop ran
+        }
+
+        #[test]
+        fn merge_libraries_schlib_rename_into_existing_target() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let target = dir.path().join("SEx.SchLib");
+            create_test_schlib(&target);
+            let a = dir.path().join("SSA.SchLib");
+            create_test_schlib(&a);
+            let b = dir.path().join("SSB.SchLib");
+            create_test_schlib(&b);
+            let r = server.call_merge_libraries(&json!({
+                "source_filepaths": [a.to_string_lossy(), b.to_string_lossy()],
+                "target_filepath": target.to_string_lossy(),
+                "on_duplicate": "rename",
+            }));
+            assert!(!r.is_error, "{}", get_result_text(&r));
+            let p = parse_result_json(&r);
+            assert_eq!(p["file_type"], "SchLib");
+            assert_eq!(p["renamed_count"], 4);
+            assert_eq!(p["final_count"], 6);
+            assert!(SchLib::open(&target).unwrap().get("RESISTOR_2").is_some());
+        }
+
+        #[test]
+        fn merge_libraries_schlib_skip_and_dry_run() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let a = dir.path().join("SkA.SchLib");
+            create_test_schlib(&a);
+            let b = dir.path().join("SkB.SchLib");
+            create_test_schlib(&b);
+            let target = dir.path().join("Sk.SchLib");
+            let r = server.call_merge_libraries(&json!({
+                "source_filepaths": [a.to_string_lossy(), b.to_string_lossy()],
+                "target_filepath": target.to_string_lossy(),
+                "on_duplicate": "skip",
+                "dry_run": true,
+            }));
+            assert!(!r.is_error, "{}", get_result_text(&r));
+            let p = parse_result_json(&r);
+            assert_eq!(p["status"], "dry_run");
+            assert_eq!(p["merged_count"], 2);
+            assert_eq!(p["skipped_count"], 2);
+            assert!(!target.exists());
+        }
+
+        #[test]
+        fn reorder_components_pcblib_error_branches() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let txt = dir.path().join("thing.txt");
+            let r = server.call_reorder_components(&json!({
+                "filepath": txt.to_string_lossy(),
+                "component_order": ["A"],
+            }));
+            assert!(r.is_error);
+            assert!(get_result_text(&r).contains("Unknown file type"));
+
+            let ghost = dir.path().join("Ghost.PcbLib");
+            let r = server.call_reorder_components(&json!({
+                "filepath": ghost.to_string_lossy(),
+                "component_order": ["A"],
+            }));
+            assert!(r.is_error);
+            assert_eq!(parse_result_json(&r)["status"], "error");
+        }
+
+        #[test]
+        fn reorder_components_schlib_open_error() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let ghost = dir.path().join("Ghost.SchLib");
+            let r = server.call_reorder_components(&json!({
+                "filepath": ghost.to_string_lossy(),
+                "component_order": ["RESISTOR"],
+            }));
+            assert!(r.is_error);
+            assert_eq!(parse_result_json(&r)["status"], "error");
+        }
+    }
 }
