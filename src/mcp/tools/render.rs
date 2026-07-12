@@ -899,4 +899,218 @@ mod tests {
         assert!(result.is_error);
         assert!(get_result_text(&result).contains("scale must be greater than 0"));
     }
+
+    // ==================== deep rendering paths ====================
+
+    mod deep_coverage {
+        use super::*;
+        use crate::altium::pcblib::{Arc as PcbArc, Layer, Pad, Track};
+        use crate::altium::schlib::{
+            Arc as SchArc, Ellipse, Line, Pin, PinOrientation, Polyline, Rectangle, SchLib,
+            ShapeDisplayFlags, Symbol,
+        };
+
+        fn poly(owner_part_id: i32) -> Polyline {
+            Polyline {
+                points: vec![(-5.0, 0.0), (0.0, 8.0), (5.0, 0.0)],
+                line_width: 1,
+                color: 0,
+                line_style: 0,
+                start_line_shape: 0,
+                end_line_shape: 0,
+                line_shape_size: 0,
+                transparent: false,
+                is_not_accessible: true,
+                owner_part_id,
+                display_flags: ShapeDisplayFlags::default(),
+                unique_id: None,
+            }
+        }
+
+        fn sch_arc(owner_part_id: i32) -> SchArc {
+            SchArc {
+                x: 0.0,
+                y: 0.0,
+                radius: 6.0,
+                is_not_accessible: true,
+                start_angle: 0.0,
+                end_angle: 180.0,
+                line_width: 1,
+                color: 0,
+                fill_color: 0,
+                owner_part_id,
+                display_flags: ShapeDisplayFlags::default(),
+                unique_id: None,
+            }
+        }
+
+        #[test]
+        fn render_footprint_with_tracks_arcs_and_clamp() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("RichFp.PcbLib");
+            let mut lib = PcbLib::new();
+            let mut fp = Footprint::new("RICH_FP");
+            fp.add_pad(Pad::smd("10", -8.0, 0.0, 1.0, 1.0)); // 2-char designator
+            fp.add_pad(Pad::smd("2", 8.0, 0.0, 1.0, 1.0));
+            fp.add_track(Track::new(-8.0, 0.0, 8.0, 0.0, 0.2, Layer::TopOverlay));
+            fp.add_arc(PcbArc::circle(0.0, 3.0, 1.0, 0.15, Layer::TopOverlay));
+            lib.add(fp);
+            lib.save(&path).unwrap();
+
+            let r = server.call_render_footprint(&json!({
+                "filepath": path.to_string_lossy(),
+                "component_name": "RICH_FP",
+                "max_width": 10, // force canvas clamping
+                "max_height": 5,
+            }));
+            assert!(!r.is_error, "{}", get_result_text(&r));
+            let render = parse_result_json(&r)["render"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            assert!(render.contains("Tracks: 1, Arcs: 1"), "{render}");
+        }
+
+        #[test]
+        fn render_footprint_error_branches() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+
+            // Missing component_name.
+            let path = dir.path().join("A.PcbLib");
+            create_test_pcblib(&path);
+            let r = server.call_render_footprint(&json!({ "filepath": path.to_string_lossy() }));
+            assert!(r.is_error);
+            assert_eq!(
+                get_result_text(&r),
+                "Missing required parameter: component_name"
+            );
+
+            // Corrupt file -> failed to read.
+            let garbage = dir.path().join("Garbage.PcbLib");
+            std::fs::write(&garbage, b"not a library").unwrap();
+            let r = server.call_render_footprint(&json!({
+                "filepath": garbage.to_string_lossy(), "component_name": "X",
+            }));
+            assert!(r.is_error);
+
+            // Empty library -> "Library is empty" hint.
+            let empty = dir.path().join("Empty.PcbLib");
+            PcbLib::new().save(&empty).unwrap();
+            let r = server.call_render_footprint(&json!({
+                "filepath": empty.to_string_lossy(), "component_name": "GHOST",
+            }));
+            assert!(r.is_error);
+            assert!(get_result_text(&r).contains("empty"));
+
+            // Not-found with >5 candidates -> "and N more" hint.
+            let many = dir.path().join("Many.PcbLib");
+            let mut lib = PcbLib::new();
+            for i in 0..6 {
+                lib.add(Footprint::new(format!("FP{i}")));
+            }
+            lib.save(&many).unwrap();
+            let r = server.call_render_footprint(&json!({
+                "filepath": many.to_string_lossy(), "component_name": "GHOST",
+            }));
+            assert!(r.is_error);
+            assert!(get_result_text(&r).contains("more"));
+        }
+
+        #[test]
+        fn render_symbol_rich_primitives() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("RichSym.SchLib");
+
+            let mut sym = Symbol::new("RICH_SYM");
+            sym.part_count = 2;
+            sym.add_pin(Pin::new("A", "A", 0, 20, 10, PinOrientation::Up));
+            sym.add_pin(Pin::new("B", "B", 0, -20, 10, PinOrientation::Down));
+            let mut skip_pin = Pin::new("Z", "Z", 40, 0, 10, PinOrientation::Right);
+            skip_pin.owner_part_id = 2; // filtered out at part_id 1
+            sym.add_pin(skip_pin);
+            sym.add_rectangle(Rectangle::new(-15, -10, 15, 10));
+            let mut r2 = Rectangle::new(-1, -1, 1, 1);
+            r2.owner_part_id = 2;
+            sym.add_rectangle(r2);
+            sym.add_line(Line::new(-10, -10, 10, 10));
+            let mut l2 = Line::new(0, 0, 1, 1);
+            l2.owner_part_id = 2;
+            sym.add_line(l2);
+            sym.add_polyline(poly(1));
+            sym.add_polyline(poly(2));
+            sym.add_arc(sch_arc(1));
+            sym.add_arc(sch_arc(2));
+            sym.add_ellipse(Ellipse::circle(0, 0, 5));
+            let mut e2 = Ellipse::circle(0, 0, 1);
+            e2.owner_part_id = 2;
+            sym.add_ellipse(e2);
+
+            let mut lib = SchLib::new();
+            lib.add(sym);
+            lib.save(&path).unwrap();
+
+            let r = server.call_render_symbol(&json!({
+                "filepath": path.to_string_lossy(),
+                "component_name": "RICH_SYM",
+                "part_id": 1,
+            }));
+            assert!(!r.is_error, "{}", get_result_text(&r));
+            let p = parse_result_json(&r);
+            assert_eq!(p["part_id"], 1);
+            let render = p["render"].as_str().unwrap().to_string();
+            assert!(
+                render.starts_with("Symbol: RICH_SYM (part 1/2)"),
+                "{render}"
+            );
+        }
+
+        #[test]
+        fn render_symbol_empty_and_error_branches() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+
+            // Empty symbol.
+            let path = dir.path().join("EmptySym.SchLib");
+            let mut lib = SchLib::new();
+            lib.add(Symbol::new("EMPTY_SYM"));
+            lib.save(&path).unwrap();
+            let r = server.call_render_symbol(&json!({
+                "filepath": path.to_string_lossy(), "component_name": "EMPTY_SYM",
+            }));
+            assert!(!r.is_error, "{}", get_result_text(&r));
+            assert_eq!(
+                parse_result_json(&r)["render"],
+                "Empty symbol (no primitives)"
+            );
+
+            // Missing filepath.
+            let r = server.call_render_symbol(&json!({}));
+            assert!(r.is_error);
+            assert_eq!(get_result_text(&r), "Missing required parameter: filepath");
+
+            // Corrupt file.
+            let garbage = dir.path().join("Garbage.SchLib");
+            std::fs::write(&garbage, b"not a library").unwrap();
+            let r = server.call_render_symbol(&json!({
+                "filepath": garbage.to_string_lossy(), "component_name": "X",
+            }));
+            assert!(r.is_error);
+
+            // Not-found with >5 candidates.
+            let many = dir.path().join("ManySym.SchLib");
+            let mut lib = SchLib::new();
+            for i in 0..6 {
+                lib.add(Symbol::new(format!("S{i}")));
+            }
+            lib.save(&many).unwrap();
+            let r = server.call_render_symbol(&json!({
+                "filepath": many.to_string_lossy(), "component_name": "GHOST",
+            }));
+            assert!(r.is_error);
+            assert!(get_result_text(&r).contains("more"));
+        }
+    }
 }
