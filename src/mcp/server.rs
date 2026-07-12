@@ -2840,4 +2840,279 @@ mod tests {
             "Symbols should be renamed: {list_text}"
         );
     }
+
+    // ==================== dispatch, lifecycle and transport-loop body ====================
+
+    mod dispatch_and_lifecycle {
+        use super::*;
+
+        fn req(method: &str, params: Option<Value>) -> JsonRpcRequest {
+            JsonRpcRequest {
+                jsonrpc: "2.0".to_string(),
+                id: RequestId::Number(1),
+                method: method.to_string(),
+                params,
+            }
+        }
+
+        fn running_server(dir: &std::path::Path) -> McpServer {
+            let mut s = McpServer::new(vec![dir.to_path_buf()])
+                .with_rate_limiter(RateLimiter::new(1000, 0.0));
+            s.state = ServerState::Running;
+            s
+        }
+
+        /// Every tool name the dispatch match routes.
+        const ALL_TOOLS: &[&str] = &[
+            "read_pcblib",
+            "write_pcblib",
+            "read_schlib",
+            "write_schlib",
+            "write_libpkg",
+            "list_components",
+            "extract_style",
+            "delete_component",
+            "validate_library",
+            "export_library",
+            "import_library",
+            "extract_step_model",
+            "diff_libraries",
+            "batch_update",
+            "copy_component",
+            "rename_component",
+            "copy_component_cross_library",
+            "merge_libraries",
+            "reorder_components",
+            "update_component",
+            "search_components",
+            "get_component",
+            "component_exists",
+            "render_footprint",
+            "render_symbol",
+            "manage_schlib_parameters",
+            "manage_schlib_footprints",
+            "compare_components",
+            "repair_library",
+            "list_backups",
+            "restore_backup",
+            "bulk_rename",
+            "update_pad",
+            "update_primitive",
+        ];
+
+        #[test]
+        fn tools_call_dispatches_every_tool_name() {
+            let dir = test_temp_dir();
+            let server = running_server(dir.path());
+            for name in ALL_TOOLS {
+                let r = req("tools/call", Some(json!({ "name": name, "arguments": {} })));
+                let resp = server.handle_tools_call(&r).expect("dispatch returns Ok");
+                assert!(
+                    resp.result.get("content").is_some(),
+                    "{name} produced no content"
+                );
+            }
+            // The unknown-tool arm.
+            let r = req(
+                "tools/call",
+                Some(json!({ "name": "no_such_tool", "arguments": {} })),
+            );
+            let resp = server.handle_tools_call(&r).unwrap();
+            assert!(resp.result["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("Unknown tool"));
+        }
+
+        #[test]
+        fn tools_call_missing_and_invalid_params_error() {
+            let dir = test_temp_dir();
+            let server = running_server(dir.path());
+            assert!(server.handle_tools_call(&req("tools/call", None)).is_err());
+            assert!(server
+                .handle_tools_call(&req("tools/call", Some(json!("not an object"))))
+                .is_err());
+        }
+
+        #[test]
+        fn requests_before_running_are_rejected() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path()); // AwaitingInit
+            assert!(server.handle_tools_list(&req("tools/list", None)).is_err());
+            assert!(server
+                .handle_tools_call(&req(
+                    "tools/call",
+                    Some(json!({ "name": "ping", "arguments": {} }))
+                ))
+                .is_err());
+        }
+
+        #[test]
+        fn handle_initialize_success_and_error_paths() {
+            let dir = test_temp_dir();
+
+            // Success: AwaitingInit -> Initialising.
+            let mut server = create_test_server(dir.path());
+            let r = req(
+                "initialize",
+                Some(json!({ "protocolVersion": "2024-11-05", "capabilities": {} })),
+            );
+            let resp = server.handle_initialize(&r).expect("initialise ok");
+            assert_eq!(resp.result["protocolVersion"], "2024-11-05");
+            assert_eq!(server.state(), ServerState::Initialising);
+
+            // Already initialised -> InvalidRequest.
+            let mut running = running_server(dir.path());
+            let err = running.handle_initialize(&r).unwrap_err();
+            assert!(err.error.message.contains("already initialised"));
+
+            // Missing params and invalid params.
+            let mut fresh = create_test_server(dir.path());
+            assert!(fresh.handle_initialize(&req("initialize", None)).is_err());
+            let mut fresh2 = create_test_server(dir.path());
+            assert!(fresh2
+                .handle_initialize(&req("initialize", Some(json!("bad"))))
+                .is_err());
+        }
+
+        #[tokio::test]
+        async fn handle_transport_result_eof_shuts_down() {
+            let dir = test_temp_dir();
+            let mut server = create_test_server(dir.path());
+            let shutdown = server.handle_transport_result(Ok(None)).await.unwrap();
+            assert!(shutdown);
+            assert_eq!(server.state(), ServerState::ShuttingDown);
+        }
+
+        #[tokio::test]
+        async fn handle_transport_result_empty_line_continues() {
+            let dir = test_temp_dir();
+            let mut server = create_test_server(dir.path());
+            let shutdown = server
+                .handle_transport_result(Ok(Some("   ".to_string())))
+                .await
+                .unwrap();
+            assert!(!shutdown);
+        }
+
+        #[tokio::test]
+        async fn handle_transport_result_propagates_io_error() {
+            let dir = test_temp_dir();
+            let mut server = create_test_server(dir.path());
+            let e = std::io::Error::other("boom");
+            assert!(server.handle_transport_result(Err(e)).await.is_err());
+        }
+
+        #[tokio::test]
+        async fn handle_transport_result_processes_ping_line() {
+            let dir = test_temp_dir();
+            let mut server = create_test_server(dir.path());
+            let sink = server.transport.capture_output();
+            let shutdown = server
+                .handle_transport_result(Ok(Some(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#.to_string(),
+                )))
+                .await
+                .unwrap();
+            assert!(!shutdown);
+            let out = String::from_utf8(sink.lock().unwrap().clone()).unwrap();
+            assert!(out.contains("\"id\":1"));
+        }
+
+        #[tokio::test]
+        async fn full_lifecycle_via_handle_line() {
+            let dir = test_temp_dir();
+            let mut server = create_test_server(dir.path());
+            let sink = server.transport.capture_output();
+
+            server
+                .handle_line(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{}}}"#)
+                .await
+                .unwrap();
+            assert_eq!(server.state(), ServerState::Initialising);
+
+            server
+                .handle_line(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#)
+                .await
+                .unwrap();
+            assert_eq!(server.state(), ServerState::Running);
+
+            server
+                .handle_line(r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#)
+                .await
+                .unwrap();
+
+            let out = String::from_utf8(sink.lock().unwrap().clone()).unwrap();
+            assert!(out.contains("protocolVersion"));
+            assert!(out.contains("read_pcblib"));
+        }
+
+        #[tokio::test]
+        async fn handle_line_writes_parse_error_and_method_not_found() {
+            let dir = test_temp_dir();
+            let mut server = create_test_server(dir.path());
+            let sink = server.transport.capture_output();
+
+            server.handle_line("{not valid json").await.unwrap();
+            server
+                .handle_line(r#"{"jsonrpc":"2.0","id":9,"method":"bogus/method"}"#)
+                .await
+                .unwrap();
+
+            let out = String::from_utf8(sink.lock().unwrap().clone()).unwrap();
+            assert!(out.contains("-32700")); // parse error
+            assert!(out.contains("-32601")); // method not found
+        }
+
+        #[test]
+        fn audit_logger_records_mutating_call() {
+            let dir = test_temp_dir();
+            let audit_path = dir.path().join("audit.jsonl");
+            let mut server = McpServer::new(vec![dir.path().to_path_buf()])
+                .with_rate_limiter(RateLimiter::new(1000, 0.0))
+                .with_audit_logger(Some(AuditLogger::new(audit_path.clone())));
+            server.state = ServerState::Running;
+
+            let r = req(
+                "tools/call",
+                Some(json!({ "name": "write_pcblib", "arguments": {} })),
+            );
+            let _ = server.handle_tools_call(&r).unwrap();
+
+            let logged = std::fs::read_to_string(&audit_path).unwrap();
+            assert!(logged.contains("write_pcblib"));
+        }
+
+        #[test]
+        fn error_context_builders_populate_fields() {
+            let ctx = ErrorContext::new("write_pcblib", "boom")
+                .with_filepath("/libs/x.PcbLib")
+                .with_component("R1")
+                .with_details("while saving");
+            assert_eq!(ctx.operation, "write_pcblib");
+            assert_eq!(ctx.filepath.as_deref(), Some("/libs/x.PcbLib"));
+            assert_eq!(ctx.component.as_deref(), Some("R1"));
+            assert_eq!(ctx.details.as_deref(), Some("while saving"));
+        }
+
+        #[test]
+        fn cleanup_old_backups_keeps_only_the_most_recent() {
+            let dir = test_temp_dir();
+            let original = dir.path().join("Lib.PcbLib");
+            std::fs::write(&original, b"x").unwrap();
+            // Seven timestamped backups; cleanup keeps the newest MAX_BACKUPS (5).
+            for n in 1..=7 {
+                let bak = dir.path().join(format!("Lib.PcbLib.20260101_12000{n}.bak"));
+                std::fs::write(&bak, b"x").unwrap();
+            }
+            McpServer::cleanup_old_backups(&original.to_string_lossy());
+
+            let remaining = std::fs::read_dir(dir.path())
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("bak"))
+                .count();
+            assert_eq!(remaining, 5);
+        }
+    }
 }
