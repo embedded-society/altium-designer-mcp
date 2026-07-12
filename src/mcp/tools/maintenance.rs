@@ -1685,4 +1685,298 @@ mod tests {
             "Missing required parameter: index"
         );
     }
+
+    // ==================== update_primitive: arc/text/fill/region arms ====================
+
+    mod primitive_arms {
+        use super::*;
+        use crate::altium::pcblib::{
+            Arc, Fill, PcbFlags, Region, Text, TextJustification, TextKind,
+        };
+
+        /// A footprint carrying one of every 2D primitive at index 0, so each
+        /// `update_primitive` arm has a target.
+        fn create_rich_pcblib(path: &std::path::Path) {
+            let mut lib = PcbLib::new();
+            let mut fp = Footprint::new("RICH");
+            fp.add_pad(Pad::smd("1", 0.0, 0.0, 0.5, 0.5));
+            fp.add_track(Track::new(-1.0, -1.0, 1.0, -1.0, 0.2, Layer::TopOverlay));
+            fp.add_arc(Arc::circle(0.0, 0.0, 1.0, 0.15, Layer::TopOverlay));
+            fp.add_fill(Fill::new(-0.5, -0.5, 0.5, 0.5, Layer::TopPaste));
+            fp.add_region(Region::rectangle(-1.0, -1.0, 1.0, 1.0, Layer::TopLayer));
+            fp.add_text(Text {
+                x: 0.0,
+                y: 1.0,
+                text: "REF".to_string(),
+                height: 0.5,
+                layer: Layer::TopOverlay,
+                rotation: 0.0,
+                kind: TextKind::Stroke,
+                stroke_font: None,
+                stroke_width: None,
+                italic: false,
+                bold: false,
+                mirror: false,
+                is_comment: false,
+                is_designator: false,
+                font_name: "Arial".to_string(),
+                justification: TextJustification::BottomLeft,
+                is_inverted: false,
+                inverted_border: None,
+                use_inverted_rectangle: false,
+                inverted_rect_width: None,
+                inverted_rect_height: None,
+                inverted_rect_text_offset: None,
+                flags: PcbFlags::empty(),
+                net_index: 0xFFFF,
+                polygon_index: 0xFFFF,
+                component_index: -1,
+                unique_id: None,
+            });
+            lib.add(fp);
+            lib.save(path).expect("Failed to create rich PcbLib");
+        }
+
+        fn change_props(parsed: &serde_json::Value) -> Vec<String> {
+            parsed["changes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| c["property"].as_str().unwrap_or("").to_string())
+                .collect()
+        }
+
+        #[test]
+        fn update_primitive_arc_arm_persists() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Arc.PcbLib");
+            create_rich_pcblib(&path);
+
+            let result = server.call_update_primitive(&json!({
+                "filepath": path.to_string_lossy(),
+                "component_name": "RICH",
+                "primitive_type": "arc",
+                "index": 0,
+                "updates": {
+                    "x": 0.25, "y": -0.25, "radius": 1.5,
+                    "start_angle": 10.0, "end_angle": 200.0, "width": 0.2,
+                    "layer": "Bottom Overlay",
+                },
+            }));
+            assert!(!result.is_error, "{}", get_result_text(&result));
+            let parsed = parse_result_json(&result);
+            assert_eq!(parsed["primitive_type"], "arc");
+            let props = change_props(&parsed);
+            assert!(props.contains(&"radius".to_string()));
+            assert!(props.contains(&"x".to_string()));
+
+            let lib = PcbLib::open(&path).unwrap();
+            let arc = &lib.get("RICH").unwrap().arcs[0];
+            assert!((arc.radius - 1.5).abs() < 1e-4);
+            assert_eq!(arc.layer, Layer::BottomOverlay);
+        }
+
+        #[test]
+        fn update_primitive_arc_zero_radius_rejected() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("ArcBad.PcbLib");
+            create_rich_pcblib(&path);
+            let result = server.call_update_primitive(&json!({
+                "filepath": path.to_string_lossy(),
+                "component_name": "RICH",
+                "primitive_type": "arc",
+                "index": 0,
+                "updates": { "radius": 0.0 },
+            }));
+            assert!(result.is_error);
+            assert!(get_result_text(&result).contains("radius must be positive"));
+        }
+
+        #[test]
+        fn update_primitive_text_arm_persists() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Text.PcbLib");
+            create_rich_pcblib(&path);
+
+            let result = server.call_update_primitive(&json!({
+                "filepath": path.to_string_lossy(),
+                "component_name": "RICH",
+                "primitive_type": "text",
+                "index": 0,
+                "updates": { "x": 0.1, "y": 0.2, "height": 0.7, "rotation": 90.0, "text": "NEW", "layer": "Top Overlay" },
+            }));
+            assert!(!result.is_error, "{}", get_result_text(&result));
+            let props = change_props(&parse_result_json(&result));
+            assert!(props.contains(&"text".to_string()));
+            assert!(props.contains(&"height".to_string()));
+
+            let lib = PcbLib::open(&path).unwrap();
+            assert_eq!(lib.get("RICH").unwrap().text[0].text, "NEW");
+        }
+
+        #[test]
+        fn update_primitive_fill_arm_persists() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Fill.PcbLib");
+            create_rich_pcblib(&path);
+
+            let result = server.call_update_primitive(&json!({
+                "filepath": path.to_string_lossy(),
+                "component_name": "RICH",
+                "primitive_type": "fill",
+                "index": 0,
+                "updates": { "x": -0.3, "y": -0.3, "x2": 0.4, "y2": 0.4, "rotation": 45.0, "layer": "Bottom Paste" },
+            }));
+            assert!(!result.is_error, "{}", get_result_text(&result));
+            let props = change_props(&parse_result_json(&result));
+            assert!(props.contains(&"rotation".to_string()));
+            assert!(props.contains(&"x1".to_string()));
+
+            let lib = PcbLib::open(&path).unwrap();
+            assert!((lib.get("RICH").unwrap().fills[0].rotation - 45.0).abs() < 1e-4);
+        }
+
+        #[test]
+        fn update_primitive_region_arm_persists() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Region.PcbLib");
+            create_rich_pcblib(&path);
+
+            let result = server.call_update_primitive(&json!({
+                "filepath": path.to_string_lossy(),
+                "component_name": "RICH",
+                "primitive_type": "region",
+                "index": 0,
+                "updates": { "layer": "Bottom Layer" },
+            }));
+            assert!(!result.is_error, "{}", get_result_text(&result));
+            let props = change_props(&parse_result_json(&result));
+            assert_eq!(props, vec!["layer".to_string()]);
+
+            let lib = PcbLib::open(&path).unwrap();
+            assert_eq!(
+                lib.get("RICH").unwrap().regions[0].layer,
+                Layer::BottomLayer
+            );
+        }
+
+        #[test]
+        fn update_primitive_spaceless_layer_aliases_resolve() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Alias.PcbLib");
+            create_rich_pcblib(&path);
+            let filepath = path.to_string_lossy().to_string();
+
+            // Space-less names bypass Layer::parse and exercise the alias arms.
+            for (input, expected) in [
+                ("MidLayer5", Layer::MidLayer5),
+                ("InternalPlane2", Layer::InternalPlane2),
+                ("Mechanical10", Layer::Mechanical10),
+            ] {
+                let result = server.call_update_primitive(&json!({
+                    "filepath": filepath,
+                    "component_name": "RICH",
+                    "primitive_type": "track",
+                    "index": 0,
+                    "updates": { "layer": input },
+                }));
+                assert!(!result.is_error, "{}", get_result_text(&result));
+                let lib = PcbLib::open(&path).unwrap();
+                assert_eq!(
+                    lib.get("RICH").unwrap().tracks[0].layer,
+                    expected,
+                    "{input}"
+                );
+            }
+        }
+    }
+
+    // ==================== update_pad: remaining update keys ====================
+
+    #[test]
+    fn update_pad_y_height_rotation_hole_size_persist() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("PadKeys.PcbLib");
+        create_test_pcblib(&path);
+
+        let result = server.call_update_pad(&json!({
+            "filepath": path.to_string_lossy(),
+            "component_name": "CHIP_0402",
+            "designator": "1",
+            "updates": { "y": 0.3, "height": 0.7, "rotation": 90.0, "hole_size": 0.2 },
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let changes = parse_result_json(&result);
+        let props: Vec<&str> = changes["changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["property"].as_str().unwrap_or(""))
+            .collect();
+        for expected in ["y", "height", "rotation", "hole_size"] {
+            assert!(props.contains(&expected), "missing {expected}: {props:?}");
+        }
+
+        let lib = PcbLib::open(&path).unwrap();
+        let pad = lib
+            .get("CHIP_0402")
+            .unwrap()
+            .pads
+            .iter()
+            .find(|p| p.designator == "1")
+            .unwrap();
+        assert!((pad.height - 0.7).abs() < 1e-4);
+        assert_eq!(pad.hole_size, Some(0.2));
+    }
+
+    #[test]
+    fn update_pad_negative_hole_size_rejected() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("PadBad.PcbLib");
+        create_test_pcblib(&path);
+        let result = server.call_update_pad(&json!({
+            "filepath": path.to_string_lossy(),
+            "component_name": "CHIP_0402",
+            "designator": "1",
+            "updates": { "hole_size": -0.1 },
+        }));
+        assert!(result.is_error);
+        assert!(get_result_text(&result).contains("hole_size must be >= 0"));
+    }
+
+    // ==================== bulk_rename: SchLib real apply ====================
+
+    #[test]
+    fn bulk_rename_schlib_applies_and_persists() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("BulkApply.SchLib");
+        create_test_schlib(&path);
+
+        let result = server.call_bulk_rename(&json!({
+            "filepath": path.to_string_lossy(),
+            "pattern": "^RESISTOR$",
+            "replacement": "RES",
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["status"], "success");
+        assert_eq!(parsed["file_type"], "SchLib");
+        assert_eq!(parsed["renamed_count"], 1);
+        assert_eq!(parsed["renames"][0]["from"], "RESISTOR");
+        assert_eq!(parsed["renames"][0]["to"], "RES");
+
+        let lib = SchLib::open(&path).unwrap();
+        assert!(lib.get("RES").is_some());
+        assert!(lib.get("RESISTOR").is_none());
+        assert!(lib.get("CAPACITOR").is_some());
+    }
 }

@@ -1526,9 +1526,20 @@ impl McpServer {
 mod tests {
     use super::*;
     use crate::altium::pcblib::{
-        Fill, Layer, Pad, PcbFlags, Region, RegionKind, Text, TextJustification, TextKind, Via,
+        Arc, Fill, Layer, Pad, PcbFlags, Region, RegionKind, Text, TextJustification, TextKind,
+        Track, Via,
     };
     use crate::altium::schlib::{Parameter, Rectangle};
+
+    /// True when a `modified` diff entry carries a change for `property`.
+    fn has_change(diffs: &[Value], property: &str) -> bool {
+        diffs.iter().any(|d| {
+            d["status"] == "modified"
+                && d["changes"]
+                    .as_array()
+                    .is_some_and(|cs| cs.iter().any(|c| c["property"] == property))
+        })
+    }
 
     /// Builds a minimal stroke text at the given position.
     fn make_text(content: &str, x: f64, y: f64) -> Text {
@@ -1800,6 +1811,205 @@ mod tests {
         assert!(compare_serialized(&shapes_a, &shapes_b).is_empty());
     }
 
+    // ---- track detail (compare_tracks) ----
+
+    #[test]
+    fn track_width_and_layer_changes_reported() {
+        let a = Track::new(0.0, 0.0, 5.0, 0.0, 0.25, Layer::TopOverlay);
+        let mut wider = a.clone();
+        wider.width = 0.5;
+        assert!(has_change(
+            &McpServer::compare_tracks(std::slice::from_ref(&a), &[wider], 0.001),
+            "width"
+        ));
+
+        let mut moved_layer = a.clone();
+        moved_layer.layer = Layer::BottomOverlay;
+        assert!(has_change(
+            &McpServer::compare_tracks(&[a], &[moved_layer], 0.001),
+            "layer"
+        ));
+    }
+
+    #[test]
+    fn track_reverse_endpoints_still_match_as_modified() {
+        // Same segment described end-for-end, only the width differs.
+        let a = Track::new(0.0, 0.0, 5.0, 0.0, 0.25, Layer::TopOverlay);
+        let b = Track::new(5.0, 0.0, 0.0, 0.0, 0.5, Layer::TopOverlay);
+        let diffs = McpServer::compare_tracks(&[a], &[b], 0.001);
+        assert_eq!(diffs.len(), 1);
+        assert!(has_change(&diffs, "width"));
+    }
+
+    #[test]
+    fn track_one_sided_reported_per_side() {
+        let a = Track::new(0.0, 0.0, 5.0, 0.0, 0.25, Layer::TopOverlay);
+        let only_a = McpServer::compare_tracks(std::slice::from_ref(&a), &[], 0.001);
+        assert_eq!(only_a.len(), 1);
+        assert_eq!(only_a[0]["status"], "only_in_a");
+        let only_b = McpServer::compare_tracks(&[], &[a], 0.001);
+        assert_eq!(only_b[0]["status"], "only_in_b");
+    }
+
+    // ---- arc detail (compare_pcb_arcs) ----
+
+    #[test]
+    fn arc_property_changes_reported() {
+        let a = Arc::circle(0.0, 0.0, 1.0, 0.15, Layer::TopOverlay);
+
+        let mut start = a.clone();
+        start.start_angle = 90.0;
+        assert!(has_change(
+            &McpServer::compare_pcb_arcs(std::slice::from_ref(&a), &[start], 0.001),
+            "start_angle"
+        ));
+
+        let mut end = a.clone();
+        end.end_angle = 180.0;
+        assert!(has_change(
+            &McpServer::compare_pcb_arcs(std::slice::from_ref(&a), &[end], 0.001),
+            "end_angle"
+        ));
+
+        let mut wide = a.clone();
+        wide.width = 0.3;
+        assert!(has_change(
+            &McpServer::compare_pcb_arcs(std::slice::from_ref(&a), &[wide], 0.001),
+            "width"
+        ));
+
+        let mut layer = a.clone();
+        layer.layer = Layer::BottomOverlay;
+        assert!(has_change(
+            &McpServer::compare_pcb_arcs(&[a], &[layer], 0.001),
+            "layer"
+        ));
+    }
+
+    #[test]
+    fn arc_one_sided_reported_per_side() {
+        let a = Arc::circle(0.0, 0.0, 1.0, 0.15, Layer::TopOverlay);
+        let only_a = McpServer::compare_pcb_arcs(std::slice::from_ref(&a), &[], 0.001);
+        assert_eq!(only_a[0]["status"], "only_in_a");
+        let only_b = McpServer::compare_pcb_arcs(&[], &[a], 0.001);
+        assert_eq!(only_b[0]["status"], "only_in_b");
+    }
+
+    // ---- fill rotation + one-sided (compare_fills) ----
+
+    #[test]
+    fn fill_rotation_change_reported() {
+        let a = Fill::new(-0.5, -0.5, 0.5, 0.5, Layer::TopOverlay);
+        let mut rotated = a.clone();
+        rotated.rotation = 90.0;
+        assert!(has_change(
+            &McpServer::compare_fills(&[a], &[rotated], 0.001),
+            "rotation"
+        ));
+    }
+
+    #[test]
+    fn fill_one_sided_reported_per_side() {
+        let a = Fill::new(-0.5, -0.5, 0.5, 0.5, Layer::TopOverlay);
+        let b = Fill::new(5.0, 5.0, 6.0, 6.0, Layer::TopOverlay);
+        let diffs = McpServer::compare_fills(&[a], &[b], 0.001);
+        assert_eq!(diffs.len(), 2);
+        assert_eq!(diffs[0]["status"], "only_in_a");
+        assert_eq!(diffs[1]["status"], "only_in_b");
+    }
+
+    // ---- text detail (compare_pcb_text) ----
+
+    #[test]
+    fn text_property_changes_reported() {
+        let a = make_text("REF", 0.0, 0.0);
+
+        let mut rotated = make_text("REF", 0.0, 0.0);
+        rotated.rotation = 90.0;
+        assert!(has_change(
+            &McpServer::compare_pcb_text(std::slice::from_ref(&a), &[rotated], 0.001),
+            "rotation"
+        ));
+
+        let mut layer = make_text("REF", 0.0, 0.0);
+        layer.layer = Layer::BottomOverlay;
+        assert!(has_change(
+            &McpServer::compare_pcb_text(std::slice::from_ref(&a), &[layer], 0.001),
+            "layer"
+        ));
+
+        let mut kind = make_text("REF", 0.0, 0.0);
+        kind.kind = TextKind::TrueType;
+        assert!(has_change(
+            &McpServer::compare_pcb_text(std::slice::from_ref(&a), &[kind], 0.001),
+            "kind"
+        ));
+
+        let mut mirror = make_text("REF", 0.0, 0.0);
+        mirror.mirror = true;
+        assert!(has_change(
+            &McpServer::compare_pcb_text(&[a], &[mirror], 0.001),
+            "mirror"
+        ));
+    }
+
+    #[test]
+    fn text_differing_content_reported_per_side() {
+        let a = make_text("AAA", 0.0, 0.0);
+        let b = make_text("BBB", 5.0, 0.0);
+        let diffs = McpServer::compare_pcb_text(&[a], &[b], 0.001);
+        assert_eq!(diffs.len(), 2);
+        assert_eq!(diffs[0]["status"], "only_in_a");
+        assert_eq!(diffs[1]["status"], "only_in_b");
+    }
+
+    // ---- pin detail (compare_pins) ----
+
+    mod pin_detail {
+        use super::*;
+        use crate::altium::schlib::{Pin, PinElectricalType, PinOrientation};
+
+        #[test]
+        fn pin_property_changes_reported() {
+            let a = Pin::new("1", "1", -20, 0, 10, PinOrientation::Left);
+
+            let mut moved = a.clone();
+            moved.x = -10;
+            assert!(has_change(
+                &McpServer::compare_pins(std::slice::from_ref(&a), &[moved]),
+                "position"
+            ));
+
+            let mut longer = a.clone();
+            longer.length = 20;
+            assert!(has_change(
+                &McpServer::compare_pins(std::slice::from_ref(&a), &[longer]),
+                "length"
+            ));
+
+            let mut renamed = a.clone();
+            renamed.name = "PIN1".to_string();
+            assert!(has_change(
+                &McpServer::compare_pins(std::slice::from_ref(&a), &[renamed]),
+                "name"
+            ));
+
+            let mut etype = a.clone();
+            etype.electrical_type = PinElectricalType::Input;
+            assert!(has_change(
+                &McpServer::compare_pins(std::slice::from_ref(&a), &[etype]),
+                "electrical_type"
+            ));
+
+            let mut oriented = a.clone();
+            oriented.orientation = PinOrientation::Right;
+            assert!(has_change(
+                &McpServer::compare_pins(&[a], &[oriented]),
+                "orientation"
+            ));
+        }
+    }
+
     // ==================== call_compare_components dispatcher ====================
 
     mod dispatcher {
@@ -1987,6 +2197,89 @@ mod tests {
             assert!(differences.iter().any(|d| d["field"] == "description"));
             assert!(differences.iter().any(|d| d["field"] == "pins"));
             assert!(differences.iter().any(|d| d["field"] == "rectangle_count"));
+        }
+
+        #[test]
+        fn compare_symbols_reports_scalar_footprint_and_parameter_diffs() {
+            use crate::altium::schlib::{FootprintModel, Parameter};
+
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+
+            let mut lib_a = SchLib::new();
+            let mut sym_a = Symbol::new("SYM");
+            sym_a.designator = "R?".to_string();
+            sym_a.add_pin(Pin::new("1", "1", -20, 0, 10, PinOrientation::Left));
+            sym_a.add_pin(Pin::new("2", "2", 20, 0, 10, PinOrientation::Right));
+            sym_a.add_parameter(Parameter::new("Value", "1k"));
+            lib_a.add(sym_a);
+            let path_a = dir.path().join("ScalarA.SchLib");
+            lib_a.save(&path_a).unwrap();
+
+            let mut lib_b = SchLib::new();
+            let mut sym_b = Symbol::new("SYM");
+            sym_b.designator = "U?".to_string(); // designator diff
+            sym_b.part_count = 2; // part_count diff (default is 1)
+            sym_b.add_pin(Pin::new("1", "1", -20, 0, 10, PinOrientation::Left));
+            sym_b.add_pin(Pin::new("2", "2", 20, 0, 10, PinOrientation::Right));
+            sym_b.add_pin(Pin::new("3", "3", 20, 20, 10, PinOrientation::Right)); // pin_count diff
+            sym_b.add_parameter(Parameter::new("Value", "2k")); // parameter value diff
+            sym_b.add_footprint(FootprintModel::new("0603")); // footprint_count + names diff
+            lib_b.add(sym_b);
+            let path_b = dir.path().join("ScalarB.SchLib");
+            lib_b.save(&path_b).unwrap();
+
+            let result = server.call_compare_components(&json!({
+                "filepath_a": path_a.to_string_lossy(),
+                "component_a": "SYM",
+                "filepath_b": path_b.to_string_lossy(),
+                "component_b": "SYM",
+            }));
+            assert!(!result.is_error, "{}", get_result_text(&result));
+            let parsed = parse_result_json(&result);
+            assert_eq!(parsed["identical"], false);
+            let fields: Vec<&str> = parsed["differences"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|d| d["field"].as_str().unwrap_or(""))
+                .collect();
+            for expected in [
+                "designator",
+                "part_count",
+                "pin_count",
+                "footprint_count",
+                "footprints",
+                "parameters",
+            ] {
+                assert!(
+                    fields.contains(&expected),
+                    "missing field {expected}: {fields:?}"
+                );
+            }
+
+            // The footprints entry names each side's unique footprint.
+            let fp_diff = parsed["differences"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|d| d["field"] == "footprints")
+                .unwrap();
+            assert!(fp_diff["only_in_b"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v == "0603"));
+
+            // The parameter diff reports the changed value.
+            let param_diff = parsed["differences"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|d| d["field"] == "parameters")
+                .unwrap();
+            let changes = &param_diff["differences"][0]["changes"];
+            assert_eq!(changes[0]["property"], "value");
         }
     }
 }
