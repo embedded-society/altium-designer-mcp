@@ -341,3 +341,154 @@ impl McpServer {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::altium::pcblib::{Arc, Footprint, Layer, Pad, PadShape, Region, Track};
+    use crate::altium::schlib::{Ellipse, Line, Pin, PinOrientation, Rectangle, RoundRect, Symbol};
+    use crate::mcp::server::McpServer;
+
+    // ---- validate_coordinate ------------------------------------------------
+
+    #[test]
+    fn validate_coordinate_accepts_finite_in_range() {
+        assert!(McpServer::validate_coordinate(1234.5, "x").is_ok());
+        assert!(McpServer::validate_coordinate(0.0, "x").is_ok());
+    }
+
+    #[test]
+    fn validate_coordinate_rejects_nan_and_infinite() {
+        assert!(McpServer::validate_coordinate(f64::NAN, "x")
+            .unwrap_err()
+            .contains("finite"));
+        assert!(McpServer::validate_coordinate(f64::INFINITY, "x")
+            .unwrap_err()
+            .contains("finite"));
+    }
+
+    #[test]
+    fn validate_coordinate_rejects_out_of_range() {
+        assert!(McpServer::validate_coordinate(6000.0, "x")
+            .unwrap_err()
+            .contains("exceeds"));
+    }
+
+    // ---- pad_has_uniform_per_layer_data ------------------------------------
+
+    #[test]
+    fn pad_uniform_when_no_per_layer_data() {
+        let pad = Pad::smd("1", 0.0, 0.0, 1.0, 1.0);
+        assert!(McpServer::pad_has_uniform_per_layer_data(&pad));
+    }
+
+    #[test]
+    fn pad_non_uniform_sizes_shapes_radii_offsets() {
+        let base = Pad::smd("1", 0.0, 0.0, 1.0, 1.0);
+
+        let mut sizes = base.clone();
+        sizes.per_layer_sizes = Some(vec![(2.0, 1.0)]); // width differs from 1.0
+        assert!(!McpServer::pad_has_uniform_per_layer_data(&sizes));
+
+        let mut shapes = base.clone();
+        shapes.per_layer_shapes = Some(vec![PadShape::Round]); // differs from primary
+        assert!(!McpServer::pad_has_uniform_per_layer_data(&shapes));
+
+        let mut radii = base.clone();
+        radii.corner_radius_percent = Some(0);
+        radii.per_layer_corner_radii = Some(vec![50]); // differs from 0
+        assert!(!McpServer::pad_has_uniform_per_layer_data(&radii));
+
+        let mut offsets = base;
+        offsets.per_layer_offsets = Some(vec![(0.5, 0.0)]); // non-zero offset
+        assert!(!McpServer::pad_has_uniform_per_layer_data(&offsets));
+    }
+
+    // ---- validate_footprint_coordinates ------------------------------------
+
+    fn valid_footprint() -> Footprint {
+        let mut fp = Footprint::new("F");
+        let mut pad = Pad::smd("1", 0.0, 0.0, 1.0, 1.0);
+        pad.hole_size = Some(0.5); // exercise the Some(hole) branch
+        fp.add_pad(pad);
+        fp.add_track(Track::new(-1.0, 0.0, 1.0, 0.0, 0.15, Layer::TopOverlay));
+        fp.add_arc(Arc::circle(0.0, 2.0, 0.5, 0.1, Layer::TopOverlay));
+        fp.add_region(Region::rectangle(-1.0, -1.0, 1.0, 1.0, Layer::TopCourtyard));
+        fp
+    }
+
+    #[test]
+    fn footprint_all_families_in_range_ok() {
+        assert!(McpServer::validate_footprint_coordinates(&valid_footprint()).is_ok());
+    }
+
+    #[test]
+    fn footprint_bad_pad_coordinate_reports_field() {
+        let mut fp = Footprint::new("F");
+        fp.add_pad(Pad::smd("1", 6000.0, 0.0, 1.0, 1.0));
+        let err = McpServer::validate_footprint_coordinates(&fp).unwrap_err();
+        assert!(err.contains("pad 0 x"), "{err}");
+    }
+
+    #[test]
+    fn footprint_bad_track_coordinate_reports_field() {
+        let mut fp = Footprint::new("F");
+        fp.add_track(Track::new(0.0, 0.0, 6000.0, 0.0, 0.15, Layer::TopOverlay));
+        let err = McpServer::validate_footprint_coordinates(&fp).unwrap_err();
+        assert!(err.contains("track 0 x2"), "{err}");
+    }
+
+    #[test]
+    fn footprint_bad_arc_radius_reports_field() {
+        let mut fp = Footprint::new("F");
+        fp.add_arc(Arc::circle(0.0, 0.0, 6000.0, 0.1, Layer::TopOverlay));
+        let err = McpServer::validate_footprint_coordinates(&fp).unwrap_err();
+        assert!(err.contains("arc 0 radius"), "{err}");
+    }
+
+    #[test]
+    fn footprint_bad_region_vertex_reports_field() {
+        let mut fp = Footprint::new("F");
+        fp.add_region(Region::rectangle(
+            -6000.0,
+            -1.0,
+            1.0,
+            1.0,
+            Layer::TopCourtyard,
+        ));
+        let err = McpServer::validate_footprint_coordinates(&fp).unwrap_err();
+        assert!(err.contains("region 0 vertex"), "{err}");
+    }
+
+    // ---- validate_symbol_coordinates ---------------------------------------
+
+    fn valid_symbol() -> Symbol {
+        let mut sym = Symbol::new("S");
+        sym.add_pin(Pin::new("1", "1", -20, 0, 10, PinOrientation::Left));
+        sym.add_rectangle(Rectangle::new(-10, -5, 10, 5));
+        sym.add_line(Line::new(0, 0, 20, 0));
+        sym.add_ellipse(Ellipse::new(5, 5, 3, 2));
+        sym.add_round_rect(RoundRect::new(0, 0, 10, 8, 2, 2));
+        sym
+    }
+
+    #[test]
+    fn symbol_common_families_in_range_ok() {
+        assert!(McpServer::validate_symbol_coordinates(&valid_symbol()).is_ok());
+    }
+
+    #[test]
+    fn symbol_bad_pin_coordinate_reports_field() {
+        let mut sym = Symbol::new("S");
+        sym.add_pin(Pin::new("1", "1", 40000, 0, 10, PinOrientation::Left));
+        let err = McpServer::validate_symbol_coordinates(&sym).unwrap_err();
+        assert!(err.contains("pin 0 x"), "{err}");
+    }
+
+    #[test]
+    fn symbol_bad_rectangle_coordinate_reports_field() {
+        let mut sym = Symbol::new("S");
+        sym.add_rectangle(Rectangle::new(0, 0, 40000, 5));
+        let err = McpServer::validate_symbol_coordinates(&sym).unwrap_err();
+        assert!(err.contains("rectangle 0 x2"), "{err}");
+    }
+}

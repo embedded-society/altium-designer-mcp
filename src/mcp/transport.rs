@@ -76,6 +76,12 @@ pub struct StdioTransport {
     reader: BufReader<tokio::io::Stdin>,
     /// Handle for stdout.
     writer: tokio::io::Stdout,
+    /// Under `cfg(test)`, redirects writes to an in-memory buffer instead of
+    /// the real stdout so the write path can be asserted without a live pipe
+    /// (and without the intermittent stdout-teardown hangs seen on Windows CI).
+    /// Compiled out of non-test builds entirely.
+    #[cfg(test)]
+    test_sink: Option<std::sync::Arc<std::sync::Mutex<Vec<u8>>>>,
 }
 
 impl StdioTransport {
@@ -85,7 +91,18 @@ impl StdioTransport {
         Self {
             reader: BufReader::new(tokio::io::stdin()),
             writer: tokio::io::stdout(),
+            #[cfg(test)]
+            test_sink: None,
         }
+    }
+
+    /// Redirects subsequent writes into an in-memory buffer and returns a handle
+    /// to it, so tests can assert on the exact framed bytes.
+    #[cfg(test)]
+    pub(crate) fn capture_output(&mut self) -> std::sync::Arc<std::sync::Mutex<Vec<u8>>> {
+        let sink = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        self.test_sink = Some(std::sync::Arc::clone(&sink));
+        sink
     }
 
     /// Reads the next message line from stdin.
@@ -148,6 +165,17 @@ impl StdioTransport {
     ///
     /// Returns an error if writing fails.
     async fn write_raw(&mut self, json: &str) -> io::Result<()> {
+        #[cfg(test)]
+        if let Some(sink) = &self.test_sink {
+            // Mirror write_message_line's framing (message + single '\n') without
+            // holding the lock across an await point.
+            let mut framed = json.as_bytes().to_vec();
+            framed.push(b'\n');
+            sink.lock()
+                .expect("test sink mutex poisoned")
+                .extend_from_slice(&framed);
+            return Ok(());
+        }
         write_message_line(&mut self.writer, json).await
     }
 
@@ -253,5 +281,88 @@ mod tests {
         let mut buf: Vec<u8> = Vec::new();
         write_message_line(&mut buf, r#"{"a":1}"#).await.unwrap();
         assert_eq!(buf, b"{\"a\":1}\n");
+    }
+
+    /// Decodes the single framed line captured in a test sink.
+    fn sink_json(sink: &std::sync::Arc<std::sync::Mutex<Vec<u8>>>) -> serde_json::Value {
+        let bytes = sink.lock().unwrap().clone();
+        let s = String::from_utf8(bytes).expect("utf-8 output");
+        assert!(s.ends_with('\n'), "output must be newline-terminated");
+        assert_eq!(s.matches('\n').count(), 1, "exactly one framed message");
+        serde_json::from_str(s.trim_end()).expect("valid JSON line")
+    }
+
+    #[tokio::test]
+    async fn write_response_frames_success_envelope() {
+        let mut t = StdioTransport::new();
+        let sink = t.capture_output();
+        let resp = JsonRpcResponse::success(RequestId::Number(7), serde_json::json!({"ok": true}));
+        t.write_response(&resp).await.unwrap();
+
+        let v = sink_json(&sink);
+        assert_eq!(v["jsonrpc"], "2.0");
+        assert_eq!(v["id"], 7);
+        assert_eq!(v["result"]["ok"], true);
+    }
+
+    #[tokio::test]
+    async fn write_error_frames_error_object() {
+        let mut t = StdioTransport::new();
+        let sink = t.capture_output();
+        let err = JsonRpcError::method_not_found(RequestId::Number(1), "nope/method");
+        t.write_error(&err).await.unwrap();
+
+        let v = sink_json(&sink);
+        assert_eq!(v["error"]["code"], -32601);
+    }
+
+    #[tokio::test]
+    async fn write_notification_frames_method_and_params() {
+        let mut t = StdioTransport::new();
+        let sink = t.capture_output();
+        let note = OutgoingNotification::new(
+            "notifications/progress",
+            Some(serde_json::json!({"progress": 42})),
+        );
+        t.write_notification(&note).await.unwrap();
+
+        let v = sink_json(&sink);
+        assert_eq!(v["method"], "notifications/progress");
+        assert_eq!(v["params"]["progress"], 42);
+        // Notifications carry no id.
+        assert!(v.get("id").is_none());
+    }
+
+    #[tokio::test]
+    async fn write_json_frames_arbitrary_value() {
+        let mut t = StdioTransport::new();
+        let sink = t.capture_output();
+        t.write_json(&serde_json::json!({"custom": [1, 2, 3]}))
+            .await
+            .unwrap();
+
+        let v = sink_json(&sink);
+        assert_eq!(v["custom"], serde_json::json!([1, 2, 3]));
+    }
+
+    #[tokio::test]
+    async fn multiple_writes_accumulate_in_order() {
+        let mut t = StdioTransport::new();
+        let sink = t.capture_output();
+        t.write_json(&serde_json::json!({"n": 1})).await.unwrap();
+        t.write_json(&serde_json::json!({"n": 2})).await.unwrap();
+
+        let bytes = sink.lock().unwrap().clone();
+        let s = String::from_utf8(bytes).unwrap();
+        let lines: Vec<&str> = s.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(lines[0]).unwrap()["n"],
+            1
+        );
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(lines[1]).unwrap()["n"],
+            2
+        );
     }
 }

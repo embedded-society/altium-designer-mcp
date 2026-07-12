@@ -175,4 +175,32 @@ mod tests {
         use clap::CommandFactory;
         Args::command().debug_assert();
     }
+
+    #[test]
+    fn quiet_forces_error_regardless_of_verbose_or_config() {
+        assert_eq!(get_log_level(0, true, "trace"), Level::ERROR);
+        assert_eq!(get_log_level(3, true, "info"), Level::ERROR);
+    }
+
+    #[test]
+    fn verbose_flags_map_to_levels() {
+        assert_eq!(get_log_level(1, false, "warn"), Level::INFO);
+        assert_eq!(get_log_level(2, false, "warn"), Level::DEBUG);
+        assert_eq!(get_log_level(3, false, "warn"), Level::TRACE);
+        // Beyond -vvv still saturates at TRACE.
+        assert_eq!(get_log_level(9, false, "warn"), Level::TRACE);
+    }
+
+    #[test]
+    fn config_level_used_when_no_verbose_flags() {
+        assert_eq!(get_log_level(0, false, "trace"), Level::TRACE);
+        assert_eq!(get_log_level(0, false, "debug"), Level::DEBUG);
+        assert_eq!(get_log_level(0, false, "info"), Level::INFO);
+        assert_eq!(get_log_level(0, false, "warn"), Level::WARN);
+        assert_eq!(get_log_level(0, false, "error"), Level::ERROR);
+        // Case-insensitive.
+        assert_eq!(get_log_level(0, false, "INFO"), Level::INFO);
+        // Unknown config level falls back to WARN.
+        assert_eq!(get_log_level(0, false, "chatty"), Level::WARN);
+    }
 }
