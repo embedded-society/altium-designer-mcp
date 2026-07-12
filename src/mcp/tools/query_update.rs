@@ -1559,4 +1559,194 @@ mod tests {
         }));
         assert!(result.is_error);
     }
+
+    // ==================== update_component: full-family parse + preview ====================
+
+    mod update_families {
+        use super::*;
+        use serde_json::Value;
+
+        /// A footprint payload carrying one of every 2D primitive family.
+        fn rich_footprint() -> Value {
+            json!({
+                "description": "rich",
+                "pads": [
+                    { "designator": "1", "x": -0.5, "y": 0.0, "width": 0.6, "height": 0.5 },
+                    { "designator": "2", "x": 0.5, "y": 0.0, "width": 0.6, "height": 0.5 }
+                ],
+                "tracks": [{ "x1": -1.0, "y1": -0.6, "x2": 1.0, "y2": -0.6, "width": 0.15, "layer": "Top Overlay" }],
+                "arcs": [{ "x": 0.0, "y": 0.0, "radius": 0.5, "start_angle": 0.0, "end_angle": 90.0, "width": 0.1, "layer": "Top Overlay" }],
+                "regions": [{ "layer": "Top Layer", "kind": "copper",
+                    "vertices": [ {"x": -0.5,"y": -0.5}, {"x": 0.5,"y": -0.5}, {"x": 0.0,"y": 0.5} ] }],
+                "vias": [{ "x": 0.0, "y": 0.0, "diameter": 0.6, "hole_size": 0.3 }],
+                "fills": [{ "x1": -0.3, "y1": -0.3, "x2": 0.3, "y2": 0.3, "layer": "Top Layer" }],
+                "component_bodies": [{ "model_name": "CHIP", "overall_height": 0.5, "standoff_height": 0.0,
+                    "outline": [ {"x": -0.5,"y": -0.25}, {"x": 0.5,"y": -0.25}, {"x": 0.5,"y": 0.25}, {"x": -0.5,"y": 0.25} ] }],
+                "text": [{ "x": 0.0, "y": 0.7, "text": "R1", "height": 0.3, "layer": "Top Overlay" }]
+            })
+        }
+
+        /// A symbol payload carrying one of every schematic primitive family.
+        fn rich_symbol() -> Value {
+            json!({
+                "designator": "R?",
+                "pins": [
+                    { "designator": "1", "name": "1", "x": -20, "y": 0, "length": 10, "orientation": "left" },
+                    { "designator": "2", "name": "2", "x": 20, "y": 0, "length": 10, "orientation": "right" }
+                ],
+                "polylines": [{ "points": [ {"x": -10,"y": 0}, {"x": 0,"y": 5}, {"x": 10,"y": 0} ] }],
+                "arcs": [{ "x": 0, "y": 0, "radius": 8, "start_angle": 0.0, "end_angle": 180.0 }],
+                "ellipses": [{ "x": 0, "y": 0, "radius_x": 6, "radius_y": 4 }],
+                "round_rects": [{ "x1": -10, "y1": -6, "x2": 10, "y2": 6, "corner_x_radius": 2, "corner_y_radius": 2 }],
+                "polygons": [{ "points": [ {"x": -5,"y": -5}, {"x": 5,"y": -5}, {"x": 0,"y": 5} ] }],
+                "labels": [{ "x": 0, "y": 12, "text": "R" }],
+                "text": [{ "x": 0, "y": -12, "text": "note" }],
+                "pies": [{ "x": 0, "y": 0, "radius": 5, "start_angle": 0.0, "end_angle": 90.0 }],
+                "images": [{ "x1": -8, "y1": -8, "x2": 8, "y2": 8, "file_name": "img.png" }],
+                "text_frames": [{ "x1": -12, "y1": -14, "x2": 12, "y2": -10, "text": "frame" }]
+            })
+        }
+
+        fn change_strings(parsed: &Value) -> Vec<String> {
+            parsed["changes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| c.as_str().unwrap_or("").to_string())
+                .collect()
+        }
+
+        #[test]
+        fn update_pcblib_parses_all_primitive_families() {
+            use crate::altium::PcbLib;
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("UpdRich.PcbLib");
+            create_test_pcblib(&path);
+
+            let r = server.call_update_component(&json!({
+                "filepath": path.to_string_lossy(),
+                "component_name": "CHIP_0402",
+                "footprint": rich_footprint(),
+            }));
+            assert!(!r.is_error, "{}", get_result_text(&r));
+            let p = parse_result_json(&r);
+            assert_eq!(p["status"], "success");
+            assert_eq!(p["old_description"], "0402 chip resistor");
+
+            let lib = PcbLib::open(&path).unwrap();
+            let fp = lib.get("CHIP_0402").unwrap();
+            assert_eq!(fp.tracks.len(), 1);
+            assert_eq!(fp.arcs.len(), 1);
+            assert_eq!(fp.regions.len(), 1);
+            assert_eq!(fp.vias.len(), 1);
+            assert_eq!(fp.fills.len(), 1);
+            assert_eq!(fp.component_bodies.len(), 1);
+            assert_eq!(fp.text.len(), 1);
+        }
+
+        #[test]
+        fn update_pcblib_dry_run_previews_all_family_counts() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("UpdRichDry.PcbLib");
+            create_test_pcblib(&path);
+            let r = server.call_update_component(&json!({
+                "filepath": path.to_string_lossy(),
+                "component_name": "CHIP_0402",
+                "dry_run": true,
+                "footprint": rich_footprint(),
+            }));
+            assert!(!r.is_error, "{}", get_result_text(&r));
+            let p = parse_result_json(&r);
+            assert_eq!(p["status"], "dry_run");
+            let changes = change_strings(&p);
+            for expected in [
+                "track_count: 0 -> 1",
+                "arc_count: 0 -> 1",
+                "region_count: 0 -> 1",
+                "text_count: 0 -> 1",
+                "via_count: 0 -> 1",
+                "fill_count: 0 -> 1",
+                "component_body_count: 0 -> 1",
+            ] {
+                assert!(
+                    changes.iter().any(|c| c == expected),
+                    "missing {expected}: {changes:?}"
+                );
+            }
+        }
+
+        #[test]
+        fn update_schlib_parses_all_primitive_families() {
+            use crate::altium::SchLib;
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("UpdRich.SchLib");
+            create_test_schlib(&path);
+
+            let r = server.call_update_component(&json!({
+                "filepath": path.to_string_lossy(),
+                "component_name": "RESISTOR",
+                "symbol": rich_symbol(),
+            }));
+            assert!(!r.is_error, "{}", get_result_text(&r));
+            let p = parse_result_json(&r);
+            assert_eq!(p["status"], "success");
+            assert_eq!(p["old_description"], "Generic resistor");
+
+            let lib = SchLib::open(&path).unwrap();
+            let sym = lib.get("RESISTOR").unwrap();
+            assert_eq!(sym.polylines.len(), 1);
+            assert_eq!(sym.arcs.len(), 1);
+            assert_eq!(sym.ellipses.len(), 1);
+            assert_eq!(sym.round_rects.len(), 1);
+            assert_eq!(sym.polygons.len(), 1);
+            assert_eq!(sym.labels.len(), 1);
+            assert_eq!(sym.pies.len(), 1);
+        }
+
+        #[test]
+        fn update_schlib_dry_run_previews_designator_and_families() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("UpdRichDry.SchLib");
+            create_test_schlib(&path);
+            let r = server.call_update_component(&json!({
+                "filepath": path.to_string_lossy(),
+                "component_name": "RESISTOR",
+                "dry_run": true,
+                "symbol": {
+                    "designator": "RN?",
+                    "part_count": 4,
+                    "pins": [{ "designator": "1", "name": "1", "x": -20, "y": 0, "length": 10 }],
+                    "lines": [{ "x1": -10, "y1": 0, "x2": 10, "y2": 0 }],
+                    "polylines": [{ "points": [ {"x":-5,"y":0}, {"x":5,"y":0} ] }],
+                    "arcs": [{ "x": 0, "y": 0, "radius": 5 }],
+                    "labels": [{ "x": 0, "y": 10, "text": "R" }],
+                    "parameters": [{ "name": "Tol", "value": "1%" }],
+                },
+            }));
+            assert!(!r.is_error, "{}", get_result_text(&r));
+            let p = parse_result_json(&r);
+            assert_eq!(p["status"], "dry_run");
+            let changes = change_strings(&p);
+            for expected in [
+                "designator: 'R?' -> 'RN?'",
+                "part_count: 1 -> 4",
+                "pin_count: 2 -> 1",
+                "line_count: 0 -> 1",
+                "polyline_count: 0 -> 1",
+                "arc_count: 0 -> 1",
+                "rectangle_count: 1 -> 0",
+                "label_count: 0 -> 1",
+                "parameter_count: 0 -> 1",
+            ] {
+                assert!(
+                    changes.iter().any(|c| c == expected),
+                    "missing {expected}: {changes:?}"
+                );
+            }
+        }
+    }
 }
