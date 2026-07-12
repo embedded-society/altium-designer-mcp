@@ -570,4 +570,239 @@ mod tests {
             .iter()
             .any(|c| c.as_str().unwrap() == "rectangle_count: 1 -> 0"));
     }
+
+    // ==================== per-family count-change detail ====================
+
+    mod field_diffs {
+        use super::*;
+        use crate::altium::pcblib::PcbFlags;
+        use crate::altium::pcblib::{
+            ComponentBody, Layer, Region, Text, TextJustification, TextKind, Track,
+        };
+        use crate::altium::schlib::{FootprintModel, Line, Polyline, Rectangle, ShapeDisplayFlags};
+
+        fn pcb_text() -> Text {
+            Text {
+                x: 0.0,
+                y: 0.6,
+                text: "R".to_string(),
+                height: 0.3,
+                layer: Layer::TopOverlay,
+                rotation: 0.0,
+                kind: TextKind::Stroke,
+                stroke_font: None,
+                stroke_width: None,
+                italic: false,
+                bold: false,
+                mirror: false,
+                is_comment: false,
+                is_designator: false,
+                font_name: "Arial".to_string(),
+                justification: TextJustification::BottomLeft,
+                is_inverted: false,
+                inverted_border: None,
+                use_inverted_rectangle: false,
+                inverted_rect_width: None,
+                inverted_rect_height: None,
+                inverted_rect_text_offset: None,
+                flags: PcbFlags::empty(),
+                net_index: 0xFFFF,
+                polygon_index: 0xFFFF,
+                component_index: -1,
+                unique_id: None,
+            }
+        }
+
+        fn sch_arc() -> crate::altium::schlib::Arc {
+            crate::altium::schlib::Arc {
+                x: 0.0,
+                y: 0.0,
+                radius: 6.0,
+                is_not_accessible: true,
+                start_angle: 0.0,
+                end_angle: 180.0,
+                line_width: 1,
+                color: 0,
+                fill_color: 0,
+                owner_part_id: 1,
+                display_flags: ShapeDisplayFlags::default(),
+                unique_id: None,
+            }
+        }
+
+        fn sch_poly() -> Polyline {
+            Polyline {
+                points: vec![(0.0, 0.0), (5.0, 5.0)],
+                line_width: 1,
+                color: 0,
+                line_style: 0,
+                start_line_shape: 0,
+                end_line_shape: 0,
+                line_shape_size: 0,
+                transparent: false,
+                is_not_accessible: true,
+                owner_part_id: 1,
+                display_flags: ShapeDisplayFlags::default(),
+                unique_id: None,
+            }
+        }
+
+        /// Change strings for the modified component named `name`.
+        fn changes_for(parsed: &serde_json::Value, name: &str) -> Vec<String> {
+            parsed["modified"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|m| m["name"] == name)
+                .expect("modified entry present")["changes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| c.as_str().unwrap_or("").to_string())
+                .collect()
+        }
+
+        #[test]
+        fn diff_pcblibs_reports_all_family_count_changes() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path_a = dir.path().join("A.PcbLib");
+            create_test_pcblib(&path_a);
+
+            // B: CHIP_0402 same pads/description but one of each new family;
+            // CHIP_0603 rebuilt identically so it stays unchanged.
+            let mut lib_b = PcbLib::new();
+            let mut fp = Footprint::new("CHIP_0402");
+            fp.description = "0402 chip resistor".to_string();
+            fp.add_pad(Pad::smd("1", -0.5, 0.0, 0.6, 0.5));
+            fp.add_pad(Pad::smd("2", 0.5, 0.0, 0.6, 0.5));
+            fp.add_track(Track::new(-0.5, 0.5, 0.5, 0.5, 0.15, Layer::TopOverlay));
+            fp.add_arc(crate::altium::pcblib::Arc::circle(
+                0.0,
+                0.0,
+                0.5,
+                0.1,
+                Layer::TopOverlay,
+            ));
+            fp.add_region(Region::rectangle(-0.5, -0.5, 0.5, 0.5, Layer::TopOverlay));
+            fp.add_text(pcb_text());
+            fp.add_component_body(ComponentBody::new(
+                "{AAAA0000-0000-0000-0000-000000000000}",
+                "m.step",
+            ));
+            lib_b.add(fp);
+            let mut fp2 = Footprint::new("CHIP_0603");
+            fp2.description = "0603 chip resistor".to_string();
+            fp2.add_pad(Pad::smd("1", -0.8, 0.0, 0.8, 0.8));
+            fp2.add_pad(Pad::smd("2", 0.8, 0.0, 0.8, 0.8));
+            lib_b.add(fp2);
+            let path_b = dir.path().join("B.PcbLib");
+            lib_b.save(&path_b).unwrap();
+
+            let r = server.call_diff_libraries(&json!({
+                "filepath_a": path_a.to_string_lossy(),
+                "filepath_b": path_b.to_string_lossy(),
+            }));
+            assert!(!r.is_error, "{}", get_result_text(&r));
+            let p = parse_result_json(&r);
+            assert_eq!(p["summary"]["modified_count"], 1);
+            assert_eq!(p["summary"]["unchanged_count"], 1);
+            let changes = changes_for(&p, "CHIP_0402");
+            for expected in [
+                "track_count: 0 -> 1",
+                "arc_count: 0 -> 1",
+                "region_count: 0 -> 1",
+                "text_count: 0 -> 1",
+                "component_body_count: 0 -> 1",
+            ] {
+                assert!(
+                    changes.iter().any(|c| c == expected),
+                    "missing {expected}: {changes:?}"
+                );
+            }
+        }
+
+        #[test]
+        fn diff_pcblibs_lib_b_unreadable_is_error() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path_a = dir.path().join("Good.PcbLib");
+            create_test_pcblib(&path_a);
+            let r = server.call_diff_libraries(&json!({
+                "filepath_a": path_a.to_string_lossy(),
+                "filepath_b": dir.path().join("Missing.PcbLib").to_string_lossy(),
+            }));
+            assert!(r.is_error);
+            assert_eq!(parse_result_json(&r)["status"], "error");
+        }
+
+        #[test]
+        fn diff_schlibs_open_errors_on_either_side() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let good = dir.path().join("Good.SchLib");
+            create_test_schlib(&good);
+            let missing = dir.path().join("Missing.SchLib");
+
+            let a_bad = server.call_diff_libraries(&json!({
+                "filepath_a": missing.to_string_lossy(),
+                "filepath_b": good.to_string_lossy(),
+            }));
+            assert!(a_bad.is_error);
+            let b_bad = server.call_diff_libraries(&json!({
+                "filepath_a": good.to_string_lossy(),
+                "filepath_b": missing.to_string_lossy(),
+            }));
+            assert!(b_bad.is_error);
+        }
+
+        #[test]
+        fn diff_schlibs_reports_all_family_count_changes() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path_a = dir.path().join("A.SchLib");
+            create_test_schlib(&path_a);
+
+            let mut lib_b = SchLib::new();
+            let mut sym = Symbol::new("RESISTOR");
+            sym.description = "Precision resistor".to_string(); // description change
+            sym.designator = "R?".to_string();
+            sym.add_pin(Pin::new("1", "1", -20, 0, 10, PinOrientation::Left));
+            sym.add_pin(Pin::new("2", "2", 20, 0, 10, PinOrientation::Right));
+            sym.add_rectangle(Rectangle::new(-10, -5, 10, 5));
+            sym.add_line(Line::new(-10, 0, 10, 0));
+            sym.add_polyline(sch_poly());
+            sym.add_arc(sch_arc());
+            sym.add_footprint(FootprintModel::new("0402"));
+            lib_b.add(sym);
+            // CAPACITOR identical to fixture -> unchanged.
+            let mut cap = Symbol::new("CAPACITOR");
+            cap.description = "Generic capacitor".to_string();
+            cap.designator = "C?".to_string();
+            cap.add_pin(Pin::new("1", "1", -20, 0, 10, PinOrientation::Left));
+            cap.add_pin(Pin::new("2", "2", 20, 0, 10, PinOrientation::Right));
+            lib_b.add(cap);
+            let path_b = dir.path().join("B.SchLib");
+            lib_b.save(&path_b).unwrap();
+
+            let r = server.call_diff_libraries(&json!({
+                "filepath_a": path_a.to_string_lossy(),
+                "filepath_b": path_b.to_string_lossy(),
+            }));
+            assert!(!r.is_error, "{}", get_result_text(&r));
+            let changes = changes_for(&parse_result_json(&r), "RESISTOR");
+            assert!(changes.iter().any(|c| c.starts_with("description:")));
+            for expected in [
+                "line_count: 0 -> 1",
+                "polyline_count: 0 -> 1",
+                "arc_count: 0 -> 1",
+                "footprint_count: 0 -> 1",
+            ] {
+                assert!(
+                    changes.iter().any(|c| c == expected),
+                    "missing {expected}: {changes:?}"
+                );
+            }
+        }
+    }
 }

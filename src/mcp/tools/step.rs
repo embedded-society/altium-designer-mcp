@@ -853,4 +853,203 @@ mod tests {
             "Missing required parameter: filepath"
         );
     }
+
+    // ==================== extract deep paths ====================
+
+    mod extract_deep {
+        use super::*;
+
+        /// A library whose footprint references a body model id with no matching
+        /// embedded model (dangling reference; `library.models()` stays empty).
+        fn lib_with_dangling_body(path: &std::path::Path, model_id: &str) {
+            let mut lib = PcbLib::new();
+            let mut fp = Footprint::new("QFN16");
+            fp.add_pad(Pad::smd("1", -1.0, 0.0, 0.3, 0.8));
+            fp.add_component_body(ComponentBody::new(model_id, "ghost.step"));
+            lib.add(fp);
+            lib.save(path).unwrap();
+        }
+
+        #[test]
+        fn extract_corrupt_library_is_error() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Corrupt.PcbLib");
+            std::fs::write(&path, b"not a compound file").unwrap();
+            let r = server.call_extract_step_model(&json!({ "filepath": path.to_string_lossy() }));
+            assert!(r.is_error);
+            assert_eq!(parse_result_json(&r)["status"], "error");
+        }
+
+        #[test]
+        fn extract_reports_component_body_and_external_references() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Refs.PcbLib");
+            lib_with_dangling_body(&path, "{DEAD0000-0000-0000-0000-000000000000}");
+
+            let r = server.call_extract_step_model(&json!({ "filepath": path.to_string_lossy() }));
+            assert!(r.is_error);
+            let p = parse_result_json(&r);
+            assert_eq!(p["error"], "No embedded 3D models found in this library.");
+            assert!(p["component_body_references"].is_array());
+            assert!(p["external_model_references"].is_array());
+            assert!(p["note"]
+                .as_str()
+                .unwrap_or("")
+                .contains("Component bodies reference"));
+        }
+
+        #[test]
+        fn extract_all_validate_path_push_error() {
+            let temp = test_temp_dir();
+            let server = create_test_server(temp.path());
+            let outside = test_temp_dir(); // not in the allow-list
+            let out = outside.path().join("out");
+            let out_s = out.to_string_lossy();
+
+            let m = EmbeddedModel::new(
+                "{ID000000-0000-0000-0000-000000000000}",
+                "m.step",
+                b"x".to_vec(),
+            );
+            let models = [&m];
+            let r = server.extract_all_step_models("lib.PcbLib", Some(out_s.as_ref()), &models);
+            let p = parse_result_json(&r);
+            assert_eq!(p["status"], "partial");
+            assert_eq!(p["extracted_count"], 0);
+            assert_eq!(p["error_count"], 1);
+        }
+
+        #[test]
+        fn extract_all_fs_write_error_is_partial() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Models.PcbLib");
+            create_model_pcblib(&path); // modelA.step + modelB.step
+            let out_dir = dir.path().join("out");
+            // A directory sitting where modelA.step should be written -> write fails.
+            std::fs::create_dir_all(out_dir.join("modelA.step")).unwrap();
+
+            let r = server.call_extract_step_model(&json!({
+                "filepath": path.to_string_lossy(),
+                "mode": "extract_all",
+                "output_path": out_dir.to_string_lossy(),
+            }));
+            let p = parse_result_json(&r);
+            assert_eq!(p["status"], "partial");
+            assert!(p["error_count"].as_u64().unwrap() >= 1);
+        }
+
+        #[test]
+        fn extract_by_footprint_referenced_ids_not_found() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Mismatch.PcbLib");
+            let mut lib = PcbLib::new();
+            let mut fp = Footprint::new("QFN16");
+            fp.add_pad(Pad::smd("1", -1.0, 0.0, 0.3, 0.8));
+            fp.add_component_body(ComponentBody::new(
+                "{NONEXIST-0000-0000-0000-000000000000}",
+                "ghost.step",
+            ));
+            lib.add(fp);
+            lib.add_model(EmbeddedModel::new(
+                "{REAL0000-0000-0000-0000-000000000000}",
+                "real.step",
+                b"data".to_vec(),
+            ));
+            lib.save(&path).unwrap();
+
+            let r = server.call_extract_step_model(&json!({
+                "filepath": path.to_string_lossy(),
+                "mode": "extract_by_footprint",
+                "footprint_name": "QFN16",
+            }));
+            assert!(r.is_error);
+            assert_eq!(
+                parse_result_json(&r)["error"],
+                "Referenced model IDs not found in embedded models"
+            );
+        }
+
+        #[test]
+        fn extract_by_footprint_multiple_models_lists() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Multi.PcbLib");
+            let mut lib = PcbLib::new();
+            let mut fp = Footprint::new("QFN16");
+            fp.add_pad(Pad::smd("1", -1.0, 0.0, 0.3, 0.8));
+            fp.add_component_body(ComponentBody::new(MODEL_A_ID, "modelA.step"));
+            fp.add_component_body(ComponentBody::new(MODEL_B_ID, "modelB.step"));
+            lib.add(fp);
+            lib.add_model(EmbeddedModel::new(
+                MODEL_A_ID,
+                "modelA.step",
+                MODEL_A_DATA.to_vec(),
+            ));
+            lib.add_model(EmbeddedModel::new(
+                MODEL_B_ID,
+                "modelB.step",
+                MODEL_B_DATA.to_vec(),
+            ));
+            lib.save(&path).unwrap();
+
+            let r = server.call_extract_step_model(&json!({
+                "filepath": path.to_string_lossy(),
+                "mode": "extract_by_footprint",
+                "footprint_name": "QFN16",
+            }));
+            assert!(!r.is_error, "{}", get_result_text(&r));
+            let p = parse_result_json(&r);
+            assert_eq!(p["status"], "list");
+            assert_eq!(p["model_count"], 2);
+        }
+
+        #[test]
+        fn extract_by_footprint_with_output_extracts() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("ByFp.PcbLib");
+            create_model_pcblib(&path); // QFN16 -> modelA.step
+            let out_dir = dir.path().join("fp_export");
+
+            let r = server.call_extract_step_model(&json!({
+                "filepath": path.to_string_lossy(),
+                "mode": "extract_by_footprint",
+                "footprint_name": "QFN16",
+                "output_path": out_dir.to_string_lossy(),
+            }));
+            assert!(!r.is_error, "{}", get_result_text(&r));
+            assert_eq!(parse_result_json(&r)["status"], "success");
+            assert_eq!(
+                std::fs::read(out_dir.join("modelA.step")).unwrap(),
+                MODEL_A_DATA
+            );
+        }
+
+        #[test]
+        fn extract_model_output_write_error() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Single.PcbLib");
+            create_model_pcblib(&path);
+            let out_as_dir = dir.path().join("outdir");
+            std::fs::create_dir(&out_as_dir).unwrap(); // write target is a directory
+
+            let r = server.call_extract_step_model(&json!({
+                "filepath": path.to_string_lossy(),
+                "model": "modelA.step",
+                "output_path": out_as_dir.to_string_lossy(),
+            }));
+            assert!(r.is_error);
+            let p = parse_result_json(&r);
+            assert_eq!(p["status"], "error");
+            assert!(p["error"]
+                .as_str()
+                .unwrap_or("")
+                .contains("Failed to write file"));
+        }
+    }
 }
