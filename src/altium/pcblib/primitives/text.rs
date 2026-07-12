@@ -318,3 +318,39 @@ impl Fill {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{Fill, Layer, StrokeFont, TextKind};
+
+    #[test]
+    fn fill_from_center_computes_symmetric_corners() {
+        let f = Fill::from_center(1.0, 2.0, 4.0, 2.0, Layer::TopLayer);
+        assert!((f.x1 - -1.0).abs() < 1e-9);
+        assert!((f.y1 - 1.0).abs() < 1e-9);
+        assert!((f.x2 - 3.0).abs() < 1e-9);
+        assert!((f.y2 - 3.0).abs() < 1e-9);
+        assert_eq!(f.layer, Layer::TopLayer);
+        assert!((f.rotation - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn text_kind_serde_round_trips_every_variant() {
+        for k in [TextKind::Stroke, TextKind::TrueType, TextKind::BarCode] {
+            let s = serde_json::to_string(&k).unwrap();
+            assert_eq!(serde_json::from_str::<TextKind>(&s).unwrap(), k);
+        }
+    }
+
+    #[test]
+    fn stroke_font_serde_round_trips_every_variant() {
+        for font in [
+            StrokeFont::Default,
+            StrokeFont::SansSerif,
+            StrokeFont::Serif,
+        ] {
+            let s = serde_json::to_string(&font).unwrap();
+            assert_eq!(serde_json::from_str::<StrokeFont>(&s).unwrap(), font);
+        }
+    }
+}
