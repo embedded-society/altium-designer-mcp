@@ -1776,4 +1776,178 @@ mod tests {
         assert!(result.is_error);
         assert!(get_result_text(&result).contains("missing required field 'x'"));
     }
+
+    // ==================== validate / export / import success paths ====================
+
+    mod more_coverage {
+        use super::*;
+        use crate::altium::pcblib::Pad;
+        use crate::altium::schlib::Rectangle;
+
+        #[test]
+        fn validate_pcblib_reports_pad_errors() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+
+            let mut lib = PcbLib::new();
+            let mut fp = Footprint::new("BAD");
+            fp.add_pad(Pad::smd("1", -0.5, 0.0, 0.6, 0.5));
+            let mut dup = Pad::smd("1", 0.5, 0.0, 0.6, 0.5); // duplicate designator
+            dup.width = 0.0; // invalid dimensions
+            fp.add_pad(dup);
+            fp.add_pad(Pad::smd("", 0.0, 0.5, 0.6, 0.5)); // empty designator
+            lib.add(fp);
+            let path = dir.path().join("PcbErrors.PcbLib");
+            lib.save(&path).unwrap();
+
+            let parsed = parse_result_json(
+                &server.call_validate_library(&json!({ "filepath": path.to_string_lossy() })),
+            );
+            assert_eq!(parsed["status"], "invalid");
+            let issues = parsed["issues"].as_array().unwrap();
+            assert!(issues
+                .iter()
+                .any(|i| i["issue"] == "Duplicate pad designator: '1'"));
+            assert!(issues
+                .iter()
+                .any(|i| i["issue"] == "Pad has empty designator"));
+            assert!(issues.iter().any(|i| i["issue"]
+                .as_str()
+                .unwrap_or("")
+                .contains("invalid dimensions")));
+            assert!(parsed["error_count"].as_u64().unwrap() >= 3);
+        }
+
+        #[test]
+        fn validate_pcblib_empty_library_is_warning() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Empty.PcbLib");
+            PcbLib::new().save(&path).unwrap();
+
+            let parsed = parse_result_json(
+                &server.call_validate_library(&json!({ "filepath": path.to_string_lossy() })),
+            );
+            assert_eq!(parsed["status"], "warnings");
+            assert_eq!(
+                parsed["issues"][0]["issue"],
+                "Library is empty (no footprints)"
+            );
+        }
+
+        #[test]
+        fn validate_schlib_reports_pin_length_and_inverted_rect() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+
+            let mut lib = SchLib::new();
+            let mut sym = Symbol::new("W");
+            sym.add_pin(Pin::new("A", "1", -20, 0, 0, PinOrientation::Left)); // length 0
+            sym.add_rectangle(Rectangle::new(10, 5, -10, -5)); // inverted corners
+            lib.add(sym);
+            let path = dir.path().join("SchWarn.SchLib");
+            lib.save(&path).unwrap();
+
+            let parsed = parse_result_json(
+                &server.call_validate_library(&json!({ "filepath": path.to_string_lossy() })),
+            );
+            assert_eq!(parsed["status"], "warnings");
+            let issues = parsed["issues"].as_array().unwrap();
+            assert!(issues.iter().any(|i| i["issue"]
+                .as_str()
+                .unwrap_or("")
+                .contains("zero or negative length")));
+            assert!(issues.iter().any(|i| i["issue"]
+                .as_str()
+                .unwrap_or("")
+                .contains("inverted corners")));
+        }
+
+        #[test]
+        fn export_pcblib_json_non_compact_keeps_detail() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Exp.PcbLib");
+            create_test_pcblib(&path);
+
+            let parsed = parse_result_json(&server.call_export_library(&json!({
+                "filepath": path.to_string_lossy(),
+                "format": "json",
+                "compact": false,
+            })));
+            assert_eq!(parsed["status"], "success");
+            assert_eq!(parsed["footprints"].as_array().unwrap().len(), 2);
+        }
+
+        #[test]
+        fn import_schlib_rejects_incomplete_rectangle() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let out = dir.path().join("ImpRect.SchLib");
+            let result = server.call_import_library(&json!({
+                "output_path": out.to_string_lossy(),
+                "json_data": {
+                    "file_type": "SchLib",
+                    "symbols": [{
+                        "name": "S",
+                        "pins": [{ "designator": "1", "name": "A", "x": -20, "y": 0, "length": 10 }],
+                        "rectangles": [{ "x1": 0, "y1": 0, "x2": 10 }],
+                    }],
+                },
+            }));
+            assert!(result.is_error);
+            assert!(get_result_text(&result).contains("rectangle 0 missing required field 'y2'"));
+        }
+
+        #[test]
+        fn import_schlib_creates_new_library() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let out = dir.path().join("NewSch.SchLib");
+            let result = server.call_import_library(&json!({
+                "output_path": out.to_string_lossy(),
+                "json_data": {
+                    "file_type": "SchLib",
+                    "symbols": [{
+                        "name": "LED",
+                        "designator": "D?",
+                        "pins": [
+                            { "designator": "1", "name": "A", "x": -20, "y": 0, "length": 10 },
+                            { "designator": "2", "name": "K", "x": 20, "y": 0, "length": 10 },
+                        ],
+                    }],
+                },
+            }));
+            assert!(!result.is_error, "{}", get_result_text(&result));
+            let parsed = parse_result_json(&result);
+            assert_eq!(parsed["imported_count"], 1);
+            assert_eq!(parsed["total_count"], 1);
+            assert_eq!(parsed["append"], false);
+            assert!(parsed.get("validation").is_some());
+            assert!(SchLib::open(&out).unwrap().get("LED").is_some());
+        }
+
+        #[test]
+        fn delete_component_surfaces_post_write_validation() {
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+
+            let mut lib = PcbLib::new();
+            lib.add(Footprint::new("GOOD")); // deleted below
+            let mut bad = Footprint::new("BAD");
+            bad.add_pad(Pad::smd("1", 0.0, 0.0, 0.6, 0.5));
+            bad.add_pad(Pad::smd("1", 0.5, 0.0, 0.6, 0.5)); // duplicate designator remains
+            lib.add(bad);
+            let path = dir.path().join("PostVal.PcbLib");
+            lib.save(&path).unwrap();
+
+            let parsed = parse_result_json(&server.call_delete_component(&json!({
+                "filepath": path.to_string_lossy(),
+                "component_names": ["GOOD"],
+            })));
+            assert_eq!(parsed["status"], "success");
+            assert_eq!(parsed["validation"]["status"], "invalid");
+            assert!(parsed["validation"]["error_count"].as_u64().unwrap() >= 1);
+        }
+    }
 }
