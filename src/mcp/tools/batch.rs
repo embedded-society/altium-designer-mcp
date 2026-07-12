@@ -878,4 +878,121 @@ mod tests {
             );
         }
     }
+
+    // ==================== operation success paths ====================
+
+    #[test]
+    fn batch_update_track_width_changes_matching_tracks() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Tracks.PcbLib");
+        create_tracked_pcblib(&path);
+
+        let r = server.call_batch_update(&json!({
+            "filepath": path.to_string_lossy(),
+            "operation": "update_track_width",
+            "parameters": { "from_width": 0.2, "to_width": 0.25 },
+        }));
+        assert!(!r.is_error, "{}", get_result_text(&r));
+        let p = parse_result_json(&r);
+        assert_eq!(p["operation"], "update_track_width");
+        assert_eq!(p["dry_run"], false);
+
+        // The 0.2 mm tracks were widened; the 0.3 mm Mechanical1 track is untouched.
+        let lib = PcbLib::open(&path).unwrap();
+        let widened = lib
+            .iter()
+            .flat_map(|fp| fp.tracks.iter())
+            .filter(|t| (t.width - 0.25).abs() < 1e-4)
+            .count();
+        assert_eq!(widened, 3);
+    }
+
+    #[test]
+    fn batch_update_track_width_dry_run_leaves_file_untouched() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("TracksDry.PcbLib");
+        create_tracked_pcblib(&path);
+
+        let r = server.call_batch_update(&json!({
+            "filepath": path.to_string_lossy(),
+            "operation": "update_track_width",
+            "parameters": { "from_width": 0.2, "to_width": 0.25 },
+            "dry_run": true,
+        }));
+        assert!(!r.is_error, "{}", get_result_text(&r));
+        assert_eq!(parse_result_json(&r)["dry_run"], true);
+
+        // Nothing was written: the 0.2 mm tracks survive unchanged.
+        let lib = PcbLib::open(&path).unwrap();
+        let unchanged = lib
+            .iter()
+            .flat_map(|fp| fp.tracks.iter())
+            .filter(|t| (t.width - 0.2).abs() < 1e-4)
+            .count();
+        assert_eq!(unchanged, 3);
+    }
+
+    #[test]
+    fn batch_rename_layer_moves_primitives() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Rename.PcbLib");
+        create_tracked_pcblib(&path);
+
+        let r = server.call_batch_update(&json!({
+            "filepath": path.to_string_lossy(),
+            "operation": "rename_layer",
+            "parameters": { "from_layer": "Top Overlay", "to_layer": "Bottom Overlay" },
+        }));
+        assert!(!r.is_error, "{}", get_result_text(&r));
+        assert_eq!(parse_result_json(&r)["operation"], "rename_layer");
+
+        let lib = PcbLib::open(&path).unwrap();
+        let on_top = lib
+            .iter()
+            .flat_map(|fp| fp.tracks.iter())
+            .filter(|t| t.layer == Layer::TopOverlay)
+            .count();
+        assert_eq!(on_top, 0, "all Top Overlay tracks were moved");
+    }
+
+    #[test]
+    fn batch_rename_layer_rejects_invalid_layer() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("BadLayer.PcbLib");
+        create_tracked_pcblib(&path);
+        let r = server.call_batch_update(&json!({
+            "filepath": path.to_string_lossy(),
+            "operation": "rename_layer",
+            "parameters": { "from_layer": "Nonexistent Layer", "to_layer": "Bottom Overlay" },
+        }));
+        assert!(r.is_error);
+        assert!(get_result_text(&r).contains("Invalid from_layer"));
+    }
+
+    #[test]
+    fn batch_update_schlib_parameters_adds_parameter() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Params.SchLib");
+        create_test_schlib(&path);
+
+        let r = server.call_batch_update(&json!({
+            "filepath": path.to_string_lossy(),
+            "operation": "update_parameters",
+            "parameters": { "param_name": "Tolerance", "param_value": "1%", "add_if_missing": true },
+        }));
+        assert!(!r.is_error, "{}", get_result_text(&r));
+        assert_eq!(parse_result_json(&r)["operation"], "update_parameters");
+
+        let lib = SchLib::open(&path).unwrap();
+        let has_param = lib
+            .iter()
+            .flat_map(|s| s.parameters.iter())
+            .any(|p| p.name == "Tolerance" && p.value == "1%");
+        assert!(has_param, "the parameter was added to at least one symbol");
+    }
 }
