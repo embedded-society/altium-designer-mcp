@@ -97,7 +97,15 @@ impl Harness {
             }
         });
 
-        let mut h = Self { child, stdin, rx, next_id: 0, tmp, libs, init: Value::Null };
+        let mut h = Self {
+            child,
+            stdin,
+            rx,
+            next_id: 0,
+            tmp,
+            libs,
+            init: Value::Null,
+        };
 
         let init = h.send(
             "initialize",
@@ -113,16 +121,29 @@ impl Harness {
     }
 
     fn lib_path(&self) -> String {
-        self.libs.join("RoundTrip.PcbLib").to_str().unwrap().to_owned()
+        self.libs
+            .join("RoundTrip.PcbLib")
+            .to_str()
+            .unwrap()
+            .to_owned()
     }
 
     fn schlib_path(&self) -> String {
-        self.libs.join("RoundTrip.SchLib").to_str().unwrap().to_owned()
+        self.libs
+            .join("RoundTrip.SchLib")
+            .to_str()
+            .unwrap()
+            .to_owned()
     }
 
     /// A path that exists in the temp dir but *outside* any allowed path.
     fn outside_path(&self) -> String {
-        self.tmp.path().join("outside.PcbLib").to_str().unwrap().to_owned()
+        self.tmp
+            .path()
+            .join("outside.PcbLib")
+            .to_str()
+            .unwrap()
+            .to_owned()
     }
 
     fn sample(name: &str) -> String {
@@ -165,15 +186,25 @@ impl Harness {
     // rather than `&json!({..})`; the argument is logically the request's payload.
     #[allow(clippy::needless_pass_by_value)]
     fn call_tool(&mut self, name: &str, arguments: Value) -> Value {
-        let resp = self.send("tools/call", Some(json!({ "name": name, "arguments": arguments })));
+        let resp = self.send(
+            "tools/call",
+            Some(json!({ "name": name, "arguments": arguments })),
+        );
         assert!(
             resp.get("error").is_none(),
             "tool {name} protocol error: {}",
             resp["error"]
         );
         let result = &resp["result"];
-        let text = result["content"][0]["text"].as_str().unwrap_or("").to_owned();
-        if result.get("isError").and_then(Value::as_bool).unwrap_or(false) {
+        let text = result["content"][0]["text"]
+            .as_str()
+            .unwrap_or("")
+            .to_owned();
+        if result
+            .get("isError")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
             return json!({ "_isError": true, "_error": text });
         }
         serde_json::from_str::<Value>(&text).unwrap_or_else(|_| json!({ "_text": text }))
@@ -203,7 +234,9 @@ fn is_err(v: &Value) -> bool {
 
 /// Borrowed array at `key`, or an empty slice when absent/not an array.
 fn arr<'a>(v: &'a Value, key: &str) -> &'a [Value] {
-    v.get(key).and_then(Value::as_array).map_or(&[], Vec::as_slice)
+    v.get(key)
+        .and_then(Value::as_array)
+        .map_or(&[], Vec::as_slice)
 }
 
 fn len_of(v: &Value, key: &str) -> usize {
@@ -212,7 +245,9 @@ fn len_of(v: &Value, key: &str) -> usize {
 
 /// Finds the element of `items` whose string field `key` equals `name`.
 fn find_by<'a>(items: &'a [Value], key: &str, name: &str) -> Option<&'a Value> {
-    items.iter().find(|it| it.get(key).and_then(Value::as_str) == Some(name))
+    items
+        .iter()
+        .find(|it| it.get(key).and_then(Value::as_str) == Some(name))
 }
 
 fn f(v: &Value, key: &str) -> f64 {
@@ -247,7 +282,11 @@ fn near(a: f64, b: f64) -> bool {
 /// `read_pcblib` serialises `PcbFlags` as a "|"-joined name string, e.g.
 /// `"LOCKED | KEEPOUT"`. Returns whether `name` is one of the set bits.
 fn has_flag(v: &Value, name: &str) -> bool {
-    v.as_str().unwrap_or("").split('|').map(str::trim).any(|p| p == name)
+    v.as_str()
+        .unwrap_or("")
+        .split('|')
+        .map(str::trim)
+        .any(|p| p == name)
 }
 
 // ============================================================================
@@ -267,9 +306,16 @@ fn tools_list_contains_core_tools() {
     let mut h = Harness::start();
     let resp = h.send("tools/list", None);
     assert!(resp.get("error").is_none(), "tools/list — no error");
-    let names: Vec<&str> =
-        arr(&resp["result"], "tools").iter().map(|t| s(t, "name")).collect();
-    for expected in ["read_pcblib", "write_pcblib", "list_components", "get_component"] {
+    let names: Vec<&str> = arr(&resp["result"], "tools")
+        .iter()
+        .map(|t| s(t, "name"))
+        .collect();
+    for expected in [
+        "read_pcblib",
+        "write_pcblib",
+        "list_components",
+        "get_component",
+    ] {
         assert!(names.contains(&expected), "tools/list contains {expected}");
     }
 }
@@ -277,7 +323,10 @@ fn tools_list_contains_core_tools() {
 #[test]
 fn unknown_tool_reports_tool_error() {
     let mut h = Harness::start();
-    let resp = h.send("tools/call", Some(json!({ "name": "nope_not_a_tool", "arguments": {} })));
+    let resp = h.send(
+        "tools/call",
+        Some(json!({ "name": "nope_not_a_tool", "arguments": {} })),
+    );
     assert!(resp.get("error").is_none(), "no protocol error");
     let result = &resp["result"];
     assert_eq!(result["isError"], true, "isError true");
@@ -299,10 +348,16 @@ fn unknown_method_returns_method_not_found() {
 #[test]
 fn missing_required_params_errors() {
     let mut h = Harness::start();
-    let resp = h.send("tools/call", Some(json!({ "name": "write_pcblib", "arguments": {} })));
+    let resp = h.send(
+        "tools/call",
+        Some(json!({ "name": "write_pcblib", "arguments": {} })),
+    );
     let has_error = resp.get("error").is_some();
-    let has_tool_error =
-        !has_error && resp["result"].get("isError").and_then(Value::as_bool).unwrap_or(false);
+    let has_tool_error = !has_error
+        && resp["result"]
+            .get("isError")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
     assert!(has_error || has_tool_error, "error for missing args");
 }
 
@@ -319,7 +374,10 @@ fn path_outside_allowed_is_denied() {
         json!({ "filepath": outside, "footprints": [footprint], "append": false }),
     );
     assert!(is_err(&result), "write outside allowed rejected: {result}");
-    assert!(s(&result, "_error").contains("Access denied"), "denial message");
+    assert!(
+        s(&result, "_error").contains("Access denied"),
+        "denial message"
+    );
 }
 
 #[test]
@@ -354,16 +412,27 @@ fn write_read_roundtrip() {
 
     let read = h.call_tool("read_pcblib", json!({ "filepath": lib }));
     assert!(!is_err(&read), "read_pcblib succeeded");
-    assert!(read.to_string().contains("RESC0402"), "read-back contains RESC0402");
+    assert!(
+        read.to_string().contains("RESC0402"),
+        "read-back contains RESC0402"
+    );
 
     let listing = h.call_tool("list_components", json!({ "filepath": lib }));
     assert!(!is_err(&listing), "list_components succeeded");
-    assert!(i(&listing, "total_count") >= 1, "list_components total_count >= 1");
+    assert!(
+        i(&listing, "total_count") >= 1,
+        "list_components total_count >= 1"
+    );
 
-    let got =
-        h.call_tool("get_component", json!({ "filepath": lib, "component_name": "RESC0402" }));
+    let got = h.call_tool(
+        "get_component",
+        json!({ "filepath": lib, "component_name": "RESC0402" }),
+    );
     assert!(!is_err(&got), "get_component succeeded");
-    assert!(got.to_string().contains("RESC0402"), "get_component returns RESC0402");
+    assert!(
+        got.to_string().contains("RESC0402"),
+        "get_component returns RESC0402"
+    );
 }
 
 #[test]
@@ -379,18 +448,35 @@ fn write_pcblib_auto_3d_body_is_opt_in() {
         "write_pcblib",
         json!({ "filepath": lib, "footprints": [fp], "append": false }),
     );
-    assert!(!is_err(&default), "write_pcblib (default) succeeded: {default}");
-    let d_body = find_by(arr(&default, "bodies"), "name", "NOBODY").cloned().unwrap_or_default();
+    assert!(
+        !is_err(&default),
+        "write_pcblib (default) succeeded: {default}"
+    );
+    let d_body = find_by(arr(&default, "bodies"), "name", "NOBODY")
+        .cloned()
+        .unwrap_or_default();
     assert_eq!(s(&d_body, "source"), "none", "default: no auto 3D body");
 
     let optin = h.call_tool(
         "write_pcblib",
         json!({ "filepath": lib, "footprints": [fp], "append": false, "auto_3d_body": true }),
     );
-    assert!(!is_err(&optin), "write_pcblib (auto_3d_body) succeeded: {optin}");
-    let o_body = find_by(arr(&optin, "bodies"), "name", "NOBODY").cloned().unwrap_or_default();
-    assert_eq!(s(&o_body, "source"), "auto-extruded", "auto_3d_body:true adds an extruded body");
-    assert!(b(&o_body, "assumed_height"), "auto body flagged assumed_height");
+    assert!(
+        !is_err(&optin),
+        "write_pcblib (auto_3d_body) succeeded: {optin}"
+    );
+    let o_body = find_by(arr(&optin, "bodies"), "name", "NOBODY")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(
+        s(&o_body, "source"),
+        "auto-extruded",
+        "auto_3d_body:true adds an extruded body"
+    );
+    assert!(
+        b(&o_body, "assumed_height"),
+        "auto body flagged assumed_height"
+    );
 }
 
 #[test]
@@ -413,7 +499,10 @@ fn write_pcblib_via_and_fill_roundtrip() {
         "write_pcblib",
         json!({ "filepath": lib, "footprints": [footprint], "append": false }),
     );
-    assert!(!is_err(&write), "write_pcblib (via+fill) succeeded: {write}");
+    assert!(
+        !is_err(&write),
+        "write_pcblib (via+fill) succeeded: {write}"
+    );
 
     let read = h.call_tool("read_pcblib", json!({ "filepath": lib }));
     assert!(!is_err(&read), "read_pcblib succeeded");
@@ -428,7 +517,9 @@ fn write_pcblib_via_and_fill_roundtrip() {
     assert_eq!(fills.len(), 1, "1 fill survived");
     let fl = &fills[0];
     assert!(
-        near(f(fl, "x1"), -1.0) && near(f(fl, "y1"), -2.0) && near(f(fl, "x2"), 3.0)
+        near(f(fl, "x1"), -1.0)
+            && near(f(fl, "y1"), -2.0)
+            && near(f(fl, "x2"), 3.0)
             && near(f(fl, "y2"), 4.0),
         "fill corners"
     );
@@ -480,30 +571,64 @@ fn write_pcblib_flags_mask_keepout_roundtrip() {
     let pads = arr(fp, "pads");
     assert_eq!(pads.len(), 1, "1 pad survived");
     assert!(has_flag(&pads[0]["flags"], "LOCKED"), "pad flags LOCKED");
-    assert!(near(f(&pads[0], "solder_mask_expansion"), 0.05), "pad solder_mask_expansion");
-    assert_eq!(s(&pads[0], "solder_mask_expansion_mode"), "manual", "pad mask mode");
+    assert!(
+        near(f(&pads[0], "solder_mask_expansion"), 0.05),
+        "pad solder_mask_expansion"
+    );
+    assert_eq!(
+        s(&pads[0], "solder_mask_expansion_mode"),
+        "manual",
+        "pad mask mode"
+    );
 
     let tracks = arr(fp, "tracks");
     assert_eq!(tracks.len(), 1, "1 track survived");
-    assert!(has_flag(&tracks[0]["flags"], "LOCKED"), "track flags LOCKED");
-    assert!(near(f(&tracks[0], "solder_mask_expansion"), 0.1), "track solder_mask_expansion");
-    assert_eq!(i(&tracks[0], "keepout_restrictions"), 3, "track keepout_restrictions");
+    assert!(
+        has_flag(&tracks[0]["flags"], "LOCKED"),
+        "track flags LOCKED"
+    );
+    assert!(
+        near(f(&tracks[0], "solder_mask_expansion"), 0.1),
+        "track solder_mask_expansion"
+    );
+    assert_eq!(
+        i(&tracks[0], "keepout_restrictions"),
+        3,
+        "track keepout_restrictions"
+    );
 
     let arcs = arr(fp, "arcs");
     assert_eq!(arcs.len(), 1, "1 arc survived");
     assert!(has_flag(&arcs[0]["flags"], "LOCKED"), "arc flags LOCKED");
-    assert!(near(f(&arcs[0], "solder_mask_expansion"), 0.2), "arc solder_mask_expansion");
-    assert_eq!(i(&arcs[0], "keepout_restrictions"), 5, "arc keepout_restrictions");
+    assert!(
+        near(f(&arcs[0], "solder_mask_expansion"), 0.2),
+        "arc solder_mask_expansion"
+    );
+    assert_eq!(
+        i(&arcs[0], "keepout_restrictions"),
+        5,
+        "arc keepout_restrictions"
+    );
 
     let regions = arr(fp, "regions");
     assert_eq!(regions.len(), 1, "1 region survived");
-    assert!(has_flag(&regions[0]["flags"], "KEEPOUT"), "region flags KEEPOUT");
+    assert!(
+        has_flag(&regions[0]["flags"], "KEEPOUT"),
+        "region flags KEEPOUT"
+    );
 
     let fills = arr(fp, "fills");
     assert_eq!(fills.len(), 1, "1 fill survived");
     assert!(has_flag(&fills[0]["flags"], "LOCKED"), "fill flags LOCKED");
-    assert!(near(f(&fills[0], "solder_mask_expansion"), 0.05), "fill solder_mask_expansion");
-    assert_eq!(i(&fills[0], "keepout_restrictions"), 2, "fill keepout_restrictions");
+    assert!(
+        near(f(&fills[0], "solder_mask_expansion"), 0.05),
+        "fill solder_mask_expansion"
+    );
+    assert_eq!(
+        i(&fills[0], "keepout_restrictions"),
+        2,
+        "fill keepout_restrictions"
+    );
 
     let ref_text = find_by(arr(fp, "text"), "text", "REF").expect("REF text survived");
     assert!(has_flag(&ref_text["flags"], "LOCKED"), "text flags LOCKED");
@@ -527,7 +652,10 @@ fn write_pcblib_pad_thermal_relief_roundtrip() {
         "write_pcblib",
         json!({ "filepath": lib, "footprints": [footprint], "append": false }),
     );
-    assert!(!is_err(&write), "write_pcblib (pad relief) succeeded: {write}");
+    assert!(
+        !is_err(&write),
+        "write_pcblib (pad relief) succeeded: {write}"
+    );
 
     let read = h.call_tool("read_pcblib", json!({ "filepath": lib }));
     let fp = find_by(arr(&read, "footprints"), "name", "PAD_RELIEF_RT").expect("present");
@@ -535,11 +663,20 @@ fn write_pcblib_pad_thermal_relief_roundtrip() {
     assert_eq!(pads.len(), 1, "1 pad survived");
     let p = &pads[0];
     assert_eq!(s(p, "power_plane_connect_style"), "direct", "connect_style");
-    assert!(near(f(p, "relief_conductor_width"), 0.3), "relief_conductor_width");
+    assert!(
+        near(f(p, "relief_conductor_width"), 0.3),
+        "relief_conductor_width"
+    );
     assert_eq!(i(p, "relief_entries"), 2, "relief_entries");
     assert!(near(f(p, "relief_air_gap"), 0.2), "relief_air_gap");
-    assert!(near(f(p, "power_plane_relief_expansion"), 0.6), "relief_expansion");
-    assert!(near(f(p, "power_plane_clearance"), 0.7), "power_plane_clearance");
+    assert!(
+        near(f(p, "power_plane_relief_expansion"), 0.6),
+        "relief_expansion"
+    );
+    assert!(
+        near(f(p, "power_plane_clearance"), 0.7),
+        "power_plane_clearance"
+    );
 }
 
 #[test]
@@ -561,7 +698,10 @@ fn write_pcblib_via_thermal_power_plane_roundtrip() {
         "write_pcblib",
         json!({ "filepath": lib, "footprints": [footprint], "append": false }),
     );
-    assert!(!is_err(&write), "write_pcblib (via relief) succeeded: {write}");
+    assert!(
+        !is_err(&write),
+        "write_pcblib (via relief) succeeded: {write}"
+    );
 
     let read = h.call_tool("read_pcblib", json!({ "filepath": lib }));
     let fp = find_by(arr(&read, "footprints"), "name", "VIA_RELIEF_RT").expect("present");
@@ -569,9 +709,18 @@ fn write_pcblib_via_thermal_power_plane_roundtrip() {
     assert_eq!(vias.len(), 1, "1 via survived");
     let v = &vias[0];
     assert_eq!(s(v, "power_plane_connect_style"), "direct", "connect_style");
-    assert!(near(f(v, "power_plane_relief_expansion"), 0.6), "relief_expansion");
-    assert!(near(f(v, "power_plane_clearance"), 0.7), "power_plane_clearance");
-    assert!(near(f(v, "paste_mask_expansion"), 0.05), "paste_mask_expansion");
+    assert!(
+        near(f(v, "power_plane_relief_expansion"), 0.6),
+        "relief_expansion"
+    );
+    assert!(
+        near(f(v, "power_plane_clearance"), 0.7),
+        "power_plane_clearance"
+    );
+    assert!(
+        near(f(v, "paste_mask_expansion"), 0.05),
+        "paste_mask_expansion"
+    );
     assert_eq!(i(v, "net_index"), 42, "net_index");
     for flag in ["LOCKED", "KEEPOUT", "TENTING_TOP", "TENTING_BOTTOM"] {
         assert!(has_flag(&v["flags"], flag), "via flag {flag}");
@@ -595,7 +744,10 @@ fn write_pcblib_pad_slot_hole_roundtrip() {
         "write_pcblib",
         json!({ "filepath": lib, "footprints": [footprint], "append": false }),
     );
-    assert!(!is_err(&write), "write_pcblib (pad slot) succeeded: {write}");
+    assert!(
+        !is_err(&write),
+        "write_pcblib (pad slot) succeeded: {write}"
+    );
 
     let read = h.call_tool("read_pcblib", json!({ "filepath": lib }));
     let fp = find_by(arr(&read, "footprints"), "name", "PAD_SLOT_RT").expect("present");
@@ -605,8 +757,14 @@ fn write_pcblib_pad_slot_hole_roundtrip() {
     assert_eq!(s(p, "hole_shape"), "slot", "hole_shape");
     assert!(near(f(p, "hole_slot_length"), 1.5), "hole_slot_length");
     assert!(near(f(p, "hole_rotation"), 45.0), "hole_rotation");
-    assert!(near(f(p, "hole_positive_tolerance"), 0.05), "hole_positive_tolerance");
-    assert!(near(f(p, "hole_negative_tolerance"), 0.02), "hole_negative_tolerance");
+    assert!(
+        near(f(p, "hole_positive_tolerance"), 0.05),
+        "hole_positive_tolerance"
+    );
+    assert!(
+        near(f(p, "hole_negative_tolerance"), 0.02),
+        "hole_negative_tolerance"
+    );
 }
 
 #[test]
@@ -630,8 +788,14 @@ fn write_pcblib_via_slot_tolerances_roundtrip() {
     let fp = find_by(arr(&read, "footprints"), "name", "VIA_TOL_RT").expect("present");
     let vias = arr(fp, "vias");
     assert_eq!(vias.len(), 1, "1 via survived");
-    assert!(near(f(&vias[0], "hole_positive_tolerance"), 0.05), "via hole_positive_tolerance");
-    assert!(near(f(&vias[0], "hole_negative_tolerance"), 0.02), "via hole_negative_tolerance");
+    assert!(
+        near(f(&vias[0], "hole_positive_tolerance"), 0.05),
+        "via hole_positive_tolerance"
+    );
+    assert!(
+        near(f(&vias[0], "hole_negative_tolerance"), 0.02),
+        "via hole_negative_tolerance"
+    );
 }
 
 #[test]
@@ -691,14 +855,21 @@ fn write_pcblib_component_body_fields_roundtrip() {
         "write_pcblib",
         json!({ "filepath": lib, "footprints": [footprint], "append": false }),
     );
-    assert!(!is_err(&write), "write_pcblib (component body) succeeded: {write}");
+    assert!(
+        !is_err(&write),
+        "write_pcblib (component body) succeeded: {write}"
+    );
 
     let read = h.call_tool("read_pcblib", json!({ "filepath": lib }));
     let fp = find_by(arr(&read, "footprints"), "name", "BODY_FIELDS_RT").expect("present");
     let bodies = arr(fp, "component_bodies");
     assert_eq!(bodies.len(), 1, "1 component body survived");
     let bd = &bodies[0];
-    assert_eq!(s(bd, "layer"), "Mechanical 13", "body layer (layer-reader fix)");
+    assert_eq!(
+        s(bd, "layer"),
+        "Mechanical 13",
+        "body layer (layer-reader fix)"
+    );
     assert_eq!(i(bd, "body_color_3d"), 0xFF_0000, "body_color_3d");
     assert!(near(f(bd, "body_opacity_3d"), 0.5), "body_opacity_3d");
     assert_eq!(i(bd, "body_projection"), 1, "body_projection");
@@ -713,7 +884,11 @@ fn write_pcblib_additional_parameters_roundtrip() {
     let mut h = Harness::start();
     let lib = h.lib_path();
     // Keys the writer does NOT emit itself, so a custom value can survive.
-    let region_extra = [["LAYER", "TOP"], ["ISBOARDCUTOUT", "FALSE"], ["LAYERSTACKID", "7"]];
+    let region_extra = [
+        ["LAYER", "TOP"],
+        ["ISBOARDCUTOUT", "FALSE"],
+        ["LAYERSTACKID", "7"],
+    ];
     let body_extra = [["WELDINGSPOT", "42"], ["CUSTOMTAG", "xyz"]];
     let footprint = json!({
         "name": "ADDL_PARAMS_RT",
@@ -735,7 +910,10 @@ fn write_pcblib_additional_parameters_roundtrip() {
         "write_pcblib",
         json!({ "filepath": lib, "footprints": [footprint], "append": false }),
     );
-    assert!(!is_err(&write), "write_pcblib (additional_parameters) succeeded: {write}");
+    assert!(
+        !is_err(&write),
+        "write_pcblib (additional_parameters) succeeded: {write}"
+    );
 
     let read = h.call_tool("read_pcblib", json!({ "filepath": lib }));
     let fp = find_by(arr(&read, "footprints"), "name", "ADDL_PARAMS_RT").expect("present");
@@ -758,7 +936,10 @@ fn write_pcblib_additional_parameters_roundtrip() {
     // No canonical key the writer emits itself may appear twice after a RMW.
     let keys: Vec<&String> = body_pairs.iter().map(|(k, _)| k).collect();
     for (k, _) in &body_pairs {
-        assert!(keys.iter().filter(|x| **x == k).count() == 1, "body key {k} not duplicated");
+        assert!(
+            keys.iter().filter(|x| **x == k).count() == 1,
+            "body key {k} not duplicated"
+        );
     }
 }
 
@@ -778,7 +959,10 @@ fn write_pcblib_text_font_style_roundtrip() {
         "write_pcblib",
         json!({ "filepath": lib, "footprints": [footprint], "append": false }),
     );
-    assert!(!is_err(&write), "write_pcblib (text style) succeeded: {write}");
+    assert!(
+        !is_err(&write),
+        "write_pcblib (text style) succeeded: {write}"
+    );
 
     let read = h.call_tool("read_pcblib", json!({ "filepath": lib }));
     let fp = find_by(arr(&read, "footprints"), "name", "TEXT_STYLE_RT").expect("present");
@@ -808,17 +992,35 @@ fn write_pcblib_text_inverted_rect_roundtrip() {
         "write_pcblib",
         json!({ "filepath": lib, "footprints": [footprint], "append": false }),
     );
-    assert!(!is_err(&write), "write_pcblib (inverted rect) succeeded: {write}");
+    assert!(
+        !is_err(&write),
+        "write_pcblib (inverted rect) succeeded: {write}"
+    );
 
     let read = h.call_tool("read_pcblib", json!({ "filepath": lib }));
     let fp = find_by(arr(&read, "footprints"), "name", "TEXT_INVRECT_RT").expect("present");
     let ko = find_by(arr(fp, "text"), "text", "KO").expect("KO text survived");
     assert!(b(ko, "is_inverted"), "text is_inverted");
-    assert!(b(ko, "use_inverted_rectangle"), "text use_inverted_rectangle");
-    assert!(near(f(ko, "inverted_border"), 0.0254), "text inverted_border");
-    assert!(near(f(ko, "inverted_rect_width"), 0.254), "text inverted_rect_width");
-    assert!(near(f(ko, "inverted_rect_height"), 0.127), "text inverted_rect_height");
-    assert!(near(f(ko, "inverted_rect_text_offset"), 0.0508), "text inverted_rect_text_offset");
+    assert!(
+        b(ko, "use_inverted_rectangle"),
+        "text use_inverted_rectangle"
+    );
+    assert!(
+        near(f(ko, "inverted_border"), 0.0254),
+        "text inverted_border"
+    );
+    assert!(
+        near(f(ko, "inverted_rect_width"), 0.254),
+        "text inverted_rect_width"
+    );
+    assert!(
+        near(f(ko, "inverted_rect_height"), 0.127),
+        "text inverted_rect_height"
+    );
+    assert!(
+        near(f(ko, "inverted_rect_text_offset"), 0.0508),
+        "text inverted_rect_text_offset"
+    );
 }
 
 #[test]
@@ -842,12 +1044,23 @@ fn write_pcblib_unique_id_roundtrip() {
         "write_pcblib",
         json!({ "filepath": lib, "footprints": [footprint], "append": false }),
     );
-    assert!(!is_err(&write), "write_pcblib (unique_id) succeeded: {write}");
+    assert!(
+        !is_err(&write),
+        "write_pcblib (unique_id) succeeded: {write}"
+    );
 
     let read = h.call_tool("read_pcblib", json!({ "filepath": lib }));
     let fp = find_by(arr(&read, "footprints"), "name", "UID_RT").expect("present");
-    assert_eq!(s(&arr(fp, "vias")[0], "unique_id"), "VIAUID01", "via unique_id preserved");
-    assert_eq!(s(&arr(fp, "regions")[0], "unique_id"), "REGUID02", "region unique_id preserved");
+    assert_eq!(
+        s(&arr(fp, "vias")[0], "unique_id"),
+        "VIAUID01",
+        "via unique_id preserved"
+    );
+    assert_eq!(
+        s(&arr(fp, "regions")[0], "unique_id"),
+        "REGUID02",
+        "region unique_id preserved"
+    );
     let re = find_by(arr(fp, "text"), "text", "REF").expect("REF text survived");
     assert_eq!(s(re, "unique_id"), "TXTUID03", "text unique_id preserved");
 }
@@ -889,7 +1102,11 @@ fn write_pcblib_common_indices_roundtrip() {
     assert_eq!(tracks.len(), 1, "1 track survived");
     assert_eq!(i(&tracks[0], "net_index"), 11, "track net_index");
     assert_eq!(i(&tracks[0], "component_index"), 5, "track component_index");
-    assert_eq!(i(&tracks[0], "polygon_index"), 65535, "track polygon_index default");
+    assert_eq!(
+        i(&tracks[0], "polygon_index"),
+        65535,
+        "track polygon_index default"
+    );
 
     let re = find_by(arr(fp, "text"), "text", "NET").expect("NET text survived");
     assert_eq!(i(re, "net_index"), 22, "text net_index");
@@ -911,7 +1128,10 @@ fn update_pcblib_preserves_vias_fills() {
         "write_pcblib",
         json!({ "filepath": lib, "footprints": [footprint.clone()], "append": false }),
     );
-    assert!(!is_err(&write), "write_pcblib (via+fill) succeeded: {write}");
+    assert!(
+        !is_err(&write),
+        "write_pcblib (via+fill) succeeded: {write}"
+    );
 
     footprint["description"] = json!("after");
     let upd = h.call_tool(
@@ -931,13 +1151,15 @@ fn update_pcblib_preserves_vias_fills() {
 fn compare_components_duplicates_and_depth() {
     let mut h = Harness::start();
     let lib = h.lib_path();
-    let region = || json!({
-        "vertices": [
-            { "x": -1.0, "y": -1.0 }, { "x": 1.0, "y": -1.0 },
-            { "x": 1.0, "y": 1.0 }, { "x": -1.0, "y": 1.0 },
-        ],
-        "layer": "Top Courtyard",
-    });
+    let region = || {
+        json!({
+            "vertices": [
+                { "x": -1.0, "y": -1.0 }, { "x": 1.0, "y": -1.0 },
+                { "x": 1.0, "y": 1.0 }, { "x": -1.0, "y": 1.0 },
+            ],
+            "layer": "Top Courtyard",
+        })
+    };
     let fp_a = json!({
         "name": "CMP_A",
         "pads": [
@@ -960,7 +1182,10 @@ fn compare_components_duplicates_and_depth() {
         "write_pcblib",
         json!({ "filepath": lib, "footprints": [fp_a, fp_b], "append": false }),
     );
-    assert!(!is_err(&write), "write_pcblib (compare fixtures) succeeded: {write}");
+    assert!(
+        !is_err(&write),
+        "write_pcblib (compare fixtures) succeeded: {write}"
+    );
 
     let cmp = h.call_tool(
         "compare_components",
@@ -975,14 +1200,18 @@ fn compare_components_duplicates_and_depth() {
     let diffs = arr(&cmp, "differences");
     let pad_diffs = find_by(diffs, "field", "pads").map_or(&[][..], |d| arr(d, "differences"));
     assert!(
-        pad_diffs.iter().any(|d| s(d, "status") == "modified" && i(d, "occurrence") == 1),
+        pad_diffs
+            .iter()
+            .any(|d| s(d, "status") == "modified" && i(d, "occurrence") == 1),
         "duplicate-designator pad diff reported with occurrence index"
     );
     let text_diffs = find_by(diffs, "field", "text").map_or(&[][..], |d| arr(d, "differences"));
     assert!(
         text_diffs.iter().any(|d| {
             s(d, "status") == "modified"
-                && arr(d, "changes").iter().any(|c| s(c, "property") == "position")
+                && arr(d, "changes")
+                    .iter()
+                    .any(|c| s(c, "property") == "position")
         }),
         "moved same-content text reported as position change"
     );
@@ -1042,56 +1271,110 @@ fn write_schlib_shapes_roundtrip() {
 
     let rrs = arr(sym, "round_rects");
     assert_eq!(rrs.len(), 1, "1 round_rect survived");
-    assert!(near(f(&rrs[0], "corner_x_radius"), 5.0), "round_rect corner_x_radius");
-    assert!(near(f(&rrs[0], "corner_y_radius"), 7.0), "round_rect corner_y_radius");
-    assert!(near(f(&rrs[0], "x2"), 40.0) && near(f(&rrs[0], "y2"), 30.0), "round_rect geometry");
+    assert!(
+        near(f(&rrs[0], "corner_x_radius"), 5.0),
+        "round_rect corner_x_radius"
+    );
+    assert!(
+        near(f(&rrs[0], "corner_y_radius"), 7.0),
+        "round_rect corner_y_radius"
+    );
+    assert!(
+        near(f(&rrs[0], "x2"), 40.0) && near(f(&rrs[0], "y2"), 30.0),
+        "round_rect geometry"
+    );
 
     let pgs = arr(sym, "polygons");
     assert_eq!(pgs.len(), 1, "1 polygon survived");
     assert_eq!(len_of(&pgs[0], "points"), 3, "polygon has 3 vertices");
-    assert_eq!(i(&pgs[0], "line_style"), 2, "polygon line_style round-trips");
+    assert_eq!(
+        i(&pgs[0], "line_style"),
+        2,
+        "polygon line_style round-trips"
+    );
     assert!(b(&pgs[0], "transparent"), "polygon transparent round-trips");
-    assert!(is_false(&pgs[0], "is_not_accessible"), "polygon is_not_accessible=false round-trips");
+    assert!(
+        is_false(&pgs[0], "is_not_accessible"),
+        "polygon is_not_accessible=false round-trips"
+    );
 
     let els = arr(sym, "ellipses");
     assert_eq!(els.len(), 1, "1 ellipse survived");
-    assert!(near(f(&els[0], "radius_x"), 15.0) && near(f(&els[0], "radius_y"), 10.0), "ellipse radii");
+    assert!(
+        near(f(&els[0], "radius_x"), 15.0) && near(f(&els[0], "radius_y"), 10.0),
+        "ellipse radii"
+    );
 
     let arcs = arr(sym, "arcs");
     assert_eq!(arcs.len(), 1, "1 arc survived");
     assert!(near(f(&arcs[0], "radius"), 25.0), "arc radius");
-    assert!(near(f(&arcs[0], "start_angle"), 30.0) && near(f(&arcs[0], "end_angle"), 270.0), "arc angles");
-    assert!(is_false(&arcs[0], "is_not_accessible"), "arc is_not_accessible=false round-trips");
+    assert!(
+        near(f(&arcs[0], "start_angle"), 30.0) && near(f(&arcs[0], "end_angle"), 270.0),
+        "arc angles"
+    );
+    assert!(
+        is_false(&arcs[0], "is_not_accessible"),
+        "arc is_not_accessible=false round-trips"
+    );
 
     let lines = arr(sym, "lines");
     assert_eq!(lines.len(), 1, "1 line survived");
-    assert!(is_false(&lines[0], "is_not_accessible"), "line is_not_accessible=false round-trips");
+    assert!(
+        is_false(&lines[0], "is_not_accessible"),
+        "line is_not_accessible=false round-trips"
+    );
 
     let pies = arr(sym, "pies");
     assert_eq!(pies.len(), 1, "1 pie survived");
     assert!(near(f(&pies[0], "radius"), 20.0), "pie radius");
-    assert!(near(f(&pies[0], "start_angle"), 45.0) && near(f(&pies[0], "end_angle"), 315.0), "pie angles");
+    assert!(
+        near(f(&pies[0], "start_angle"), 45.0) && near(f(&pies[0], "end_angle"), 315.0),
+        "pie angles"
+    );
     assert!(b(&pies[0], "filled"), "pie filled round-trips");
     assert!(b(&pies[0], "transparent"), "pie transparent round-trips");
 
     let images = arr(sym, "images");
     assert_eq!(images.len(), 1, "1 image survived");
     assert_eq!(s(&images[0], "file_name"), "pic.png", "image file_name");
-    assert!(b(&images[0], "embed_image"), "image embed_image round-trips");
-    assert!(b(&images[0], "keep_aspect"), "image keep_aspect round-trips");
-    assert!(b(&images[0], "show_border"), "image show_border round-trips");
+    assert!(
+        b(&images[0], "embed_image"),
+        "image embed_image round-trips"
+    );
+    assert!(
+        b(&images[0], "keep_aspect"),
+        "image keep_aspect round-trips"
+    );
+    assert!(
+        b(&images[0], "show_border"),
+        "image show_border round-trips"
+    );
 
     let tfs = arr(sym, "text_frames");
     assert_eq!(tfs.len(), 1, "1 text_frame survived");
     let tf = &tfs[0];
     assert_eq!(s(tf, "text"), "Frame text", "text_frame text");
-    assert_eq!(i(tf, "area_color"), 0xB0_FFFF, "text_frame area_color round-trips");
-    assert_eq!(i(tf, "text_color"), 0x80_0000, "text_frame text_color round-trips");
-    assert!(near(f(tf, "text_margin"), 0.2), "text_frame text_margin round-trips");
+    assert_eq!(
+        i(tf, "area_color"),
+        0xB0_FFFF,
+        "text_frame area_color round-trips"
+    );
+    assert_eq!(
+        i(tf, "text_color"),
+        0x80_0000,
+        "text_frame text_color round-trips"
+    );
+    assert!(
+        near(f(tf, "text_margin"), 0.2),
+        "text_frame text_margin round-trips"
+    );
     assert!(b(tf, "is_solid"), "text_frame is_solid round-trips");
     assert_eq!(i(tf, "alignment"), 2, "text_frame alignment round-trips");
     assert!(b(tf, "word_wrap"), "text_frame word_wrap defaults true");
-    assert!(b(tf, "clip_to_rect"), "text_frame clip_to_rect defaults true");
+    assert!(
+        b(tf, "clip_to_rect"),
+        "text_frame clip_to_rect defaults true"
+    );
     assert!(b(tf, "show_border"), "text_frame show_border defaults true");
 
     let labels = arr(sym, "labels");
@@ -1145,11 +1428,19 @@ fn write_schlib_fields_roundtrip() {
     assert_eq!(i(clk, "colour"), 0x00_FF00, "pin colour");
     assert!(b(clk, "graphically_locked"), "pin graphically_locked");
     assert_eq!(s(clk, "swap_id_group"), "grpA", "pin swap_id_group");
-    assert_eq!(s(clk, "part_and_sequence"), "|1&2|", "pin part_and_sequence");
+    assert_eq!(
+        s(clk, "part_and_sequence"),
+        "|1&2|",
+        "pin part_and_sequence"
+    );
     assert_eq!(s(clk, "default_value"), "0", "pin default_value");
 
     let oc = find_by(arr(sym, "pins"), "name", "OC").expect("OC pin");
-    assert_eq!(s(oc, "electrical_type"), "open_collector", "pin electrical_type");
+    assert_eq!(
+        s(oc, "electrical_type"),
+        "open_collector",
+        "pin electrical_type"
+    );
 
     let rects = arr(sym, "rectangles");
     assert_eq!(rects.len(), 1, "1 rectangle survived");
@@ -1168,7 +1459,11 @@ fn write_schlib_fields_roundtrip() {
     let pls = arr(sym, "polylines");
     assert_eq!(pls.len(), 1, "1 polyline survived");
     assert_eq!(i(&pls[0], "line_style"), 1, "polyline line_style");
-    assert_eq!(i(&pls[0], "start_line_shape"), 2, "polyline start_line_shape");
+    assert_eq!(
+        i(&pls[0], "start_line_shape"),
+        2,
+        "polyline start_line_shape"
+    );
     assert_eq!(i(&pls[0], "end_line_shape"), 3, "polyline end_line_shape");
     assert_eq!(i(&pls[0], "line_shape_size"), 4, "polyline line_shape_size");
     assert!(b(&pls[0], "transparent"), "polyline transparent");
@@ -1223,7 +1518,10 @@ fn write_schlib_display_flags_roundtrip() {
         "write_schlib",
         json!({ "filepath": lib, "symbols": [symbol], "append": false }),
     );
-    assert!(!is_err(&write), "write_schlib (display flags) succeeded: {write}");
+    assert!(
+        !is_err(&write),
+        "write_schlib (display flags) succeeded: {write}"
+    );
 
     let read = h.call_tool("read_schlib", json!({ "filepath": lib }));
     let sym = find_by(arr(&read, "symbols"), "name", "FLAGS").expect("FLAGS symbol present");
@@ -1245,7 +1543,11 @@ fn write_schlib_display_flags_roundtrip() {
         assert!(b(sh, "graphically_locked"), "{label} graphically_locked");
         assert!(b(sh, "disabled"), "{label} disabled");
         assert!(b(sh, "dimmed"), "{label} dimmed");
-        assert_eq!(i(sh, "owner_part_display_mode"), 1, "{label} owner_part_display_mode");
+        assert_eq!(
+            i(sh, "owner_part_display_mode"),
+            1,
+            "{label} owner_part_display_mode"
+        );
     }
 }
 
@@ -1268,14 +1570,21 @@ fn write_schlib_parameter_display_fields_roundtrip() {
         "write_schlib",
         json!({ "filepath": lib, "symbols": [symbol], "append": false }),
     );
-    assert!(!is_err(&write), "write_schlib (parameter display fields) succeeded: {write}");
+    assert!(
+        !is_err(&write),
+        "write_schlib (parameter display fields) succeeded: {write}"
+    );
 
     let read = h.call_tool("read_schlib", json!({ "filepath": lib }));
     let sym = find_by(arr(&read, "symbols"), "name", "PARAMFIELDS").expect("present");
     let val = find_by(arr(sym, "parameters"), "name", "Value").expect("Value parameter");
     assert_eq!(i(val, "read_only_state"), 1, "parameter read_only_state");
     assert_eq!(i(val, "param_type"), 2, "parameter param_type");
-    assert_eq!(s(val, "unique_id"), "WXYZ7890", "parameter unique_id preserved");
+    assert_eq!(
+        s(val, "unique_id"),
+        "WXYZ7890",
+        "parameter unique_id preserved"
+    );
     assert_eq!(i(val, "orientation"), 3, "parameter orientation");
     assert!(b(val, "show_name"), "parameter show_name");
     assert!(b(val, "hide_name"), "parameter hide_name");
@@ -1303,17 +1612,28 @@ fn write_schlib_utf8_text_roundtrip() {
         "write_schlib",
         json!({ "filepath": lib, "symbols": [symbol], "append": false }),
     );
-    assert!(!is_err(&write), "write_schlib (UTF-8 text) succeeded: {write}");
+    assert!(
+        !is_err(&write),
+        "write_schlib (UTF-8 text) succeeded: {write}"
+    );
 
     let read = h.call_tool("read_schlib", json!({ "filepath": lib }));
     let sym = find_by(arr(&read, "symbols"), "name", "UTF8SYM").expect("UTF8SYM present");
     let val = find_by(arr(sym, "parameters"), "name", "Value").expect("Value parameter");
-    assert_eq!(s(val, "value"), omega, "parameter Ω value survives UTF-8 round-trip");
+    assert_eq!(
+        s(val, "value"),
+        omega,
+        "parameter Ω value survives UTF-8 round-trip"
+    );
     assert!(
         arr(sym, "labels").iter().any(|l| s(l, "text") == cyrillic),
         "label Cyrillic value survives UTF-8 round-trip"
     );
-    assert_eq!(s(sym, "designator"), cjk, "designator CJK value survives UTF-8 round-trip");
+    assert_eq!(
+        s(sym, "designator"),
+        cjk,
+        "designator CJK value survives UTF-8 round-trip"
+    );
 }
 
 #[test]
@@ -1334,13 +1654,20 @@ fn write_schlib_unique_id_roundtrip() {
         "write_schlib",
         json!({ "filepath": lib, "symbols": [symbol], "append": false }),
     );
-    assert!(!is_err(&write), "write_schlib (unique_id) succeeded: {write}");
+    assert!(
+        !is_err(&write),
+        "write_schlib (unique_id) succeeded: {write}"
+    );
 
     let read = h.call_tool("read_schlib", json!({ "filepath": lib }));
     let sym = find_by(arr(&read, "symbols"), "name", "UID_SYM").expect("present");
     let rects = arr(sym, "rectangles");
     assert!(!rects.is_empty(), "rectangle survived");
-    assert_eq!(s(&rects[0], "unique_id"), "RECTUID4", "rectangle unique_id preserved");
+    assert_eq!(
+        s(&rects[0], "unique_id"),
+        "RECTUID4",
+        "rectangle unique_id preserved"
+    );
     let lbl = find_by(arr(sym, "labels"), "text", "LBL").expect("LBL label survived");
     assert_eq!(s(lbl, "unique_id"), "LBLUID05", "label unique_id preserved");
 }
@@ -1374,11 +1701,30 @@ fn write_schlib_pin_aux_data_roundtrip() {
     let p0 = find_by(arr(sym, "pins"), "name", "P0").expect("P0 pin");
     let pa = find_by(arr(sym, "pins"), "name", "PA").expect("PA pin");
 
-    assert_eq!(p0.get("owner_part_display_mode").and_then(Value::as_i64).unwrap_or(0), 0, "default pin owner_part_display_mode");
-    assert_eq!(p0.get("symbol_line_width").and_then(Value::as_i64).unwrap_or(0), 0, "default pin symbol_line_width");
-    assert!(p0.get("frac").map_or(true, Value::is_null), "default pin has no frac");
+    assert_eq!(
+        p0.get("owner_part_display_mode")
+            .and_then(Value::as_i64)
+            .unwrap_or(0),
+        0,
+        "default pin owner_part_display_mode"
+    );
+    assert_eq!(
+        p0.get("symbol_line_width")
+            .and_then(Value::as_i64)
+            .unwrap_or(0),
+        0,
+        "default pin symbol_line_width"
+    );
+    assert!(
+        p0.get("frac").map_or(true, Value::is_null),
+        "default pin has no frac"
+    );
 
-    assert_eq!(i(pa, "owner_part_display_mode"), 2, "aux pin owner_part_display_mode");
+    assert_eq!(
+        i(pa, "owner_part_display_mode"),
+        2,
+        "aux pin owner_part_display_mode"
+    );
     assert_eq!(i(pa, "symbol_line_width"), 3, "aux pin symbol_line_width");
     let frac = &pa["frac"];
     assert!(
@@ -1391,7 +1737,8 @@ fn write_schlib_pin_aux_data_roundtrip() {
 fn write_schlib_embedded_image_bytes_roundtrip() {
     let mut h = Harness::start();
     let lib = h.schlib_path();
-    let img_b64 = base64::engine::general_purpose::STANDARD.encode(b"BM_fake_bitmap_payload_0123456789");
+    let img_b64 =
+        base64::engine::general_purpose::STANDARD.encode(b"BM_fake_bitmap_payload_0123456789");
     let symbol = json!({
         "name": "EMBIMG",
         "images": [
@@ -1406,16 +1753,29 @@ fn write_schlib_embedded_image_bytes_roundtrip() {
         "write_schlib",
         json!({ "filepath": lib, "symbols": [symbol], "append": false }),
     );
-    assert!(!is_err(&write), "write_schlib (embedded image) succeeded: {write}");
+    assert!(
+        !is_err(&write),
+        "write_schlib (embedded image) succeeded: {write}"
+    );
 
     let read = h.call_tool("read_schlib", json!({ "filepath": lib }));
     let sym = find_by(arr(&read, "symbols"), "name", "EMBIMG").expect("present");
     let embedded =
         find_by(arr(sym, "images"), "file_name", "C:\\img\\embed.bmp").expect("embedded image");
     let linked = find_by(arr(sym, "images"), "file_name", "linked.png").expect("linked image");
-    assert!(b(embedded, "embed_image"), "embedded image keeps embed_image");
-    assert_eq!(s(embedded, "image_data"), img_b64, "embedded image bytes round-trip as base64");
-    assert!(linked.get("image_data").map_or(true, Value::is_null), "linked image carries no image_data");
+    assert!(
+        b(embedded, "embed_image"),
+        "embedded image keeps embed_image"
+    );
+    assert_eq!(
+        s(embedded, "image_data"),
+        img_b64,
+        "embedded image bytes round-trip as base64"
+    );
+    assert!(
+        linked.get("image_data").map_or(true, Value::is_null),
+        "linked image carries no image_data"
+    );
 }
 
 #[test]
@@ -1437,7 +1797,10 @@ fn update_schlib_preserves_pies_images() {
         "write_schlib",
         json!({ "filepath": lib, "symbols": [symbol.clone()], "append": false }),
     );
-    assert!(!is_err(&write), "write_schlib (pie+image) succeeded: {write}");
+    assert!(
+        !is_err(&write),
+        "write_schlib (pie+image) succeeded: {write}"
+    );
 
     symbol["description"] = json!("after");
     let upd = h.call_tool(
@@ -1481,10 +1844,17 @@ fn bulk_rename_chained_no_loss() {
     assert!(!is_err(&rn), "bulk_rename succeeded: {rn}");
 
     let read = h.call_tool("read_schlib", json!({ "filepath": lib }));
-    let mut names: Vec<&str> = arr(&read, "symbols").iter().map(|sm| s(sm, "name")).collect();
+    let mut names: Vec<&str> = arr(&read, "symbols")
+        .iter()
+        .map(|sm| s(sm, "name"))
+        .collect();
     names.sort_unstable();
     // AA->A and AAA->AA: two distinct symbols, neither clobbered.
-    assert_eq!(names, ["A", "AA"], "both symbols survive the chained rename");
+    assert_eq!(
+        names,
+        ["A", "AA"],
+        "both symbols survive the chained rename"
+    );
 }
 
 // ============================================================================
@@ -1501,20 +1871,43 @@ fn read_pcblib_exposes_vias_and_fills() {
     let footprints = arr(&read, "footprints");
 
     let vias_fp = find_by(footprints, "name", "VIAS").expect("VIAS footprint");
-    assert!(vias_fp.get("vias").is_some(), "VIAS footprint has 'vias' field");
+    assert!(
+        vias_fp.get("vias").is_some(),
+        "VIAS footprint has 'vias' field"
+    );
     assert_eq!(len_of(vias_fp, "vias"), 2, "VIAS footprint exposes 2 vias");
 
     let fills_fp = find_by(footprints, "name", "FILLS").expect("FILLS footprint");
-    assert!(fills_fp.get("fills").is_some(), "FILLS footprint has 'fills' field");
-    assert_eq!(len_of(fills_fp, "fills"), 2, "FILLS footprint exposes 2 fills");
+    assert!(
+        fills_fp.get("fills").is_some(),
+        "FILLS footprint has 'fills' field"
+    );
+    assert_eq!(
+        len_of(fills_fp, "fills"),
+        2,
+        "FILLS footprint exposes 2 fills"
+    );
 
     let shapes_fp = find_by(footprints, "name", "PAD_SHAPES").expect("PAD_SHAPES footprint");
-    assert!(shapes_fp.get("vias").is_some(), "PAD_SHAPES footprint has 'vias' field");
-    assert!(shapes_fp.get("fills").is_some(), "PAD_SHAPES footprint has 'fills' field");
+    assert!(
+        shapes_fp.get("vias").is_some(),
+        "PAD_SHAPES footprint has 'vias' field"
+    );
+    assert!(
+        shapes_fp.get("fills").is_some(),
+        "PAD_SHAPES footprint has 'fills' field"
+    );
 
-    let got = h.call_tool("get_component", json!({ "filepath": sample, "component_name": "VIAS" }));
+    let got = h.call_tool(
+        "get_component",
+        json!({ "filepath": sample, "component_name": "VIAS" }),
+    );
     assert!(!is_err(&got), "get_component(VIAS) succeeded: {got}");
-    assert_eq!(len_of(&got["component"], "vias"), 2, "get_component(VIAS) exposes 2 vias");
+    assert_eq!(
+        len_of(&got["component"], "vias"),
+        2,
+        "get_component(VIAS) exposes 2 vias"
+    );
 }
 
 #[test]
@@ -1526,16 +1919,32 @@ fn read_schlib_exposes_round_rects_and_polygons() {
     let symbols = arr(&read, "symbols");
 
     let rr = find_by(symbols, "name", "ROUNDRECTS").expect("ROUNDRECTS symbol");
-    assert!(rr.get("round_rects").is_some(), "ROUNDRECTS has 'round_rects' field");
-    assert_eq!(len_of(rr, "round_rects"), 1, "ROUNDRECTS exposes 1 round_rect");
+    assert!(
+        rr.get("round_rects").is_some(),
+        "ROUNDRECTS has 'round_rects' field"
+    );
+    assert_eq!(
+        len_of(rr, "round_rects"),
+        1,
+        "ROUNDRECTS exposes 1 round_rect"
+    );
 
     let pg = find_by(symbols, "name", "POLYGONS").expect("POLYGONS symbol");
-    assert!(pg.get("polygons").is_some(), "POLYGONS has 'polygons' field");
+    assert!(
+        pg.get("polygons").is_some(),
+        "POLYGONS has 'polygons' field"
+    );
     assert_eq!(len_of(pg, "polygons"), 2, "POLYGONS exposes 2 polygons");
 
     let pins = find_by(symbols, "name", "PINS_ETYPE").expect("PINS_ETYPE symbol");
-    assert!(pins.get("round_rects").is_some(), "PINS_ETYPE has 'round_rects' field");
-    assert!(pins.get("polygons").is_some(), "PINS_ETYPE has 'polygons' field");
+    assert!(
+        pins.get("round_rects").is_some(),
+        "PINS_ETYPE has 'round_rects' field"
+    );
+    assert!(
+        pins.get("polygons").is_some(),
+        "PINS_ETYPE has 'polygons' field"
+    );
 }
 
 /// Collects an `additional_parameters` array of `[key, value]` pairs.
@@ -1544,7 +1953,10 @@ fn pairs(v: &Value, key: &str) -> Vec<(String, String)> {
         .iter()
         .filter_map(|p| {
             let a = p.as_array()?;
-            Some((a.first()?.as_str()?.to_owned(), a.get(1)?.as_str()?.to_owned()))
+            Some((
+                a.first()?.as_str()?.to_owned(),
+                a.get(1)?.as_str()?.to_owned(),
+            ))
         })
         .collect()
 }
