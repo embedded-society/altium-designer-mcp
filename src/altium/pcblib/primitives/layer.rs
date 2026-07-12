@@ -595,3 +595,160 @@ impl Layer {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Layer;
+
+    /// Every `Layer` variant, mirroring the `as_str`/`parse` match arms.
+    const ALL: &[Layer] = &[
+        Layer::TopLayer,
+        Layer::MidLayer1,
+        Layer::MidLayer2,
+        Layer::MidLayer3,
+        Layer::MidLayer4,
+        Layer::MidLayer5,
+        Layer::MidLayer6,
+        Layer::MidLayer7,
+        Layer::MidLayer8,
+        Layer::MidLayer9,
+        Layer::MidLayer10,
+        Layer::MidLayer11,
+        Layer::MidLayer12,
+        Layer::MidLayer13,
+        Layer::MidLayer14,
+        Layer::MidLayer15,
+        Layer::MidLayer16,
+        Layer::MidLayer17,
+        Layer::MidLayer18,
+        Layer::MidLayer19,
+        Layer::MidLayer20,
+        Layer::MidLayer21,
+        Layer::MidLayer22,
+        Layer::MidLayer23,
+        Layer::MidLayer24,
+        Layer::MidLayer25,
+        Layer::MidLayer26,
+        Layer::MidLayer27,
+        Layer::MidLayer28,
+        Layer::MidLayer29,
+        Layer::MidLayer30,
+        Layer::BottomLayer,
+        Layer::MultiLayer,
+        Layer::TopOverlay,
+        Layer::BottomOverlay,
+        Layer::TopSolder,
+        Layer::BottomSolder,
+        Layer::InternalPlane1,
+        Layer::InternalPlane2,
+        Layer::InternalPlane3,
+        Layer::InternalPlane4,
+        Layer::InternalPlane5,
+        Layer::InternalPlane6,
+        Layer::InternalPlane7,
+        Layer::InternalPlane8,
+        Layer::InternalPlane9,
+        Layer::InternalPlane10,
+        Layer::InternalPlane11,
+        Layer::InternalPlane12,
+        Layer::InternalPlane13,
+        Layer::InternalPlane14,
+        Layer::InternalPlane15,
+        Layer::InternalPlane16,
+        Layer::DrillGuide,
+        Layer::DrillDrawing,
+        Layer::TopPaste,
+        Layer::BottomPaste,
+        Layer::TopAssembly,
+        Layer::BottomAssembly,
+        Layer::TopCourtyard,
+        Layer::BottomCourtyard,
+        Layer::Top3DBody,
+        Layer::Bottom3DBody,
+        Layer::Mechanical1,
+        Layer::Mechanical2,
+        Layer::Mechanical3,
+        Layer::Mechanical4,
+        Layer::Mechanical5,
+        Layer::Mechanical6,
+        Layer::Mechanical7,
+        Layer::Mechanical8,
+        Layer::Mechanical9,
+        Layer::Mechanical10,
+        Layer::Mechanical11,
+        Layer::Mechanical12,
+        Layer::Mechanical13,
+        Layer::Mechanical14,
+        Layer::Mechanical15,
+        Layer::Mechanical16,
+        Layer::Mechanical17,
+        Layer::Mechanical18,
+        Layer::Mechanical19,
+        Layer::Mechanical20,
+        Layer::Mechanical21,
+        Layer::Mechanical22,
+        Layer::Mechanical23,
+        Layer::Mechanical24,
+        Layer::Mechanical25,
+        Layer::Mechanical26,
+        Layer::Mechanical27,
+        Layer::Mechanical28,
+        Layer::Mechanical29,
+        Layer::Mechanical30,
+        Layer::Mechanical31,
+        Layer::Mechanical32,
+        Layer::ConnectLayer,
+        Layer::BackgroundLayer,
+        Layer::DRCErrorLayer,
+        Layer::HighlightLayer,
+        Layer::GridColor1,
+        Layer::GridColor10,
+        Layer::PadHoleLayer,
+        Layer::ViaHoleLayer,
+        Layer::TopPadMaster,
+        Layer::BottomPadMaster,
+        Layer::DRCDetailLayer,
+        Layer::KeepOut,
+    ];
+
+    #[test]
+    fn every_variant_round_trips_through_as_str_and_parse() {
+        for layer in ALL {
+            let name = layer.as_str();
+            assert_eq!(
+                Layer::parse(name),
+                Some(*layer),
+                "'{name}' did not round-trip"
+            );
+            // Names are never empty and carry no leading/trailing whitespace.
+            assert!(!name.is_empty());
+            assert_eq!(name.trim(), name);
+        }
+    }
+
+    #[test]
+    fn all_layer_names_are_unique() {
+        let mut names: Vec<&str> = ALL.iter().map(Layer::as_str).collect();
+        names.sort_unstable();
+        let count = names.len();
+        names.dedup();
+        assert_eq!(names.len(), count, "duplicate layer name string");
+    }
+
+    #[test]
+    fn parse_rejects_unknown_names() {
+        assert_eq!(Layer::parse(""), None);
+        assert_eq!(Layer::parse("Not A Real Layer"), None);
+        // Layer::parse is exact — space-less aliases are not accepted here.
+        assert_eq!(Layer::parse("TopLayer"), None);
+        assert_eq!(Layer::parse("top layer"), None);
+    }
+
+    #[test]
+    fn default_is_a_known_layer() {
+        // The derived Default must be one of the enumerated variants.
+        let d = Layer::default();
+        assert!(ALL.contains(&d));
+        assert_eq!(Layer::parse(d.as_str()), Some(d));
+    }
+}
