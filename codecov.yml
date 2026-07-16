@@ -46,9 +46,5 @@ ignore:
     - "docs/"
     # CLI entry point — uses clap, a Tokio runtime and std::process::ExitCode
     # which cannot be unit-tested without forking the process. Functionality
-    # is covered end-to-end by the Python integration tests in tests/integration/.
+    # is covered end-to-end by tests/mcp_e2e.rs, which spawns the real binary.
     - "src/main.rs"
-    # Stdio transport — async I/O wrapping tokio::io::stdin()/stdout(). Cannot
-    # be unit-tested without invasive refactoring to inject readers/writers.
-    # Behaviour is exercised end-to-end by the Python integration tests.
-    - "src/mcp/transport.rs"
