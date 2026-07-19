@@ -200,19 +200,14 @@ jobs:
             - name: Generate coverage summary
               run: cargo llvm-cov report --summary-only
 
-            # Skip the Codecov upload on Dependabot PRs: Dependabot runs with a
-            # read-only token, so secrets.CODECOV_TOKEN resolves to empty and the
-            # upload would fail. The coverage computation above still runs.
+            # The token is mandatory (see ci_main.yml). Dependabot cannot read
+            # secrets, so its PRs would fail the upload — skip them instead.
             - name: Upload coverage to Codecov
               if: github.actor != 'dependabot[bot]'
               uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
               with:
                 files: lcov.info
-                # Don't fail CI on Codecov-side errors (e.g. the repository not
-                # yet being activated on codecov.io — a 404 on upload). Coverage
-                # is still computed and uploaded; flip to true once Codecov
-                # reporting is confirmed working.
-                fail_ci_if_error: false
+                fail_ci_if_error: true
                 verbose: true
               env:
                 CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
