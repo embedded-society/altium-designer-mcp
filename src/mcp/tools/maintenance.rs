@@ -721,6 +721,101 @@ impl McpServer {
             Err(e) => return ToolCallResult::error(e),
         };
 
+        fn parse_numbered_layer(s: &str) -> Option<Layer> {
+            let parse_family = |prefix: &str, f: fn(u8) -> Option<Layer>| -> Option<Layer> {
+                let num = s.strip_prefix(prefix)?.parse::<u8>().ok()?;
+                f(num)
+            };
+
+            parse_family("mechanical", |n| match n {
+                1 => Some(Layer::Mechanical1),
+                2 => Some(Layer::Mechanical2),
+                3 => Some(Layer::Mechanical3),
+                4 => Some(Layer::Mechanical4),
+                5 => Some(Layer::Mechanical5),
+                6 => Some(Layer::Mechanical6),
+                7 => Some(Layer::Mechanical7),
+                8 => Some(Layer::Mechanical8),
+                9 => Some(Layer::Mechanical9),
+                10 => Some(Layer::Mechanical10),
+                11 => Some(Layer::Mechanical11),
+                12 => Some(Layer::Mechanical12),
+                13 => Some(Layer::Mechanical13),
+                14 => Some(Layer::Mechanical14),
+                15 => Some(Layer::Mechanical15),
+                16 => Some(Layer::Mechanical16),
+                17 => Some(Layer::Mechanical17),
+                18 => Some(Layer::Mechanical18),
+                19 => Some(Layer::Mechanical19),
+                20 => Some(Layer::Mechanical20),
+                21 => Some(Layer::Mechanical21),
+                22 => Some(Layer::Mechanical22),
+                23 => Some(Layer::Mechanical23),
+                24 => Some(Layer::Mechanical24),
+                25 => Some(Layer::Mechanical25),
+                26 => Some(Layer::Mechanical26),
+                27 => Some(Layer::Mechanical27),
+                28 => Some(Layer::Mechanical28),
+                29 => Some(Layer::Mechanical29),
+                30 => Some(Layer::Mechanical30),
+                31 => Some(Layer::Mechanical31),
+                32 => Some(Layer::Mechanical32),
+                _ => None,
+            })
+            .or_else(|| parse_family("midlayer", |n| match n {
+                1 => Some(Layer::MidLayer1),
+                2 => Some(Layer::MidLayer2),
+                3 => Some(Layer::MidLayer3),
+                4 => Some(Layer::MidLayer4),
+                5 => Some(Layer::MidLayer5),
+                6 => Some(Layer::MidLayer6),
+                7 => Some(Layer::MidLayer7),
+                8 => Some(Layer::MidLayer8),
+                9 => Some(Layer::MidLayer9),
+                10 => Some(Layer::MidLayer10),
+                11 => Some(Layer::MidLayer11),
+                12 => Some(Layer::MidLayer12),
+                13 => Some(Layer::MidLayer13),
+                14 => Some(Layer::MidLayer14),
+                15 => Some(Layer::MidLayer15),
+                16 => Some(Layer::MidLayer16),
+                17 => Some(Layer::MidLayer17),
+                18 => Some(Layer::MidLayer18),
+                19 => Some(Layer::MidLayer19),
+                20 => Some(Layer::MidLayer20),
+                21 => Some(Layer::MidLayer21),
+                22 => Some(Layer::MidLayer22),
+                23 => Some(Layer::MidLayer23),
+                24 => Some(Layer::MidLayer24),
+                25 => Some(Layer::MidLayer25),
+                26 => Some(Layer::MidLayer26),
+                27 => Some(Layer::MidLayer27),
+                28 => Some(Layer::MidLayer28),
+                29 => Some(Layer::MidLayer29),
+                30 => Some(Layer::MidLayer30),
+                _ => None,
+            }))
+            .or_else(|| parse_family("internalplane", |n| match n {
+                1 => Some(Layer::InternalPlane1),
+                2 => Some(Layer::InternalPlane2),
+                3 => Some(Layer::InternalPlane3),
+                4 => Some(Layer::InternalPlane4),
+                5 => Some(Layer::InternalPlane5),
+                6 => Some(Layer::InternalPlane6),
+                7 => Some(Layer::InternalPlane7),
+                8 => Some(Layer::InternalPlane8),
+                9 => Some(Layer::InternalPlane9),
+                10 => Some(Layer::InternalPlane10),
+                11 => Some(Layer::InternalPlane11),
+                12 => Some(Layer::InternalPlane12),
+                13 => Some(Layer::InternalPlane13),
+                14 => Some(Layer::InternalPlane14),
+                15 => Some(Layer::InternalPlane15),
+                16 => Some(Layer::InternalPlane16),
+                _ => None,
+            }))
+        }
+
         // Reject invalid geometry the create path enforces — update bypassed it,
         // and out-of-range values would silently saturate in from_mm() on save.
         if pad.width <= 0.0 || pad.height <= 0.0 {
@@ -742,45 +837,11 @@ impl McpServer {
         }
 
         // Save if not dry run
-        if !dry_run {
-            if let Err(resp) = Self::backup_then_save(filepath, || library.save(filepath)) {
-                return resp;
-            }
-        }
-
-        let result = json!({
-            "status": if dry_run { "dry_run" } else { "success" },
-            "filepath": filepath,
-            "component_name": component_name,
-            "designator": designator,
-            "changes": changes,
-            "dry_run": dry_run
-        });
-
-        ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
-    }
-
-    /// Updates specific properties of a primitive in a `PcbLib` footprint.
-    #[allow(clippy::too_many_lines, clippy::cast_possible_truncation)]
-    pub(crate) fn call_update_primitive(&self, arguments: &Value) -> ToolCallResult {
-        use crate::altium::pcblib::primitives::Layer;
-        use crate::altium::PcbLib;
-
-        let Some(filepath) = arguments.get("filepath").and_then(Value::as_str) else {
-            return ToolCallResult::error("Missing required parameter: filepath");
-        };
-        let Some(component_name) = arguments.get("component_name").and_then(Value::as_str) else {
-            return ToolCallResult::error("Missing required parameter: component_name");
-        };
-        let Some(primitive_type) = arguments.get("primitive_type").and_then(Value::as_str) else {
-            return ToolCallResult::error("Missing required parameter: primitive_type");
-        };
-        let Some(index) = arguments.get("index").and_then(Value::as_u64) else {
-            return ToolCallResult::error("Missing required parameter: index");
-        };
-        let index = index as usize;
-        let Some(updates) = arguments.get("updates") else {
-            return ToolCallResult::error("Missing required parameter: updates");
+                s if s.starts_with("mechanical")
+                    || s.starts_with("midlayer")
+                    || s.starts_with("internalplane") =>
+                {
+                    parse_numbered_layer(s)
         };
 
         // Validate path
