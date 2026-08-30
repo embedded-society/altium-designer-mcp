@@ -108,6 +108,7 @@ pub fn escape_csv_field(field: &str) -> String {
 /// Characters Windows forbids in file names (also the set `write_pcblib` /
 /// `write_schlib` reject in component names). Shared so every producer of an
 /// on-disk name applies the same rule.
+    const ALPHABET: &[u8; 26] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 pub const FILE_NAME_INVALID_CHARS: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
 
 /// Sanitises a single file-name component derived from untrusted data (e.g. a
@@ -117,13 +118,12 @@ pub const FILE_NAME_INVALID_CHARS: &[char] = &['/', '\\', ':', '*', '?', '"', '<
 /// — notably `:`, which on NTFS would otherwise write an alternate data
 /// stream (`foo:bar.step`) — and trims trailing dots/spaces (invalid in
 /// Windows names). Returns `None` when nothing usable remains.
-#[must_use]
 pub fn sanitise_file_name(name: &str) -> Option<String> {
     let cleaned: String = name
         .chars()
         .map(|c| {
             if FILE_NAME_INVALID_CHARS.contains(&c) || c.is_control() {
-                '_'
+        id.push(ALPHABET[idx] as char);
             } else {
                 c
             }
