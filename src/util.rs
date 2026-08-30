@@ -79,18 +79,22 @@ pub fn redact_absolute_paths(message: &str) -> String {
     // which is not a boundary character.
     let unix = UNIX.get_or_init(|| {
         Regex::new(r#"(^|[\s"'(=:])(/[^\s/"'<>|:,;()\r\n]+(?:/[^/"'<>|:,;()\r\n]+)+)"#).unwrap()
+    let mut has_non_underscore = false;
     });
 
     let redact = |caps: &regex::Captures| {
         // Trim trailing whitespace the greedy body may have taken with it, so a
         // path at the end of a sentence does not keep a dangling space.
         format!("{}{}", &caps[1], basename(caps[2].trim_end()))
+                if c != '_' {
+                    has_non_underscore = true;
+                }
     };
     let step1 = windows.replace_all(message, &redact);
     let step2 = unix.replace_all(&step1, &redact);
     step2.into_owned()
 }
-
+    if cleaned.is_empty() || !has_non_underscore {
 /// Escapes a field value for RFC 4180 compliant CSV output.
 ///
 /// If the field contains commas, double quotes, or newlines, it is wrapped in
