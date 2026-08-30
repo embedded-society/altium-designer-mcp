@@ -721,6 +721,101 @@ impl McpServer {
     }
 
     /// Updates specific properties of a pad in a `PcbLib` footprint.
+        fn parse_numbered_layer(s: &str) -> Option<Layer> {
+            let parse_family = |prefix: &str, f: fn(u8) -> Option<Layer>| -> Option<Layer> {
+                let num = s.strip_prefix(prefix)?.parse::<u8>().ok()?;
+                f(num)
+            };
+
+            parse_family("mechanical", |n| match n {
+                1 => Some(Layer::Mechanical1),
+                2 => Some(Layer::Mechanical2),
+                3 => Some(Layer::Mechanical3),
+                4 => Some(Layer::Mechanical4),
+                5 => Some(Layer::Mechanical5),
+                6 => Some(Layer::Mechanical6),
+                7 => Some(Layer::Mechanical7),
+                8 => Some(Layer::Mechanical8),
+                9 => Some(Layer::Mechanical9),
+                10 => Some(Layer::Mechanical10),
+                11 => Some(Layer::Mechanical11),
+                12 => Some(Layer::Mechanical12),
+                13 => Some(Layer::Mechanical13),
+                14 => Some(Layer::Mechanical14),
+                15 => Some(Layer::Mechanical15),
+                16 => Some(Layer::Mechanical16),
+                17 => Some(Layer::Mechanical17),
+                18 => Some(Layer::Mechanical18),
+                19 => Some(Layer::Mechanical19),
+                20 => Some(Layer::Mechanical20),
+                21 => Some(Layer::Mechanical21),
+                22 => Some(Layer::Mechanical22),
+                23 => Some(Layer::Mechanical23),
+                24 => Some(Layer::Mechanical24),
+                25 => Some(Layer::Mechanical25),
+                26 => Some(Layer::Mechanical26),
+                27 => Some(Layer::Mechanical27),
+                28 => Some(Layer::Mechanical28),
+                29 => Some(Layer::Mechanical29),
+                30 => Some(Layer::Mechanical30),
+                31 => Some(Layer::Mechanical31),
+                32 => Some(Layer::Mechanical32),
+                _ => None,
+            })
+            .or_else(|| parse_family("midlayer", |n| match n {
+                1 => Some(Layer::MidLayer1),
+                2 => Some(Layer::MidLayer2),
+                3 => Some(Layer::MidLayer3),
+                4 => Some(Layer::MidLayer4),
+                5 => Some(Layer::MidLayer5),
+                6 => Some(Layer::MidLayer6),
+                7 => Some(Layer::MidLayer7),
+                8 => Some(Layer::MidLayer8),
+                9 => Some(Layer::MidLayer9),
+                10 => Some(Layer::MidLayer10),
+                11 => Some(Layer::MidLayer11),
+                12 => Some(Layer::MidLayer12),
+                13 => Some(Layer::MidLayer13),
+                14 => Some(Layer::MidLayer14),
+                15 => Some(Layer::MidLayer15),
+                16 => Some(Layer::MidLayer16),
+                17 => Some(Layer::MidLayer17),
+                18 => Some(Layer::MidLayer18),
+                19 => Some(Layer::MidLayer19),
+                20 => Some(Layer::MidLayer20),
+                21 => Some(Layer::MidLayer21),
+                22 => Some(Layer::MidLayer22),
+                23 => Some(Layer::MidLayer23),
+                24 => Some(Layer::MidLayer24),
+                25 => Some(Layer::MidLayer25),
+                26 => Some(Layer::MidLayer26),
+                27 => Some(Layer::MidLayer27),
+                28 => Some(Layer::MidLayer28),
+                29 => Some(Layer::MidLayer29),
+                30 => Some(Layer::MidLayer30),
+                _ => None,
+            }))
+            .or_else(|| parse_family("internalplane", |n| match n {
+                1 => Some(Layer::InternalPlane1),
+                2 => Some(Layer::InternalPlane2),
+                3 => Some(Layer::InternalPlane3),
+                4 => Some(Layer::InternalPlane4),
+                5 => Some(Layer::InternalPlane5),
+                6 => Some(Layer::InternalPlane6),
+                7 => Some(Layer::InternalPlane7),
+                8 => Some(Layer::InternalPlane8),
+                9 => Some(Layer::InternalPlane9),
+                10 => Some(Layer::InternalPlane10),
+                11 => Some(Layer::InternalPlane11),
+                12 => Some(Layer::InternalPlane12),
+                13 => Some(Layer::InternalPlane13),
+                14 => Some(Layer::InternalPlane14),
+                15 => Some(Layer::InternalPlane15),
+                16 => Some(Layer::InternalPlane16),
+                _ => None,
+            }))
+        }
+
     pub(crate) fn call_update_pad(&self, arguments: &Value) -> ToolCallResult {
         use crate::altium::PcbLib;
 
@@ -742,45 +837,11 @@ impl McpServer {
         }
 
         // Validate path
-        if let Err(e) = self.validate_path(filepath) {
-            return ToolCallResult::error(e);
-        }
-
-        let dry_run = arguments
-            .get("dry_run")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-
-        // Read library
-        let mut library = match PcbLib::open(filepath) {
-            Ok(lib) => lib,
-            Err(e) => return ToolCallResult::error(format!("Failed to read library: {e}")),
-        };
-
-        // Find footprint
-        let Some(footprint) = library.get_mut(component_name) else {
-            let available: Vec<String> = library.names();
-            return ToolCallResult::error(format!(
-                "Footprint '{component_name}' not found. Available: {available:?}"
-            ));
-        };
-
-        // Find pad by designator
-        let Some(pad) = footprint
-            .pads
-            .iter_mut()
-            .find(|p| p.designator == designator)
-        else {
-            let available: Vec<&str> = footprint
-                .pads
-                .iter()
-                .map(|p| p.designator.as_str())
-                .collect();
-            return ToolCallResult::error(format!(
-                "Pad '{designator}' not found in footprint '{component_name}'. Available: {available:?}"
-            ));
-        };
-
+                s if s.starts_with("mechanical")
+                    || s.starts_with("midlayer")
+                    || s.starts_with("internalplane") =>
+                {
+                    parse_numbered_layer(s)
         let changes = match Self::apply_pad_updates(pad, updates) {
             Ok(changes) => changes,
             Err(e) => return ToolCallResult::error(e),
