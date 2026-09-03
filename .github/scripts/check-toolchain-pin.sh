@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Verifies that every `dtolnay/rust-toolchain@<sha> # vX.Y.Z [(annotation)]`
-# pin in .github/workflows/ uses the same version comment, and that the
-# version matches the channel field in rust-toolchain.toml. Any trailing
+# pin in .github/workflows/ uses the same version comment, that the
+# version matches the channel field in rust-toolchain.toml, and that the
+# Dockerfile's builder image (`FROM rust:X.Y.Z-…`) is the same. Any trailing
 # annotation (e.g. " (latest stable)") is ignored — only the X.Y.Z token
 # is matched. Exits non-zero on mismatch.
 #
@@ -50,4 +51,17 @@ if [[ "$pin_version" != "$toml_channel" ]]; then
     exit 1
 fi
 
-echo "OK: Rust pinned to $pin_version (rust-toolchain.toml + dtolnay/rust-toolchain action)"
+dockerfile_version=$(sed -nE 's|^FROM[[:space:]]+rust:([0-9]+\.[0-9]+\.[0-9]+)[^[:space:]]*[[:space:]]+AS[[:space:]]+builder.*|\1|p' Dockerfile | head -n 1)
+
+if [[ -z "$dockerfile_version" ]]; then
+    echo "ERROR: no 'FROM rust:X.Y.Z-… AS builder' line found in Dockerfile" >&2
+    exit 1
+fi
+
+if [[ "$dockerfile_version" != "$toml_channel" ]]; then
+    echo "ERROR: Dockerfile builder image rust:$dockerfile_version does not match rust-toolchain.toml channel ($toml_channel)" >&2
+    echo "Bump all three together when updating Rust." >&2
+    exit 1
+fi
+
+echo "OK: Rust pinned to $pin_version (rust-toolchain.toml + dtolnay/rust-toolchain action + Dockerfile builder image)"

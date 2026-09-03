@@ -287,6 +287,19 @@ wires the server into every MCP client we know of.
 `altium-designer-mcp.dxt`) via Settings → Extensions → Advanced settings →
 Install Extension… — see [CLIENT_SETUP.md § Claude Desktop](docs/CLIENT_SETUP.md#claude-desktop).
 
+**In a container** — for a Linux box, a NAS or a CI job that generates libraries into a
+mounted folder (Altium itself never needs to be inside): the repository's `Dockerfile`
+produces the same `--locked` release build as the published binaries.
+
+```bash
+docker build -t altium-designer-mcp .
+docker run -i --rm -v /path/to/libraries:/libraries altium-designer-mcp
+```
+
+The mounted `/libraries` folder is the container's whole allow-list. In a client's
+configuration that is `"command": "docker"` with
+`"args": ["run", "-i", "--rm", "-v", "/path/to/libraries:/libraries", "altium-designer-mcp"]`.
+
 To build from source instead, see
 [CONTRIBUTING.md § Development Setup](CONTRIBUTING.md#development-setup); an optimised
 binary comes from `cargo build --release` and lands at `target/release/altium-designer-mcp`.

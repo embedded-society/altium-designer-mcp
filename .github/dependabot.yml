@@ -37,6 +37,23 @@ updates:
           update-types: ["major", "minor", "patch"]
       labels: ["dependencies", "javascript"]
 
+    # Docker: the two Debian base images in the Dockerfile. The builder's Rust
+    # tag is pinned to rust-toolchain.toml and guarded by
+    # check-toolchain-pin.sh, so only the Debian suffix and the runtime image
+    # move here — same weekly batch.
+    - package-ecosystem: "docker"
+      directory: "/"
+      schedule:
+        interval: "weekly"
+        day: "saturday"
+        time: "00:00"
+        timezone: "Europe/Ljubljana"
+      groups:
+        docker:
+          patterns: ["*"]
+          update-types: ["major", "minor", "patch"]
+      labels: ["dependencies", "docker"]
+
     # Cargo: large transitive dependency surface. Weekly cadence +
     # grouping keeps PR noise manageable while still catching security
     # advisories within ~7 days. Grouping all updates into one PR per

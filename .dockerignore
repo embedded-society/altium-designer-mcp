@@ -1,0 +1,13 @@
+# Allow-list: the image build needs only the crate sources. Everything else —
+# target/, node_modules/, the golden fixtures, the Altium scripts, .git — would
+# bloat the build context without changing the binary.
+*
+!Cargo.toml
+!Cargo.lock
+!src/
+!docs/AGENT_GUIDE.md
+!LICENCE
+
+# rust-toolchain.toml is deliberately NOT sent: the builder image already
+# carries the pinned compiler, and the file would make rustup try to install
+# its listed components (rustfmt, clippy) at build time for no benefit.
