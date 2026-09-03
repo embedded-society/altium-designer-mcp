@@ -14,7 +14,7 @@
 # ---- builder ---------------------------------------------------------------
 # Pinned to the repository's Rust toolchain (rust-toolchain.toml); the tag is
 # held to it by .github/scripts/check-toolchain-pin.sh.
-FROM rust:1.95.0-slim-bookworm AS builder
+FROM rust:1.98.0-slim-bookworm AS builder
 
 # git + CA certificates: Cargo.toml patches `cfb` to a git revision, which
 # cargo fetches over HTTPS.
