@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A `Dockerfile`.** `docker build -t altium-designer-mcp .` produces the same
+  `--locked` release build as the published binaries on a minimal Debian image,
+  running unprivileged with the mounted `/libraries` folder as its whole
+  allow-list — for a Linux box, a NAS or a CI job that generates libraries into
+  a mounted folder. The builder's Rust tag is held to `rust-toolchain.toml` by
+  the same guard as the workflows, and Dependabot tracks the base images.
+
 ### Fixed
 
 - **Dependabot can evaluate the repository's Python dependency files again.**
