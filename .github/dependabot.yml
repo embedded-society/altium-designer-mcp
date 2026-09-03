@@ -37,10 +37,12 @@ updates:
           update-types: ["major", "minor", "patch"]
       labels: ["dependencies", "javascript"]
 
-    # Docker: the two Debian base images in the Dockerfile. The builder's Rust
-    # tag is pinned to rust-toolchain.toml and guarded by
-    # check-toolchain-pin.sh, so only the Debian suffix and the runtime image
-    # move here — same weekly batch.
+    # Docker: the two Debian base images in the Dockerfile. The builder's
+    # `rust` image is ignored here on purpose: its tag is held to
+    # rust-toolchain.toml by check-toolchain-pin.sh, so a lone bump of it
+    # can only fail that check — a Rust update is a deliberate three-place
+    # change (toolchain file, the dtolnay/rust-toolchain workflow pins, the
+    # Dockerfile). The Debian runtime image stays covered, same weekly batch.
     - package-ecosystem: "docker"
       directory: "/"
       schedule:
@@ -52,6 +54,8 @@ updates:
         docker:
           patterns: ["*"]
           update-types: ["major", "minor", "patch"]
+      ignore:
+        - dependency-name: "rust"
       labels: ["dependencies", "docker"]
 
     # Cargo: large transitive dependency surface. Weekly cadence +
