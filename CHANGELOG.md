@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a mounted folder. The builder's Rust tag is held to `rust-toolchain.toml` by
   the same guard as the workflows, and Dependabot tracks the base images.
 
+### Changed
+
+- **MCP Registry description.** The listing now reads "File I/O and
+  primitive-placement tools so AI assistants can create and manage Altium
+  libraries.", the same message as the README and the Glama listing, within the
+  registry's 100-character cap. Takes effect with the next publish.
+
 ### Fixed
 
 - **Dependabot can evaluate the repository's Python dependency files again.**
