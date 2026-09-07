@@ -44,4 +44,8 @@ jobs:
             # hands anonymous crawlers, so a red run means a link is actually
             # dead rather than merely busy.
             - name: Check every link, external included
-              run: lychee --include-fragments --no-progress --max-retries 3 --accept "200..=299,403,429" --root-dir "$(pwd)" --exclude-path node_modules --exclude-path target --exclude-path .venv --exclude-path tests/integration/.venv "./**/*.md"
+              # clau.de is Anthropic's short-link host; its targets are
+              # sign-in-gated Google Forms that answer 401 to any bot, so the
+              # link cannot be verified here — a human with an account reaches
+              # it fine. Excluded by host rather than accepting 401 globally.
+              run: lychee --include-fragments --no-progress --max-retries 3 --accept "200..=299,403,429" --exclude 'clau\.de' --root-dir "$(pwd)" --exclude-path node_modules --exclude-path target --exclude-path .venv --exclude-path tests/integration/.venv "./**/*.md"

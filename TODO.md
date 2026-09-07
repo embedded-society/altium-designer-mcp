@@ -29,10 +29,11 @@ record). The specialised worklists stay the single source of truth for their are
 
 ## C. Outreach
 
-- [ ] **Claude Connectors Directory** — submit the `.mcpb` through Anthropic's
-      [desktop extension form](https://clau.de/desktop-extention-submission) once a
-      release carries the annotations, icon and privacy policy (a `1.0.1`). Needs a
-      human with the account: documentation URL, privacy policy URL, icon.
+- [ ] **Claude Connectors Directory** — submit the v1.0.1 `.mcpb` (it carries the
+      tool annotations, icon and privacy policy the directory requires) through
+      Anthropic's [desktop extension form](https://clau.de/desktop-extention-submission).
+      On hold until the maintainer says go; needs a human with the account, plus the
+      documentation URL, privacy policy URL and icon.
 - [ ] **OpenAI / ChatGPT** — its directory takes remote (HTTPS) servers only, so it waits
       for the v1.1.0 Streamable HTTP transport; Codex CLI users are covered already.
 
