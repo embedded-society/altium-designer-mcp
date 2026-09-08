@@ -396,9 +396,11 @@ warnings and errors.
 
 **Export a library** — read-only
 
-Export an Altium library to JSON or CSV format for version control, backup, or external processing. JSON includes full component data and, for a PcbLib, the embedded 3D
-models the bodies reference (`embedded_models`, base64 STEP data keyed by model GUID) so an import restores them; CSV provides a summary table: name, description (and a
-symbol's designator), one count column per primitive kind, and the external 3D model / footprint link count.
+Export a .PcbLib or .SchLib as text in the response — nothing is written to disk. JSON carries every component in the same shape read_pcblib/read_schlib and
+write_pcblib/write_schlib use, plus for a PcbLib the embedded 3D models its bodies reference (`embedded_models`, base64 STEP data keyed by model GUID), so import_library
+can rebuild the library elsewhere; CSV is a summary table: name, description (and a symbol's designator), one count column per primitive kind, and the external 3D model /
+footprint link count. Use JSON to version-control, back up or move a library and CSV for an inventory; use read_pcblib/read_schlib instead to inspect components with
+pagination, and list_components with details for a quick overview.
 
 **Example**
 
@@ -886,9 +888,11 @@ Render an ASCII art visualisation of a footprint from a PcbLib file: every primi
 
 **Preview a symbol** — read-only
 
-Render an ASCII art visualisation of a schematic symbol from a SchLib file: every record kind of the requested part — pins (with designators), rectangles, rounded
-rectangles, lines, polylines, polygons, arcs, pies, ellipses, elliptical arcs, beziers, images, text frames, labels and IEEE symbols — each with its own marker, plus a
-per-kind count line and a legend. Coordinates are in schematic units (10 units = 1 grid).
+Render an ASCII-art preview of one symbol in a .SchLib — a quick visual check of a layout after authoring or editing, not a drawing to keep. Every record kind of the
+requested part — pins (with designators), rectangles, rounded rectangles, lines, polylines, polygons, arcs, pies, ellipses, elliptical arcs, beziers, images, text frames,
+labels and IEEE symbols — gets its own marker, followed by a per-kind count line and a legend. part_id picks one part of a multi-part symbol (default 1; 0 draws all
+parts); scale sets characters per 10 schematic units and the picture is limited to max_width x max_height characters. Coordinates are schematic units (10 units = 1 grid).
+Use get_component or read_schlib for exact coordinates and properties, and render_footprint for a .PcbLib footprint.
 
 **Example**
 
@@ -921,7 +925,11 @@ per-kind count line and a legend. Coordinates are in schematic units (10 units =
 
 **Manage symbol parameters** — writes files (a backup is taken first)
 
-Manage component parameters in Altium SchLib files. Supports listing, getting, setting, adding, and deleting parameters like Value, Manufacturer, Part Number, etc.
+Manage the parameters of one symbol in a .SchLib (Value, Manufacturer, Part Number and the like): list them, get one, set an existing one, add a new one, or delete one.
+Names match without regard to case, as Altium treats them; set refuses a name the symbol lacks (use add) and add refuses one it already has (use set). Every change backs
+the library up to a timestamped .bak beside it (the five newest are kept) before saving, and the reply carries the parameter as stored; list returns every parameter with
+a count. Use get_component or read_schlib to see parameters together with the symbol's pins and graphics, update_component to rewrite a symbol wholesale, and
+manage_schlib_footprints for footprint links, which are models rather than parameters.
 
 **Example**
 
@@ -958,7 +966,11 @@ Manage component parameters in Altium SchLib files. Supports listing, getting, s
 
 **Manage symbol footprint links** — writes files (a backup is taken first)
 
-Manage footprint links in Altium SchLib symbols. Supports listing, adding, and removing footprint references that link schematic symbols to PCB footprints.
+Manage the footprint links (PCB models) of one symbol in a .SchLib: list them, add one, or remove one. A link names a .PcbLib footprint; add refuses a name already linked
+and remove refuses one that is not (names match without regard to case), and neither touches the .PcbLib itself. Give library_path on add when Altium should resolve and
+preview the footprint from a specific library; omit it to link by name only. Every change backs the library up to a timestamped .bak beside it (the five newest are kept)
+before saving. Use manage_schlib_parameters for parameters such as Value, get_component or read_schlib to see the links together with the rest of the symbol, and
+update_component to rewrite a symbol wholesale.
 
 **Example**
 
@@ -989,9 +1001,11 @@ Manage footprint links in Altium SchLib symbols. Supports listing, adding, and r
 
 **Compare two components** — read-only
 
-Compare two specific components in detail, showing differences in primitives, parameters, and properties. Components can be from the same library or different libraries.
-Returns primitive-level differences for every kind: pads, vias, tracks, arcs, regions, text, fills and 3D bodies of a footprint; pins, every graphic shape, parameters and
-footprint links of a symbol. Identity (GUIDs, unique ids) is never a difference.
+Compare two named components — from one library or two of the same type (.PcbLib with .PcbLib, .SchLib with .SchLib) — and report every difference: description and
+parameters, then per primitive kind: pads, vias, tracks, arcs, regions, text, fills and 3D bodies of a footprint; pins, every graphic shape, parameters and footprint
+links of a symbol. Geometry compares within tolerance (mm, default 0.001) and unmatched items are reported per side; include_geometry false compares counts and properties
+only. Identity (GUIDs, unique ids) is never a difference. Read-only; returns identical, difference_count, the differences and per-kind count summaries. Use diff_libraries
+first to find which components differ between two whole libraries, then this tool on one pair; use get_component for one component's full data rather than a comparison.
 
 **Example**
 

@@ -20,6 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Five tool descriptions now say when to use them and what they do to the file.**
+  `manage_schlib_parameters`, `manage_schlib_footprints`, `compare_components`,
+  `export_library` and `render_symbol` — the five Glama's Tool Definition Quality
+  review scored lowest — gain the guidance that review found missing: which
+  sibling tool to use instead and when, the `.bak` backup every change takes, the
+  case-insensitive name matching and the set/add refusals, that an export is
+  returned rather than written, and what each reply contains. `docs/TOOLS.md`
+  regenerated.
 - **MCP Registry description.** The listing now reads "File I/O and
   primitive-placement tools so AI assistants can create and manage Altium
   libraries.", the same message as the README and the Glama listing, within the
