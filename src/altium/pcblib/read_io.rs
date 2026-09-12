@@ -76,18 +76,42 @@ impl PcbLib {
             }
         }
 
-        // Reorder footprints according to FileHeader order (LIBREF{N} entries)
-        // This ensures list_components returns components in the correct order
-        // after reorder_components has been used.
-        for ole_name in &library.metadata.component_names {
-            if let Some(footprint) = footprints_by_ole_name.remove(ole_name) {
+        // Order the footprints as Library/Data (or a legacy FileHeader) lists
+        // them, so list_components follows the authored order and the one
+        // reorder_components wrote. The list names a footprint by its real
+        // name; its storage is that name as-is, its wire form (a non-1252 name
+        // is stored under its UTF-8 bytes), the truncated name the root
+        // SectionKeys stream maps it to, or — with no such stream — the name
+        // cut at the storage cap by Altium's own rule.
+        let section_keys: std::collections::HashMap<String, String> =
+            crate::altium::read_stream_opt(&mut cfb, "/SectionKeys")
+                .map(|data| {
+                    crate::altium::parse_pcblib_section_keys(&data)
+                        .into_iter()
+                        .collect()
+                })
+                .unwrap_or_default();
+        let no_names = std::collections::HashSet::new();
+        for name in &library.metadata.component_names {
+            let wire = crate::altium::to_wire_text(name);
+            let storage = [name.clone(), wire.clone()]
+                .into_iter()
+                .chain(section_keys.get(&wire).cloned())
+                .chain(std::iter::once(crate::altium::generate_ole_name(
+                    &wire, &no_names,
+                )))
+                .find(|candidate| footprints_by_ole_name.contains_key(candidate));
+            if let Some(footprint) = storage.and_then(|s| footprints_by_ole_name.remove(&s)) {
                 library.footprints.push(footprint);
             }
         }
 
-        // Append any orphaned footprints (found in OLE but not in FileHeader)
-        // This handles edge cases like corrupted FileHeader or manually edited files
-        for (ole_name, footprint) in footprints_by_ole_name {
+        // Append any orphaned footprints (found in OLE but not listed) in a
+        // stable order, so a corrupted list or a hand-edited file still reads
+        // the same way twice.
+        let mut orphans: Vec<_> = footprints_by_ole_name.into_iter().collect();
+        orphans.sort_by(|a, b| a.0.cmp(&b.0));
+        for (ole_name, footprint) in orphans {
             tracing::warn!(
                 ole_name = %ole_name,
                 footprint = %footprint.name,
@@ -716,6 +740,104 @@ mod tests {
             stream
                 .write_all(b"|UNIQUEIDPRIMITIVEINFORMATION=1|")
                 .expect("write Storage");
+        }
+        compound.flush().expect("flush compound document");
+    }
+
+    /// Library/Data lists footprints by their real names while a name past the
+    /// 31-unit cap is stored truncated; the root `SectionKeys` stream — Altium's
+    /// binary layout, or the text layout this crate wrote before #507 — maps
+    /// one to the other, and with no stream at all the cap rule does. In every
+    /// case the authored order holds and no footprint is appended as an orphan.
+    #[test]
+    fn truncated_storages_are_ordered_through_section_keys() {
+        let long = "GENERIC_MLCC_CAP_0402_IPC_MEDIUM_DENSITY";
+        let storage = "GENERIC_MLCC_CAP_0402_IPC_MEDIU";
+        let pairs = vec![(long.to_string(), storage.to_string())];
+        let binary = crate::altium::encode_pcblib_section_keys(&pairs)
+            .unwrap()
+            .unwrap();
+        let text = crate::altium::encode_schlib_section_keys(&pairs).unwrap();
+        let dir = temp_dir();
+        for (label, keys) in [
+            ("Binary", Some(binary.as_slice())),
+            ("Text", Some(text.as_slice())),
+            ("None", None),
+        ] {
+            let path = dir.path().join(format!("{label}.PcbLib"));
+            library_with_ordered_footprints(&path, &[(long, storage), ("SHORT", "SHORT")], keys);
+            let library = PcbLib::open(&path).expect("the library should open");
+            assert_eq!(
+                library.names(),
+                vec![long.to_string(), "SHORT".to_string()],
+                "{label}"
+            );
+        }
+    }
+
+    /// Builds a library whose `Library/Data` lists `(real name, storage name)`
+    /// footprints in order, each storage holding a `Parameters` block naming
+    /// the real name in PATTERN, plus an optional root `SectionKeys` stream.
+    fn library_with_ordered_footprints(
+        path: &std::path::Path,
+        footprints: &[(&str, &str)],
+        section_keys: Option<&[u8]>,
+    ) {
+        use std::io::Write as _;
+        let mut compound = cfb::create(path).expect("create compound document");
+        {
+            let mut stream = compound
+                .create_stream("/FileHeader")
+                .expect("create FileHeader");
+            stream
+                .write_all(b"|HEADER=Protel for Windows - PCB Library|")
+                .expect("write FileHeader");
+        }
+        compound.create_storage("/Library").expect("create Library");
+        {
+            let mut stream = compound
+                .create_stream("/Library/Data")
+                .expect("create Library/Data");
+            let mut data = Vec::new();
+            crate::altium::framing::write_cstring_param_block(
+                &mut data,
+                b"|KIND=Protel_Advanced_PCB_Library|",
+            );
+            data.extend_from_slice(&u32::try_from(footprints.len()).unwrap().to_le_bytes());
+            for (real, _) in footprints {
+                crate::altium::framing::write_string_block(&mut data, real.as_bytes());
+            }
+            stream.write_all(&data).expect("write Library/Data");
+        }
+        if let Some(keys) = section_keys {
+            let mut stream = compound
+                .create_stream("/SectionKeys")
+                .expect("create SectionKeys");
+            stream.write_all(keys).expect("write SectionKeys");
+        }
+        for (real, storage) in footprints {
+            compound
+                .create_storage(format!("/{storage}"))
+                .expect("create footprint storage");
+            {
+                let mut stream = compound
+                    .create_stream(format!("/{storage}/Parameters"))
+                    .expect("create Parameters");
+                let mut block = Vec::new();
+                crate::altium::framing::write_cstring_param_block(
+                    &mut block,
+                    format!("|PATTERN={real}|DESCRIPTION=ordered").as_bytes(),
+                );
+                stream.write_all(&block).expect("write Parameters");
+            }
+            {
+                let mut stream = compound
+                    .create_stream(format!("/{storage}/Data"))
+                    .expect("create Data");
+                let mut data = Vec::new();
+                crate::altium::framing::write_string_block(&mut data, storage.as_bytes());
+                stream.write_all(&data).expect("write Data");
+            }
         }
         compound.flush().expect("flush compound document");
     }

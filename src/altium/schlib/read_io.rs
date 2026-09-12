@@ -59,7 +59,7 @@ impl SchLib {
         let section_keys: std::collections::HashMap<String, String> =
             crate::altium::read_stream_opt(&mut cfb, "/SectionKeys")
                 .map(|data| {
-                    crate::altium::parse_section_keys(&data)
+                    crate::altium::parse_schlib_section_keys(&data)
                         .into_iter()
                         .collect()
                 })

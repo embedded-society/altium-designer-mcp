@@ -411,12 +411,106 @@ where
     out
 }
 
-/// Encodes the root `/SectionKeys` stream: the map from a component's real
-/// `LibRef` back to its truncated storage name.
+/// Encodes a `PcbLib`'s root `/SectionKeys` stream: the map from a footprint's
+/// real `LibRef` back to its truncated storage name, in the binary layout of
+/// Altium-authored libraries (four in the reference corpus, every entry a name
+/// past the 31-unit cap; `AltiumSharp` reads the same layout):
 ///
-/// Altium writes one entry per component whose name does not survive the
+/// ```text
+/// [u32 count]
+/// [u32 len][u8 str_len][LibRef]  [u32 len][u8 str_len][SectionKey]   (count times)
+/// ```
+///
+/// Each string is a `WriteStringBlock` of wire bytes (Windows-1252; a
+/// non-1252 name as its raw UTF-8 bytes), so `str_len` caps a name at 255
+/// bytes, the cap the footprint's own records impose anyway. A `SchLib` uses a
+/// text record here instead ([`encode_schlib_section_keys`]); writing that
+/// layout into a `PcbLib` left Altium Designer unable to resolve the mapped
+/// footprints (#507).
+///
+/// Returns `Ok(None)` when no name was truncated, so no stream is written, as
+/// in Altium.
+///
+/// # Errors
+///
+/// A name or storage name longer than 255 bytes cannot be framed.
+pub(crate) fn encode_pcblib_section_keys(
+    pairs: &[(String, String)],
+) -> AltiumResult<Option<Vec<u8>>> {
+    if pairs.is_empty() {
+        return Ok(None);
+    }
+    let count = u32::try_from(pairs.len()).map_err(|_| AltiumError::InvalidParameter {
+        name: "name".to_string(),
+        message: format!(
+            "{} truncated names exceed the SectionKeys count",
+            pairs.len()
+        ),
+    })?;
+    let mut data = count.to_le_bytes().to_vec();
+    for (lib_ref, section_key) in pairs {
+        for (what, value) in [("name", lib_ref), ("storage name", section_key)] {
+            let bytes = encode_windows1252(value);
+            if bytes.len() > 255 {
+                return Err(AltiumError::InvalidParameter {
+                    name: "name".to_string(),
+                    message: format!(
+                        "footprint {what} '{value}' is {} bytes; SectionKeys holds at most 255",
+                        bytes.len()
+                    ),
+                });
+            }
+            framing::write_string_block(&mut data, &bytes);
+        }
+    }
+    Ok(Some(data))
+}
+
+/// Parses a `PcbLib`'s `/SectionKeys` stream into `(LibRef, SectionKey)`
+/// pairs, both in wire form. Inverse of [`encode_pcblib_section_keys`]; a
+/// stream that ends mid-entry yields the pairs before the cut.
+///
+/// A stream in the `SchLib` text layout is accepted too: this crate wrote that
+/// layout into every `PcbLib` with a truncated name before #507, and those
+/// libraries still have to order their footprints correctly.
+pub(crate) fn parse_pcblib_section_keys(data: &[u8]) -> Vec<(String, String)> {
+    let Some(count) = bytes::read_u32_le(data, 0) else {
+        return Vec::new();
+    };
+    let mut pairs = Vec::new();
+    let mut offset = 4;
+    for _ in 0..count {
+        let Some((lib_ref, next)) = read_wire_string_block(data, offset) else {
+            break;
+        };
+        let Some((section_key, next)) = read_wire_string_block(data, next) else {
+            break;
+        };
+        pairs.push((lib_ref, section_key));
+        offset = next;
+    }
+    if pairs.is_empty() {
+        return parse_schlib_section_keys(data);
+    }
+    pairs
+}
+
+/// Reads one `WriteStringBlock` at `offset` as wire text (the Pascal string's
+/// bytes decoded as Windows-1252), with the offset just past the block.
+fn read_wire_string_block(data: &[u8], offset: usize) -> Option<(String, usize)> {
+    let (block, next) = framing::read_block(data, offset)?;
+    let len = usize::from(*block.first()?);
+    let text = block.get(1..1 + len)?;
+    Some((decode_windows1252(text), next))
+}
+
+/// Encodes a `SchLib`'s root `/SectionKeys` stream: the map from a symbol's
+/// real `LibRef` back to its truncated storage name.
+///
+/// Altium writes one entry per symbol whose name does not survive the
 /// 31-unit storage cap. Layout, pinned by the golden `SchLib` (`KeyCount=5`,
-/// one entry per over-cap name):
+/// one entry per over-cap name); a `PcbLib` carries a binary stream instead
+/// ([`encode_pcblib_section_keys`]):
 ///
 /// ```text
 /// [u32 len]["|KeyCount=N|%UTF8%LibRef0=…|||LibRef0=…|%UTF8%SectionKey0=…|||SectionKey0=…" + 0x00]
@@ -434,7 +528,7 @@ where
 ///
 /// Returns `None` when no name was truncated, so no stream is written — the
 /// common case, and byte-identical to Altium's output for such a library.
-pub(crate) fn encode_section_keys(pairs: &[(String, String)]) -> Option<Vec<u8>> {
+pub(crate) fn encode_schlib_section_keys(pairs: &[(String, String)]) -> Option<Vec<u8>> {
     use std::fmt::Write as _;
 
     if pairs.is_empty() {
@@ -459,11 +553,11 @@ pub(crate) fn encode_section_keys(pairs: &[(String, String)]) -> Option<Vec<u8>>
     Some(data)
 }
 
-/// Parses a `/SectionKeys` stream into `(LibRef, SectionKey)` pairs, both in
-/// wire form. Inverse of [`encode_section_keys`]; the plain keys are read and
+/// Parses a `SchLib`'s `/SectionKeys` stream into `(LibRef, SectionKey)` pairs,
+/// both in wire form. Inverse of [`encode_schlib_section_keys`]; the plain keys are read and
 /// the `%UTF8%` twins ignored, since the plain key already holds the raw UTF-8
 /// bytes and the twin's encoding depends on the locale that authored the file.
-pub(crate) fn parse_section_keys(data: &[u8]) -> Vec<(String, String)> {
+pub(crate) fn parse_schlib_section_keys(data: &[u8]) -> Vec<(String, String)> {
     let Some((block, _)) = framing::read_block(data, 0) else {
         return Vec::new();
     };
@@ -908,8 +1002,153 @@ mod tests {
     fn section_keys_from_a_stream_with_no_block_are_empty() {
         // A stream too short to frame a block yields no keys rather than
         // reading past its end.
-        assert!(parse_section_keys(&[]).is_empty());
-        assert!(parse_section_keys(&[1, 2, 3]).is_empty());
+        assert!(parse_schlib_section_keys(&[]).is_empty());
+        assert!(parse_schlib_section_keys(&[1, 2, 3]).is_empty());
+    }
+
+    /// The `PcbLib` stream is Altium's binary layout — a count, then a
+    /// `WriteStringBlock` for the real name and one for the storage name per
+    /// entry — checked byte for byte against a 40-character name truncated to
+    /// the 31-unit cap, the shape of every entry in the reference corpus.
+    #[test]
+    fn pcblib_section_keys_use_altium_s_binary_layout() {
+        let real = "GENERIC_MLCC_CAP_0402_IPC_MEDIUM_DENSITY";
+        let storage = "GENERIC_MLCC_CAP_0402_IPC_MEDIU";
+        assert_eq!((real.len(), storage.len()), (40, 31));
+        let pairs = vec![(real.to_string(), storage.to_string())];
+
+        let data = encode_pcblib_section_keys(&pairs)
+            .expect("two short names frame")
+            .expect("one truncated name is one entry");
+        let mut expected = 1u32.to_le_bytes().to_vec();
+        expected.extend_from_slice(&41u32.to_le_bytes());
+        expected.push(40);
+        expected.extend_from_slice(real.as_bytes());
+        expected.extend_from_slice(&32u32.to_le_bytes());
+        expected.push(31);
+        expected.extend_from_slice(storage.as_bytes());
+        assert_eq!(data, expected);
+        assert_ne!(data.get(4), Some(&b'|'), "not the SchLib text record");
+
+        assert_eq!(parse_pcblib_section_keys(&data), pairs);
+        assert_eq!(encode_pcblib_section_keys(&[]).unwrap(), None);
+    }
+
+    /// The stream Altium Designer wrote for a four-footprint library whose
+    /// names all run past the cap (`generic_smd_chip_capacitors.PcbLib` in the
+    /// reference corpus): the encoder reproduces it byte for byte from the
+    /// pairs, and the parser reads the pairs back.
+    #[test]
+    fn pcblib_section_keys_reproduce_an_altium_authored_stream() {
+        const ALTIUM: &[u8] = &[
+            0x04, 0x00, 0x00, 0x00, 0x29, 0x00, 0x00, 0x00, 0x28, 0x47, 0x45, 0x4e, 0x45, 0x52,
+            0x49, 0x43, 0x5f, 0x4d, 0x4c, 0x43, 0x43, 0x5f, 0x43, 0x41, 0x50, 0x5f, 0x30, 0x34,
+            0x30, 0x32, 0x5f, 0x49, 0x50, 0x43, 0x5f, 0x4d, 0x45, 0x44, 0x49, 0x55, 0x4d, 0x5f,
+            0x44, 0x45, 0x4e, 0x53, 0x49, 0x54, 0x59, 0x20, 0x00, 0x00, 0x00, 0x1f, 0x47, 0x45,
+            0x4e, 0x45, 0x52, 0x49, 0x43, 0x5f, 0x4d, 0x4c, 0x43, 0x43, 0x5f, 0x43, 0x41, 0x50,
+            0x5f, 0x30, 0x34, 0x30, 0x32, 0x5f, 0x49, 0x50, 0x43, 0x5f, 0x4d, 0x45, 0x44, 0x49,
+            0x55, 0x29, 0x00, 0x00, 0x00, 0x28, 0x47, 0x45, 0x4e, 0x45, 0x52, 0x49, 0x43, 0x5f,
+            0x4d, 0x4c, 0x43, 0x43, 0x5f, 0x43, 0x41, 0x50, 0x5f, 0x30, 0x36, 0x30, 0x33, 0x5f,
+            0x49, 0x50, 0x43, 0x5f, 0x4d, 0x45, 0x44, 0x49, 0x55, 0x4d, 0x5f, 0x44, 0x45, 0x4e,
+            0x53, 0x49, 0x54, 0x59, 0x20, 0x00, 0x00, 0x00, 0x1f, 0x47, 0x45, 0x4e, 0x45, 0x52,
+            0x49, 0x43, 0x5f, 0x4d, 0x4c, 0x43, 0x43, 0x5f, 0x43, 0x41, 0x50, 0x5f, 0x30, 0x36,
+            0x30, 0x33, 0x5f, 0x49, 0x50, 0x43, 0x5f, 0x4d, 0x45, 0x44, 0x49, 0x55, 0x29, 0x00,
+            0x00, 0x00, 0x28, 0x47, 0x45, 0x4e, 0x45, 0x52, 0x49, 0x43, 0x5f, 0x4d, 0x4c, 0x43,
+            0x43, 0x5f, 0x43, 0x41, 0x50, 0x5f, 0x30, 0x38, 0x30, 0x35, 0x5f, 0x49, 0x50, 0x43,
+            0x5f, 0x4d, 0x45, 0x44, 0x49, 0x55, 0x4d, 0x5f, 0x44, 0x45, 0x4e, 0x53, 0x49, 0x54,
+            0x59, 0x20, 0x00, 0x00, 0x00, 0x1f, 0x47, 0x45, 0x4e, 0x45, 0x52, 0x49, 0x43, 0x5f,
+            0x4d, 0x4c, 0x43, 0x43, 0x5f, 0x43, 0x41, 0x50, 0x5f, 0x30, 0x38, 0x30, 0x35, 0x5f,
+            0x49, 0x50, 0x43, 0x5f, 0x4d, 0x45, 0x44, 0x49, 0x55, 0x29, 0x00, 0x00, 0x00, 0x28,
+            0x47, 0x45, 0x4e, 0x45, 0x52, 0x49, 0x43, 0x5f, 0x4d, 0x4c, 0x43, 0x43, 0x5f, 0x43,
+            0x41, 0x50, 0x5f, 0x31, 0x32, 0x30, 0x36, 0x5f, 0x49, 0x50, 0x43, 0x5f, 0x4d, 0x45,
+            0x44, 0x49, 0x55, 0x4d, 0x5f, 0x44, 0x45, 0x4e, 0x53, 0x49, 0x54, 0x59, 0x20, 0x00,
+            0x00, 0x00, 0x1f, 0x47, 0x45, 0x4e, 0x45, 0x52, 0x49, 0x43, 0x5f, 0x4d, 0x4c, 0x43,
+            0x43, 0x5f, 0x43, 0x41, 0x50, 0x5f, 0x31, 0x32, 0x30, 0x36, 0x5f, 0x49, 0x50, 0x43,
+            0x5f, 0x4d, 0x45, 0x44, 0x49, 0x55,
+        ];
+        let pairs: Vec<(String, String)> = [
+            (
+                "GENERIC_MLCC_CAP_0402_IPC_MEDIUM_DENSITY",
+                "GENERIC_MLCC_CAP_0402_IPC_MEDIU",
+            ),
+            (
+                "GENERIC_MLCC_CAP_0603_IPC_MEDIUM_DENSITY",
+                "GENERIC_MLCC_CAP_0603_IPC_MEDIU",
+            ),
+            (
+                "GENERIC_MLCC_CAP_0805_IPC_MEDIUM_DENSITY",
+                "GENERIC_MLCC_CAP_0805_IPC_MEDIU",
+            ),
+            (
+                "GENERIC_MLCC_CAP_1206_IPC_MEDIUM_DENSITY",
+                "GENERIC_MLCC_CAP_1206_IPC_MEDIU",
+            ),
+        ]
+        .into_iter()
+        .map(|(a, b)| (a.to_string(), b.to_string()))
+        .collect();
+        assert_eq!(ALTIUM.len(), 328);
+        assert_eq!(parse_pcblib_section_keys(ALTIUM), pairs);
+        assert_eq!(
+            encode_pcblib_section_keys(&pairs).unwrap().as_deref(),
+            Some(ALTIUM)
+        );
+    }
+
+    /// A non-Windows-1252 name travels as its wire bytes, exactly as the
+    /// storage name and PATTERN carry it, so a reader recovers the same name
+    /// from all three.
+    #[test]
+    fn pcblib_section_keys_carry_wire_bytes_and_survive_a_round_trip() {
+        let pairs = vec![
+            (
+                to_wire_text("\u{7535}\u{963B}_A_MUCH_LONGER_FOOTPRINT_NAME"),
+                to_wire_text("\u{7535}\u{963B}_A_MUCH_LONGER_FOO"),
+            ),
+            ("PLAIN/NAME".to_string(), "PLAIN_NAME".to_string()),
+        ];
+        let data = encode_pcblib_section_keys(&pairs).unwrap().unwrap();
+        assert_eq!(parse_pcblib_section_keys(&data), pairs);
+    }
+
+    /// A stream cut mid-entry keeps the entries before the cut; a name past
+    /// the 255-byte Pascal cap is refused at encode time rather than framed
+    /// with a wrapped length.
+    #[test]
+    fn pcblib_section_keys_tolerate_a_cut_stream_and_refuse_an_overlong_name() {
+        let pairs = vec![
+            (
+                "FIRST_NAME_PAST_THE_STORAGE_CAP_XX".to_string(),
+                "FIRST_NAME_PAST_THE_STORAGE_CAP".to_string(),
+            ),
+            (
+                "SECOND_NAME_PAST_THE_STORAGE_CAP_X".to_string(),
+                "SECOND_NAME_PAST_THE_STORAGE_CA".to_string(),
+            ),
+        ];
+        let data = encode_pcblib_section_keys(&pairs).unwrap().unwrap();
+        let cut = &data[..data.len() - 10];
+        assert_eq!(parse_pcblib_section_keys(cut), pairs[..1].to_vec());
+        assert!(parse_pcblib_section_keys(&[]).is_empty());
+        assert!(parse_pcblib_section_keys(&[1, 0, 0, 0, 9]).is_empty());
+
+        let long = "X".repeat(256);
+        let err = encode_pcblib_section_keys(&[(long, "X".repeat(31))])
+            .expect_err("256 bytes do not fit a Pascal length byte");
+        assert!(err.to_string().contains("255"), "{err}");
+    }
+
+    /// The text layout this crate wrote into a `PcbLib` before #507 still
+    /// parses, so a library saved by an earlier release orders its truncated
+    /// footprints correctly instead of appending them as orphans.
+    #[test]
+    fn pcblib_section_keys_still_read_the_pre_507_text_layout() {
+        let pairs = vec![(
+            "A_MUCH_LONGER_FOOTPRINT_NAME_THAN_OLE_ALLOWS".to_string(),
+            "A_MUCH_LONGER_FOOTPRINT_NAME_TH".to_string(),
+        )];
+        let text = encode_schlib_section_keys(&pairs).unwrap();
+        assert_eq!(parse_pcblib_section_keys(&text), pairs);
     }
 
     /// The walk names the first offending string by path, reads array
