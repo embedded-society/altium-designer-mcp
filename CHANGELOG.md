@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-09-12
+
 ### Added
 
 - **A `Dockerfile`.** `docker build -t altium-designer-mcp .` produces the same
@@ -22,8 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Five tool descriptions now say when to use them and what they do to the file.**
   `manage_schlib_parameters`, `manage_schlib_footprints`, `compare_components`,
-  `export_library` and `render_symbol` — the five Glama's Tool Definition Quality
-  review scored lowest — gain the guidance that review found missing: which
+  `export_library` and `render_symbol` — the five that Glama's Tool Definition
+  Quality review scored lowest — gain the guidance that review found missing: which
   sibling tool to use instead and when, the `.bak` backup every change takes, the
   case-insensitive name matching and the set/add refusals, that an export is
   returned rather than written, and what each reply contains. `docs/TOOLS.md`
@@ -31,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **MCP Registry description.** The listing now reads "File I/O and
   primitive-placement tools so AI assistants can create and manage Altium
   libraries.", the same message as the README and the Glama listing, within the
-  registry's 100-character cap. Takes effect with the next publish.
+  registry's 100-character cap. Takes effect with this release's registry publish.
 
 ### Fixed
 
@@ -50,7 +52,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   warning — it now keeps its authored place, also in a library saved by an earlier release
   (the text layout is still read) or one with no stream at all (the cap rule applies).
   `docs/PCBLIB_FORMAT.md` documents the layout.
-
 - **Dependabot can evaluate the repository's Python dependency files again.**
   A placeholder `requirements.txt` in the Altium generator directory (whose
   scripts need only the standard library) read `TODO: fill out this`, which
