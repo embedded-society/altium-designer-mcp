@@ -77,7 +77,7 @@ impl SchLib {
             })
             .map(|(wire, ole)| (wire.clone(), ole.clone()))
             .collect();
-        if let Some(section_keys) = crate::altium::encode_section_keys(&truncated) {
+        if let Some(section_keys) = crate::altium::encode_schlib_section_keys(&truncated) {
             crate::altium::write_stream(&mut cfb, "/SectionKeys", &section_keys)?;
         }
 

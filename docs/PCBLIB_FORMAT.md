@@ -40,8 +40,27 @@ PcbLib files are OLE Compound Documents (CFB format, **OLE v3 with 512-byte sect
 > Real Altium libraries also carry `FileVersionInfo`, `EmbeddedFonts`, `LayerKindMapping`,
 > `PadViaLibrary`, `ComponentParamsTOC`, `Textures`, `ModelsNoEmbed`, `PrimitiveGuids`,
 > `UniqueIdPrimitiveInformation` and — when a component name exceeds the 31-unit storage cap —
-> a root `SectionKeys` stream mapping each real name to its plain-truncated storage name. All of
-> these are read and written back (`SectionKeys` format: see `SCHLIB_FORMAT.md`, identical here).
+> a root `SectionKeys` stream mapping each real name to its plain-truncated storage name (see
+> § SectionKeys Stream below; unlike a `SchLib`'s, it is binary). All of these are read and written back.
+
+## SectionKeys Stream
+
+A root stream, present only when at least one footprint's name does not fit the CFB 31-UTF-16-unit
+storage cap. Such a footprint is stored under its name **plain-truncated at the cap** and this
+stream maps each real `LibRef` to that `SectionKey` (storage name), one `WriteStringBlock` each:
+
+```text
+[u32 count]
+[u32 len][u8 str_len][LibRef]  [u32 len][u8 str_len][SectionKey]   (count times)
+```
+
+Strings are wire bytes (Windows-1252; a non-1252 name as its raw UTF-8 bytes), so `str_len`
+caps a name at 255 bytes. Altium-authored libraries in the reference corpus carry exactly this
+layout with one entry per over-cap name; AltiumSharp reads the same. `Library/Data` lists the
+**full** names, so lookup for a long name goes `Library/Data` → `SectionKeys` → storage. The
+`SchLib` stream is a `|KeyCount=…|LibRef0=…|SectionKey0=…` text record instead
+(`SCHLIB_FORMAT.md` § SectionKeys Stream); writing that layout into a `PcbLib` is what left Altium
+unable to resolve the mapped footprints in issue #507.
 
 ## Encoding Primitives (Building Blocks)
 

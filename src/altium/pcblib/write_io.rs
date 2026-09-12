@@ -59,8 +59,9 @@ impl PcbLib {
         self.write_library(&mut cfb, &ole_names)?;
 
         // Root SectionKeys stream: the LibRef -> storage-name map for every
-        // footprint whose name did not survive the storage cap. The real name
-        // still travels in the footprint's own PATTERN parameter; this stream
+        // footprint whose name did not survive the storage cap, in the binary
+        // layout Altium reads (#507). The real name still travels in the
+        // footprint's own PATTERN parameter and in Library/Data; this stream
         // is how Altium maps it to the truncated storage. Not written when no
         // name was truncated — which includes the whole golden.
         let truncated: Vec<(String, String)> = wire_names
@@ -69,7 +70,7 @@ impl PcbLib {
             .filter(|(wire, ole)| wire != ole)
             .map(|(wire, ole)| (wire.clone(), ole.clone()))
             .collect();
-        if let Some(section_keys) = crate::altium::encode_section_keys(&truncated) {
+        if let Some(section_keys) = crate::altium::encode_pcblib_section_keys(&truncated)? {
             crate::altium::write_stream(&mut cfb, "/SectionKeys", &section_keys)?;
         }
 
@@ -729,7 +730,61 @@ impl PcbLib {
 
 #[cfg(test)]
 mod tests {
-    use super::PcbLib;
+    use crate::altium::pcblib::{Footprint, Pad, PcbLib};
+
+    fn temp_dir() -> tempfile::TempDir {
+        std::fs::create_dir_all(".tmp").expect("create .tmp");
+        let root = std::path::Path::new(".tmp")
+            .canonicalize()
+            .expect("canonicalise .tmp");
+        tempfile::tempdir_in(root).expect("create temp dir")
+    }
+
+    /// A footprint past the 31-unit storage cap is stored truncated and
+    /// listed in a root `SectionKeys` stream in Altium's binary layout, and
+    /// the library reads back in its authored order with the real names
+    /// (#507: the text layout of a `SchLib` here left Altium unable to
+    /// resolve the mapped footprints).
+    #[test]
+    fn a_truncated_name_is_mapped_in_a_binary_section_keys_stream() {
+        let dir = temp_dir();
+        let path = dir.path().join("Truncated.PcbLib");
+        let long = "GENERIC_MLCC_CAP_0402_IPC_MEDIUM_DENSITY";
+        let mut lib = PcbLib::new();
+        for name in [long, "SHORT", "GENERIC_MLCC_CAP_0603_IPC_MEDIUM_DENSITY"] {
+            let mut fp = Footprint::new(name);
+            fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+            lib.add(fp);
+        }
+        lib.save(&path).expect("save");
+
+        let mut cfb = cfb::open(&path).expect("open compound document");
+        assert!(cfb.is_storage("/GENERIC_MLCC_CAP_0402_IPC_MEDIU"));
+        let keys = crate::altium::read_stream_opt(&mut cfb, "/SectionKeys").expect("SectionKeys");
+        let mut expected = 2u32.to_le_bytes().to_vec();
+        for (real, storage) in [
+            (long, "GENERIC_MLCC_CAP_0402_IPC_MEDIU"),
+            (
+                "GENERIC_MLCC_CAP_0603_IPC_MEDIUM_DENSITY",
+                "GENERIC_MLCC_CAP_0603_IPC_MEDIU",
+            ),
+        ] {
+            crate::altium::framing::write_string_block(&mut expected, real.as_bytes());
+            crate::altium::framing::write_string_block(&mut expected, storage.as_bytes());
+        }
+        assert_eq!(keys, expected);
+        drop(cfb);
+
+        let back = PcbLib::open(&path).expect("reopen");
+        assert_eq!(
+            back.names(),
+            vec![
+                long.to_string(),
+                "SHORT".to_string(),
+                "GENERIC_MLCC_CAP_0603_IPC_MEDIUM_DENSITY".to_string()
+            ]
+        );
+    }
 
     #[test]
     fn overriding_a_parameter_leaves_every_other_byte_alone() {

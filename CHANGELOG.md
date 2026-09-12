@@ -35,6 +35,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A `PcbLib` with a footprint name past the 31-character storage cap opens in Altium
+  again after any edit** ([#507](https://github.com/embedded-society/altium-designer-mcp/issues/507)).
+  Such a footprint is stored under its truncated name and the root `SectionKeys` stream maps
+  the real name to it. The writer emitted that stream in the `SchLib` text layout; Altium's
+  `PcbLib` layout is binary — a count, then a string block for each name and each storage
+  name — as every Altium-authored library in the reference corpus shows and AltiumSharp reads,
+  so Altium Designer 21 answered `Stream Read Error` and could not resolve the mapped
+  footprints after `update_pad`, `update_component`, `rename_component`, `copy_component`,
+  `delete_component` or any other write. The writer now emits the binary layout, reproducing
+  Altium's own stream byte for byte for the same names. The reader now parses the stream too:
+  `Library/Data` lists footprints by their full names, so a long-named footprint was never
+  matched to its truncated storage and was appended after the others in hash order with a
+  warning — it now keeps its authored place, also in a library saved by an earlier release
+  (the text layout is still read) or one with no stream at all (the cap rule applies).
+  `docs/PCBLIB_FORMAT.md` documents the layout.
+
 - **Dependabot can evaluate the repository's Python dependency files again.**
   A placeholder `requirements.txt` in the Altium generator directory (whose
   scripts need only the standard library) read `TODO: fill out this`, which
