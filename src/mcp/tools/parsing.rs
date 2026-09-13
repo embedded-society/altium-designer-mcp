@@ -1026,6 +1026,12 @@ impl McpServer {
         // where it paints over their names. Clearing hands the sequence back to
         // `SchPrimitiveKind::WRITE_ORDER`, which leads with the body graphics
         // for exactly this reason.
+        // The storage the symbol was read from, so a read-modify-write
+        // through JSON keeps it where Altium looks for it (#507).
+        symbol.storage_name = sym_json
+            .get("storage_name")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
         match sym_json.get("primitive_order") {
             Some(order) => match serde_json::from_value(order.clone()) {
                 Ok(kinds) => symbol.primitive_order = kinds,
@@ -1399,6 +1405,12 @@ impl McpServer {
             Ok(guid) => guid,
             Err(e) => return Err(ToolCallResult::error(e)),
         };
+        // The storage the footprint was read from, so a read-modify-write
+        // through JSON keeps it where Altium looks for it (#507).
+        footprint.storage_name = fp_json
+            .get("storage_name")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
         if let Some(order) = fp_json.get("primitive_order") {
             match serde_json::from_value(order.clone()) {
                 Ok(kinds) => footprint.primitive_order = kinds,

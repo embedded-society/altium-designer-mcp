@@ -77,7 +77,9 @@ each real `LibRef` to its truncated `SectionKey` (storage name):
 Values follow the `%UTF8%` twin convention above; the `|||` after each twin value is Altium's own
 separator, reproduced verbatim. The `FileHeader`'s `LibRef{N}` entries hold the **full untruncated
 name** — the golden stores a 33-byte Khmer name there against a 31-unit storage — so lookup for a
-long name goes `FileHeader` → `SectionKeys` → storage. A `PcbLib`'s stream of the same name is a
+long name goes `FileHeader` → `SectionKeys` → storage. A storage name also has `/ \ : ! *` replaced
+by `_`, the rule an AD21 `PcbLib` shows (issue #507), and a rewrite keeps an existing storage name
+as it is. A `PcbLib`'s stream of the same name is a
 binary count-and-string-blocks layout, not this text record (`PCBLIB_FORMAT.md` § SectionKeys Stream).
 
 ## PinWideText Stream

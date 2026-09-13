@@ -48,8 +48,15 @@ impl SchLib {
             .iter()
             .map(|s| crate::altium::to_wire_text(&s.name))
             .collect();
-        // OLE-safe storage names (handles long names + collisions).
-        let ole_names = crate::altium::generate_ole_names(storage_names.iter().map(String::as_str));
+        // Each symbol keeps the storage it was read from; one built from
+        // scratch, renamed or copied gets a name derived by Altium's rule.
+        let ole_names = crate::altium::resolve_storage_names(
+            &storage_names
+                .iter()
+                .zip(symbols.iter())
+                .map(|(wire, s)| (wire.clone(), s.storage_name.clone()))
+                .collect::<Vec<_>>(),
+        );
 
         // FileHeader stream. The library keeps the UniqueID it was read
         // with; one built from scratch is given its first here.
@@ -66,16 +73,22 @@ impl SchLib {
         // Root SectionKeys stream: the LibRef -> storage-name map for every
         // symbol whose name reaches the storage cap — truncated or, as a
         // UI-authored `Generic Non-polarised Capacitor` (31 units exactly)
-        // shows, merely filling it — so the real name stays recoverable by
-        // Altium and by our own reader's ordering pass. With no such name the
-        // stream is not written, as in Altium.
+        // shows, merely filling it — or whose storage Altium's rule rewrites
+        // (a forbidden character, or a `~NNN` suffix for a case-duplicate),
+        // so the real name stays recoverable by Altium and by our own
+        // reader's ordering pass. The decision is made on the key the entry
+        // would record: a storage carried from a file authored on another
+        // locale differs from the wire name yet records the wire bytes, so it
+        // is not listed (the golden lists five). With no such name the stream
+        // is not written, as in Altium.
         let truncated: Vec<(String, String)> = storage_names
             .iter()
             .zip(ole_names.iter())
             .filter(|(wire, ole)| {
-                wire != ole || wire.encode_utf16().count() >= crate::altium::MAX_OLE_NAME_LEN
+                crate::altium::section_key_name(wire, ole) != wire.as_str()
+                    || wire.encode_utf16().count() >= crate::altium::MAX_OLE_NAME_LEN
             })
-            .map(|(wire, ole)| (wire.clone(), ole.clone()))
+            .map(|(wire, ole)| (wire.clone(), crate::altium::section_key_name(wire, ole)))
             .collect();
         if let Some(section_keys) = crate::altium::encode_schlib_section_keys(&truncated) {
             crate::altium::write_stream(&mut cfb, "/SectionKeys", &section_keys)?;

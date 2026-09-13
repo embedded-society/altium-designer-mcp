@@ -657,10 +657,14 @@ fn schlib_golden_survives_a_round_trip() {
         let (Some(g), Some(o)) = (stream_bytes(&src, g_path), stream_bytes(&out, o_path)) else {
             continue;
         };
+        // Excused by the divergence's own text or by the component, like the
+        // two checks below: a damaged fixture's storage now pairs with ours
+        // (its storage name is kept on rewrite), so its inconsistent record
+        // shows up here rather than as an unmatched storage.
         failures.extend(
             block_divergences(&g, &o, name)
                 .into_iter()
-                .filter(|d| !is_known(d)),
+                .filter(|d| !is_known(d) && !is_known(name)),
         );
 
         // The record sequence itself. `IndexInSheet` is one shared counter over

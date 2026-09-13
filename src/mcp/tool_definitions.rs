@@ -102,7 +102,8 @@ impl McpServer {
                      component_bodies). Returns structured data that can be used to understand \
                      existing footprint styles. All coordinates and dimensions are in millimetres \
                      (mm). Fields such as guid, unique_id, raw_tail, raw_block, raw_geometry, \
-                     raw_layer_id, param_key_order and primitive_order are fidelity carriers: \
+                     raw_layer_id, param_key_order, primitive_order and storage_name are \
+                     fidelity carriers: \
                      pass them back unchanged to write_pcblib or update_component and the \
                      rewrite is byte-identical to the source; omit them when authoring from \
                      scratch. \
@@ -154,7 +155,7 @@ impl McpServer {
                      elliptical_arcs, labels, ieee_symbols), parameters and footprint links. \
                      Coordinates are in schematic units (10 units = 1 grid square, not mm). \
                      Fields such as unique_id, primitive_order, header_params, raw_params, \
-                     all_pin_count and extra_streams are fidelity carriers: pass them back \
+                     all_pin_count, extra_streams and storage_name are fidelity carriers: pass them back \
                      unchanged to write_schlib or update_component and the rewrite is \
                      byte-identical to the source; omit them when authoring from scratch. \
                      Each symbol is the same JSON shape get_component, \
@@ -273,6 +274,7 @@ impl McpServer {
                     "type": "string",
                     "description": "Footprint name (e.g., 'RESC1608X55N')"
                 },
+                "storage_name": { "type": "string", "description": "The CFB storage the component was read from, as read_pcblib/read_schlib emit it. Pass it back unchanged on a read-modify-write so the component stays where Altium looks for it (Altium re-derives a short name's storage and maps a long one through SectionKeys, so a moved storage is a component it cannot load); omit when authoring or renaming, and the storage name is derived as Altium would: / \\ : ! * become _, then a cut at 31 characters." },
                 "description": {
                     "type": "string",
                     "description": "Footprint description. Keep to 256 characters if the library will be imported into an Altium 365 workspace — that importer refuses longer ones; a longer description is written and reported as a validation warning."
@@ -668,6 +670,7 @@ impl McpServer {
             "type": "object",
             "properties": {
                 "name": { "type": "string" },
+                "storage_name": { "type": "string", "description": "The CFB storage the component was read from, as read_pcblib/read_schlib emit it. Pass it back unchanged on a read-modify-write so the component stays where Altium looks for it (Altium re-derives a short name's storage and maps a long one through SectionKeys, so a moved storage is a component it cannot load); omit when authoring or renaming, and the storage name is derived as Altium would: / \\ : ! * become _, then a cut at 31 characters." },
                 "description": { "type": "string", "description": "Symbol description. Keep to 256 characters if the library will be imported into an Altium 365 workspace — that importer refuses longer ones; a longer description is written and reported as a validation warning." },
                 "designator_prefix": { "type": "string", "description": "Reference-designator class letter, e.g. 'R' for resistors, 'U' for ICs. Written as '<prefix>?'. If omitted, falls back to 'component_type' (IEEE 315 / ASME Y14.44 mapping), then to 'U'." },
                 "designator_x": { "type": "number", "description": "X position of the designator text. Default: -5 (Altium's from-scratch placement)" },

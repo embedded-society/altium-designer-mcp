@@ -281,10 +281,13 @@ pub fn fold_ansi_widened(text: &str) -> Option<String> {
 /// # Returns
 ///
 /// A safe OLE name (≤31 units) that doesn't collide with existing names.
-/// Characters an OLE/CFB storage name cannot contain. `generate_ole_name`
-/// maps each to `_`; a library refuses to save a component whose name is
-/// empty, since there is no storage name to derive from nothing.
-pub const OLE_NAME_FORBIDDEN: &[char] = &['/', '\\', ':', '!'];
+/// Characters a component's storage name never carries: the four an OLE/CFB
+/// storage name cannot contain (`/ \ : !`) and `*`, which Altium maps as
+/// well — an AD21-authored `PcbLib` stores `EC10*10.5` under `EC10_10.5`
+/// and `L1210/3225` under `L1210_3225` (#507). `generate_ole_name` maps each
+/// to `_`, as Altium does; a library refuses to save a component whose name
+/// is empty, since there is no storage name to derive from nothing.
+pub const OLE_NAME_FORBIDDEN: &[char] = &['/', '\\', ':', '!', '*'];
 
 /// Whether two component names are the same name, regardless of case.
 ///
@@ -394,9 +397,65 @@ fn truncate_utf16(s: &str, max_units: usize) -> String {
     out
 }
 
+/// Chooses the storage name of every component of a library about to be
+/// written: the name it was read under, when that still fits and is free, or
+/// else one derived from the component's wire name by [`generate_ole_name`].
+///
+/// Altium finds a short component's storage by re-deriving its name and a
+/// long one through `SectionKeys`, so a storage renamed on rewrite is a
+/// component Altium can no longer open (#507: 33 storages whose `*` Altium
+/// had mapped to `_`, and 3 whose names, authored on a non-1252 locale, came
+/// back double-encoded). The carried names are reserved first, in library
+/// order, so a derived name can never take a later component's own storage;
+/// a carried name that is too long, holds a forbidden character or is already
+/// taken (ignoring case) is dropped for a derived one, with a warning.
+pub(crate) fn resolve_storage_names(components: &[(String, Option<String>)]) -> Vec<String> {
+    let mut used: HashSet<String> = HashSet::new();
+    let mut out: Vec<Option<String>> = vec![None; components.len()];
+    for (i, (wire, carried)) in components.iter().enumerate() {
+        let Some(carried) = carried else { continue };
+        let fits = utf16_len(carried) <= MAX_OLE_NAME_LEN
+            && !carried.is_empty()
+            && !carried.chars().any(|c| OLE_NAME_FORBIDDEN.contains(&c));
+        if fits && !ole_name_taken(&used, carried) {
+            used.insert(carried.clone());
+            out[i] = Some(carried.clone());
+        } else {
+            tracing::warn!(
+                component = %wire,
+                storage = %carried,
+                "carried storage name cannot be kept; deriving a fresh one"
+            );
+        }
+    }
+    for (i, (wire, _)) in components.iter().enumerate() {
+        if out[i].is_none() {
+            let derived = generate_ole_name(wire, &used);
+            used.insert(derived.clone());
+            out[i] = Some(derived);
+        }
+    }
+    out.into_iter().map(Option::unwrap_or_default).collect()
+}
+
+/// The name a `SectionKeys` entry records for a component's storage: the
+/// storage name itself when Windows-1252 holds it, else the wire name cut at
+/// the cap. A storage name outside Windows-1252 was widened from the wire
+/// bytes through the authoring locale's code page (the golden's Cyrillic
+/// footprint is stored under its UTF-8 bytes read as Windows-1250), and
+/// Altium records those bytes here, not the widened characters.
+pub(crate) fn section_key_name(wire: &str, storage: &str) -> String {
+    if requires_utf8(storage) {
+        truncate_utf16(wire, MAX_OLE_NAME_LEN)
+    } else {
+        storage.to_string()
+    }
+}
+
 /// Generates collision-free OLE storage names for an ordered list of component
 /// names. Shared by both library writers so the truncation/uniquing rules are
 /// identical; the returned names line up positionally with the input.
+#[cfg(test)]
 pub(crate) fn generate_ole_names<'a, I>(names: I) -> Vec<String>
 where
     I: IntoIterator<Item = &'a str>,
@@ -836,6 +895,100 @@ mod tests {
     fn ole_name_sanitises_slash() {
         let used = HashSet::new();
         assert_eq!(generate_ole_name("A/B", &used), "A_B");
+    }
+
+    /// `*` is not a CFB-forbidden character, but Altium maps it to `_` all the
+    /// same — the AD21-authored library of #507 stores these names exactly so,
+    /// and resolves a short name by re-deriving the storage from it, so a
+    /// storage that kept the `*` is one Altium cannot find.
+    #[test]
+    fn ole_name_sanitises_star_as_altium_does() {
+        let used = HashSet::new();
+        for (name, storage) in [
+            ("EC6*5.4", "EC6_5.4"),
+            ("EC10*10.5", "EC10_10.5"),
+            ("L6*7*3.5-4", "L6_7_3.5-4"),
+            ("2024WRS-2*15A/C-LPSW1B/GR", "2024WRS-2_15A_C-LPSW1B_GR"),
+            ("T_SOP_P7.62*W8.89*H5.72", "T_SOP_P7.62_W8.89_H5.72"),
+            (
+                "CAP-SMD_BD6.3*5.8-L6.6-W6.6-LS7.2-FD",
+                "CAP-SMD_BD6.3_5.8-L6.6-W6.6-LS7",
+            ),
+        ] {
+            assert_eq!(generate_ole_name(name, &used), storage, "{name}");
+        }
+    }
+
+    /// The `SectionKeys` stream Altium Designer 21.0.8.223 wrote for a
+    /// 402-footprint library (issue #507): its 17 entries are exactly the
+    /// names of 31 or more characters, the four 31-character ones as identity
+    /// pairs, and every storage name is what Altium's rule derives from the
+    /// name — so the stream is reproduced byte for byte from the names alone.
+    #[test]
+    fn ad21_section_keys_are_reproduced_from_the_names_alone() {
+        const ALTIUM: &[u8] =
+            include_bytes!("../../scripts/samples/section_keys/AD21_PCB_Lib.SectionKeys.bin");
+        let pairs = parse_pcblib_section_keys(ALTIUM);
+        assert_eq!(pairs.len(), 17);
+        assert!(pairs
+            .iter()
+            .all(|(lib_ref, _)| lib_ref.len() >= MAX_OLE_NAME_LEN));
+        assert_eq!(pairs.iter().filter(|(a, b)| a == b).count(), 4);
+
+        let lib_refs: Vec<&str> = pairs.iter().map(|(a, _)| a.as_str()).collect();
+        let derived = generate_ole_names(lib_refs.iter().copied());
+        let expected: Vec<String> = pairs.iter().map(|(_, b)| b.clone()).collect();
+        assert_eq!(
+            derived, expected,
+            "Altium's storage names from Altium's rule"
+        );
+
+        let listed: Vec<(String, String)> = lib_refs
+            .iter()
+            .zip(derived.iter())
+            .filter(|(lib_ref, _)| lib_ref.encode_utf16().count() >= MAX_OLE_NAME_LEN)
+            .map(|(a, b)| ((*a).to_string(), b.clone()))
+            .collect();
+        assert_eq!(
+            encode_pcblib_section_keys(&listed).unwrap().as_deref(),
+            Some(ALTIUM)
+        );
+    }
+
+    /// A component read from a file keeps its storage name on rewrite; one
+    /// that cannot be kept — over the cap, holding a forbidden character, or
+    /// already taken — falls back to a derived name, and a derived name never
+    /// takes a later component's own storage.
+    #[test]
+    fn resolve_storage_names_keeps_carried_names_and_derives_the_rest() {
+        let s = |v: &str| v.to_string();
+        let out = resolve_storage_names(&[
+            (s("EC6*5.4"), Some(s("EC6_5.4"))),
+            (s("EC6_5.4"), None),
+            (s("NEW*PART"), None),
+            (s("\u{FF08}0402"), Some(s("\u{FF08}0402"))),
+            (s("TOO_LONG"), Some(s("X").repeat(32))),
+            (s("BAD_CHAR"), Some(s("A:B"))),
+            (s("DUP"), Some(s("ec6_5.4"))),
+            (s("OWN"), Some(s("OWN_STORAGE"))),
+        ]);
+        assert_eq!(
+            out,
+            vec![
+                "EC6_5.4",
+                "EC6_5.4~001",
+                "NEW_PART",
+                "\u{FF08}0402",
+                "TOO_LONG",
+                "BAD_CHAR",
+                "DUP",
+                "OWN_STORAGE",
+            ]
+        );
+        // A derived name is chosen after every carried name is reserved.
+        let out =
+            resolve_storage_names(&[(s("OWN_STORAGE"), None), (s("OWN"), Some(s("OWN_STORAGE")))]);
+        assert_eq!(out, vec!["OWN_STORAGE~001", "OWN_STORAGE"]);
     }
 
     #[test]

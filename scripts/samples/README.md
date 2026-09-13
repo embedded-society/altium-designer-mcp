@@ -125,6 +125,15 @@ python -c "import olefile,re,sys;f=olefile.OleFileIO(sys.argv[1]);d=b''.join(f.o
 `NotAutoPosition` and `Justification` must both appear on `TestParam`, or step 3 did not
 take.
 
+## `section_keys/` — a stream from an Altium Designer 21 library
+
+`AD21_PCB_Lib.SectionKeys.bin` is the root `SectionKeys` stream (1305 bytes, 17 entries) that Altium
+Designer 21.0.8.223 wrote for a 402-footprint library, contributed as a hex dump by the reporter of
+[issue #507](https://github.com/embedded-society/altium-designer-mcp/issues/507). It carries footprint
+names only. `src/altium/mod.rs` reproduces it byte for byte from those names: every entry is a name of
+31 or more characters, four of exactly 31 as identity pairs, and each storage name is the name with
+`*` mapped to `_` and cut at 31 — Altium's rule, which the writer follows.
+
 ## Contents
 
 Each component groups primitives that share one feature axis, so a failing read test

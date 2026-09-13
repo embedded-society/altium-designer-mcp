@@ -6,6 +6,8 @@
 # corrupt them) and never shown as text diffs.
 *.PcbLib binary
 *.SchLib binary
+# A raw stream captured from such a file is binary too.
+*.bin binary
 
 # Shell scripts must always use LF, even on Windows checkouts, or the
 # Linux CI runner fails with "bad interpreter" on a CRLF shebang.

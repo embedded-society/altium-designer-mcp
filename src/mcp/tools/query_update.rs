@@ -1202,14 +1202,14 @@ mod tests {
         let lib = SchLib::open(&sch).unwrap();
         assert_eq!(lib.len(), 2, "nothing changed");
 
-        // A rename onto a name no storage can carry is refused too, on both formats.
+        // A rename onto a name with a control character is refused too, on both formats.
         for (path, key, body) in [
             (
                 &pcb,
                 "footprint",
-                json!({ "name": "BAD:NAME", "pads": [{ "designator": "1", "x": 0.0, "y": 0.0, "width": 0.6, "height": 0.5 }] }),
+                json!({ "name": "BAD\tNAME", "pads": [{ "designator": "1", "x": 0.0, "y": 0.0, "width": 0.6, "height": 0.5 }] }),
             ),
-            (&sch, "symbol", json!({ "name": "BAD/NAME", "pins": [] })),
+            (&sch, "symbol", json!({ "name": "BAD\tNAME", "pins": [] })),
         ] {
             let result = server.call_update_component(&json!({
                 "filepath": path.to_string_lossy(),
@@ -1218,7 +1218,7 @@ mod tests {
             }));
             assert!(result.is_error, "{key}");
             assert!(
-                get_result_text(&result).contains("invalid character"),
+                get_result_text(&result).contains("control character"),
                 "{}",
                 get_result_text(&result)
             );

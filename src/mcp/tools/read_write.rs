@@ -4016,9 +4016,9 @@ mod tests {
 
             let invalid = server.call_write_pcblib(&json!({
                 "filepath": path.to_string_lossy(),
-                "footprints": [footprint("BAD/NAME")],
+                "footprints": [footprint("BAD\tNAME")],
             }));
-            assert_error_mentions(&invalid, "invalid character");
+            assert_error_mentions(&invalid, "control character");
         }
 
         #[test]
@@ -4474,9 +4474,9 @@ mod tests {
 
             let invalid = server.call_write_schlib(&json!({
                 "filepath": path.to_string_lossy(),
-                "symbols": [symbol("BAD|NAME")],
+                "symbols": [symbol("BAD\tNAME")],
             }));
-            assert_error_mentions(&invalid, "invalid character");
+            assert_error_mentions(&invalid, "control character");
         }
 
         #[test]

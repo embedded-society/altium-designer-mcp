@@ -27,14 +27,12 @@ impl McpServer {
     }
 
     /// Validates a component name for every tool that creates one (write,
-    /// copy, rename, bulk rename, update, import): non-empty and free of the
-    /// characters neither an OLE storage name nor a Windows file name may
-    /// carry. The library layer sanitises the OLE-forbidden subset as a
-    /// safety net, but the tools refuse up front so a caller learns why.
-    ///
-    /// Note: OLE storage names are limited to 31 characters, but the library layer
-    /// handles this by truncating storage names while preserving full names in
-    /// the PATTERN/LIBREFERENCE fields.
+    /// copy, rename, bulk rename, update, import): non-empty and free of
+    /// ASCII control characters. Punctuation is Altium's business, not ours: an
+    /// AD21-authored library names footprints `EC10*10.5` and `L1210/3225`
+    /// (#507), and the library layer stores such a name under a sanitised,
+    /// 31-unit storage name exactly as Altium does while the full name
+    /// travels in PATTERN/LIBREFERENCE.
     /// The error for a name the library already holds: `message` as given
     /// when the spelling is the same, and with the existing spelling named
     /// when only the case differs — the two are one storage to the OLE
@@ -49,15 +47,16 @@ impl McpServer {
     }
 
     pub(crate) fn validate_ole_name(name: &str) -> Result<(), String> {
-        const INVALID_CHARS: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
-
         if name.is_empty() {
             return Err("Component name cannot be empty".to_string());
         }
-        if let Some(c) = name.chars().find(|c| INVALID_CHARS.contains(c)) {
+        // Only the C0 range and DEL: a non-1252 name travels in wire form,
+        // whose bytes 0x80-0x9F decode to C1 controls that are part of it.
+        if let Some(c) = name.chars().find(char::is_ascii_control) {
             return Err(format!(
-                "Component name '{name}' contains invalid character '{c}'. \
-                 Names cannot contain: / \\ : * ? \" < > |",
+                "Component name '{}' contains the control character U+{:04X}",
+                name.escape_default(),
+                u32::from(c)
             ));
         }
         Ok(())

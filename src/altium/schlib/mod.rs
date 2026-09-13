@@ -252,6 +252,8 @@ impl SchLib {
         for (i, new) in resolved {
             if let Some((_, symbol)) = self.symbols.get_index_mut(i) {
                 symbol.name = new.to_string();
+                // A renamed symbol gets the storage its new name derives.
+                symbol.storage_name = None;
             }
         }
         self.rekey();
@@ -448,6 +450,15 @@ pub struct Symbol {
         with = "crate::altium::base64_opt::named"
     )]
     pub extra_streams: Vec<(String, Vec<u8>)>,
+
+    /// The CFB storage the symbol was read from, kept so a rewrite stores it
+    /// under the same name: Altium resolves a symbol by re-deriving its
+    /// storage name from the real name or, for a long one, through
+    /// `SectionKeys`, so a storage that moved is a symbol it cannot load
+    /// (#507, for footprints; the same rule governs symbols). `None` for a
+    /// symbol built from scratch, renamed or copied: derived on save.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage_name: Option<String>,
 
     /// `AllPinCount` as stored. Altium keeps a stale value here — a 32-pin
     /// UI-drawn MCU stores 1, a one-pin header 2 — so it is carried rather

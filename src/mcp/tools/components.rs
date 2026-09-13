@@ -98,6 +98,7 @@ impl McpServer {
         // original's GUIDs and unique ids.
         let mut new_footprint = source.clone();
         new_footprint.name = target_name.to_string();
+        new_footprint.storage_name = None;
         new_footprint.reset_identities();
         if let Some(desc) = description {
             new_footprint.description = desc.to_string();
@@ -180,6 +181,7 @@ impl McpServer {
         // it gets fresh unique ids rather than sharing the original's.
         let mut new_symbol = source.clone();
         new_symbol.name = target_name.to_string();
+        new_symbol.storage_name = None;
         new_symbol.reset_identities();
         if let Some(desc) = description {
             new_symbol.description = desc.to_string();
@@ -547,6 +549,8 @@ impl McpServer {
         let target_name = new_name.unwrap_or(&source.name);
         let mut new_footprint = source.clone();
         new_footprint.name = target_name.to_string();
+        // The copy lives in another library: its storage is derived there.
+        new_footprint.storage_name = None;
         if let Some(desc) = description {
             new_footprint.description = desc.to_string();
         }
@@ -721,6 +725,8 @@ impl McpServer {
         let target_name = new_name.unwrap_or(&source.name);
         let mut new_symbol = source.clone();
         new_symbol.name = target_name.to_string();
+        // The copy lives in another library: its storage is derived there.
+        new_symbol.storage_name = None;
         if let Some(desc) = description {
             new_symbol.description = desc.to_string();
         }
@@ -1497,14 +1503,14 @@ mod tests {
             "Missing required parameter: filepath"
         );
 
-        // Invalid OLE character in the target name.
+        // A control character in the target name.
         let result = server.call_copy_component(&json!({
             "filepath": path.to_string_lossy(),
             "source_name": "CHIP_0402",
-            "target_name": "BAD:NAME",
+            "target_name": "BAD\tNAME",
         }));
         assert!(result.is_error);
-        assert!(get_result_text(&result).contains("invalid character"));
+        assert!(get_result_text(&result).contains("control character"));
 
         // Unsupported extension.
         let txt = dir.path().join("x.txt");
@@ -1803,6 +1809,45 @@ mod tests {
             "fresh pad identity GUID minted on write"
         );
         assert!((copy.pads[0].width - 0.6).abs() < 1e-4, "geometry copied");
+    }
+
+    /// The copy is a new component: it does not inherit the source's storage
+    /// name, so it lands under the storage its own name derives (#507).
+    #[test]
+    fn copy_component_pcblib_gives_the_copy_its_own_storage() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+
+        let mut fp = Footprint::new("EC6*5.4");
+        fp.storage_name = Some("LEGACY_STORAGE".to_string());
+        fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+        let mut lib = PcbLib::new();
+        lib.add(fp);
+        let path = dir.path().join("Storage.PcbLib");
+        lib.save(&path).unwrap();
+
+        let result = server.call_copy_component(&json!({
+            "filepath": path.to_string_lossy(),
+            "source_name": "EC6*5.4",
+            "target_name": "EC7*5.4",
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+
+        let cfb = cfb::open(&path).unwrap();
+        assert!(
+            cfb.is_storage("/LEGACY_STORAGE"),
+            "the source keeps its storage"
+        );
+        assert!(
+            cfb.is_storage("/EC7_5.4"),
+            "the copy derives Altium's form of its name"
+        );
+        drop(cfb);
+        let lib = PcbLib::open(&path).unwrap();
+        assert_eq!(
+            lib.get("EC7*5.4").unwrap().storage_name.as_deref(),
+            Some("EC7_5.4")
+        );
     }
 
     /// The `SchLib` copy likewise gets fresh record unique ids.
@@ -2810,11 +2855,11 @@ mod tests {
             }));
             assert!(escaped.is_error, "{}", get_result_text(&escaped));
 
-            // An OLE storage name cannot carry path separators.
+            // A name cannot carry a control character.
             let bad_name = server.call_rename_component(&json!({
-                "filepath": fx.path("Lib.PcbLib"), "old_name": "CHIP_0402", "new_name": "A/B",
+                "filepath": fx.path("Lib.PcbLib"), "old_name": "CHIP_0402", "new_name": "A\tB",
             }));
-            assert_error_mentions(&bad_name, "invalid character");
+            assert_error_mentions(&bad_name, "control character");
 
             let no_ext = server.call_rename_component(&json!({
                 "filepath": fx.path("Lib"), "old_name": "A", "new_name": "B",
@@ -2908,9 +2953,9 @@ mod tests {
 
             let bad_name = server.call_copy_component_cross_library(&json!({
                 "source_filepath": fx.path("Lib.PcbLib"), "target_filepath": fx.path("T.PcbLib"),
-                "component_name": "CHIP_0402", "new_name": "A|B",
+                "component_name": "CHIP_0402", "new_name": "A\tB",
             }));
-            assert_error_mentions(&bad_name, "invalid character");
+            assert_error_mentions(&bad_name, "control character");
 
             // Copying between a footprint library and a symbol library is not
             // a conversion this tool performs.
