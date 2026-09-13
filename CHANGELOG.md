@@ -19,7 +19,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sanitised on save exactly as Altium does (below), and the full name travels in
   PATTERN/LIBREFERENCE as before.
 
-
 ### Fixed
 
 - **A rewritten `PcbLib` keeps every footprint where Altium looks for it**
@@ -41,7 +40,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   declare, so a footprint or symbol named outside Windows-1252 keeps the library's own order
   instead of being appended in storage order — the golden symbol library's `list_components`
   now follows its header for every readable name.
-
 
 ## [1.0.2] - 2026-09-12
 
