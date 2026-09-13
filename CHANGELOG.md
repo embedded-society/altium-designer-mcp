@@ -9,12 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-09-13
+
 ### Changed
 
 - **A component may be named with `/ \ : * ? " < > |`.** Altium itself names footprints
-  `EC10*10.5` and `L1210/3225`, so create, copy, rename, update and import no longer refuse such a
-  name; only an empty name or a control character is. The storage name is sanitised on save
-  exactly as Altium does (below), and the full name travels in PATTERN/LIBREFERENCE as before.
+  `EC10*10.5` and `L1210/3225`, so create, copy, rename, update and import no longer refuse
+  such a name; only an empty name or an ASCII control character is. The storage name is
+  sanitised on save exactly as Altium does (below), and the full name travels in
+  PATTERN/LIBREFERENCE as before.
 
 ### Fixed
 
@@ -22,22 +25,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#507](https://github.com/embedded-society/altium-designer-mcp/issues/507), second part —
   the reporter's retest of 1.0.2). Altium finds a short footprint by re-deriving its storage
   name from the real name and a long one through `SectionKeys`; a rewrite derived every
-  storage name afresh by a weaker rule, so 33 storages an AD21 library kept as `EC6_5.4` came
-  back as `EC6*5.4`, three names authored on a Chinese locale came back double-encoded, and
-  Altium Designer 21 could not load any of them; the reference goldens, authored on a
+  storage name afresh by a weaker rule, so 33 storages an AD21 library kept as `EC6_5.4`
+  came back as `EC6*5.4`, three names authored on a Chinese locale came back double-encoded,
+  and Altium Designer 21 could not load any of them; the reference goldens, authored on a
   Windows-1250 machine, had their Cyrillic footprint's storage renamed the same way on every
-  rewrite. Footprints and symbols now carry the storage
-  they were read from (`storage_name`, a fidelity carrier like `guid`) and are written back
-  under it; only a new, renamed or copied component gets a derived name, and that derivation
-  now maps `*` to `_` as Altium does (proven byte for byte against the AD21 stream the reporter
-  supplied, now a fixture under `scripts/samples/section_keys/`). `SectionKeys` lists exactly
-  what Altium lists: names of 31 characters or more, a 31-character name as an identity pair,
-  nothing shorter. `Library/Data` now lists every footprint's full name, as Altium does,
-  where a name past the cap used to be listed truncated. Both readers now order
-  components by the names they declare, so a footprint or symbol named outside
-  Windows-1252 keeps the library's own order instead of being appended in storage order —
-  the golden symbol library's `list_components` now follows its header for every readable
-  name.
+  rewrite. Footprints and symbols now carry the storage they were read from (`storage_name`,
+  a fidelity carrier like `guid`) and are written back under it; only a new, renamed or
+  copied component gets a derived name, and that derivation now maps `*` to `_` as Altium
+  does (proven byte for byte against the AD21 stream the reporter supplied, now a fixture
+  under `scripts/samples/section_keys/`). `SectionKeys` lists exactly what Altium lists:
+  names of 31 characters or more, a 31-character name as an identity pair, nothing shorter.
+  `Library/Data` now lists every footprint's full name, as Altium does, where a name past
+  the cap used to be listed truncated. Both readers now order components by the names they
+  declare, so a footprint or symbol named outside Windows-1252 keeps the library's own order
+  instead of being appended in storage order — the golden symbol library's `list_components`
+  now follows its header for every readable name.
 
 ## [1.0.2] - 2026-09-12
 
