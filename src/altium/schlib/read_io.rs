@@ -46,49 +46,11 @@ impl SchLib {
             .filter(|name| cfb.is_stream(format!("/{name}/Data")))
             .collect();
 
-        // Header order first (so `list_components` keeps the library's own
-        // ordering), then any storage the header does not mention. A header
-        // name is matched to its storage three ways, in decreasing directness:
-        // as-is (ASCII names), through its wire form (a non-Windows-1252 name
-        // is stored under its UTF-8 bytes one char per byte), and through the
-        // root SectionKeys stream (a name past the 31-unit storage cap is
-        // stored truncated, and SectionKeys is the authoritative map back).
-        // An Altium file authored on a non-1252 locale can still widen its
-        // storage names through a code page we cannot reconstruct; such
-        // storages simply fall through to the extras pass below.
-        let section_keys: std::collections::HashMap<String, String> =
-            crate::altium::read_stream_opt(&mut cfb, "/SectionKeys")
-                .map(|data| {
-                    crate::altium::parse_schlib_section_keys(&data)
-                        .into_iter()
-                        .collect()
-                })
-                .unwrap_or_default();
-        let mut ordered: Vec<String> = header
-            .component_names
-            .iter()
-            .filter_map(|n| {
-                if storages.contains(n) {
-                    return Some(n.clone());
-                }
-                let wire = crate::altium::to_wire_text(n);
-                if storages.contains(&wire) {
-                    return Some(wire);
-                }
-                section_keys
-                    .get(&wire)
-                    .filter(|sk| storages.contains(*sk))
-                    .cloned()
-            })
-            .collect();
-        let extras: Vec<String> = storages
-            .iter()
-            .filter(|n| !ordered.contains(n))
-            .cloned()
-            .collect();
-        ordered.extend(extras);
-
-        for comp_name in ordered {
+        // Every storage is read first, so ordering can go by the name each
+        // symbol's own Data stream declares (its LibReference) — the same
+        // bytes the header lists it under, whatever locale authored the file.
+        let mut read: Vec<(String, Symbol)> = Vec::with_capacity(storages.len());
+        for comp_name in storages {
             let stream_path = format!("{comp_name}/Data");
 
             let mut stream = match cfb.open_stream(&stream_path) {
@@ -114,6 +76,9 @@ impl SchLib {
             }
 
             let mut symbol = Symbol::new(&comp_name);
+            // Remember the storage so a rewrite keeps the symbol where Altium
+            // looks for it, whatever name the Data stream turns out to carry.
+            symbol.storage_name = Some(comp_name.clone());
             symbol.description = header
                 .component_descriptions
                 .get(&comp_name)
@@ -124,11 +89,36 @@ impl SchLib {
 
             apply_pin_aux_streams(&mut cfb, &comp_name, &mut symbol);
             carry_extra_streams(&mut cfb, &comp_name, &mut symbol);
+            read.push((comp_name, symbol));
+        }
 
-            // Use the symbol's actual name (from LibReference) as the key
-            // This handles long names that were truncated in the OLE storage path
-            let key = symbol.name.clone();
-            lib.symbols.insert(key, symbol);
+        // Header order first (so `list_components` keeps the library's own
+        // ordering), then any storage the header does not mention. A header
+        // name is matched to a symbol by the name its Data stream declares;
+        // failing that, to a storage as-is (ASCII names), through its wire
+        // form (a non-Windows-1252 name is stored under its UTF-8 bytes one
+        // char per byte), or through the root SectionKeys stream (a name
+        // past the 31-unit storage cap is stored truncated, and SectionKeys
+        // is the authoritative map back). An Altium file authored on another
+        // locale widens its storage names through a code page we cannot
+        // reconstruct, which is why the declared name comes first.
+        let section_keys: std::collections::HashMap<String, String> =
+            crate::altium::read_stream_opt(&mut cfb, "/SectionKeys")
+                .map(|data| {
+                    crate::altium::parse_schlib_section_keys(&data)
+                        .into_iter()
+                        .collect()
+                })
+                .unwrap_or_default();
+        let order = order_by_header(&header.component_names, &read, &section_keys);
+
+        let mut slots: Vec<Option<Symbol>> = read.into_iter().map(|(_, s)| Some(s)).collect();
+        for i in order {
+            if let Some(symbol) = slots[i].take() {
+                // Keyed by the symbol's actual name (from LibReference), which
+                // handles long names truncated in the OLE storage path.
+                lib.symbols.insert(symbol.name.clone(), symbol);
+            }
         }
 
         // Attach embedded image bytes from the library-level `/Storage`
@@ -159,6 +149,56 @@ impl SchLib {
 /// alongside `Data` in the same storage and are keyed by pin ordinal, so they
 /// must be applied AFTER the pins are parsed. Absent streams (the common case)
 /// leave the pins untouched.
+/// The order to place the symbols read from the storages in: header order
+/// first, matching each header name to a symbol by the name its Data
+/// stream declares (case-insensitively; a case-duplicate takes the next
+/// unclaimed one in storage order), failing that to a storage as-is, through
+/// the name's wire form, or through `SectionKeys`; then every storage the
+/// header does not mention, in storage order.
+fn order_by_header(
+    header_names: &[String],
+    read: &[(String, Symbol)],
+    section_keys: &HashMap<String, String>,
+) -> Vec<usize> {
+    let mut by_name: HashMap<String, Vec<usize>> = HashMap::new();
+    for (i, (_, symbol)) in read.iter().enumerate() {
+        by_name
+            .entry(crate::altium::folded_name(&symbol.name))
+            .or_default()
+            .push(i);
+    }
+    let by_storage: HashMap<&str, usize> = read
+        .iter()
+        .enumerate()
+        .map(|(i, (storage, _))| (storage.as_str(), i))
+        .collect();
+    let mut taken = vec![false; read.len()];
+    let mut order: Vec<usize> = Vec::with_capacity(read.len());
+    for n in header_names {
+        let wire = crate::altium::to_wire_text(n);
+        let found = by_name
+            .get(&crate::altium::folded_name(n))
+            .into_iter()
+            .flatten()
+            .copied()
+            .chain(by_storage.get(n.as_str()).copied())
+            .chain(by_storage.get(wire.as_str()).copied())
+            .chain(
+                section_keys
+                    .get(&wire)
+                    .and_then(|sk| by_storage.get(sk.as_str()))
+                    .copied(),
+            )
+            .find(|&i| !taken[i]);
+        if let Some(i) = found {
+            taken[i] = true;
+            order.push(i);
+        }
+    }
+    order.extend((0..read.len()).filter(|&i| !taken[i]));
+    order
+}
+
 fn apply_pin_aux_streams<R: Read + Seek>(
     cfb: &mut CompoundFile<R>,
     comp_name: &str,

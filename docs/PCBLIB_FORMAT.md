@@ -45,9 +45,13 @@ PcbLib files are OLE Compound Documents (CFB format, **OLE v3 with 512-byte sect
 
 ## SectionKeys Stream
 
-A root stream, present only when at least one footprint's name does not fit the CFB 31-UTF-16-unit
-storage cap. Such a footprint is stored under its name **plain-truncated at the cap** and this
-stream maps each real `LibRef` to that `SectionKey` (storage name), one `WriteStringBlock` each:
+A footprint's storage name is its name with `/ \ : ! *` each replaced by `_` (the first four are
+CFB-forbidden; `*` Altium maps as well — an AD21 library stores `EC10*10.5` under `EC10_10.5`) and
+then **plain-cut at the CFB 31-UTF-16-unit cap**. Altium finds a short footprint by re-deriving that
+storage name, so a rewrite must keep an existing storage exactly as it is (issue #507). This root
+stream is present only when at least one name **reaches** the cap: it maps each such real `LibRef`
+to its `SectionKey` (storage name) — an identity pair for a name of exactly 31 units — one
+`WriteStringBlock` each, and lists nothing shorter, sanitised or not:
 
 ```text
 [u32 count]

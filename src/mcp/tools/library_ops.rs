@@ -1036,6 +1036,9 @@ impl McpServer {
                     if let Some(guid) = &fp.guid {
                         fp_json["guid"] = json!(guid);
                     }
+                    if let Some(storage) = &fp.storage_name {
+                        fp_json["storage_name"] = json!(storage);
+                    }
                     if !fp.primitive_order.is_empty() {
                         fp_json["primitive_order"] = json!(fp.primitive_order);
                     }
@@ -2328,19 +2331,15 @@ mod tests {
         );
     }
 
-    /// Import data names components too: an empty or storage-hostile name is
-    /// refused by position, on both formats, before anything is written.
+    /// Import data names components too: an empty name is refused by
+    /// position, on both formats, before anything is written. Punctuation is
+    /// not refused — Altium names footprints `EC10*10.5` — and lands in a
+    /// sanitised storage, see `import_library_stores_a_starred_name_as_altium_does`.
     #[test]
     fn import_library_refuses_names_no_storage_can_carry() {
         let dir = test_temp_dir();
         let server = create_test_server(dir.path());
         for (file_type, key, name, expect) in [
-            (
-                "PcbLib",
-                "footprints",
-                "A:B",
-                "Footprint 0: Component name 'A:B' contains invalid character ':'",
-            ),
             (
                 "PcbLib",
                 "footprints",
@@ -2350,8 +2349,8 @@ mod tests {
             (
                 "SchLib",
                 "symbols",
-                "A/B",
-                "Symbol 0: Component name 'A/B' contains invalid character '/'",
+                "",
+                "Symbol 0: Component name cannot be empty",
             ),
         ] {
             let out = dir.path().join(format!("Import{file_type}.{file_type}"));
@@ -2367,6 +2366,31 @@ mod tests {
             );
             assert!(!out.exists(), "nothing written");
         }
+    }
+
+    /// A name Altium writes with `*` or `/` imports, is stored under the
+    /// storage name Altium derives for it, and reads back unchanged (#507).
+    #[test]
+    fn import_library_stores_a_starred_name_as_altium_does() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let out = dir.path().join("Starred.PcbLib");
+        let result = server.call_import_library(&json!({
+            "output_path": out.to_string_lossy(),
+            "json_data": { "file_type": "PcbLib", "footprints": [
+                { "name": "EC10*10.5", "pads": [{ "designator": "1", "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0 }] },
+                { "name": "L1210/3225", "pads": [{ "designator": "1", "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0 }] }
+            ] },
+        }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        let cfb = cfb::open(&out).unwrap();
+        assert!(cfb.is_storage("/EC10_10.5"));
+        assert!(cfb.is_storage("/L1210_3225"));
+        drop(cfb);
+        assert_eq!(
+            PcbLib::open(&out).unwrap().names(),
+            vec!["EC10*10.5", "L1210/3225"]
+        );
     }
 
     #[test]
@@ -4097,14 +4121,15 @@ mod tests {
             assert!(err.to_string().contains("empty name"), "{err}");
         }
 
-        /// Names carrying characters an OLE storage name cannot hold (`/ \ : !`)
-        /// save anyway: the storage name is sanitised the way Altium sanitises a
-        /// slash, `SectionKeys` maps it back, and the real name survives the
-        /// round trip. A colon used to reach the cfb crate and panic.
+        /// Names carrying characters a storage name never holds (`/ \ : !`,
+        /// and `*`, which Altium maps as well) save anyway: the storage name
+        /// is sanitised the way Altium sanitises them, and the real name
+        /// survives the round trip through PATTERN. A colon used to reach the
+        /// cfb crate and panic.
         #[test]
         fn ole_forbidden_characters_in_a_name_are_sanitised_not_fatal() {
             let dir = test_temp_dir();
-            for (i, name) in ["A:B", r"A\B", "A!B", "A/B"].iter().enumerate() {
+            for (i, name) in ["A:B", r"A\B", "A!B", "A/B", "A*B"].iter().enumerate() {
                 let mut fp = Footprint::new(*name);
                 fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
                 let mut lib = PcbLib::new();

@@ -79,10 +79,27 @@ impl PcbLib {
         // Order the footprints as Library/Data (or a legacy FileHeader) lists
         // them, so list_components follows the authored order and the one
         // reorder_components wrote. The list names a footprint by its real
-        // name; its storage is that name as-is, its wire form (a non-1252 name
-        // is stored under its UTF-8 bytes), the truncated name the root
-        // SectionKeys stream maps it to, or — with no such stream — the name
-        // cut at the storage cap by Altium's own rule.
+        // name, in the same bytes its PATTERN carries, so a footprint is found
+        // by that name first — which also holds for a name authored on a
+        // non-1252 locale, whose bytes decode the same way in both places and
+        // differ from its storage. Failing that, the storage is the name
+        // as-is, its wire form (a non-1252 name is stored under its UTF-8
+        // bytes), the truncated name the root SectionKeys stream maps it to,
+        // or — with no such stream — the name cut at the storage cap and
+        // sanitised by Altium's own rule.
+        let mut by_name: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        for (ole, fp) in &footprints_by_ole_name {
+            by_name
+                .entry(crate::altium::folded_name(&fp.name))
+                .or_default()
+                .push(ole.clone());
+        }
+        for names in by_name.values_mut() {
+            // A case-duplicate resolves to the next unclaimed storage, in a
+            // fixed order, so the same file always reads the same way.
+            names.sort();
+        }
         let section_keys: std::collections::HashMap<String, String> =
             crate::altium::read_stream_opt(&mut cfb, "/SectionKeys")
                 .map(|data| {
@@ -94,8 +111,12 @@ impl PcbLib {
         let no_names = std::collections::HashSet::new();
         for name in &library.metadata.component_names {
             let wire = crate::altium::to_wire_text(name);
-            let storage = [name.clone(), wire.clone()]
+            let storage = by_name
+                .get(&crate::altium::folded_name(name))
                 .into_iter()
+                .flatten()
+                .cloned()
+                .chain([name.clone(), wire.clone()])
                 .chain(section_keys.get(&wire).cloned())
                 .chain(std::iter::once(crate::altium::generate_ole_name(
                     &wire, &no_names,
@@ -478,6 +499,9 @@ impl PcbLib {
         // overwrites this when present.
         let mut footprint =
             Footprint::new(crate::altium::from_wire_text(name).unwrap_or_else(|| name.to_string()));
+        // Remember the storage so a rewrite keeps the footprint where Altium
+        // looks for it, whatever name the parameters turn out to carry.
+        footprint.storage_name = Some(name.to_string());
 
         // This component's out-of-line text, read here rather than library-wide
         // because that is where Altium puts it.
@@ -740,6 +764,112 @@ mod tests {
             stream
                 .write_all(b"|UNIQUEIDPRIMITIVEINFORMATION=1|")
                 .expect("write Storage");
+        }
+        compound.flush().expect("flush compound document");
+    }
+
+    /// An Altium-authored library stores `EC6*5.4` under `EC6_5.4`, and one
+    /// authored on a non-1252 locale names a footprint in that locale's bytes
+    /// in PATTERN and Library/Data while its storage carries the true text.
+    /// Both storages are found by name for ordering, remembered as the
+    /// footprint's storage, and kept — bytes and storages alike — through a
+    /// rewrite (#507: a rewrite used to derive `EC6*5.4` and a double-encoded
+    /// storage, which Altium could not load).
+    #[test]
+    fn storage_names_are_carried_and_kept_through_a_rewrite() {
+        let dir = temp_dir();
+        let path = dir.path().join("Authored.PcbLib");
+        let star = ("EC6_5.4", b"EC6*5.4".as_slice());
+        let gbk = ("\u{FF08}0402", b"\xA3\xA80402".as_slice());
+        library_with_raw_named_footprints(&path, &[star, gbk]);
+
+        let mut library = PcbLib::open(&path).expect("the library should open");
+        assert_eq!(library.names(), vec!["EC6*5.4", "\u{A3}\u{A8}0402"]);
+        assert_eq!(
+            library.get("EC6*5.4").unwrap().storage_name.as_deref(),
+            Some("EC6_5.4")
+        );
+        assert_eq!(
+            library
+                .get("\u{A3}\u{A8}0402")
+                .unwrap()
+                .storage_name
+                .as_deref(),
+            Some("\u{FF08}0402")
+        );
+
+        let out = dir.path().join("Rewritten.PcbLib");
+        library.save(&out).expect("save");
+        let mut cfb = cfb::open(&out).expect("open compound document");
+        assert!(cfb.is_storage("/EC6_5.4"));
+        assert!(cfb.is_storage("/\u{FF08}0402"));
+        let parameters =
+            crate::altium::read_stream_opt(&mut cfb, "/\u{FF08}0402/Parameters").unwrap();
+        assert!(
+            parameters.windows(8).any(|w| w == b"|PATTERN"),
+            "parameters block present"
+        );
+        assert!(
+            parameters.windows(6).any(|w| w == b"\xA3\xA80402"),
+            "the locale's own bytes are written back"
+        );
+        drop(cfb);
+        let back = PcbLib::open(&out).expect("reopen");
+        assert_eq!(back.names(), library.names(), "order and names survive");
+    }
+
+    /// Builds a library whose `Library/Data` lists footprints by the exact
+    /// bytes their `PATTERN` carries, each under the given storage name.
+    fn library_with_raw_named_footprints(path: &std::path::Path, footprints: &[(&str, &[u8])]) {
+        use std::io::Write as _;
+        let mut compound = cfb::create(path).expect("create compound document");
+        {
+            let mut stream = compound
+                .create_stream("/FileHeader")
+                .expect("create FileHeader");
+            stream
+                .write_all(b"|HEADER=Protel for Windows - PCB Library|")
+                .expect("write FileHeader");
+        }
+        compound.create_storage("/Library").expect("create Library");
+        {
+            let mut stream = compound
+                .create_stream("/Library/Data")
+                .expect("create Library/Data");
+            let mut data = Vec::new();
+            crate::altium::framing::write_cstring_param_block(
+                &mut data,
+                b"|KIND=Protel_Advanced_PCB_Library|",
+            );
+            data.extend_from_slice(&u32::try_from(footprints.len()).unwrap().to_le_bytes());
+            for (_, pattern) in footprints {
+                crate::altium::framing::write_string_block(&mut data, pattern);
+            }
+            stream.write_all(&data).expect("write Library/Data");
+        }
+        for (storage, pattern) in footprints {
+            compound
+                .create_storage(format!("/{storage}"))
+                .expect("create footprint storage");
+            {
+                let mut stream = compound
+                    .create_stream(format!("/{storage}/Parameters"))
+                    .expect("create Parameters");
+                let mut text = b"|PATTERN=".to_vec();
+                text.extend_from_slice(pattern);
+                text.extend_from_slice(b"|DESCRIPTION=authored");
+                let mut block = Vec::new();
+                crate::altium::framing::write_cstring_param_block(&mut block, &text);
+                stream.write_all(&block).expect("write Parameters");
+            }
+            {
+                let mut stream = compound
+                    .create_stream(format!("/{storage}/Data"))
+                    .expect("create Data");
+                let mut data = Vec::new();
+                crate::altium::framing::write_string_block(&mut data, pattern);
+                stream.write_all(&data).expect("write Data");
+            }
         }
         compound.flush().expect("flush compound document");
     }

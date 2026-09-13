@@ -144,6 +144,15 @@ pub struct Footprint {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub guid: Option<String>,
 
+    /// The CFB storage the footprint was read from, kept so a rewrite stores
+    /// it under the same name. Altium resolves a footprint by re-deriving its
+    /// storage name from the real name (`*` and `/` become `_`, 31-unit cut)
+    /// or, for a long name, through `SectionKeys`; a storage that moved is a
+    /// footprint Altium cannot load (#507). `None` for a footprint built from
+    /// scratch, renamed or copied: its storage name is derived on save.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage_name: Option<String>,
+
     /// The order the primitives are stored in, one entry per primitive.
     ///
     /// Altium interleaves kinds in authoring order — `LOCKFLAGS_PCB` in the
@@ -393,6 +402,7 @@ impl Footprint {
             component_bodies: Vec::new(),
             model_3d: None,
             guid: None,
+            storage_name: None,
             primitive_order: Vec::new(),
         }
     }
@@ -950,6 +960,8 @@ impl PcbLib {
         }
         for (i, new) in resolved {
             self.footprints[i].name = new.to_string();
+            // A renamed footprint gets the storage its new name derives.
+            self.footprints[i].storage_name = None;
         }
         missing
     }
@@ -1085,6 +1097,20 @@ impl PcbLib {
 
 #[cfg(test)]
 mod tests {
+    /// A renamed footprint no longer belongs to its old storage: the
+    /// carrier is dropped so the next save derives the new name's storage.
+    #[test]
+    fn renaming_a_footprint_drops_its_carried_storage_name() {
+        let mut lib = super::PcbLib::new();
+        let mut fp = super::Footprint::new("OLD");
+        fp.storage_name = Some("OLD".to_string());
+        lib.add(fp);
+        let missing = lib.rename_all(&[("OLD".to_string(), "NEW".to_string())]);
+        assert!(missing.is_empty());
+        let renamed = lib.get("NEW").expect("renamed");
+        assert_eq!(renamed.storage_name, None);
+    }
+
     use super::*;
 
     /// Every kind reports one layer per primitive — an arm that returned

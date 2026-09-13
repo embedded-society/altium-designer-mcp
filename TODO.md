@@ -56,6 +56,15 @@ only a major version can change, since the tool interface follows semantic versi
 
 ## D. Maintenance & waiting
 
+- [ ] **Per-library ANSI code page.** An Altium file authored on a non-1252 locale writes
+      PATTERN, `Library/Data` and `SectionKeys` in that locale's code page (issue #507's AD21
+      library: GBK bytes `A3 A8` for `（`) while the CFB storage name carries the true UTF-16.
+      The reader decodes those bytes as Windows-1252, so such a name shows as `£¨` in JSON and
+      must be addressed that way; the file itself stays intact since the same bytes go back and
+      the storage name is preserved. The clean fix detects the code page (the storage name is
+      the oracle: the encoding whose bytes of it equal PATTERN's), records it on the library,
+      and decodes/encodes every text field through it. Needs `encoding_rs` labels for GBK,
+      Big5, Shift_JIS, EUC-KR and the 125x pages, and a fixture from a non-1252 Altium.
 - [ ] **Drop the `cfb` git pin** (`[patch.crates-io]`, rev `8c1ec76`) as soon as rust-cfb
       publishes a release newer than v0.14.0 — check
       [rust-cfb releases](https://github.com/mdsteele/rust-cfb/releases) at session start.

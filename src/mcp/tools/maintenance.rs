@@ -1421,9 +1421,9 @@ mod tests {
         create_test_schlib(&sch);
 
         for (path, pattern, replacement, expect) in [
-            (&pcb, "^CHIP_(.*)$", "CHIP:$1", "invalid character ':'"),
+            (&pcb, "^CHIP_(.*)$", "CHIP\t$1", "control character"),
             (&pcb, "^CHIP_0402$", "", "cannot be empty"),
-            (&sch, "^RESISTOR$", "RES/1", "invalid character '/'"),
+            (&sch, "^RESISTOR$", "RES\t1", "control character"),
         ] {
             let result = server.call_bulk_rename(&json!({
                 "filepath": path.to_string_lossy(),

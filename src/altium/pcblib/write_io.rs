@@ -49,26 +49,39 @@ impl PcbLib {
             .iter()
             .map(|f| crate::altium::to_wire_text(&f.name))
             .collect();
-        // Generate OLE-safe names for all footprints (handles long names and collisions)
-        let ole_names = crate::altium::generate_ole_names(wire_names.iter().map(String::as_str));
+        // Each footprint keeps the storage it was read from; one built from
+        // scratch, renamed or copied gets a name derived by Altium's rule.
+        let ole_names = crate::altium::resolve_storage_names(
+            &wire_names
+                .iter()
+                .zip(self.footprints.iter())
+                .map(|(wire, fp)| (wire.clone(), fp.storage_name.clone()))
+                .collect::<Vec<_>>(),
+        );
 
         // Write FileHeader (pipe-delimited format for reader compatibility)
-        self.write_file_header(&mut cfb, &ole_names)?;
+        self.write_file_header(&mut cfb)?;
 
-        // Write Library storage (Header + Data for Altium compatibility)
-        self.write_library(&mut cfb, &ole_names)?;
+        // Write Library storage (Header + Data for Altium compatibility). Its
+        // component list carries every footprint's real (wire) name, as
+        // Altium writes it: the storage name is derived from it on read, or
+        // mapped through SectionKeys when the name reaches the cap.
+        self.write_library(&mut cfb, &wire_names)?;
 
-        // Root SectionKeys stream: the LibRef -> storage-name map for every
-        // footprint whose name did not survive the storage cap, in the binary
-        // layout Altium reads (#507). The real name still travels in the
-        // footprint's own PATTERN parameter and in Library/Data; this stream
-        // is how Altium maps it to the truncated storage. Not written when no
-        // name was truncated — which includes the whole golden.
+        // Root SectionKeys stream, in the binary layout Altium reads (#507):
+        // the LibRef -> storage-name map for every footprint whose name
+        // reaches the 31-unit storage cap — truncated, or merely filling it
+        // (an AD21-authored library lists a 31-character name as an identity
+        // pair). A shorter name is not listed even when its storage differs:
+        // Altium re-derives that storage from the name itself. The real name
+        // still travels in the footprint's own PATTERN parameter and in
+        // Library/Data. Not written when no name reaches the cap — which
+        // includes the whole golden.
         let truncated: Vec<(String, String)> = wire_names
             .iter()
             .zip(ole_names.iter())
-            .filter(|(wire, ole)| wire != ole)
-            .map(|(wire, ole)| (wire.clone(), ole.clone()))
+            .filter(|(wire, _)| wire.encode_utf16().count() >= crate::altium::MAX_OLE_NAME_LEN)
+            .map(|(wire, ole)| (wire.clone(), crate::altium::section_key_name(wire, ole)))
             .collect();
         if let Some(section_keys) = crate::altium::encode_pcblib_section_keys(&truncated)? {
             crate::altium::write_stream(&mut cfb, "/SectionKeys", &section_keys)?;
@@ -315,7 +328,6 @@ impl PcbLib {
     fn write_file_header<F: std::io::Read + std::io::Write + std::io::Seek>(
         &self,
         cfb: &mut cfb::CompoundFile<F>,
-        _ole_names: &[String],
     ) -> AltiumResult<()> {
         // The canonical PcbLib FileHeader is 53 bytes with THREE fields (matching
         // AltiumSharp PcbLibWriter.WriteFileHeader). Altium Designer rejects the
@@ -738,6 +750,74 @@ mod tests {
             .canonicalize()
             .expect("canonicalise .tmp");
         tempfile::tempdir_in(root).expect("create temp dir")
+    }
+
+    /// A footprint keeps the storage it was read from, however its name
+    /// would derive today; a carried name that is already taken falls back to
+    /// a derived one; a name with `*` derives Altium's `_` form (#507).
+    #[test]
+    fn a_carried_storage_name_is_kept_and_a_conflicting_one_is_derived() {
+        let dir = temp_dir();
+        let path = dir.path().join("Carried.PcbLib");
+        let mut lib = PcbLib::new();
+        for (name, carried) in [
+            ("EC6*5.4", Some("LEGACY_STORAGE")),
+            ("OTHER", Some("LEGACY_STORAGE")),
+            ("EC10*10.5", None),
+        ] {
+            let mut fp = Footprint::new(name);
+            fp.storage_name = carried.map(str::to_string);
+            fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+            lib.add(fp);
+        }
+        lib.save(&path).expect("save");
+
+        let cfb = cfb::open(&path).expect("open compound document");
+        for storage in ["/LEGACY_STORAGE", "/OTHER", "/EC10_10.5"] {
+            assert!(cfb.is_storage(storage), "{storage}");
+        }
+        assert!(
+            !cfb.is_storage("/EC10*10.5"),
+            "the star never reaches a storage name"
+        );
+        drop(cfb);
+
+        let back = PcbLib::open(&path).expect("reopen");
+        assert_eq!(back.names(), vec!["EC6*5.4", "OTHER", "EC10*10.5"]);
+        assert_eq!(
+            back.get("EC6*5.4").unwrap().storage_name.as_deref(),
+            Some("LEGACY_STORAGE")
+        );
+        assert_eq!(
+            back.get("EC10*10.5").unwrap().storage_name.as_deref(),
+            Some("EC10_10.5")
+        );
+    }
+
+    /// `SectionKeys` lists a name that reaches the 31-unit cap — as an
+    /// identity pair when it merely fills it — and nothing shorter, even a
+    /// sanitised name whose storage differs: Altium re-derives that one.
+    #[test]
+    fn only_names_at_the_storage_cap_are_listed_in_section_keys() {
+        let dir = temp_dir();
+        let path = dir.path().join("Listing.PcbLib");
+        let exactly_31 = "SOP-8_L7.5-W5.9-P1.27-LS11.5-BL";
+        assert_eq!(exactly_31.len(), 31);
+        let mut lib = PcbLib::new();
+        for name in [exactly_31, "EC6*5.4", "SHORT"] {
+            let mut fp = Footprint::new(name);
+            fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+            lib.add(fp);
+        }
+        lib.save(&path).expect("save");
+
+        let mut cfb = cfb::open(&path).expect("open compound document");
+        assert!(cfb.is_storage("/EC6_5.4"));
+        let keys = crate::altium::read_stream_opt(&mut cfb, "/SectionKeys").expect("SectionKeys");
+        assert_eq!(
+            crate::altium::parse_pcblib_section_keys(&keys),
+            vec![(exactly_31.to_string(), exactly_31.to_string())]
+        );
     }
 
     /// A footprint past the 31-unit storage cap is stored truncated and

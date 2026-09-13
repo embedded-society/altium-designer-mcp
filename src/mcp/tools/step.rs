@@ -243,8 +243,8 @@ impl McpServer {
             // model.name comes from inside the (caller-supplied) library. Reduce
             // it to a bare filename so a crafted name cannot use an absolute path
             // or ".." segments to escape out_dir via Path::join, sanitise the
-            // Windows-invalid characters write_pcblib also rejects (a raw `:`
-            // would write an NTFS alternate data stream), then re-validate the
+            // Windows-invalid characters (a raw `:` would write an NTFS
+            // alternate data stream), then re-validate the
             // resolved path against the allow-list (defence in depth).
             let Some(safe_name) = std::path::Path::new(&model.name)
                 .file_name()

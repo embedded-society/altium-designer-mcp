@@ -944,18 +944,32 @@ mod tests {
         }
     }
 
+    /// A name is refused only when empty or carrying a control character.
+    /// Punctuation Altium itself uses in names — `EC10*10.5`, `L1210/3225` in
+    /// an AD21-authored library (#507) — is accepted; the storage name is
+    /// sanitised on save exactly as Altium does.
     #[test]
     fn validate_ole_name_rules() {
         assert!(McpServer::validate_ole_name("CHIP_0402").is_ok());
         assert!(McpServer::validate_ole_name("").is_err());
-        for bad in [
-            "a/b", "a\\b", "a:b", "a*b", "a?b", "a\"b", "a<b", "a>b", "a|b",
+        for fine in [
+            "a/b",
+            "a\\b",
+            "a:b",
+            "EC10*10.5",
+            "a?b",
+            "a\"b",
+            "a<b",
+            "a>b",
+            "a|b",
         ] {
             assert!(
-                McpServer::validate_ole_name(bad).is_err(),
-                "'{bad}' should be rejected"
+                McpServer::validate_ole_name(fine).is_ok(),
+                "'{fine}' is a name Altium can hold"
             );
         }
+        let err = McpServer::validate_ole_name("tab\there").unwrap_err();
+        assert!(err.contains("U+0009"), "{err}");
     }
 
     // ==================== operation success paths ====================
