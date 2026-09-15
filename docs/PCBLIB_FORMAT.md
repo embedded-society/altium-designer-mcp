@@ -45,11 +45,15 @@ PcbLib files are OLE Compound Documents (CFB format, **OLE v3 with 512-byte sect
 
 ## SectionKeys Stream
 
-A footprint's storage name is its name with `/ \ : ! *` each replaced by `_` (the first four are
-CFB-forbidden; `*` Altium maps as well — an AD21 library stores `EC10*10.5` under `EC10_10.5`) and
-then **plain-cut at the CFB 31-UTF-16-unit cap**. Altium finds a short footprint by re-deriving that
-storage name, so a rewrite must keep an existing storage exactly as it is (issue #507). This root
-stream is present only when at least one name **reaches** the cap: it maps each such real `LibRef`
+A footprint's storage name is its real name with `/ \ : ! *` each replaced by `_` (the first four
+are CFB-forbidden; `*` Altium maps as well — an AD21 library stores `EC10*10.5` under `EC10_10.5`).
+A name within the CFB 31-UTF-16-unit cap is stored as it is, Unicode included (`ᏣᎳᎩ_CR_0402`); a
+longer one is **cut at 31 in its ANSI form** — the machine's code page with `?` for every unit the
+page cannot hold — so `ᏣᎳᎩ_CR_LONG_NAME_ABCDEFGHIJKLMNOPQRS` lives under
+`???_CR_LONG_NAME_ABCDEFGHIJKLMN`, and a surrogate pair, being `??`, is never split
+(`manual/i18n4.PcbLib`). Altium finds a short footprint by re-deriving that storage name, so a
+rewrite must keep an existing storage exactly as it is (issue #507). This root
+stream is present only when at least one name **reaches** the cap: it maps each such full `LibRef`
 to its `SectionKey` (storage name) — an identity pair for a name of exactly 31 units — one
 `WriteStringBlock` each, and lists nothing shorter, sanitised or not:
 
@@ -58,8 +62,11 @@ to its `SectionKey` (storage name) — an identity pair for a name of exactly 31
 [u32 len][u8 str_len][LibRef]  [u32 len][u8 str_len][SectionKey]   (count times)
 ```
 
-Strings are wire bytes (Windows-1252; a non-1252 name as its raw UTF-8 bytes), so `str_len`
-caps a name at 255 bytes. Altium-authored libraries in the reference corpus carry exactly this
+Strings are the ANSI forms Altium writes everywhere else in the file — the machine's code page, `?`
+for a unit it cannot hold (`???_CR_LONG_NAME_ABCDEFGHIJKLMNOPQRS` → `???_CR_LONG_NAME_ABCDEFGHIJKLMN`
+in `manual/i18n4.PcbLib`); the writer emits Windows-1252 and a non-1252 name as its raw UTF-8 bytes
+(#516 tracks the move to Altium's convention) — so `str_len` caps a name at 255 bytes.
+Altium-authored libraries in the reference corpus carry exactly this
 layout with one entry per over-cap name; AltiumSharp reads the same. `Library/Data` lists the
 **full** names, so lookup for a long name goes `Library/Data` → `SectionKeys` → storage. The
 `SchLib` stream is a `|KeyCount=…|LibRef0=…|SectionKey0=…` text record instead
@@ -118,7 +125,9 @@ Contains library-level parameters and the component directory:
 ```
 
 The parameter block uses the standard `WriteCStringParameterBlock` encoding. `VERSION=3.00`
-requires the `V9_MASTERSTACK` + `V9_STACK_LAYER` layer-stack entries in the same block.
+requires the `V9_MASTERSTACK` + `V9_STACK_LAYER` layer-stack entries in the same block. The
+names are ANSI forms: the machine's code page, `?` for a unit it cannot hold
+(`manual/i18n4.PcbLib` lists `???_CR_0402` for `ᏣᎳᎩ_CR_0402` and `C8 D0 8E` for `ČĐŽ`).
 
 Beyond those, the block is the library's whole board configuration: `LAYER_V8_{n}NAME`,
 `…MECHKIND` and `…MECHENABLED` per mechanical layer, `V9_CACHE_LAYER{n}_*` and
@@ -147,7 +156,24 @@ This is the **exact** primitive count. NOT count + 1.
 ```
 
 Standard `WriteCStringParameterBlock` encoding. Altium-authored libraries also carry `HEIGHT`,
-`ITEMGUID` and `REVISIONGUID` keys here.
+`ITEMGUID` and `REVISIONGUID` here, a UI-authored footprint often an `AREA`, and one whose name or
+description leaves ASCII carries the real text as comma-separated decimal UTF-16 code units in
+`UNICODE__PATTERN` and `UNICODE__DESCRIPTION`, bracketed by a `UNICODE=EXISTS` at both ends of
+the block (`manual/i18n4.PcbLib`, in Altium's order):
+
+```text
+|UNICODE=EXISTS|PATTERN=???_CR_0402|HEIGHT=0mil|DESCRIPTION=???_CR_0402|ITEMGUID=|REVISIONGUID=
+|UNICODE__DESCRIPTION=5091,5043,5033,95,67,82,95,48,52,48,50
+|UNICODE__PATTERN=5091,5043,5033,95,67,82,95,48,52,48,50|UNICODE=EXISTS
+```
+
+`PATTERN` and `DESCRIPTION` hold the ANSI form — the machine's code page (Windows-1250 `C8 D0 8E`
+for `ČĐŽ`, GBK `A3 A8` for `（`), `?` for every UTF-16 unit the page cannot hold, so a surrogate
+pair is `??` — and the twins hold the units themselves (`𠮷野` = `55362,57271,37326`). There is no
+`%UTF8%` twin in a PcbLib; that convention is the SchLib's. The writer emits
+`|PATTERN=…|HEIGHT=0mil|DESCRIPTION=…|ITEMGUID=|REVISIONGUID=` and nothing else, so an
+Altium-authored footprint's height, GUIDs, area and twins do not survive a rewrite yet
+(`TODO.md` § D).
 
 ### `/{component}/WideStrings`
 
