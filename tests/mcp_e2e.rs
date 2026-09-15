@@ -2010,3 +2010,45 @@ fn pairs(v: &Value, key: &str) -> Vec<(String, String)> {
         })
         .collect()
 }
+
+/// A footprint's height and its unmodelled Parameters keys survive
+/// `write_pcblib` -> `read_pcblib`, and the block the writer regenerates from
+/// scratch is reported as nothing.
+#[test]
+fn write_pcblib_footprint_height_and_parameters_roundtrip() {
+    let mut h = Harness::start();
+    let lib = h.lib_path();
+    let pad = json!({ "designator": "1", "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0 });
+    let plain = json!({ "name": "PLAIN_FP", "height": 2.5, "pads": [pad] });
+    let carried = json!({
+        "name": "CARRIED_FP",
+        "pads": [pad],
+        "additional_parameters": [["CUSTOMTAG", "xyz"]],
+    });
+    let write = h.call_tool(
+        "write_pcblib",
+        json!({ "filepath": lib, "footprints": [plain, carried], "append": false }),
+    );
+    assert!(!is_err(&write), "write_pcblib succeeded: {write}");
+
+    let read = h.call_tool("read_pcblib", json!({ "filepath": lib }));
+    let fp = find_by(arr(&read, "footprints"), "name", "PLAIN_FP").expect("present");
+    let height = fp["height"].as_f64().expect("height");
+    assert!((height - 2.5).abs() < 1e-6, "{height}");
+    assert!(
+        fp.get("additional_parameters").is_none(),
+        "a regenerated block is not carried: {fp}"
+    );
+
+    let fp = find_by(arr(&read, "footprints"), "name", "CARRIED_FP").expect("present");
+    let fp_pairs = pairs(fp, "additional_parameters");
+    assert!(
+        fp_pairs.contains(&("CUSTOMTAG".to_owned(), "xyz".to_owned())),
+        "{fp_pairs:?}"
+    );
+    assert_eq!(
+        fp_pairs.iter().filter(|(k, _)| k == "PATTERN").count(),
+        1,
+        "PATTERN carried once: {fp_pairs:?}"
+    );
+}

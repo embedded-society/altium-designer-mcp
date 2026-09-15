@@ -339,12 +339,11 @@ fn write_common_indices(
 pub fn encode_data_stream(footprint: &Footprint) -> crate::altium::error::AltiumResult<Vec<u8>> {
     let mut data = Vec::new();
 
-    // Write name block: [block_len:4][str_len:1][name:str_len]
-    // Altium stores a non-Windows-1252 name as its raw UTF-8 bytes here, in
-    // PATTERN, in the library component list and in the storage name alike.
+    // Write name block: [block_len:4][str_len:1][name:str_len] — the same
+    // bytes as PATTERN and the library component list.
     write_string_block(
         &mut data,
-        &crate::altium::to_wire_text(&footprint.name),
+        &footprint_pattern_text(footprint),
         "footprint.name",
     )?;
 
@@ -2086,6 +2085,224 @@ fn append_additional_params(mut params: String, additional: &[(String, String)])
         params.push_str(value);
     }
     params
+}
+
+// =============================================================================
+// Footprint Parameters stream
+// =============================================================================
+
+/// The value the footprint carries for a `Parameters` key, if any.
+fn carried_param<'a>(footprint: &'a Footprint, key: &str) -> Option<&'a str> {
+    footprint
+        .additional_parameters
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(key))
+        .map(|(_, v)| v.as_str())
+}
+
+/// Whether the carried `PATTERN` and `UNICODE__PATTERN` entries still describe
+/// the footprint's name. They are re-emitted verbatim then — a widened twin
+/// included, since Altium derives the storage from the name it reads there —
+/// and rebuilt from the name otherwise.
+fn carried_name_is_current(footprint: &Footprint) -> bool {
+    carried_param(footprint, "PATTERN").is_some_and(|plain| {
+        crate::altium::unicode_field_text(carried_param(footprint, "UNICODE__PATTERN"), plain)
+            == footprint.name
+    })
+}
+
+/// Whether the carried `DESCRIPTION` and `UNICODE__DESCRIPTION` entries still
+/// describe the footprint's description.
+fn carried_description_is_current(footprint: &Footprint) -> bool {
+    let plain = carried_param(footprint, "DESCRIPTION").unwrap_or_default();
+    crate::altium::unicode_field_text(carried_param(footprint, "UNICODE__DESCRIPTION"), plain)
+        == footprint.description
+}
+
+/// The text the footprint's `PATTERN`, `DESCRIPTION` and `UNICODE` twins
+/// will hold: carried entries verbatim while they still describe the name and
+/// description, rebuilt from the field otherwise.
+struct ParamsPlan {
+    pattern: String,
+    description: String,
+    name_twin: Option<String>,
+    description_twin: Option<String>,
+}
+
+impl ParamsPlan {
+    fn of(footprint: &Footprint) -> Self {
+        let name_current = carried_name_is_current(footprint);
+        let description_current = carried_description_is_current(footprint);
+        let plain = |current: bool, key: &str, value: &str| {
+            if current {
+                carried_param(footprint, key)
+                    .unwrap_or_default()
+                    .to_string()
+            } else {
+                crate::altium::to_wire_text(value)
+            }
+        };
+        let twin = |current: bool, key: &str, value: &str| -> Option<String> {
+            if current {
+                carried_param(footprint, key).map(str::to_string)
+            } else if value.is_ascii() {
+                None
+            } else {
+                Some(crate::altium::utf16_units_decimal(value))
+            }
+        };
+        Self {
+            pattern: plain(name_current, "PATTERN", &footprint.name),
+            description: plain(description_current, "DESCRIPTION", &footprint.description),
+            name_twin: twin(name_current, "UNICODE__PATTERN", &footprint.name),
+            description_twin: twin(
+                description_current,
+                "UNICODE__DESCRIPTION",
+                &footprint.description,
+            ),
+        }
+    }
+}
+
+/// The footprint's `PATTERN` text, which `Library/Data`, the Data stream's
+/// name block and `SectionKeys` carry in the same bytes: the carried bytes
+/// while they still describe the name, else the name's wire form.
+pub(super) fn footprint_pattern_text(footprint: &Footprint) -> String {
+    ParamsPlan::of(footprint).pattern
+}
+
+/// The name Altium will read for the footprint, which is the name it derives
+/// a short footprint's storage from: the twin's code units when the block
+/// carries or gains one — unfolded, since Altium does not fold a widened
+/// twin — else the `PATTERN` text as Windows-1252 characters.
+pub(super) fn footprint_name_as_altium_reads_it(footprint: &Footprint) -> String {
+    let plan = ParamsPlan::of(footprint);
+    plan.name_twin
+        .as_deref()
+        .and_then(crate::altium::text_from_utf16_units)
+        .unwrap_or(plan.pattern)
+}
+
+/// Builds the footprint's `Parameters` block text (leading `|`, no trailing
+/// pipe, not yet NUL-terminated) in the shape Altium writes.
+///
+/// From scratch the block is `PATTERN`, `HEIGHT`, `DESCRIPTION`, `ITEMGUID`,
+/// `REVISIONGUID`; a name or description outside ASCII adds its UTF-16 code
+/// units in a `UNICODE__PATTERN` / `UNICODE__DESCRIPTION` twin after the other
+/// keys and a `UNICODE=EXISTS` at both ends, as `manual/i18n4.PcbLib` shows. A
+/// footprint read from a file replays its `param_key_order`: `HEIGHT` from its
+/// field, `PATTERN`, `DESCRIPTION` and the twins verbatim while they still
+/// describe the name and description and rebuilt from the field when they do
+/// not, every other carried key verbatim. A twin the carried order lacks — a
+/// name that left ASCII — puts the block back in canonical order, since
+/// replaying could not be byte-faithful anyway.
+#[allow(clippy::too_many_lines)] // one block, one shape decision after another
+pub(super) fn build_footprint_params(footprint: &Footprint) -> String {
+    let ParamsPlan {
+        pattern,
+        description,
+        name_twin,
+        description_twin,
+    } = ParamsPlan::of(footprint);
+    let unicode = name_twin.is_some() || description_twin.is_some();
+    let height = format_mil_coord(footprint.height);
+
+    // A key the writer computes: `Some(None)` drops it from the block.
+    let computed = |key: &str| -> Option<Option<String>> {
+        match key.to_ascii_uppercase().as_str() {
+            "PATTERN" => Some(Some(pattern.clone())),
+            "HEIGHT" => Some(Some(height.clone())),
+            "DESCRIPTION" => Some(Some(description.clone())),
+            "UNICODE" => Some(unicode.then(|| "EXISTS".to_string())),
+            "UNICODE__PATTERN" => Some(name_twin.clone()),
+            "UNICODE__DESCRIPTION" => Some(description_twin.clone()),
+            _ => None,
+        }
+    };
+    let push = |out: &mut String, key: &str, value: &str| {
+        out.push('|');
+        out.push_str(key);
+        out.push('=');
+        out.push_str(value);
+    };
+    let order_has = |key: &str| {
+        footprint
+            .param_key_order
+            .iter()
+            .any(|k| k.eq_ignore_ascii_case(key))
+    };
+    let replay = !footprint.param_key_order.is_empty()
+        && (name_twin.is_none() || order_has("UNICODE__PATTERN"))
+        && (description_twin.is_none() || order_has("UNICODE__DESCRIPTION"));
+
+    let mut out = String::new();
+    if replay {
+        let mut carried: Vec<Option<&(String, String)>> =
+            footprint.additional_parameters.iter().map(Some).collect();
+        let mut take = |key: &str| -> Option<&(String, String)> {
+            carried
+                .iter_mut()
+                .find(|slot| slot.is_some_and(|(k, _)| k.eq_ignore_ascii_case(key)))
+                .and_then(Option::take)
+        };
+        for key in &footprint.param_key_order {
+            if let Some(value) = computed(key) {
+                // Consumed so it cannot resurface as a leftover below.
+                take(key);
+                if let Some(value) = value {
+                    push(&mut out, key, &value);
+                }
+            } else if let Some((k, v)) = take(key) {
+                push(&mut out, k, v);
+            }
+            // A key the order names but nothing carries — dropped through
+            // JSON — is simply gone.
+        }
+        // Pairs supplied without a matching order entry follow verbatim.
+        for (k, v) in carried.into_iter().flatten() {
+            if computed(k).is_none() {
+                push(&mut out, k, v);
+            }
+        }
+        // The keys every block has, should the order have lacked them.
+        for key in ["PATTERN", "HEIGHT", "DESCRIPTION"] {
+            if !order_has(key) {
+                push(&mut out, key, &computed(key).flatten().unwrap_or_default());
+            }
+        }
+    } else {
+        if unicode {
+            push(&mut out, "UNICODE", "EXISTS");
+        }
+        push(&mut out, "PATTERN", &pattern);
+        push(&mut out, "HEIGHT", &height);
+        push(&mut out, "DESCRIPTION", &description);
+        let others: Vec<&(String, String)> = footprint
+            .additional_parameters
+            .iter()
+            .filter(|(k, _)| computed(k).is_none())
+            .collect();
+        // Altium always writes the two GUID keys, empty for a footprint that
+        // belongs to no managed item.
+        for key in ["ITEMGUID", "REVISIONGUID"] {
+            if !others.iter().any(|(k, _)| k.eq_ignore_ascii_case(key)) {
+                push(&mut out, key, "");
+            }
+        }
+        for (k, v) in others {
+            push(&mut out, k, v);
+        }
+        if let Some(twin) = &description_twin {
+            push(&mut out, "UNICODE__DESCRIPTION", twin);
+        }
+        if let Some(twin) = &name_twin {
+            push(&mut out, "UNICODE__PATTERN", twin);
+        }
+        if unicode {
+            push(&mut out, "UNICODE", "EXISTS");
+        }
+    }
+    out
 }
 
 // =============================================================================
@@ -4483,5 +4700,229 @@ mod tests {
         assert!(text.contains("pads[0].per_layer_shapes"), "{text}");
         assert!(text.contains("pad '7'"), "{text}");
         assert!(text.contains("full_stack"), "{text}");
+    }
+
+    /// From scratch the block is Altium's five keys, with HEIGHT as a mil
+    /// string — byte-identical to the block the golden carries.
+    #[test]
+    fn footprint_params_from_scratch_is_the_five_key_block() {
+        let mut fp = Footprint::new("R0402");
+        fp.description = "Chip resistor".to_string();
+        assert_eq!(
+            build_footprint_params(&fp),
+            "|PATTERN=R0402|HEIGHT=0mil|DESCRIPTION=Chip resistor|ITEMGUID=|REVISIONGUID="
+        );
+        fp.height = 1.0;
+        assert!(
+            build_footprint_params(&fp).contains("|HEIGHT=39.370079mil|"),
+            "1 mm is 39.370079 mil in Altium's 0.###### form"
+        );
+    }
+
+    /// A name outside ASCII gets its UTF-16 code units in a twin, bracketed by
+    /// UNICODE=EXISTS at both ends, after the other keys — #507's canary, as
+    /// Altium would write it — and that twin is the name Altium will read.
+    #[test]
+    fn footprint_params_add_a_unicode_twin_for_a_non_ascii_name() {
+        let mut fp = Footprint::new("CANARY*X/\u{FF08}0402\u{FF09}\u{D7}"); // CANARY*X/（0402）×
+        fp.description = "Canary".to_string();
+        let wire = crate::altium::to_wire_text(&fp.name);
+        assert_eq!(
+            build_footprint_params(&fp),
+            format!(
+                "|UNICODE=EXISTS|PATTERN={wire}|HEIGHT=0mil|DESCRIPTION=Canary|ITEMGUID=|REVISIONGUID=\
+                 |UNICODE__PATTERN=67,65,78,65,82,89,42,88,47,65288,48,52,48,50,65289,215|UNICODE=EXISTS"
+            )
+        );
+        assert_eq!(footprint_pattern_text(&fp), wire);
+        assert_eq!(footprint_name_as_altium_reads_it(&fp), fp.name);
+    }
+
+    /// A carried block is replayed verbatim while PATTERN and the twins still
+    /// describe the name and description — the i18n4 shape, AREA included —
+    /// with only HEIGHT coming from its field.
+    #[test]
+    fn footprint_params_replay_a_carried_block_verbatim() {
+        let mut fp = Footprint::new("\u{13E3}\u{13B3}\u{13A9}_CR_0402"); // ᏣᎳᎩ_CR_0402
+        fp.description.clone_from(&fp.name);
+        let units = "5091,5043,5033,95,67,82,95,48,52,48,50";
+        let carried = [
+            ("UNICODE", "EXISTS"),
+            ("PATTERN", "???_CR_0402"),
+            ("DESCRIPTION", "???_CR_0402"),
+            ("ITEMGUID", ""),
+            ("REVISIONGUID", ""),
+            ("AREA", "462399999999.999936"),
+            ("UNICODE__DESCRIPTION", units),
+            ("UNICODE__PATTERN", units),
+            ("UNICODE", "EXISTS"),
+        ];
+        fp.additional_parameters = carried
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+            .collect();
+        fp.param_key_order = [
+            "UNICODE",
+            "PATTERN",
+            "HEIGHT",
+            "DESCRIPTION",
+            "ITEMGUID",
+            "REVISIONGUID",
+            "AREA",
+            "UNICODE__DESCRIPTION",
+            "UNICODE__PATTERN",
+            "UNICODE",
+        ]
+        .iter()
+        .map(|k| (*k).to_string())
+        .collect();
+        assert_eq!(
+            build_footprint_params(&fp),
+            format!(
+                "|UNICODE=EXISTS|PATTERN=???_CR_0402|HEIGHT=0mil|DESCRIPTION=???_CR_0402|ITEMGUID=\
+                 |REVISIONGUID=|AREA=462399999999.999936|UNICODE__DESCRIPTION={units}\
+                 |UNICODE__PATTERN={units}|UNICODE=EXISTS"
+            )
+        );
+        assert_eq!(
+            footprint_pattern_text(&fp),
+            "???_CR_0402",
+            "the husk Altium wrote"
+        );
+        assert_eq!(footprint_name_as_altium_reads_it(&fp), fp.name);
+    }
+
+    /// A rename leaves the carried PATTERN and twin stale, so both are rebuilt
+    /// from the new name in place; a name back inside ASCII drops the twin
+    /// and its UNICODE markers.
+    #[test]
+    fn footprint_params_rebuild_stale_entries_after_a_rename() {
+        let mut fp = Footprint::new("\u{13E3}\u{13B3}\u{13A9}_CR_0402");
+        fp.additional_parameters = [
+            ("UNICODE", "EXISTS"),
+            ("PATTERN", "???_CR_0402"),
+            ("DESCRIPTION", ""),
+            ("ITEMGUID", ""),
+            ("REVISIONGUID", ""),
+            ("UNICODE__PATTERN", "5091,5043,5033,95,67,82,95,48,52,48,50"),
+            ("UNICODE", "EXISTS"),
+        ]
+        .iter()
+        .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+        .collect();
+        fp.param_key_order = [
+            "UNICODE",
+            "PATTERN",
+            "HEIGHT",
+            "DESCRIPTION",
+            "ITEMGUID",
+            "REVISIONGUID",
+            "UNICODE__PATTERN",
+            "UNICODE",
+        ]
+        .iter()
+        .map(|k| (*k).to_string())
+        .collect();
+
+        fp.name = "\u{3A9}_0402".to_string(); // Ω_0402
+        assert_eq!(
+            build_footprint_params(&fp),
+            format!(
+                "|UNICODE=EXISTS|PATTERN={}|HEIGHT=0mil|DESCRIPTION=|ITEMGUID=|REVISIONGUID=\
+                 |UNICODE__PATTERN=937,95,48,52,48,50|UNICODE=EXISTS",
+                crate::altium::to_wire_text(&fp.name)
+            )
+        );
+
+        fp.name = "R0402".to_string();
+        assert_eq!(
+            build_footprint_params(&fp),
+            "|PATTERN=R0402|HEIGHT=0mil|DESCRIPTION=|ITEMGUID=|REVISIONGUID="
+        );
+    }
+
+    /// A name that leaves ASCII after being read without a twin cannot replay
+    /// the old order: the block is rebuilt in canonical order with the twin,
+    /// the carried GUIDs kept.
+    #[test]
+    fn footprint_params_fall_back_to_canonical_order_when_a_twin_is_new() {
+        let mut fp = Footprint::new("R0402");
+        fp.additional_parameters = [
+            ("PATTERN", "R0402"),
+            ("DESCRIPTION", ""),
+            ("ITEMGUID", "{ITEM}"),
+            ("REVISIONGUID", "{REV}"),
+        ]
+        .iter()
+        .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+        .collect();
+        fp.param_key_order = [
+            "PATTERN",
+            "HEIGHT",
+            "DESCRIPTION",
+            "ITEMGUID",
+            "REVISIONGUID",
+        ]
+        .iter()
+        .map(|k| (*k).to_string())
+        .collect();
+        fp.name = "R0402\u{3A9}".to_string();
+        assert_eq!(
+            build_footprint_params(&fp),
+            format!(
+                "|UNICODE=EXISTS|PATTERN={}|HEIGHT=0mil|DESCRIPTION=|ITEMGUID={{ITEM}}\
+                 |REVISIONGUID={{REV}}|UNICODE__PATTERN=82,48,52,48,50,937|UNICODE=EXISTS",
+                crate::altium::to_wire_text(&fp.name)
+            )
+        );
+    }
+
+    /// The golden's script-authored Cyrillic footprint: PATTERN holds the
+    /// name's UTF-8 bytes and the twin those bytes widened through
+    /// Windows-1250 — the name Altium reads and derives the storage from.
+    /// Both are replayed verbatim, and the Altium-side name is the widened
+    /// one, not the real one the reader folds it back to.
+    #[test]
+    fn footprint_params_keep_a_widened_twin_and_report_altiums_view() {
+        let real = "\u{420}\u{435}\u{437}\u{438}\u{441}\u{442}\u{43E}\u{440}_0402"; // Резистор_0402
+        let wire = crate::altium::to_wire_text(real);
+        let widened_units =
+            "272,160,272,181,272,183,272,184,323,129,323,8218,272,318,323,8364,95,48,52,48,50";
+        let mut fp = Footprint::new(real);
+        fp.additional_parameters = [
+            ("UNICODE", "EXISTS"),
+            ("PATTERN", wire.as_str()),
+            ("DESCRIPTION", ""),
+            ("ITEMGUID", ""),
+            ("REVISIONGUID", ""),
+            ("UNICODE__PATTERN", widened_units),
+            ("UNICODE", "EXISTS"),
+        ]
+        .iter()
+        .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+        .collect();
+        fp.param_key_order = [
+            "UNICODE",
+            "PATTERN",
+            "HEIGHT",
+            "DESCRIPTION",
+            "ITEMGUID",
+            "REVISIONGUID",
+            "UNICODE__PATTERN",
+            "UNICODE",
+        ]
+        .iter()
+        .map(|k| (*k).to_string())
+        .collect();
+        assert_eq!(
+            build_footprint_params(&fp),
+            format!(
+                "|UNICODE=EXISTS|PATTERN={wire}|HEIGHT=0mil|DESCRIPTION=|ITEMGUID=|REVISIONGUID=\
+                 |UNICODE__PATTERN={widened_units}|UNICODE=EXISTS"
+            )
+        );
+        let widened = crate::altium::text_from_utf16_units(widened_units).expect("units");
+        assert_ne!(widened, real);
+        assert_eq!(footprint_name_as_altium_reads_it(&fp), widened);
     }
 }

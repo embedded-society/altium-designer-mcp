@@ -102,7 +102,7 @@ impl McpServer {
                      component_bodies). Returns structured data that can be used to understand \
                      existing footprint styles. All coordinates and dimensions are in millimetres \
                      (mm). Fields such as guid, unique_id, raw_tail, raw_block, raw_geometry, \
-                     raw_layer_id, param_key_order, primitive_order and storage_name are \
+                     raw_layer_id, additional_parameters, param_key_order, primitive_order and storage_name are \
                      fidelity carriers: \
                      pass them back unchanged to write_pcblib or update_component and the \
                      rewrite is byte-identical to the source; omit them when authoring from \
@@ -279,6 +279,7 @@ impl McpServer {
                     "type": "string",
                     "description": "Footprint description. Keep to 256 characters if the library will be imported into an Altium 365 workspace — that importer refuses longer ones; a longer description is written and reported as a validation warning."
                 },
+                "height": { "type": "number", "minimum": 0, "description": "Overall component height in mm — Altium's HEIGHT parameter, written as its mil string. Default: 0" },
                 "pads": {
                     "type": "array",
                     "description": "Pad definitions",
@@ -656,6 +657,8 @@ impl McpServer {
                     }
                 },
                 "guid": { "type": "string", "description": "The footprint's own identity GUID (the PrimitiveGuids entry that names no primitive; braced string) as read_pcblib emits it. Pass it back unchanged on a read-modify-write; omit when authoring." },
+                "additional_parameters": { "type": "array", "description": "The footprint's Parameters keys other than HEIGHT, captured verbatim on read whenever the block is not the plain five-key block this tool writes from scratch: the PATTERN and DESCRIPTION bytes, the UNICODE twins that carry a name or description outside ASCII, the item and revision GUIDs of a managed footprint, a UI-authored AREA, and any key a newer Altium version writes. Each entry is a [key, value] string pair. Pass back unchanged on a read-modify-write so nothing is dropped (a PATTERN, DESCRIPTION or twin that no longer matches the name or description is rebuilt from it); omit when authoring, or to have the block rebuilt in Altium's current shape.", "items": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 2 } },
+                "param_key_order": { "type": "array", "description": "The footprint's Parameters keys in stored order, as read_pcblib emitted them; the writer replays this order so the block stays byte-faithful. Pass back unchanged; omit when authoring (canonical order).", "items": { "type": "string" } },
                 "primitive_order": { "type": "array", "description": "The footprint's primitives in Data-stream order, one kind name per primitive, as read_pcblib reports it. Passing it back keeps the source's stream order on a read-modify-write and marks the footprint as a read echo (no designator text is added). Omit when authoring: primitives are written grouped by kind.", "items": { "type": "string", "enum": crate::altium::pcblib::PrimitiveKind::WRITE_ORDER.iter().map(|k| k.name()).collect::<Vec<_>>() } }
             },
             "required": ["name"]

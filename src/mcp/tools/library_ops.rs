@@ -1019,6 +1019,7 @@ impl McpServer {
                     let mut fp_json = json!({
                         "name": fp.name,
                         "description": fp.description,
+                        "height": fp.height,
                         "pads": pads,
                         "vias": fp.vias,
                         "tracks": fp.tracks,
@@ -1041,6 +1042,12 @@ impl McpServer {
                     }
                     if !fp.primitive_order.is_empty() {
                         fp_json["primitive_order"] = json!(fp.primitive_order);
+                    }
+                    if !fp.additional_parameters.is_empty() {
+                        fp_json["additional_parameters"] = json!(fp.additional_parameters);
+                    }
+                    if !fp.param_key_order.is_empty() {
+                        fp_json["param_key_order"] = json!(fp.param_key_order);
                     }
                     fp_json
                 })

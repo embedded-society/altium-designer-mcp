@@ -1858,7 +1858,7 @@ mod body_param_tests {
 }
 
 /// Parses a value in mils (e.g., "15.748mil") to mm.
-pub(super) fn parse_mil_value(s: Option<&str>) -> f64 {
+pub fn parse_mil_value(s: Option<&str>) -> f64 {
     let Some(s) = s else {
         return 0.0;
     };

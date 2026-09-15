@@ -9,8 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A rewrite keeps every footprint parameter Altium wrote.** The writer emitted a fixed
+  five-key `Parameters` block, so an Altium-authored footprint lost its real `HEIGHT`, its item
+  and revision GUIDs, a UI-authored `AREA` and its Unicode twins on every rewrite. The height is
+  now modelled (`height`, in mm) and every other key is carried in order and replayed byte for
+  byte; `manual/identifier.PcbLib`, `pipe.PcbLib` and `i18n4.PcbLib` round-trip byte-identically.
+- **A footprint named outside Windows-1252 is written the way Altium writes it** (#516): the
+  name's UTF-16 code units in a `UNICODE__PATTERN` twin, the description's likewise,
+  `UNICODE=EXISTS` at both ends of the block, and the storage under the real name when it fits
+  the 31-unit cap — so Altium Designer shows `CANARY*X/（0402）×` rather than
+  `CANARY*X/锛?402锛壝?` and finds the footprint. The reader takes such names and descriptions
+  from the twins, so a name Altium wrote as `?` husks reads as its real text.
+
 ### Added
 
+- **`height`, `additional_parameters` and `param_key_order` on a footprint** in `read_pcblib`,
+  `get_component`, `write_pcblib`, `update_component` and `export_library`, mirroring the carriers
+  bodies and regions already have; a library this server wrote reports the two carriers as
+  nothing.
 - **`scripts/samples/manual/i18n4.PcbLib`**, a footprint library authored in the Altium
   Designer 24 UI with four names outside Windows-1252, and the tests that pin what Altium
   writes for them: the ANSI form with `?` for every character the code page cannot hold in

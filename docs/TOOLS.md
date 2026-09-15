@@ -19,10 +19,10 @@ _34 tools._
 
 Read an Altium .PcbLib file and return its contents including footprints with their primitives (pads, vias, tracks, arcs, regions, fills, text, component_bodies). Returns
 structured data that can be used to understand existing footprint styles. All coordinates and dimensions are in millimetres (mm). Fields such as guid, unique_id,
-raw_tail, raw_block, raw_geometry, raw_layer_id, param_key_order, primitive_order and storage_name are fidelity carriers: pass them back unchanged to write_pcblib or
-update_component and the rewrite is byte-identical to the source; omit them when authoring from scratch. Each footprint is the same JSON shape get_component,
-export_library and write_pcblib use; a list with no entries and an optional field with no value are omitted rather than empty/null. For large libraries, use
-component_name to fetch specific footprints, or use limit/offset for pagination.
+raw_tail, raw_block, raw_geometry, raw_layer_id, additional_parameters, param_key_order, primitive_order and storage_name are fidelity carriers: pass them back unchanged
+to write_pcblib or update_component and the rewrite is byte-identical to the source; omit them when authoring from scratch. Each footprint is the same JSON shape
+get_component, export_library and write_pcblib use; a list with no entries and an optional field with no value are omitted rather than empty/null. For large libraries,
+use component_name to fetch specific footprints, or use limit/offset for pagination.
 
 **Example**
 

@@ -52,7 +52,9 @@ longer one is **cut at 31 in its ANSI form** — the machine's code page with `?
 page cannot hold — so `ᏣᎳᎩ_CR_LONG_NAME_ABCDEFGHIJKLMNOPQRS` lives under
 `???_CR_LONG_NAME_ABCDEFGHIJKLMN`, and a surrogate pair, being `??`, is never split
 (`manual/i18n4.PcbLib`). Altium finds a short footprint by re-deriving that storage name, so a
-rewrite must keep an existing storage exactly as it is (issue #507). This root
+rewrite must keep an existing storage exactly as it is (issue #507); the writer keeps a carried
+storage and derives a new one from the name Altium will read — the real name within the cap, else
+the `PATTERN` text cut at 31 and mapped by this stream. This root
 stream is present only when at least one name **reaches** the cap: it maps each such full `LibRef`
 to its `SectionKey` (storage name) — an identity pair for a name of exactly 31 units — one
 `WriteStringBlock` each, and lists nothing shorter, sanitised or not:
@@ -64,8 +66,9 @@ to its `SectionKey` (storage name) — an identity pair for a name of exactly 31
 
 Strings are the ANSI forms Altium writes everywhere else in the file — the machine's code page, `?`
 for a unit it cannot hold (`???_CR_LONG_NAME_ABCDEFGHIJKLMNOPQRS` → `???_CR_LONG_NAME_ABCDEFGHIJKLMN`
-in `manual/i18n4.PcbLib`); the writer emits Windows-1252 and a non-1252 name as its raw UTF-8 bytes
-(#516 tracks the move to Altium's convention) — so `str_len` caps a name at 255 bytes.
+in `manual/i18n4.PcbLib`). The writer keeps the bytes it read while they still describe the name
+and writes a new non-1252 name as its raw UTF-8 bytes, the same bytes as its `PATTERN`; either way
+`str_len` caps a name at 255 bytes.
 Altium-authored libraries in the reference corpus carry exactly this
 layout with one entry per over-cap name; AltiumSharp reads the same. `Library/Data` lists the
 **full** names, so lookup for a long name goes `Library/Data` → `SectionKeys` → storage. The
@@ -170,10 +173,15 @@ the block (`manual/i18n4.PcbLib`, in Altium's order):
 `PATTERN` and `DESCRIPTION` hold the ANSI form — the machine's code page (Windows-1250 `C8 D0 8E`
 for `ČĐŽ`, GBK `A3 A8` for `（`), `?` for every UTF-16 unit the page cannot hold, so a surrogate
 pair is `??` — and the twins hold the units themselves (`𠮷野` = `55362,57271,37326`). There is no
-`%UTF8%` twin in a PcbLib; that convention is the SchLib's. The writer emits
-`|PATTERN=…|HEIGHT=0mil|DESCRIPTION=…|ITEMGUID=|REVISIONGUID=` and nothing else, so an
-Altium-authored footprint's height, GUIDs, area and twins do not survive a rewrite yet
-(`TODO.md` § D).
+`%UTF8%` twin in a PcbLib; that convention is the SchLib's. The reader takes the name and
+description from the twins when present (a script-authored fixture's twin holds the value widened
+through the authoring code page, which is folded back) and from the plain keys otherwise; `HEIGHT`
+becomes the footprint's height in mm, and every other key is carried verbatim, in order. The writer
+emits the five keys from scratch, adds the twins and the `UNICODE=EXISTS` brackets for a name or
+description outside ASCII — the plain key then holds the value's raw UTF-8 bytes, which Altium
+ignores in favour of the twin — and replays a carried block byte for byte, rebuilding only a
+`PATTERN`, `DESCRIPTION` or twin that no longer describes the footprint. `manual/i18n4.PcbLib`,
+`identifier.PcbLib` and `pipe.PcbLib` round-trip byte-identically (`golden_fidelity`).
 
 ### `/{component}/WideStrings`
 
