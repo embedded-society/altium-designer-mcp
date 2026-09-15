@@ -108,7 +108,7 @@ record). The specialised worklists stay the single source of truth for their are
       (from scratch: the system ANSI code page on Windows via `GetACP`, Windows-1252 elsewhere,
       overridable in the config), derive storage names from the real Unicode name cut at 31
       UTF-16 units, and write the `?` + `%UTF8%` form for a name the code page cannot hold.
-      About 60 encode/decode call sites take the library's codec. Needs `encoding_rs` labels
+      About 70 encode/decode call sites take the library's codec. Needs `encoding_rs` labels
       for GBK, Big5, Shift_JIS, EUC-KR and the 125x pages. Open question first: whether a
       `.PcbLib` carries a `%UTF8%` twin for `PATTERN` — needs a footprint named in Altium's UI
       with a character outside the machine's code page (`ᏣᎳᎩ`), from AD24 here or AD21 there.
