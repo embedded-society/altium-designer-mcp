@@ -222,6 +222,52 @@ pub fn from_wire_text(raw: &str) -> Option<String> {
     std::str::from_utf8(&bytes).ok().map(str::to_string)
 }
 
+/// A value as a `PcbLib` footprint's `UNICODE__*` twin carries it.
+///
+/// The twin holds the value's UTF-16 code units in decimal, comma-separated,
+/// a surrogate pair as two units (`𠮷野` is `55362,57271,37326`).
+#[must_use]
+pub fn utf16_units_decimal(value: &str) -> String {
+    value
+        .encode_utf16()
+        .map(|unit| unit.to_string())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Decodes a `UNICODE__*` twin: comma-separated decimal UTF-16 code units.
+///
+/// `None` when the value is empty, is not such a list, or its units are not
+/// well-formed UTF-16, so the caller falls back to the plain key.
+#[must_use]
+pub fn text_from_utf16_units(value: &str) -> Option<String> {
+    if value.is_empty() {
+        return None;
+    }
+    let units = value
+        .split(',')
+        .map(|unit| unit.trim().parse::<u16>().ok())
+        .collect::<Option<Vec<u16>>>()?;
+    String::from_utf16(&units).ok()
+}
+
+/// The text a `PcbLib` footprint's plain key and its `UNICODE__` twin describe.
+///
+/// Altium writes a name or description outside ASCII as `?` husks in the plain
+/// key (its ANSI form) and the real text in the twin, so the twin wins when it
+/// decodes. A script-authored fixture's twin holds the value widened through
+/// the authoring code page — Altium believed the UTF-8 bytes it was handed were
+/// characters — which [`fold_ansi_widened`] undoes. Without a twin the plain key
+/// holds either the value's raw UTF-8 bytes, the wire form this crate writes,
+/// or plain Windows-1252 text.
+#[must_use]
+pub fn unicode_field_text(twin: Option<&str>, plain: &str) -> String {
+    if let Some(real) = twin.and_then(text_from_utf16_units) {
+        return fold_ansi_widened(&real).unwrap_or(real);
+    }
+    from_wire_text(plain).unwrap_or_else(|| plain.to_string())
+}
+
 /// Recovers real text from an ANSI-widened byte string, whatever single-byte
 /// code page did the widening.
 ///
@@ -378,7 +424,7 @@ pub fn generate_ole_name<S: BuildHasher>(name: &str, used_names: &HashSet<String
 
 /// Length of `s` in UTF-16 code units — the unit OLE/CFB storage names are
 /// limited to. Supplementary-plane characters count as two.
-fn utf16_len(s: &str) -> usize {
+pub(crate) fn utf16_len(s: &str) -> usize {
     s.chars().map(char::len_utf16).sum()
 }
 

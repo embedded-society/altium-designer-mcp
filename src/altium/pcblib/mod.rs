@@ -100,6 +100,12 @@ pub struct Footprint {
     #[serde(default)]
     pub description: String,
 
+    /// Overall component height in mm — Altium's `HEIGHT` parameter, written
+    /// as its mil string (`39.37mil` for 1 mm). `0.0` when unset, which is
+    /// what a script-authored footprint carries.
+    #[serde(default)]
+    pub height: f64,
+
     /// Pads in the footprint.
     #[serde(default)]
     pub pads: Vec<Pad>,
@@ -152,6 +158,27 @@ pub struct Footprint {
     /// scratch, renamed or copied: its storage name is derived on save.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage_name: Option<String>,
+
+    /// The `Parameters` keys read verbatim, in read order, other than `HEIGHT`:
+    /// the `PATTERN` and `DESCRIPTION` bytes Altium wrote, the `UNICODE`
+    /// twins that carry a name or description outside ASCII as UTF-16 code
+    /// units, the item and revision GUIDs of a managed footprint, the `AREA` a
+    /// UI-authored one carries, and whatever else an Altium version writes
+    /// there. The writer re-emits them so a read-modify-write drops nothing,
+    /// except that a `PATTERN`, `DESCRIPTION` or twin that no longer describes
+    /// the footprint's name or description is rebuilt from the field. Empty
+    /// when the block was exactly the five-key block the writer produces from
+    /// scratch — which is what `read_pcblib` reports for a library this crate
+    /// wrote — and empty from scratch.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub additional_parameters: Vec<(String, String)>,
+
+    /// Every `Parameters` key in the exact order read, replayed on write so
+    /// the block stays byte-identical: `HEIGHT` from its field, the rest from
+    /// `additional_parameters`. Empty when `additional_parameters` is empty:
+    /// canonical order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub param_key_order: Vec<String>,
 
     /// The order the primitives are stored in, one entry per primitive.
     ///
@@ -392,6 +419,7 @@ impl Footprint {
         Self {
             name: name.into(),
             description: String::new(),
+            height: 0.0,
             pads: Vec::new(),
             vias: Vec::new(),
             tracks: Vec::new(),
@@ -403,6 +431,8 @@ impl Footprint {
             model_3d: None,
             guid: None,
             storage_name: None,
+            additional_parameters: Vec::new(),
+            param_key_order: Vec::new(),
             primitive_order: Vec::new(),
         }
     }

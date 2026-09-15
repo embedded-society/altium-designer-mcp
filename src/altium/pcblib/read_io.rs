@@ -37,6 +37,9 @@ impl PcbLib {
         // Collect footprints with their OLE storage names for later reordering
         let mut footprints_by_ole_name: std::collections::HashMap<String, Footprint> =
             std::collections::HashMap::new();
+        // Each footprint's PATTERN text, the bytes Library/Data lists it under.
+        let mut pattern_by_ole_name: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
 
         for entry_path in entries {
             // Skip non-storage entries and root
@@ -61,7 +64,8 @@ impl PcbLib {
                 if !component_name.is_empty() && !is_internal {
                     // Read the component data
                     match Self::read_footprint(&mut cfb, &entry_path, &component_name) {
-                        Ok(footprint) => {
+                        Ok((footprint, pattern)) => {
+                            pattern_by_ole_name.insert(component_name.clone(), pattern);
                             footprints_by_ole_name.insert(component_name.clone(), footprint);
                         }
                         Err(e) => {
@@ -78,20 +82,23 @@ impl PcbLib {
 
         // Order the footprints as Library/Data (or a legacy FileHeader) lists
         // them, so list_components follows the authored order and the one
-        // reorder_components wrote. The list names a footprint by its real
-        // name, in the same bytes its PATTERN carries, so a footprint is found
-        // by that name first — which also holds for a name authored on a
-        // non-1252 locale, whose bytes decode the same way in both places and
-        // differ from its storage. Failing that, the storage is the name
-        // as-is, its wire form (a non-1252 name is stored under its UTF-8
-        // bytes), the truncated name the root SectionKeys stream maps it to,
-        // or — with no such stream — the name cut at the storage cap and
-        // sanitised by Altium's own rule.
+        // reorder_components wrote. The list names a footprint in the same
+        // bytes its PATTERN carries — `?` husks for a name outside the
+        // authoring code page, whose real text lives in the UNICODE twin —
+        // so a footprint is found by that text first. Failing that, the
+        // storage is the name as-is, its wire form (a non-1252 name is stored
+        // under its UTF-8 bytes), the truncated name the root SectionKeys
+        // stream maps it to, or — with no such stream — the name cut at the
+        // storage cap and sanitised by Altium's own rule.
         let mut by_name: std::collections::HashMap<String, Vec<String>> =
             std::collections::HashMap::new();
         for (ole, fp) in &footprints_by_ole_name {
+            let pattern = pattern_by_ole_name
+                .get(ole)
+                .filter(|pattern| !pattern.is_empty())
+                .unwrap_or(&fp.name);
             by_name
-                .entry(crate::altium::folded_name(&fp.name))
+                .entry(crate::altium::folded_name(pattern))
                 .or_default()
                 .push(ole.clone());
         }
@@ -112,7 +119,7 @@ impl PcbLib {
         for name in &library.metadata.component_names {
             let wire = crate::altium::to_wire_text(name);
             let storage = by_name
-                .get(&crate::altium::folded_name(name))
+                .get(&crate::altium::folded_name(&wire))
                 .into_iter()
                 .flatten()
                 .cloned()
@@ -488,12 +495,14 @@ impl PcbLib {
         models
     }
 
-    /// Reads a single footprint from the OLE document.
+    /// Reads a single footprint from the OLE document, returning it with its
+    /// `PATTERN` text — the bytes `Library/Data` lists it under, decoded as
+    /// Windows-1252 — for pairing with that list.
     fn read_footprint<F: std::io::Read + std::io::Seek>(
         cfb: &mut cfb::CompoundFile<F>,
         storage_path: &std::path::Path,
         name: &str,
-    ) -> AltiumResult<Footprint> {
+    ) -> AltiumResult<(Footprint, String)> {
         // The storage name carries a non-Latin name as UTF-8 bytes; recover it so
         // the footprint is keyed by its true name. The Data stream's own name block
         // overwrites this when present.
@@ -509,9 +518,9 @@ impl PcbLib {
 
         // Read parameters if present
         let params_path = storage_path.join("Parameters");
-        if let Some(params_data) = crate::altium::read_stream_opt(cfb, &params_path) {
-            Self::parse_parameters(&mut footprint, &params_data);
-        }
+        let pattern = crate::altium::read_stream_opt(cfb, &params_path)
+            .map(|params_data| Self::parse_parameters(&mut footprint, &params_data))
+            .unwrap_or_default();
 
         // Read Data stream (contains primitives)
         let data_path = storage_path.join("Data");
@@ -549,22 +558,23 @@ impl PcbLib {
             reader::apply_unique_ids(&mut footprint, &unique_ids);
         }
 
-        Ok(footprint)
+        Ok((footprint, pattern))
     }
 
-    /// Parses parameters from the Parameters stream.
+    /// Parses the Parameters stream — `[len:4]["|KEY=VALUE|…" NUL]`, or the
+    /// bare text — into the footprint and returns its `PATTERN` text: the
+    /// bytes decoded as Windows-1252, which is how `Library/Data` names the
+    /// footprint.
     ///
-    /// The Parameters stream contains key=value pairs separated by `|`.
-    /// Important fields:
-    /// - `PATTERN`: The full footprint name (may be longer than 31-char OLE storage limit)
-    /// - `DESCRIPTION`: Footprint description
-    ///
-    /// # Format
-    ///
-    /// The stream may have two formats:
-    /// 1. With 4-byte length header: `[length:4 LE][text:length]`
-    /// 2. Raw ASCII text: `|PATTERN=...|DESCRIPTION=...|`
-    fn parse_parameters(footprint: &mut Footprint, data: &[u8]) {
+    /// The name and description come from the `UNICODE__PATTERN` and
+    /// `UNICODE__DESCRIPTION` twins when the block carries them and from the
+    /// plain keys otherwise ([`crate::altium::unicode_field_text`]); `HEIGHT`
+    /// is Altium's mil string. Every other key is carried verbatim in
+    /// `additional_parameters`, with the whole order in `param_key_order` —
+    /// unless the block is exactly what the writer produces from scratch for
+    /// this name, description and height, in which case both stay empty and
+    /// the writer regenerates it.
+    fn parse_parameters(footprint: &mut Footprint, data: &[u8]) -> String {
         // Detect whether stream has a 4-byte length header or is raw text.
         // With header: first 4 bytes are u32 LE length, followed by pipe-delimited text.
         // Raw text: starts directly with '|' character.
@@ -584,21 +594,45 @@ impl PcbLib {
         };
 
         // Altium stores parameter strings as Windows-1252, not UTF-8 (#68).
-        let text = crate::altium::decode_windows1252(text_data);
-        let params = crate::altium::parse_pipe_params(&text);
-        // Use PATTERN as the canonical name since OLE storage names are
-        // limited to 31 characters; DESCRIPTION is free text.
-        if let Some(pattern) = params.get("pattern") {
-            if !pattern.is_empty() {
-                // PATTERN carries a non-Latin name as raw UTF-8 bytes.
-                footprint.name =
-                    crate::altium::from_wire_text(pattern).unwrap_or_else(|| pattern.clone());
-            }
+        let decoded = crate::altium::decode_windows1252(text_data);
+        let text = decoded.split('\0').next().unwrap_or_default();
+        // Values verbatim: a trimmed description would not write back the
+        // same bytes.
+        let params: Vec<(String, String)> = text
+            .split('|')
+            .filter_map(|part| part.split_once('='))
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect();
+        let value_of = |wanted: &str| {
+            params
+                .iter()
+                .find(|(key, _)| key.eq_ignore_ascii_case(wanted))
+                .map(|(_, value)| value.as_str())
+        };
+
+        let pattern = value_of("PATTERN").unwrap_or_default().to_string();
+        let name = crate::altium::unicode_field_text(value_of("UNICODE__PATTERN"), &pattern);
+        // An empty PATTERN leaves the name the storage gave.
+        if !name.is_empty() {
+            footprint.name = name;
         }
-        if let Some(description) = params.get("description") {
-            footprint.description =
-                crate::altium::from_wire_text(description).unwrap_or_else(|| description.clone());
+        footprint.description = crate::altium::unicode_field_text(
+            value_of("UNICODE__DESCRIPTION"),
+            value_of("DESCRIPTION").unwrap_or_default(),
+        );
+        footprint.height = reader::parse_mil_value(value_of("HEIGHT"));
+
+        let mut canonical = Footprint::new(footprint.name.clone());
+        canonical.description.clone_from(&footprint.description);
+        canonical.height = footprint.height;
+        if super::writer::build_footprint_params(&canonical) != text {
+            footprint.param_key_order = params.iter().map(|(key, _)| key.clone()).collect();
+            footprint.additional_parameters = params
+                .into_iter()
+                .filter(|(key, _)| !key.eq_ignore_ascii_case("HEIGHT"))
+                .collect();
         }
+        pattern
     }
 
     /// Parses primitives from the Data stream.
@@ -1392,5 +1426,92 @@ mod tests {
             lib.metadata.unique_id.is_none(),
             "a zero-length unique id reads as None"
         );
+    }
+
+    /// Frames a Parameters block the way the stream stores it.
+    fn parameters_stream(text: &[u8]) -> Vec<u8> {
+        let mut block = Vec::new();
+        crate::altium::framing::write_cstring_param_block(&mut block, text);
+        block
+    }
+
+    /// A UI-authored block: the name and description come from the UNICODE
+    /// twins, HEIGHT from its mil string, and every other key is carried in
+    /// order for the writer to replay; the PATTERN text comes back for the
+    /// Library/Data pairing.
+    #[test]
+    fn parameters_take_the_name_from_the_unicode_twin_and_carry_the_rest() {
+        let units = "5091,5043,5033,95,67,82,95,48,52,48,50";
+        let stream = parameters_stream(
+            format!(
+                "|UNICODE=EXISTS|PATTERN=???_CR_0402|HEIGHT=39.370079mil|DESCRIPTION=???_CR_0402\
+                 |ITEMGUID=|REVISIONGUID=|AREA=1|UNICODE__DESCRIPTION={units}\
+                 |UNICODE__PATTERN={units}|UNICODE=EXISTS"
+            )
+            .as_bytes(),
+        );
+        let mut fp = super::Footprint::new("storage");
+        let pattern = PcbLib::parse_parameters(&mut fp, &stream);
+        assert_eq!(pattern, "???_CR_0402");
+        assert_eq!(fp.name, "\u{13E3}\u{13B3}\u{13A9}_CR_0402");
+        assert_eq!(fp.description, "\u{13E3}\u{13B3}\u{13A9}_CR_0402");
+        assert!(
+            (fp.height - 1.0).abs() < 1e-6,
+            "39.370079 mil is 1 mm: {}",
+            fp.height
+        );
+        assert_eq!(
+            fp.param_key_order,
+            [
+                "UNICODE",
+                "PATTERN",
+                "HEIGHT",
+                "DESCRIPTION",
+                "ITEMGUID",
+                "REVISIONGUID",
+                "AREA",
+                "UNICODE__DESCRIPTION",
+                "UNICODE__PATTERN",
+                "UNICODE",
+            ]
+        );
+        assert_eq!(fp.additional_parameters.len(), 9, "every key but HEIGHT");
+        assert!(fp
+            .additional_parameters
+            .contains(&("AREA".to_string(), "1".to_string())));
+    }
+
+    /// The five-key block this crate writes from scratch is recognised and
+    /// carried as nothing, so `read_pcblib` stays quiet about it and the writer
+    /// regenerates it byte-identically.
+    #[test]
+    fn a_canonical_block_carries_no_parameters() {
+        let stream = parameters_stream(
+            b"|PATTERN=R0402|HEIGHT=0mil|DESCRIPTION=Chip|ITEMGUID=|REVISIONGUID=",
+        );
+        let mut fp = super::Footprint::new("R0402");
+        PcbLib::parse_parameters(&mut fp, &stream);
+        assert_eq!(fp.description, "Chip");
+        assert!(fp.additional_parameters.is_empty());
+        assert!(fp.param_key_order.is_empty());
+    }
+
+    /// Without a twin the plain key still yields the text: the UTF-8 wire
+    /// form earlier releases wrote for a name, plain Windows-1252 for the
+    /// rest — and such a block is carried, since the writer would now add a
+    /// twin to it.
+    #[test]
+    fn parameters_without_a_twin_read_the_plain_keys() {
+        let real = "\u{420}_0402";
+        let text = format!(
+            "|PATTERN={}|HEIGHT=0mil|DESCRIPTION=\u{E9}|ITEMGUID=|REVISIONGUID=",
+            crate::altium::to_wire_text(real)
+        );
+        let stream = parameters_stream(&crate::altium::encode_windows1252(&text));
+        let mut fp = super::Footprint::new("storage");
+        PcbLib::parse_parameters(&mut fp, &stream);
+        assert_eq!(fp.name, real);
+        assert_eq!(fp.description, "\u{E9}");
+        assert!(!fp.additional_parameters.is_empty());
     }
 }

@@ -1111,6 +1111,17 @@ impl McpServer {
         if let Some(desc) = fp_json.get("description").and_then(Value::as_str) {
             footprint.description = desc.to_string();
         }
+        if let Some(height) = fp_json.get("height") {
+            let Some(height) = height
+                .as_f64()
+                .filter(|height| height.is_finite() && *height >= 0.0)
+            else {
+                return Err(ToolCallResult::error(format!(
+                    "Footprint '{name}' height must be a finite number of millimetres, zero or more"
+                )));
+            };
+            footprint.height = height;
+        }
 
         // Parse pads
         if let Some(pads) = fp_json.get("pads").and_then(Value::as_array) {
@@ -1419,6 +1430,10 @@ impl McpServer {
                 }
             }
         }
+        // The Parameters block as read, so a read-modify-write through JSON
+        // writes back every key Altium put there.
+        footprint.additional_parameters = Self::parse_additional_parameters(fp_json);
+        footprint.param_key_order = Self::parse_key_order(fp_json);
 
         // Out-of-range or non-finite geometry would saturate in from_mm() on
         // save; refused here so both tools report it the same way.

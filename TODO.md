@@ -89,35 +89,19 @@ record). The specialised worklists stay the single source of truth for their are
       footprint link with `IntegratedModel`/`DatabaseModel` as a golden, text beyond
       U+00FF, a via longer than the 321-byte template, and pad thermal relief or
       power-plane connection.
-- [ ] **Preserve the footprint Parameters block on rewrite.** The writer emits a fixed
-      `|PATTERN=…|HEIGHT=0mil|DESCRIPTION=…|ITEMGUID=|REVISIONGUID=` block, so a rewrite
-      drops every other key an Altium-authored footprint carries: its real `HEIGHT`, its
-      `ITEMGUID`/`REVISIONGUID`, `AREA` and the `UNICODE__*` twins (`manual/i18n4.PcbLib`
-      shows the full UI-authored block). The script-authored golden has none of them, so
-      `golden_fidelity` never saw the loss. Model the height, carry the rest as
-      `additional_parameters` in Altium's key order as bodies and regions already do, then
-      add `manual/i18n4.PcbLib` to the byte-identity suite.
-- [ ] **Unicode names in a PcbLib** (#516). Altium writes text in the machine's ANSI code
-      page (GBK in #507's AD21 library, Windows-1250 here) with `?` for every UTF-16 unit
-      the page cannot hold — a surrogate pair becomes `??` — in `PATTERN`, `DESCRIPTION`,
-      the `Data` name block, `Library/Data` and `SectionKeys`, and carries the real text
-      in `UNICODE__PATTERN`/`UNICODE__DESCRIPTION` as decimal UTF-16 code units bracketed
-      by `UNICODE=EXISTS` whenever the text leaves ASCII; a `PcbLib` has no `%UTF8%` twins
-      (a `SchLib` does: `manual/i18n5.SchLib`). A name within the 31-unit cap is stored
-      under its real Unicode name, a longer one under its ANSI form cut at 31
-      (`manual/i18n4.PcbLib`). The reader takes the name from `PATTERN` decoded as
-      Windows-1252 (`???_CR_0402`, `ÈÐŽ_SL_0402`) and the writer derives the storage name
-      from that form, so a footprint created, renamed or copied under such a name gets
-      mojibake bytes and a wrong storage name (#507's canary `CANARY*X/（0402）×` became
-      `CANARY_X_ï¼ˆ0402ï¼‰Ã—`). The fix: read the name and description from the
-      `UNICODE__*` twins when `UNICODE=EXISTS`; write the ANSI form plus the twins for a
-      non-ASCII name or description, in Altium's key order; derive the storage name from
-      the real name, cut in the ANSI form past 31 units; encode the ANSI bytes through a
-      per-library code page — the storage-name-versus-`PATTERN` oracle on read, the system
-      ANSI code page via `GetACP` for a new library on Windows, Windows-1252 elsewhere,
-      overridable in the config, with `encoding_rs` labels for GBK, Big5, Shift_JIS,
-      EUC-KR and the 125x pages; about 70 encode/decode call sites take the library's
-      codec. Still wanted from Kylinghu on #516: their canary report or reduced fixture.
+- [ ] **Per-library code page for the text that has no twin** (#516). A name and
+      description travel in the `UNICODE__*` twins now, so they read and write exactly
+      whatever code page authored the library; the plain `PATTERN`, `Library/Data` and
+      `SectionKeys` bytes, pad names and designators, region names and text without a
+      `WideStrings` entry are still read and written as Windows-1252. A GBK or
+      Windows-1250 library's plain bytes therefore show as mojibake only where no twin
+      exists, and a new long non-ASCII name's `SectionKeys` entry, which Altium would
+      write as the code page's bytes cut at 31, is the wire form cut instead —
+      self-consistent through the stream, unverified against an Altium on that locale. The
+      fix is the code-page detection sketched on #516 (the storage-name-versus-`PATTERN`
+      oracle on read, `GetACP` for a new library on Windows, `encoding_rs` labels for GBK,
+      Big5, Shift_JIS, EUC-KR and the 125x pages). Wanted first: Kylinghu's canary report
+      or fixture on #516, which also confirms that AD21 reads the twin.
 - [ ] **`IDENTIFIER` beyond the BMP.** A 3D body's identifier is written as decimal code
       points (`manual/identifier.PcbLib`: `µΩ电` = `181,937,30005`), while the sibling
       `UNICODE__*` keys hold UTF-16 code units (`𠮷` = `55362,57271`); every character in

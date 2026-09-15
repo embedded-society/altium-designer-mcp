@@ -42,20 +42,38 @@ impl PcbLib {
 
         let mut cfb = crate::altium::create_ole(writer)?;
 
-        // Storage names use the on-wire form, so the CFB name and every place the
-        // name is written stay consistent for a non-Windows-1252 footprint.
+        // Every footprint's PATTERN text — the bytes Library/Data, the Data
+        // stream's name block and SectionKeys carry as well: the bytes Altium
+        // wrote while they still describe the name, else the name's wire form.
         let wire_names: Vec<String> = self
             .footprints
             .iter()
-            .map(|f| crate::altium::to_wire_text(&f.name))
+            .map(writer::footprint_pattern_text)
             .collect();
         // Each footprint keeps the storage it was read from; one built from
-        // scratch, renamed or copied gets a name derived by Altium's rule.
+        // scratch, renamed or copied gets a name derived by Altium's rule from
+        // the name Altium will read: kept as it is when it fits the cap
+        // (`ᏣᎳᎩ_CR_0402` is stored under `ᏣᎳᎩ_CR_0402`), else the PATTERN
+        // text cut at the cap and mapped back through SectionKeys.
+        let altium_names: Vec<String> = self
+            .footprints
+            .iter()
+            .map(writer::footprint_name_as_altium_reads_it)
+            .collect();
         let ole_names = crate::altium::resolve_storage_names(
             &wire_names
                 .iter()
+                .zip(altium_names.iter())
                 .zip(self.footprints.iter())
-                .map(|(wire, fp)| (wire.clone(), fp.storage_name.clone()))
+                .map(|((wire, altium), fp)| {
+                    let seed =
+                        if crate::altium::utf16_len(altium) <= crate::altium::MAX_OLE_NAME_LEN {
+                            altium.clone()
+                        } else {
+                            wire.clone()
+                        };
+                    (seed, fp.storage_name.clone())
+                })
                 .collect::<Vec<_>>(),
         );
 
@@ -79,9 +97,12 @@ impl PcbLib {
         // includes the whole golden.
         let truncated: Vec<(String, String)> = wire_names
             .iter()
+            .zip(altium_names.iter())
             .zip(ole_names.iter())
-            .filter(|(wire, _)| wire.encode_utf16().count() >= crate::altium::MAX_OLE_NAME_LEN)
-            .map(|(wire, ole)| (wire.clone(), crate::altium::section_key_name(wire, ole)))
+            .filter(|((_, altium), _)| {
+                crate::altium::utf16_len(altium) >= crate::altium::MAX_OLE_NAME_LEN
+            })
+            .map(|((wire, _), ole)| (wire.clone(), crate::altium::section_key_name(wire, ole)))
             .collect();
         if let Some(section_keys) = crate::altium::encode_pcblib_section_keys(&truncated)? {
             crate::altium::write_stream(&mut cfb, "/SectionKeys", &section_keys)?;
@@ -659,13 +680,9 @@ impl PcbLib {
         let header_data = writer::encode_component_header(footprint);
         crate::altium::write_stream(cfb, &format!("{storage_path}/Header"), &header_data)?;
 
-        // Write Parameters stream as a C-string parameter block.
-        // Keys (no trailing pipe): PATTERN, HEIGHT, DESCRIPTION, ITEMGUID, REVISIONGUID.
-        let params = format!(
-            "|PATTERN={}|HEIGHT=0mil|DESCRIPTION={}|ITEMGUID=|REVISIONGUID=",
-            crate::altium::to_wire_text(&footprint.name),
-            footprint.description
-        );
+        // Write Parameters stream as a C-string parameter block, in the shape
+        // Altium writes (see `build_footprint_params`).
+        let params = writer::build_footprint_params(footprint);
         let mut params_data = Vec::new();
         crate::altium::framing::write_cstring_param_block(
             &mut params_data,
@@ -892,5 +909,77 @@ mod tests {
         let text = String::from_utf8(out).unwrap();
         assert!(text.starts_with("|VERSION=3.00|"), "{text}");
         assert!(text.ends_with("UNITS=mm"), "{text}");
+    }
+
+    /// A footprint named outside Windows-1252 from scratch — #507's canary,
+    /// `CANARY*X/（0402）×` — is stored the way Altium stores it: under the real
+    /// name, sanitised, with the name's UTF-16 code units in a `UNICODE__PATTERN`
+    /// twin Altium reads the name from and derives that storage from; and it
+    /// reads back under its real name.
+    #[test]
+    fn a_new_non_ascii_name_gets_altiums_storage_and_a_unicode_twin() {
+        let dir = temp_dir();
+        let path = dir.path().join("Canary.PcbLib");
+        let name = "CANARY*X/\u{FF08}0402\u{FF09}\u{D7}";
+        let mut lib = PcbLib::new();
+        let mut fp = Footprint::new(name);
+        fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+        lib.add(fp);
+        lib.save(&path).expect("save");
+
+        let storage = "/CANARY_X_\u{FF08}0402\u{FF09}\u{D7}";
+        let mut cfb = cfb::open(&path).expect("open compound document");
+        assert!(
+            cfb.is_storage(storage),
+            "stored under the real name, sanitised"
+        );
+        let params = crate::altium::read_stream_opt(&mut cfb, format!("{storage}/Parameters"))
+            .expect("Parameters");
+        let text = crate::altium::decode_windows1252(&params[4..]);
+        assert_eq!(
+            text.trim_end_matches('\0'),
+            format!(
+                "|UNICODE=EXISTS|PATTERN={}|HEIGHT=0mil|DESCRIPTION=|ITEMGUID=|REVISIONGUID=\
+                 |UNICODE__PATTERN=67,65,78,65,82,89,42,88,47,65288,48,52,48,50,65289,215|UNICODE=EXISTS",
+                crate::altium::to_wire_text(name)
+            )
+        );
+        assert!(
+            crate::altium::read_stream_opt(&mut cfb, "/SectionKeys").is_none(),
+            "a name within the cap is not listed"
+        );
+
+        let reread = PcbLib::open(&path).expect("read back");
+        let fp = reread.get(name).expect("found by its real name");
+        assert_eq!(fp.storage_name.as_deref(), Some(&storage[1..]));
+        assert!(
+            fp.additional_parameters.is_empty(),
+            "a block the writer regenerates is not carried"
+        );
+    }
+
+    /// The footprint height is written as Altium's mil string and read back.
+    #[test]
+    fn a_footprint_height_survives_a_write_read_cycle() {
+        let dir = temp_dir();
+        let path = dir.path().join("Height.PcbLib");
+        let mut lib = PcbLib::new();
+        let mut fp = Footprint::new("TALL");
+        fp.height = 2.5;
+        fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+        lib.add(fp);
+        lib.save(&path).expect("save");
+
+        let mut cfb = cfb::open(&path).expect("open compound document");
+        let params =
+            crate::altium::read_stream_opt(&mut cfb, "/TALL/Parameters").expect("Parameters");
+        assert!(
+            crate::altium::decode_windows1252(&params).contains("|HEIGHT=98.425197mil|"),
+            "2.5 mm in mils"
+        );
+        let reread = PcbLib::open(&path).expect("read back");
+        let tall = reread.get("TALL").expect("TALL");
+        assert!((tall.height - 2.5).abs() < 1e-6, "{}", tall.height);
+        assert!(tall.additional_parameters.is_empty());
     }
 }

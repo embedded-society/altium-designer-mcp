@@ -2336,39 +2336,38 @@ fn samples_pcblib_bodyprec() {
 
 /// The four footprints of `manual/i18n4.PcbLib` (AD24 UI on a Windows-1250
 /// machine, 2026-09-15), each with one pad and its name pasted as the
-/// description: the name as the reader exposes it, the CFB storage name, and
-/// the description as the reader exposes it.
+/// description: the name, the CFB storage name, and the description.
 ///
-/// The reader takes the name and description from `PATTERN`/`DESCRIPTION`
-/// decoded as Windows-1252, so a Cherokee name reads as Altium's `?` husk and
-/// the Windows-1250 bytes `C8 D0 8E` read as `ÈÐŽ`; #516 moves both to the
-/// `UNICODE__*` twins. The storage name is the real Unicode name within the
-/// 31-unit cap and the ANSI form cut at 31 beyond it.
+/// The reader takes the name and description from the `UNICODE__PATTERN` and
+/// `UNICODE__DESCRIPTION` twins, so each reads as its real text although the
+/// plain keys hold Altium's `?` husks and, for `ČĐŽ`, the Windows-1250 bytes
+/// `C8 D0 8E`. The storage name is the real Unicode name within the 31-unit
+/// cap and the ANSI form cut at 31 beyond it.
 const I18N4_FOOTPRINTS: [(&str, &str, &str); 4] = [
     // ᏣᎳᎩ_CR_0402: Cherokee, outside every legacy code page.
     (
-        "???_CR_0402",
         "\u{13E3}\u{13B3}\u{13A9}_CR_0402",
-        "???_CR_0402",
+        "\u{13E3}\u{13B3}\u{13A9}_CR_0402",
+        "\u{13E3}\u{13B3}\u{13A9}_CR_0402",
     ),
     // ČĐŽ_SL_0402: inside Windows-1250, outside Windows-1252.
     (
-        "\u{C8}\u{D0}\u{17D}_SL_0402",
         "\u{10C}\u{110}\u{17D}_SL_0402",
-        "\u{C8}\u{D0}\u{17D}_SL_0402",
+        "\u{10C}\u{110}\u{17D}_SL_0402",
+        "\u{10C}\u{110}\u{17D}_SL_0402",
     ),
     // 36 units: stored under the ANSI form cut at 31.
     (
-        "???_CR_LONG_NAME_ABCDEFGHIJKLMNOPQRS",
+        "\u{13E3}\u{13B3}\u{13A9}_CR_LONG_NAME_ABCDEFGHIJKLMNOPQRS",
         "???_CR_LONG_NAME_ABCDEFGHIJKLMN",
-        "???_CR_LONG_NAME_ABCDEFGHIJKLMNOPQRS",
+        "\u{13E3}\u{13B3}\u{13A9}_CR_LONG_NAME_ABCDEFGHIJKLMNOPQRS",
     ),
     // 33 units ending in 𠮷野: the surrogate pair is `??` in the ANSI form, so
     // the cut at 31 never splits it.
     (
-        "SURROGATE_AT_THE_CAP_012345678???",
+        "SURROGATE_AT_THE_CAP_012345678\u{20BB7}\u{91CE}",
         "SURROGATE_AT_THE_CAP_012345678?",
-        "SURROGATE_AT_THE_CAP_012345678???",
+        "SURROGATE_AT_THE_CAP_012345678\u{20BB7}\u{91CE}",
     ),
 ];
 

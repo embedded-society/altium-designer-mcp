@@ -835,3 +835,82 @@ fn corpus_survives_a_round_trip() {
     }
     assert!(report.is_empty(), "corpus sweep:\n{}", report.join("\n"));
 }
+
+/// Every hand-authored `PcbLib` under `scripts/samples/manual/` comes back
+/// byte-identical from a read -> write: each footprint's streams — the
+/// `Parameters` block Altium wrote, key order and all — the root
+/// `SectionKeys`, and `Library/Data` up to its volatile keys. The file header
+/// (a per-save unique id) and the library's model store are not compared.
+#[test]
+fn manual_pcblibs_survive_a_round_trip() {
+    let manual = sample("manual");
+    let mut libraries: Vec<PathBuf> = std::fs::read_dir(&manual)
+        .expect("read the manual samples")
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| {
+            p.extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case("pcblib"))
+        })
+        .collect();
+    libraries.sort();
+    assert!(!libraries.is_empty(), "no manual PcbLibs");
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut failures = Vec::new();
+    for src in &libraries {
+        let file = src.file_name().unwrap().to_string_lossy().into_owned();
+        let out = dir.path().join(&file);
+        let mut lib = PcbLib::open(src).unwrap_or_else(|e| panic!("{file}: open: {e}"));
+        lib.save(&out)
+            .unwrap_or_else(|e| panic!("{file}: save: {e}"));
+        let (before, after) = (stream_map(src), stream_map(&out));
+        for (canonical, g_path) in &before {
+            let Some(o_path) = after.get(canonical) else {
+                failures.push(format!("{file}: stream dropped: {canonical}"));
+                continue;
+            };
+            let (Some(g), Some(o)) = (stream_bytes(src, g_path), stream_bytes(&out, o_path)) else {
+                continue;
+            };
+            let root = canonical.split('/').next().unwrap_or("");
+            if canonical == "library/data" {
+                failures.extend(
+                    block_divergences(&g, &o, &file)
+                        .into_iter()
+                        .filter(|d| !is_known(d)),
+                );
+            } else if matches!(root, "fileheader" | "fileversioninfo" | "library") {
+                // The per-save unique id and the model store: not compared.
+            } else if canonical.ends_with("primitiveguids/data") {
+                // Altium scrambles the record order; the identities are what
+                // matter, as in the golden test above.
+                let records = |bytes: &[u8]| -> std::collections::BTreeSet<Vec<u8>> {
+                    bytes.chunks_exact(24).map(<[u8]>::to_vec).collect()
+                };
+                if records(&g) != records(&o) {
+                    failures.push(format!(
+                        "{file}: {canonical}: PrimitiveGuids records differ"
+                    ));
+                }
+            } else if g != o {
+                let first = g
+                    .iter()
+                    .zip(o.iter())
+                    .position(|(a, b)| a != b)
+                    .unwrap_or_else(|| g.len().min(o.len()));
+                failures.push(format!(
+                    "{file}: {canonical}: not byte-identical (lens {}/{}, first divergence at {first:#x})",
+                    g.len(),
+                    o.len()
+                ));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "manual PcbLib round trip: {}",
+        failures.join("; ")
+    );
+}

@@ -113,7 +113,9 @@ one:
   longer one under its ANSI form cut at 31 (`???_CR_LONG_NAME_ABCDEFGHIJKLMN`,
   `SURROGATE_AT_THE_CAP_012345678?`), and `SectionKeys` maps the ANSI forms.
 
-The `samples_manual_i18n4_*` tests in `tests/samples_pcblib.rs` pin every byte of that.
+The `samples_manual_i18n4_*` tests in `tests/samples_pcblib.rs` pin every byte of that, and
+`manual_pcblibs_survive_a_round_trip` in `tests/golden_fidelity.rs` proves the library — like
+every hand-authored PcbLib here — comes back byte-identical from a rewrite.
 
 **To rebuild it:** new PCB Library; for each of the four, double-click the footprint in the
 PCB Library panel, paste the name into Name and into Description, then place one pad
