@@ -78,9 +78,8 @@ record). The specialised worklists stay the single source of truth for their are
 ## D. Maintenance & waiting
 
 - [ ] **Waiting on others.**
-    - #507: Kylinghu's retest of v1.0.3, running the six mutation paths against a copy
-      of their Altium Designer 21 library. Pass: close the issue. Fail: the `olefile`
-      storage listing before and after the write is the input for the next fix.
+    - #516: Kylinghu's canary report or reduced fixture from the AD21 retest, and the
+      UI-named `.PcbLib` the code-page item below asks for.
     - #67: if bingran names their AI client, answer with its section of
       `docs/CLIENT_SETUP.md`.
 - [ ] **Golden-fixture enrichment backlog**, detailed with its procedure in
@@ -91,15 +90,29 @@ record). The specialised worklists stay the single source of truth for their are
       footprint link with `IntegratedModel`/`DatabaseModel` as a golden, text beyond
       U+00FF, a via longer than the 321-byte template, and pad thermal relief or
       power-plane connection.
-- [ ] **Per-library ANSI code page.** An Altium file authored on a non-1252 locale writes
-      PATTERN, `Library/Data` and `SectionKeys` in that locale's code page (issue #507's AD21
-      library: GBK bytes `A3 A8` for `（`) while the CFB storage name carries the true UTF-16.
-      The reader decodes those bytes as Windows-1252, so such a name shows as `£¨` in JSON and
-      must be addressed that way; the file itself stays intact since the same bytes go back and
-      the storage name is preserved. The clean fix detects the code page (the storage name is
-      the oracle: the encoding whose bytes of it equal PATTERN's), records it on the library,
-      and decodes/encodes every text field through it. Needs `encoding_rs` labels for GBK,
-      Big5, Shift_JIS, EUC-KR and the 125x pages, and a fixture from a non-1252 Altium.
+- [ ] **Code-page-aware text and storage names** (#516). Altium writes text in the
+      machine's ANSI code page (GBK in #507's AD21 library: `A3 A8` for `（`; Windows-1250
+      on the machine that authored the goldens), stores the real Unicode name as the CFB
+      storage name, and writes `?` plus a `%UTF8%` twin for a name the code page cannot
+      hold (the UI-authored `scripts/samples/manual/i18n5.SchLib`: `LibRef0=??????_IU`
+      beside `%UTF8%LibRef0=`). The writer encodes everything as Windows-1252 and
+      represents a name outside it by its UTF-8 bytes read as Windows-1252 characters,
+      then derives the storage name from that form. An existing library survives (storage
+      names are carried, the same bytes go back, a GBK name merely shows as `£¨` in JSON),
+      but a footprint **created, renamed or copied** under such a name on a non-1252
+      machine gets a wrong storage name and mojibake text: #507's canary
+      `CANARY*X/（0402）×` became storage `CANARY_X_ï¼ˆ0402ï¼‰Ã—` and displayed as
+      `CANARY*X/锛?402锛壝?` in AD21. The fix: detect the code page on read (the storage name
+      is the oracle: the encoding whose bytes of it equal the `PATTERN`/`LibRef` bytes,
+      with `%UTF8%` twins as a second signal), record it on the library, encode new text
+      through it (from scratch: the system ANSI code page on Windows via `GetACP`,
+      Windows-1252 elsewhere, overridable in the config), derive storage names from the
+      real Unicode name cut at 31 UTF-16 units, and write the `?` + `%UTF8%` form for a
+      name the code page cannot hold. About 70 encode/decode call sites take the library's
+      codec. Needs `encoding_rs` labels for GBK, Big5, Shift_JIS, EUC-KR and the 125x
+      pages. Open question first: whether a `.PcbLib` carries a `%UTF8%` twin for
+      `PATTERN` — needs a footprint named in Altium's UI with a character outside the
+      machine's code page (`ᏣᎳᎩ`), from AD24 here or AD21 there.
 - [ ] **Drop the `cfb` git pin** (`[patch.crates-io]`, rev `8c1ec76`) as soon as rust-cfb
       publishes a release newer than v0.14.0 — check
       [rust-cfb releases](https://github.com/mdsteele/rust-cfb/releases) at session start.
