@@ -78,9 +78,8 @@ record). The specialised worklists stay the single source of truth for their are
 ## D. Maintenance & waiting
 
 - [ ] **Waiting on others.**
-    - #507: Kylinghu's retest of v1.0.3, running the six mutation paths against a copy
-      of their Altium Designer 21 library. Pass: close the issue. Fail: the `olefile`
-      storage listing before and after the write is the input for the next fix.
+    - #516: Kylinghu's canary report or reduced fixture from the AD21 retest, and the
+      UI-named `.PcbLib` the code-page item below asks for.
     - #67: if bingran names their AI client, answer with its section of
       `docs/CLIENT_SETUP.md`.
 - [ ] **Golden-fixture enrichment backlog**, detailed with its procedure in
@@ -91,8 +90,8 @@ record). The specialised worklists stay the single source of truth for their are
       footprint link with `IntegratedModel`/`DatabaseModel` as a golden, text beyond
       U+00FF, a via longer than the 321-byte template, and pad thermal relief or
       power-plane connection.
-- [ ] **Code-page-aware text and storage names.** Altium writes text in the machine's ANSI
-      code page (GBK in issue #507's AD21 library: `A3 A8` for `（`; Windows-1250 on the machine
+- [ ] **Code-page-aware text and storage names** (#516). Altium writes text in the machine's
+      ANSI code page (GBK in #507's AD21 library: `A3 A8` for `（`; Windows-1250 on the machine
       that authored the goldens), stores the real Unicode name as the CFB storage name, and
       writes `?` plus a `%UTF8%` twin for a name the code page cannot hold (the UI-authored
       `scripts/samples/manual/i18n5.SchLib`: `LibRef0=??????_IU` beside `%UTF8%LibRef0=`). The
