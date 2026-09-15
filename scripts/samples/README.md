@@ -92,6 +92,34 @@ One footprint, `BODY_IDENT`, with two extruded 3D bodies authored in the AD24 UI
 3D bodies (Place → 3D Body, type Extruded, draw a rectangle each); set Identifier `BodyA`
 with Overall Height 1mm on one and Identifier `µΩ电` with 0.5mm on the other; save ONCE.
 
+### `manual/i18n4.PcbLib`
+
+Four footprints named outside Windows-1252, authored in the AD24 UI on a Windows-1250
+machine (2026-09-15), each with one pad and its name pasted as the description: Cherokee
+`ᏣᎳᎩ_CR_0402` (outside every legacy code page), `ČĐŽ_SL_0402` (inside Windows-1250, outside
+Windows-1252), the 36-unit `ᏣᎳᎩ_CR_LONG_NAME_ABCDEFGHIJKLMNOPQRS` and the 33-unit
+`SURROGATE_AT_THE_CAP_012345678𠮷野`, whose surrogate pair straddles the 31-unit storage
+cap. It is ground truth for the **PcbLib UI-authoring convention**, which is not the SchLib
+one:
+
+- `PATTERN`, `DESCRIPTION`, the `Data` stream's leading name block, `Library/Data` and
+  `SectionKeys` hold the machine's ANSI code page (`C8 D0 8E` for `ČĐŽ`), with `?` for every
+  UTF-16 unit the page cannot hold — a surrogate pair becomes `??`.
+- The real text rides in `UNICODE__PATTERN` and `UNICODE__DESCRIPTION` as comma-separated
+  decimal UTF-16 code units (`𠮷野` = `55362,57271,37326`), and `UNICODE=EXISTS` opens and
+  closes the parameter block — only when the text leaves ASCII (the ASCII-named
+  `identifier.PcbLib` carries neither). No `%UTF8%` twin exists anywhere in a PcbLib.
+- A name within the 31-unit cap is stored under its real Unicode name (`ᏣᎳᎩ_CR_0402`); a
+  longer one under its ANSI form cut at 31 (`???_CR_LONG_NAME_ABCDEFGHIJKLMN`,
+  `SURROGATE_AT_THE_CAP_012345678?`), and `SectionKeys` maps the ANSI forms.
+
+The `samples_manual_i18n4_*` tests in `tests/samples_pcblib.rs` pin every byte of that.
+
+**To rebuild it:** new PCB Library; for each of the four, double-click the footprint in the
+PCB Library panel, paste the name into Name and into Description, then place one pad
+(Tools → New Blank Footprint for the next); save ONCE as `i18n4.PcbLib` and never re-open
+it in Altium.
+
 ### `manual/parameters.SchLib`
 
 One component, `PARAMPROPS`, carrying three `RECORD=41` parameters that between them cover

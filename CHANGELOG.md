@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`scripts/samples/manual/i18n4.PcbLib`**, a footprint library authored in the Altium
+  Designer 24 UI with four names outside Windows-1252, and the tests that pin what Altium
+  writes for them: the ANSI form with `?` for every character the code page cannot hold in
+  `PATTERN`, `Library/Data` and `SectionKeys`, the real text as decimal UTF-16 code units in
+  `UNICODE__PATTERN` and `UNICODE__DESCRIPTION`, a real Unicode storage name within the
+  31-unit cap and the ANSI form cut at 31 beyond it. `docs/PCBLIB_FORMAT.md` documents the
+  convention, which a PcbLib follows instead of the SchLib's `%UTF8%` twins.
+
 ## [1.0.3] - 2026-09-13
 
 ### Changed

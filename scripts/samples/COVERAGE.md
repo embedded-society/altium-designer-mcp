@@ -158,7 +158,8 @@ settle whether its row becomes 🔒.
 A **text beyond U+00FF** (Ω, CJK) is 🚫 not scriptable: a source literal reaches Altium as
 its UTF-8 bytes widened through the machine's ANSI page and `Chr(N)` truncates modulo 256
 (`TEXT_WIDE_ONLY` pins the WideStrings-authoritative shape with a character the Data
-stream cannot hold instead; the real thing needs a hand-authored library). A **via block
+stream cannot hold instead; `manual/i18n4.PcbLib` pins names and descriptions beyond
+U+00FF by hand, a text primitive beyond U+00FF is still open). A **via block
 longer than the 321-byte template** (an older Altium's 351-byte vias) cannot come from
 AD24 at all — hand-authored evidence only.
 Pad thermal-relief / power-plane is

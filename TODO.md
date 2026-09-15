@@ -78,8 +78,7 @@ record). The specialised worklists stay the single source of truth for their are
 ## D. Maintenance & waiting
 
 - [ ] **Waiting on others.**
-    - #516: Kylinghu's canary report or reduced fixture from the AD21 retest, and the
-      UI-named `.PcbLib` the code-page item below asks for.
+    - #516: Kylinghu's canary report or reduced fixture from the AD21 retest.
     - #67: if bingran names their AI client, answer with its section of
       `docs/CLIENT_SETUP.md`.
 - [ ] **Golden-fixture enrichment backlog**, detailed with its procedure in
@@ -90,29 +89,40 @@ record). The specialised worklists stay the single source of truth for their are
       footprint link with `IntegratedModel`/`DatabaseModel` as a golden, text beyond
       U+00FF, a via longer than the 321-byte template, and pad thermal relief or
       power-plane connection.
-- [ ] **Code-page-aware text and storage names** (#516). Altium writes text in the
-      machine's ANSI code page (GBK in #507's AD21 library: `A3 A8` for `（`; Windows-1250
-      on the machine that authored the goldens), stores the real Unicode name as the CFB
-      storage name, and writes `?` plus a `%UTF8%` twin for a name the code page cannot
-      hold (the UI-authored `scripts/samples/manual/i18n5.SchLib`: `LibRef0=??????_IU`
-      beside `%UTF8%LibRef0=`). The writer encodes everything as Windows-1252 and
-      represents a name outside it by its UTF-8 bytes read as Windows-1252 characters,
-      then derives the storage name from that form. An existing library survives (storage
-      names are carried, the same bytes go back, a GBK name merely shows as `£¨` in JSON),
-      but a footprint **created, renamed or copied** under such a name on a non-1252
-      machine gets a wrong storage name and mojibake text: #507's canary
-      `CANARY*X/（0402）×` became storage `CANARY_X_ï¼ˆ0402ï¼‰Ã—` and displayed as
-      `CANARY*X/锛?402锛壝?` in AD21. The fix: detect the code page on read (the storage name
-      is the oracle: the encoding whose bytes of it equal the `PATTERN`/`LibRef` bytes,
-      with `%UTF8%` twins as a second signal), record it on the library, encode new text
-      through it (from scratch: the system ANSI code page on Windows via `GetACP`,
-      Windows-1252 elsewhere, overridable in the config), derive storage names from the
-      real Unicode name cut at 31 UTF-16 units, and write the `?` + `%UTF8%` form for a
-      name the code page cannot hold. About 70 encode/decode call sites take the library's
-      codec. Needs `encoding_rs` labels for GBK, Big5, Shift_JIS, EUC-KR and the 125x
-      pages. Open question first: whether a `.PcbLib` carries a `%UTF8%` twin for
-      `PATTERN` — needs a footprint named in Altium's UI with a character outside the
-      machine's code page (`ᏣᎳᎩ`), from AD24 here or AD21 there.
+- [ ] **Preserve the footprint Parameters block on rewrite.** The writer emits a fixed
+      `|PATTERN=…|HEIGHT=0mil|DESCRIPTION=…|ITEMGUID=|REVISIONGUID=` block, so a rewrite
+      drops every other key an Altium-authored footprint carries: its real `HEIGHT`, its
+      `ITEMGUID`/`REVISIONGUID`, `AREA` and the `UNICODE__*` twins (`manual/i18n4.PcbLib`
+      shows the full UI-authored block). The script-authored golden has none of them, so
+      `golden_fidelity` never saw the loss. Model the height, carry the rest as
+      `additional_parameters` in Altium's key order as bodies and regions already do, then
+      add `manual/i18n4.PcbLib` to the byte-identity suite.
+- [ ] **Unicode names in a PcbLib** (#516). Altium writes text in the machine's ANSI code
+      page (GBK in #507's AD21 library, Windows-1250 here) with `?` for every UTF-16 unit
+      the page cannot hold — a surrogate pair becomes `??` — in `PATTERN`, `DESCRIPTION`,
+      the `Data` name block, `Library/Data` and `SectionKeys`, and carries the real text
+      in `UNICODE__PATTERN`/`UNICODE__DESCRIPTION` as decimal UTF-16 code units bracketed
+      by `UNICODE=EXISTS` whenever the text leaves ASCII; a `PcbLib` has no `%UTF8%` twins
+      (a `SchLib` does: `manual/i18n5.SchLib`). A name within the 31-unit cap is stored
+      under its real Unicode name, a longer one under its ANSI form cut at 31
+      (`manual/i18n4.PcbLib`). The reader takes the name from `PATTERN` decoded as
+      Windows-1252 (`???_CR_0402`, `ÈÐŽ_SL_0402`) and the writer derives the storage name
+      from that form, so a footprint created, renamed or copied under such a name gets
+      mojibake bytes and a wrong storage name (#507's canary `CANARY*X/（0402）×` became
+      `CANARY_X_ï¼ˆ0402ï¼‰Ã—`). The fix: read the name and description from the
+      `UNICODE__*` twins when `UNICODE=EXISTS`; write the ANSI form plus the twins for a
+      non-ASCII name or description, in Altium's key order; derive the storage name from
+      the real name, cut in the ANSI form past 31 units; encode the ANSI bytes through a
+      per-library code page — the storage-name-versus-`PATTERN` oracle on read, the system
+      ANSI code page via `GetACP` for a new library on Windows, Windows-1252 elsewhere,
+      overridable in the config, with `encoding_rs` labels for GBK, Big5, Shift_JIS,
+      EUC-KR and the 125x pages; about 70 encode/decode call sites take the library's
+      codec. Still wanted from Kylinghu on #516: their canary report or reduced fixture.
+- [ ] **`IDENTIFIER` beyond the BMP.** A 3D body's identifier is written as decimal code
+      points (`manual/identifier.PcbLib`: `µΩ电` = `181,937,30005`), while the sibling
+      `UNICODE__*` keys hold UTF-16 code units (`𠮷` = `55362,57271`); every character in
+      that fixture is a BMP one, where the two agree. One UI-authored body with the
+      identifier `𠮷` settles whether `encode_identifier` must emit surrogate units.
 - [ ] **Drop the `cfb` git pin** (`[patch.crates-io]`, rev `8c1ec76`) as soon as rust-cfb
       publishes a release newer than v0.14.0 — check
       [rust-cfb releases](https://github.com/mdsteele/rust-cfb/releases) at session start.

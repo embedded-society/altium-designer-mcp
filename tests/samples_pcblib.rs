@@ -2329,3 +2329,271 @@ fn samples_pcblib_bodyprec() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// manual/i18n4.PcbLib — Unicode names in a PcbLib, as the AD24 UI writes them
+// ---------------------------------------------------------------------------
+
+/// The four footprints of `manual/i18n4.PcbLib` (AD24 UI on a Windows-1250
+/// machine, 2026-09-15), each with one pad and its name pasted as the
+/// description: the name as the reader exposes it, the CFB storage name, and
+/// the description as the reader exposes it.
+///
+/// The reader takes the name and description from `PATTERN`/`DESCRIPTION`
+/// decoded as Windows-1252, so a Cherokee name reads as Altium's `?` husk and
+/// the Windows-1250 bytes `C8 D0 8E` read as `ÈÐŽ`; #516 moves both to the
+/// `UNICODE__*` twins. The storage name is the real Unicode name within the
+/// 31-unit cap and the ANSI form cut at 31 beyond it.
+const I18N4_FOOTPRINTS: [(&str, &str, &str); 4] = [
+    // ᏣᎳᎩ_CR_0402: Cherokee, outside every legacy code page.
+    (
+        "???_CR_0402",
+        "\u{13E3}\u{13B3}\u{13A9}_CR_0402",
+        "???_CR_0402",
+    ),
+    // ČĐŽ_SL_0402: inside Windows-1250, outside Windows-1252.
+    (
+        "\u{C8}\u{D0}\u{17D}_SL_0402",
+        "\u{10C}\u{110}\u{17D}_SL_0402",
+        "\u{C8}\u{D0}\u{17D}_SL_0402",
+    ),
+    // 36 units: stored under the ANSI form cut at 31.
+    (
+        "???_CR_LONG_NAME_ABCDEFGHIJKLMNOPQRS",
+        "???_CR_LONG_NAME_ABCDEFGHIJKLMN",
+        "???_CR_LONG_NAME_ABCDEFGHIJKLMNOPQRS",
+    ),
+    // 33 units ending in 𠮷野: the surrogate pair is `??` in the ANSI form, so
+    // the cut at 31 never splits it.
+    (
+        "SURROGATE_AT_THE_CAP_012345678???",
+        "SURROGATE_AT_THE_CAP_012345678?",
+        "SURROGATE_AT_THE_CAP_012345678???",
+    ),
+];
+
+/// Reads one stream of a compound document as raw bytes.
+fn raw_stream(path: &std::path::Path, stream: &str) -> Vec<u8> {
+    use std::io::Read;
+    let mut doc = cfb::open(path).expect("open compound document");
+    let mut bytes = Vec::new();
+    doc.open_stream(stream)
+        .unwrap_or_else(|e| panic!("stream {stream}: {e}"))
+        .read_to_end(&mut bytes)
+        .expect("read stream");
+    bytes
+}
+
+/// Renders bytes one character per byte, so a mismatch reads as text.
+fn latin1(bytes: &[u8]) -> String {
+    bytes.iter().map(|&b| char::from(b)).collect()
+}
+
+/// Unframes a `[u32 len][text NUL]` parameter block, asserting the framing.
+fn param_block(raw: &[u8], what: &str) -> Vec<u8> {
+    let len = usize::try_from(u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]))
+        .expect("block length fits");
+    assert_eq!(raw.len(), 4 + len, "{what}: one block");
+    assert_eq!(raw[raw.len() - 1], 0, "{what}: NUL-terminated");
+    raw[4..raw.len() - 1].to_vec()
+}
+
+/// Reads the `WriteStringBlock` (`[u32 len][u8 str_len][bytes]`) at `pos` and
+/// advances past it.
+fn string_block(bytes: &[u8], pos: &mut usize) -> Vec<u8> {
+    let at = *pos;
+    let len = usize::try_from(u32::from_le_bytes([
+        bytes[at],
+        bytes[at + 1],
+        bytes[at + 2],
+        bytes[at + 3],
+    ]))
+    .expect("block length fits");
+    let str_len = usize::from(bytes[at + 4]);
+    assert_eq!(len, str_len + 1, "a string block is str_len + 1 long");
+    *pos = at + 4 + len;
+    bytes[at + 5..at + 5 + str_len].to_vec()
+}
+
+/// The reader's view of the fixture: names in `Library/Data` order, the
+/// storage each footprint was read from, its description and its one pad.
+#[test]
+fn samples_manual_i18n4_names_storages_and_descriptions_read_exactly() {
+    let lib = PcbLib::open(sample("manual/i18n4.PcbLib")).expect("open manual/i18n4.PcbLib");
+    let names: Vec<String> = I18N4_FOOTPRINTS
+        .iter()
+        .map(|(name, _, _)| (*name).to_string())
+        .collect();
+    assert_eq!(lib.names(), names, "four footprints, in Library/Data order");
+    for (name, storage, description) in I18N4_FOOTPRINTS {
+        let fp = lib
+            .get(name)
+            .unwrap_or_else(|| panic!("footprint {name:?}"));
+        assert_eq!(
+            fp.storage_name.as_deref(),
+            Some(storage),
+            "{name}: storage name"
+        );
+        assert_eq!(fp.description, description, "{name}: description");
+        assert_eq!(fp.pads.len(), 1, "{name}: one pad");
+    }
+}
+
+/// Every Parameters block of the fixture, byte for byte and in Altium's key
+/// order: `UNICODE=EXISTS` opens and closes it, the plain keys hold the ANSI
+/// form (`?` for a unit the code page cannot hold, `??` for a surrogate pair)
+/// and the `UNICODE__` twins hold the UTF-16 code units in decimal. A `PcbLib`
+/// has no `%UTF8%` twin.
+#[test]
+fn samples_manual_i18n4_parameters_carry_utf16_twins() {
+    let path = sample("manual/i18n4.PcbLib");
+    let cherokee = "5091,5043,5033,95,67,82,95,48,52,48,50";
+    let slovene = "268,272,381,95,83,76,95,48,52,48,50";
+    let long = "5091,5043,5033,95,67,82,95,76,79,78,71,95,78,65,77,69,95,\
+                65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83";
+    let surrogate = "83,85,82,82,79,71,65,84,69,95,65,84,95,84,72,69,95,67,65,80,95,\
+                     48,49,50,51,52,53,54,55,56,55362,57271,37326";
+    let area = "|AREA=462399999999.999936";
+    let twins = |units: &str| {
+        format!("|UNICODE__DESCRIPTION={units}|UNICODE__PATTERN={units}|UNICODE=EXISTS")
+    };
+
+    let mut slovene_block =
+        b"|UNICODE=EXISTS|PATTERN=\xC8\xD0\x8E_SL_0402|HEIGHT=0mil|DESCRIPTION=\xC8\xD0\x8E_SL_0402|ITEMGUID=|REVISIONGUID="
+            .to_vec();
+    slovene_block.extend_from_slice(area.as_bytes());
+    slovene_block.extend_from_slice(twins(slovene).as_bytes());
+
+    let expected = [
+        (
+            "/\u{13E3}\u{13B3}\u{13A9}_CR_0402/Parameters",
+            format!(
+                "|UNICODE=EXISTS|PATTERN=???_CR_0402|HEIGHT=0mil|DESCRIPTION=???_CR_0402|ITEMGUID=|REVISIONGUID={}",
+                twins(cherokee)
+            )
+            .into_bytes(),
+        ),
+        ("/\u{10C}\u{110}\u{17D}_SL_0402/Parameters", slovene_block),
+        (
+            "/???_CR_LONG_NAME_ABCDEFGHIJKLMN/Parameters",
+            format!(
+                "|UNICODE=EXISTS|PATTERN=???_CR_LONG_NAME_ABCDEFGHIJKLMNOPQRS|HEIGHT=0mil\
+                 |DESCRIPTION=???_CR_LONG_NAME_ABCDEFGHIJKLMNOPQRS|ITEMGUID=|REVISIONGUID={area}{}",
+                twins(long)
+            )
+            .into_bytes(),
+        ),
+        (
+            "/SURROGATE_AT_THE_CAP_012345678?/Parameters",
+            format!(
+                "|UNICODE=EXISTS|PATTERN=SURROGATE_AT_THE_CAP_012345678???|HEIGHT=0mil\
+                 |DESCRIPTION=SURROGATE_AT_THE_CAP_012345678???|ITEMGUID=|REVISIONGUID={area}{}",
+                twins(surrogate)
+            )
+            .into_bytes(),
+        ),
+    ];
+    for (stream, want) in &expected {
+        let got = param_block(&raw_stream(&path, stream), stream);
+        assert_eq!(latin1(&got), latin1(want), "{stream}");
+        assert!(
+            !got.windows(6).any(|w| w == b"%UTF8%"),
+            "{stream}: a PcbLib carries no %UTF8% twin"
+        );
+    }
+}
+
+/// `Library/Data`, each `Data` stream's leading name block and `SectionKeys`
+/// all hold the ANSI forms; only a short name's storage keeps its real
+/// characters.
+#[test]
+fn samples_manual_i18n4_lists_and_section_keys_hold_ansi_forms() {
+    let path = sample("manual/i18n4.PcbLib");
+    let ansi = [
+        b"???_CR_0402".to_vec(),
+        b"\xC8\xD0\x8E_SL_0402".to_vec(),
+        b"???_CR_LONG_NAME_ABCDEFGHIJKLMNOPQRS".to_vec(),
+        b"SURROGATE_AT_THE_CAP_012345678???".to_vec(),
+    ];
+
+    // Library/Data: the parameter block, then the count and the full names.
+    let library = raw_stream(&path, "/Library/Data");
+    let block_len = usize::try_from(u32::from_le_bytes([
+        library[0], library[1], library[2], library[3],
+    ]))
+    .expect("block length fits");
+    let mut pos = 4 + block_len;
+    let count = u32::from_le_bytes([
+        library[pos],
+        library[pos + 1],
+        library[pos + 2],
+        library[pos + 3],
+    ]);
+    assert_eq!(count, 4, "component count");
+    pos += 4;
+    let listed: Vec<Vec<u8>> = (0..4).map(|_| string_block(&library, &mut pos)).collect();
+    assert_eq!(listed, ansi, "Library/Data names");
+
+    // Each Data stream opens with the same ANSI form.
+    for (storage, want) in [
+        ("\u{13E3}\u{13B3}\u{13A9}_CR_0402", &ansi[0]),
+        ("\u{10C}\u{110}\u{17D}_SL_0402", &ansi[1]),
+        ("???_CR_LONG_NAME_ABCDEFGHIJKLMN", &ansi[2]),
+        ("SURROGATE_AT_THE_CAP_012345678?", &ansi[3]),
+    ] {
+        let data = raw_stream(&path, &format!("/{storage}/Data"));
+        let mut at = 0;
+        assert_eq!(
+            &string_block(&data, &mut at),
+            want,
+            "{storage}/Data name block"
+        );
+    }
+
+    // SectionKeys: the two over-cap names, ANSI form to ANSI form cut at 31.
+    let keys = raw_stream(&path, "/SectionKeys");
+    assert_eq!(
+        u32::from_le_bytes([keys[0], keys[1], keys[2], keys[3]]),
+        2,
+        "two pairs"
+    );
+    let mut pos = 4;
+    let pairs: Vec<(Vec<u8>, Vec<u8>)> = (0..2)
+        .map(|_| (string_block(&keys, &mut pos), string_block(&keys, &mut pos)))
+        .collect();
+    assert_eq!(pos, keys.len(), "nothing follows the pairs");
+    assert_eq!(
+        pairs,
+        vec![
+            (ansi[2].clone(), b"???_CR_LONG_NAME_ABCDEFGHIJKLMN".to_vec()),
+            (ansi[3].clone(), b"SURROGATE_AT_THE_CAP_012345678?".to_vec()),
+        ]
+    );
+}
+
+/// Names, storage names, descriptions and pads of the fixture survive our own
+/// write -> read; the carried storage names in particular (#507).
+#[test]
+fn samples_manual_i18n4_survives_a_write_read_cycle() {
+    use std::io::Cursor;
+
+    let mut lib = PcbLib::open(sample("manual/i18n4.PcbLib")).expect("open manual/i18n4.PcbLib");
+    let mut buffer = Cursor::new(Vec::new());
+    lib.write(&mut buffer).expect("write");
+    buffer.set_position(0);
+    let reread = PcbLib::read(&mut buffer).expect("read back");
+
+    assert_eq!(reread.names(), lib.names(), "names and their order");
+    for (name, storage, description) in I18N4_FOOTPRINTS {
+        let fp = reread
+            .get(name)
+            .unwrap_or_else(|| panic!("footprint {name:?} lost"));
+        assert_eq!(
+            fp.storage_name.as_deref(),
+            Some(storage),
+            "{name}: storage kept"
+        );
+        assert_eq!(fp.description, description, "{name}: description");
+        assert_eq!(fp.pads.len(), 1, "{name}: pad");
+    }
+}
