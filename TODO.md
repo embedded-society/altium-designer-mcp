@@ -9,22 +9,9 @@ record). The specialised worklists stay the single source of truth for their are
 
 ## B. After v1.0.0
 
-- [ ] **Polish three tool descriptions Glama's re-review marked down** (after v1.0.3,
-      2026-09-13; the letter grade stayed A, the tool average fell to 4.34). Non-breaking,
-      ships with the next patch release, same approach as the five rewritten for 1.0.2:
-    - `update_component` (3.7, now the lowest of 34): Usage Guidelines 3 and Behaviour 3.
-      State that the component must already exist, that the footprint/symbol object
-      replaces it wholesale, that a different `name` in the object renames it and a clash
-      is refused, that its position is kept, and what `dry_run` reports. Name the
-      alternatives: `write_pcblib`/`write_schlib` for a whole library, `batch_update` for
-      many components, `update_pad`/`update_primitive` for one primitive,
-      `rename_component` for a rename alone.
-    - `read_pcblib` (5.0 → 4.6): say when to prefer `get_component` or
-      `search_components`, explain `compact`, and break the single dense paragraph up.
-    - `read_schlib` (4.5 → 4.4): the same routing, and add what the schema alone does not
-      say rather than restating `component_name`/`limit`/`offset`.
-    - Then regenerate `docs/TOOLS.md`, add the CHANGELOG entry, and after the release run
-      Sync Server plus Build & Release on Glama's admin page so it re-scores.
+- [ ] **After the next release, run Sync Server plus Build & Release on Glama's admin page**
+      so it re-scores the three tool descriptions rewritten for it (`update_component` 3.7,
+      `read_pcblib` 4.6, `read_schlib` 4.4 after v1.0.3).
 - [ ] **Make the release job survive GitHub 5xx errors.** During a GitHub incident on
       2026-09-13, `gh release create` with all six assets failed three times: once before
       the draft existed, once after five uploads, leaving a partial draft, and once on a

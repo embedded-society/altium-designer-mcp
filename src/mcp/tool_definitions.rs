@@ -97,21 +97,26 @@ impl McpServer {
                 annotations: None,
                 example: Some(serde_json::json!({"name": "read_pcblib", "arguments": {"filepath": "./MyLibrary.PcbLib"}})),
                 description: Some(
-                    "Read an Altium .PcbLib file and return its contents including footprints \
-                     with their primitives (pads, vias, tracks, arcs, regions, fills, text, \
-                     component_bodies). Returns structured data that can be used to understand \
-                     existing footprint styles. All coordinates and dimensions are in millimetres \
-                     (mm). Fields such as guid, unique_id, raw_tail, raw_block, raw_geometry, \
-                     raw_layer_id, additional_parameters, param_key_order, primitive_order and storage_name are \
-                     fidelity carriers: \
-                     pass them back unchanged to write_pcblib or update_component and the \
-                     rewrite is byte-identical to the source; omit them when authoring from \
-                     scratch. \
+                    "Read an Altium .PcbLib file: every footprint with its description, height \
+                     and primitives (pads, vias, tracks, arcs, regions, fills, text, \
+                     component_bodies) as structured JSON, all coordinates and dimensions in \
+                     millimetres. Use it to study a library's footprint style or to fetch data \
+                     for a read-modify-write. For one footprint whose name you know, \
+                     get_component is cheaper; to find footprints by name pattern across \
+                     libraries, search_components; for names alone, list_components. \
                      Each footprint is the same JSON shape get_component, export_library and \
-                     write_pcblib use; a list with no entries and an optional field with no \
-                     value are omitted rather than empty/null. \
-                     For large libraries, use component_name to fetch specific footprints, \
-                     or use limit/offset for pagination."
+                     write_pcblib use, so a footprint read here can be passed to write_pcblib \
+                     or update_component as it is. Fields such as guid, unique_id, raw_tail, \
+                     raw_block, raw_geometry, raw_layer_id, additional_parameters, \
+                     param_key_order, primitive_order and storage_name are fidelity carriers: \
+                     pass them back unchanged and the rewrite is byte-identical to the source; \
+                     omit them when authoring from scratch. A list with no entries and an \
+                     optional field with no value are omitted rather than empty or null. \
+                     compact (default true) omits a pad's per-layer size and shape arrays when \
+                     its stack_mode is Simple, since they only repeat the top-level values; \
+                     set it false to see every layer. For a large library, page with limit \
+                     and offset: the result reports total_count, returned_count, offset and \
+                     has_more. component_name fetches one footprint and turns paging off."
                         .to_string(),
                 ),
                 input_schema: json!({
@@ -149,20 +154,24 @@ impl McpServer {
                 annotations: None,
                 example: Some(serde_json::json!({"name": "read_schlib", "arguments": {"filepath": "./MySymbols.SchLib"}})),
                 description: Some(
-                    "Read an Altium .SchLib file and return its contents including symbols \
-                     with their primitives (pins, rectangles, round_rects, lines, polylines, \
-                     polygons, arcs, pies, images, text_frames, beziers, ellipses, \
-                     elliptical_arcs, labels, ieee_symbols), parameters and footprint links. \
-                     Coordinates are in schematic units (10 units = 1 grid square, not mm). \
-                     Fields such as unique_id, primitive_order, header_params, raw_params, \
-                     all_pin_count, extra_streams and storage_name are fidelity carriers: pass them back \
-                     unchanged to write_schlib or update_component and the rewrite is \
-                     byte-identical to the source; omit them when authoring from scratch. \
-                     Each symbol is the same JSON shape get_component, \
-                     export_library and write_schlib use; a list with no entries and an \
-                     optional field with no value are omitted rather than empty/null. \
-                     For large libraries, use component_name to fetch specific \
-                     symbols, or use limit/offset for pagination."
+                    "Read an Altium .SchLib file: every symbol with its primitives (pins, \
+                     rectangles, round_rects, lines, polylines, polygons, arcs, pies, images, \
+                     text_frames, beziers, ellipses, elliptical_arcs, labels, ieee_symbols), \
+                     parameters and footprint links as structured JSON. Coordinates are in \
+                     schematic units (10 units = 1 grid square, not mm). Use it to study a \
+                     library's symbol style or to fetch data for a read-modify-write. For one \
+                     symbol whose name you know, get_component is cheaper; to find symbols by \
+                     name pattern across libraries, search_components; for names alone, \
+                     list_components. Each symbol is the same JSON shape get_component, \
+                     export_library and write_schlib use, so a symbol read here can be passed \
+                     to write_schlib or update_component as it is. Fields such as unique_id, \
+                     primitive_order, header_params, raw_params, all_pin_count, extra_streams \
+                     and storage_name are fidelity carriers: pass them back unchanged and the \
+                     rewrite is byte-identical to the source; omit them when authoring from \
+                     scratch. A list with no entries and an optional field with no value are \
+                     omitted rather than empty or null. For a large library, page with limit \
+                     and offset: the result reports total_count, returned_count, offset and \
+                     has_more. component_name fetches one symbol and turns paging off."
                         .to_string(),
                 ),
                 input_schema: json!({
@@ -1848,9 +1857,23 @@ impl McpServer {
                 annotations: None,
                 example: Some(serde_json::json!({"name": "update_component", "arguments": {"filepath": "./MyLibrary.PcbLib", "component_name": "RESC0402X20N", "footprint": {"name": "RESC0402X20N", "description": "Updated resistor 0402", "pads": [{"designator": "1", "x": -0.5, "y": 0, "width": 0.5, "height": 0.5, "layer": "TopLayer"}, {"designator": "2", "x": 0.5, "y": 0, "width": 0.5, "height": 0.5, "layer": "TopLayer"}]}}})),
                 description: Some(
-                    "Update a component in-place within an Altium library file, preserving its position. \
-                     For PcbLib, provide a footprint object. For SchLib, provide a symbol object. The \
-                     component is matched by name. Use dry_run=true to preview changes without modifying."
+                    "Replace one existing component of an Altium library (.PcbLib or .SchLib) with \
+                     the object given, keeping its position in the library. component_name must \
+                     name a component the library holds, in any case; a name it does not hold is \
+                     an error listing the available ones. Provide footprint for a .PcbLib or \
+                     symbol for a .SchLib, in the shape write_pcblib or write_schlib takes: the \
+                     object replaces the stored component wholesale, so a primitive left out is \
+                     removed — start from get_component's output when editing. A name in the \
+                     object that differs from component_name renames the component as well; a \
+                     name another component already holds is refused, and an object without a \
+                     name keeps the stored one. dry_run true changes nothing and reports \
+                     would_rename and a changes list (description, primitive counts per kind); \
+                     a real run backs the file up, saves, and returns renamed, old_description, \
+                     component_count and a post-write validation. Alternatives: write_pcblib or \
+                     write_schlib to rewrite a whole library, batch_update for one change across \
+                     every component (track widths, a layer, a parameter), update_pad or \
+                     update_primitive to change one primitive in place, rename_component for a \
+                     rename alone."
                         .to_string(),
                 ),
                 input_schema: json!({
