@@ -23,6 +23,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `CANARY*X/锛?402锛壝?` and finds the footprint. The reader takes such names and descriptions
   from the twins, so a name Altium wrote as `?` husks reads as its real text.
 
+### Changed
+
+- **Three tool descriptions say what the schema alone does not.** `update_component` now
+  states that the object replaces the stored component wholesale and keeps its position,
+  how a different `name` renames and when it is refused, what `dry_run` and a real run
+  report, and which sibling tool fits a whole library, a bulk change, one primitive or a
+  rename alone; `read_pcblib` and `read_schlib` say when `get_component`,
+  `search_components` or `list_components` is the better call, what `compact` omits and
+  what the paging fields report.
+
 ### Added
 
 - **`height`, `additional_parameters` and `param_key_order` on a footprint** in `read_pcblib`,
