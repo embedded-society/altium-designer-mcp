@@ -46,7 +46,7 @@ if [ "$rel" = "$TAG draft=true" ]; then
         FLAGS=(--latest)
     fi
     # Guarded retries: the state is re-read before every attempt.
-    for i in 1 2 3 4; do
+    for _ in 1 2 3 4; do
         cur="$(gh api "$R/releases/$mid" --jq '.draft' 2>/dev/null)"
         [ "$cur" = "false" ] && break
         gh release edit "$TAG" --repo "$REPO" --draft=false "${FLAGS[@]}" >/dev/null 2>&1
@@ -65,7 +65,7 @@ fi
 # A timed-out poll is just a poll that found nothing; the loop retries it.
 listed() { curl -s --max-time 20 "https://registry.modelcontextprotocol.io/v0/servers?search=altium-designer-mcp" | grep -q "\"version\":\"$VERSION\""; }
 ok=no
-for i in $(seq 1 20); do
+for _ in $(seq 1 20); do
     if listed; then ok=yes; break; fi
     sleep 20
 done
@@ -75,7 +75,7 @@ if [ "$ok" = no ]; then
     echo "  last registry-publish run: ${last:-none}"
     if [ "$last" = "completed failure" ]; then
         gh workflow run registry-publish.yml -f tag="$TAG" >/dev/null 2>&1 && echo "$(ts) registry publish re-dispatched for $TAG"
-        for i in $(seq 1 20); do
+        for _ in $(seq 1 20); do
             if listed; then ok=yes; break; fi
             sleep 20
         done

@@ -18,7 +18,7 @@ TAG="${1:-}"
 VERSION="${TAG#v}"
 
 fail() { echo "REVIEW FAIL: $*"; rm -f "$MARKER"; exit 1; }
-retry() { local n=$1; shift; local i; for i in $(seq 1 "$n"); do "$@" && return 0; sleep 20; done; return 1; }
+retry() { local n=$1; shift; local i; for _ in $(seq 1 "$n"); do "$@" && return 0; sleep 20; done; return 1; }
 
 REPO_DIR="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "REVIEW FAIL: not inside the repository"; exit 1; }
 REPO="$(gh repo view --json nameWithOwner --jq .nameWithOwner)" || { echo "REVIEW FAIL: gh cannot see the repository"; exit 1; }
