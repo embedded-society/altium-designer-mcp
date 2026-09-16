@@ -12,20 +12,6 @@ record). The specialised worklists stay the single source of truth for their are
 - [ ] **After the next release, run Sync Server plus Build & Release on Glama's admin page**
       so it re-scores the three tool descriptions rewritten for it (`update_component` 3.7,
       `read_pcblib` 4.6, `read_schlib` 4.4 after v1.0.3).
-- [ ] **Make the release job survive GitHub 5xx errors.** During a GitHub incident on
-      2026-09-13, `gh release create` with all six assets failed three times: once before
-      the draft existed, once after five uploads, leaving a partial draft, and once on a
-      re-run. Create the draft without assets first, then upload each asset with retries
-      (`gh release upload --clobber`), so a transient error neither aborts the job nor
-      leaves a partial draft, and let a re-run reuse a draft that already exists.
-- [ ] **Document the recovery and keep the release review in the repository.** Add to
-      `docs/RELEASING.md` § If something is wrong: a partial draft left by a GitHub error
-      is deleted by its id while the tag stays, the failed job is re-run, and the run's
-      artefacts expire 7 days after the tag push. Commit the draft-review and publish
-      scripts used for v1.0.3 under `scripts/release/` and point step 8 at them: hard
-      pass/fail checks for the checksums, all six attestations, identical bundles, the
-      manifest and binary versions, the MCP handshake and the release notes against the
-      CHANGELOG section.
 - [ ] **Streamable HTTP transport** (v1.1.0) alongside stdio, so web-only assistants
       (claude.ai in the browser, ChatGPT) can connect as a remote server — today they
       cannot (`docs/CLIENT_SETUP.md` § Web-only assistants). Deliberately after 1.0.

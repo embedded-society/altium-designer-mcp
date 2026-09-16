@@ -112,20 +112,28 @@ Two notes on dry runs:
    gh run watch
    ```
 
-8. **Review the draft.** Download the three archives and the extension bundle
-   from the draft release page, check `SHA256SUMS.txt`, run at least one binary
-   on a real machine, and install the `.mcpb` in Claude Desktop once:
+8. **Review the draft.** The review script downloads the six assets and checks
+   them hard: every line of `SHA256SUMS.txt`, a provenance attestation for each
+   of the six files, identical `.mcpb` and `.dxt`, the bundle manifest's version
+   and its three binaries, the archives' contents, this platform's binary
+   (`--version`, then an MCP `initialize` + `tools/list` handshake with the tool
+   count of the tagged source) and the release notes against the CHANGELOG
+   section. It ends with `REVIEW PASS` and leaves the marker the publish script
+   requires, or `REVIEW FAIL:` with the reason. Then install the `.mcpb` in
+   Claude Desktop once.
 
    ```bash
-   gh release view vX.Y.Z
-   sha256sum -c SHA256SUMS.txt
+   bash scripts/release/review-draft.sh vX.Y.Z
    ```
 
-9. **Publish.** A tag without a pre-release suffix is published as the latest
-   release; add `--prerelease --latest=false` for a pre-release that has none.
+9. **Publish.** The publish script re-downloads the draft and refuses if any
+   asset changed since the review, publishes it — as the latest release, or as a
+   pre-release when the tag has a suffix — and waits for the MCP Registry to
+   list the version, re-dispatching `registry-publish.yml` once if its run
+   failed. Every write is guarded, so a retried call cannot publish twice.
 
    ```bash
-   gh release edit vX.Y.Z --draft=false
+   bash scripts/release/publish-draft.sh vX.Y.Z
    ```
 
 10. **Announce** — including a note on the tracking issue if one is open.
@@ -185,6 +193,23 @@ draft than after the release is public.
   git push --delete origin vX.Y.Z
   git tag -d vX.Y.Z
   ```
+
+- **A GitHub incident during the release job** — on 2026-09-13 the API answered
+  500 three times, once after five of the six uploads. The job creates the draft
+  empty and uploads each asset with retries, and a re-run of the failed job
+  completes the draft it finds rather than tripping over it; never re-push the
+  tag. If a draft is still incomplete after a re-run, delete it by id — the draft
+  only, the tag stays — and re-run once more:
+
+  ```bash
+  gh api repos/OWNER/REPO/releases --jq '.[] | select(.tag_name=="vX.Y.Z") | .id'
+  gh api -X DELETE repos/OWNER/REPO/releases/<id>
+  gh run rerun <run-id> --failed
+  ```
+
+  The run's artefacts expire seven days after the tag push (`retention-days: 7`);
+  after that a re-run has nothing to upload, and the fix is the next patch
+  version.
 
 - **After publishing** — do not delete or move the tag. Ship the next patch
   version. A version

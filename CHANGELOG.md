@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The release job survives a GitHub incident.** The draft is created empty, each
+  asset is uploaded with retries, and a re-run of the failed job completes the draft
+  an earlier attempt left instead of failing on it; on 2026-09-13 three attempts had
+  each died on a different 5xx.
 - **Three tool descriptions say what the schema alone does not.** `update_component` now
   states that the object replaces the stored component wholesale and keeps its position,
   how a different `name` renames and when it is refused, what `dry_run` and a real run
@@ -35,6 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`scripts/release/review-draft.sh` and `publish-draft.sh`**, the hard-checking
+  draft review and the guarded publish that `docs/RELEASING.md` steps 8 and 9 now
+  run, with the recovery from a GitHub incident written into the runbook.
 - **`height`, `additional_parameters` and `param_key_order` on a footprint** in `read_pcblib`,
   `get_component`, `write_pcblib`, `update_component` and `export_library`, mirroring the carriers
   bodies and regions already have; a library this server wrote reports the two carriers as
