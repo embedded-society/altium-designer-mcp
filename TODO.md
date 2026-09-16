@@ -9,9 +9,6 @@ record). The specialised worklists stay the single source of truth for their are
 
 ## B. After v1.0.0
 
-- [ ] **After the next release, run Sync Server plus Build & Release on Glama's admin page**
-      so it re-scores the three tool descriptions rewritten for it (`update_component` 3.7,
-      `read_pcblib` 4.6, `read_schlib` 4.4 after v1.0.3).
 - [ ] **Streamable HTTP transport** (v1.1.0) alongside stdio, so web-only assistants
       (claude.ai in the browser, ChatGPT) can connect as a remote server — today they
       cannot (`docs/CLIENT_SETUP.md` § Web-only assistants). Deliberately after 1.0.
