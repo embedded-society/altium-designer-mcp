@@ -1,6 +1,6 @@
 {
     "name": "altium-designer-mcp",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "private": true,
     "description": "An AI-operated Altium Designer libraries editor.",
     "scripts": {

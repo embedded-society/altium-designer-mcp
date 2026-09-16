@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-09-16
+
 ### Fixed
 
 - **A rewrite keeps every footprint parameter Altium wrote.** The writer emitted a fixed
