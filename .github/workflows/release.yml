@@ -181,12 +181,23 @@ jobs:
                 GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
                 TAG="${{ steps.version.outputs.tag }}"
-                if gh release view "$TAG" >/dev/null 2>&1; then
-                    echo "Error: a GitHub release for $TAG already exists."
-                    echo "Releases are not overwritten by this workflow."
-                    exit 1
-                fi
-                echo "No existing release for $TAG."
+                STATE="$(gh release view "$TAG" --json isDraft \
+                    --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null || echo none)"
+                case "$STATE" in
+                    published)
+                        echo "Error: a GitHub release for $TAG already exists."
+                        echo "Releases are not overwritten by this workflow."
+                        exit 1
+                        ;;
+                    draft)
+                        # Left by an earlier attempt that a GitHub error cut
+                        # short; the release job completes it.
+                        echo "A draft release for $TAG exists; the release job completes it."
+                        ;;
+                    *)
+                        echo "No existing release for $TAG."
+                        ;;
+                esac
 
     build:
         name: Build (${{ matrix.target }})
@@ -627,6 +638,22 @@ jobs:
                     RELEASE_FLAGS+=(--latest)
                 fi
 
+                # GitHub answers with 5xx during an incident, and one failed
+                # call must not throw the whole build away (2026-09-13: three
+                # attempts failed on three different calls). Every write below
+                # is retried with a growing pause.
+                retry() {
+                    local attempt
+                    for attempt in 1 2 3 4 5; do
+                        if "$@"; then
+                            return 0
+                        fi
+                        echo "::warning::attempt $attempt of 5 failed: $*"
+                        sleep $((attempt * 20))
+                    done
+                    return 1
+                }
+
                 # Created as a DRAFT on purpose. Everything above is automated
                 # and verified, but publishing is the one step that cannot be
                 # taken back: the moment a release is public it is mirrored,
@@ -636,16 +663,33 @@ jobs:
                 # the last action is a human opening the draft, checking the
                 # notes and the three archives, and pressing Publish.
                 # See docs/RELEASING.md.
-                gh release create "$TAG" \
-                    --draft \
-                    --title "$TAG" \
-                    --notes-file release_notes.md \
-                    "${RELEASE_FLAGS[@]}" \
-                    artifacts/*.tar.gz \
-                    artifacts/*.zip \
-                    artifacts/*.mcpb \
-                    artifacts/*.dxt \
-                    artifacts/SHA256SUMS.txt
+                #
+                # The draft is created empty and the assets uploaded one by
+                # one, so a failed upload leaves a draft the next attempt
+                # completes rather than a half-filled release; a re-run of
+                # this job reuses the draft it finds.
+                if gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null | grep -qx true; then
+                    echo "Reusing the draft release $TAG left by an earlier attempt."
+                else
+                    retry gh release create "$TAG" \
+                        --draft \
+                        --title "$TAG" \
+                        --notes-file release_notes.md \
+                        "${RELEASE_FLAGS[@]}"
+                fi
+                ASSETS=(artifacts/*.tar.gz artifacts/*.zip artifacts/*.mcpb artifacts/*.dxt artifacts/SHA256SUMS.txt)
+                for asset in "${ASSETS[@]}"; do
+                    retry gh release upload "$TAG" "$asset" --clobber
+                done
+
+                # Every asset must be there and fully uploaded before the
+                # draft is offered for review.
+                UPLOADED="$(gh release view "$TAG" --json assets \
+                    --jq '[.assets[] | select(.state == "uploaded")] | length')"
+                if [ "$UPLOADED" != "${#ASSETS[@]}" ]; then
+                    echo "Error: $UPLOADED of ${#ASSETS[@]} assets are uploaded on the draft $TAG."
+                    exit 1
+                fi
 
                 echo "Draft release created: $TAG"
                 echo "Review it, then publish:  gh release edit $TAG --draft=false"
