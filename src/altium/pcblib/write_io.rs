@@ -54,7 +54,8 @@ impl PcbLib {
         // scratch, renamed or copied gets a name derived by Altium's rule from
         // the name Altium will read: kept as it is when it fits the cap
         // (`ᏣᎳᎩ_CR_0402` is stored under `ᏣᎳᎩ_CR_0402`), else the PATTERN
-        // text cut at the cap and mapped back through SectionKeys.
+        // bytes cut at the cap and read back through the code page, as Altium
+        // derives it, and mapped back through SectionKeys.
         let altium_names: Vec<String> = self
             .footprints
             .iter()
@@ -70,7 +71,10 @@ impl PcbLib {
                         if crate::altium::utf16_len(altium) <= crate::altium::MAX_OLE_NAME_LEN {
                             altium.clone()
                         } else {
-                            wire.clone()
+                            crate::altium::ansi_cut_storage_name(
+                                wire,
+                                crate::altium::default_ansi_encoding(),
+                            )
                         };
                     (seed, fp.storage_name.clone())
                 })
@@ -938,11 +942,9 @@ mod tests {
         let text = crate::altium::decode_windows1252(&params[4..]);
         assert_eq!(
             text.trim_end_matches('\0'),
-            format!(
-                "|UNICODE=EXISTS|PATTERN={}|HEIGHT=0mil|DESCRIPTION=|ITEMGUID=|REVISIONGUID=\
-                 |UNICODE__PATTERN=67,65,78,65,82,89,42,88,47,65288,48,52,48,50,65289,215|UNICODE=EXISTS",
-                crate::altium::to_wire_text(name)
-            )
+            "|UNICODE=EXISTS|PATTERN=CANARY*X/?0402?\u{D7}|HEIGHT=0mil|DESCRIPTION=|ITEMGUID=\
+             |REVISIONGUID=|UNICODE__PATTERN=67,65,78,65,82,89,42,88,47,65288,48,52,48,50,65289,215\
+             |UNICODE=EXISTS"
         );
         assert!(
             crate::altium::read_stream_opt(&mut cfb, "/SectionKeys").is_none(),

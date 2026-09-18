@@ -120,9 +120,46 @@ fn merge_allow(
     Ok(config)
 }
 
+/// The system's Windows ANSI code page — the one an Altium on this machine
+/// reads a `PcbLib`'s ANSI name fields through. `None` off Windows, or when it
+/// cannot be read.
+///
+/// Read from the registry rather than with `GetACP`: the crate forbids
+/// unsafe code, and the registry value is the system page Altium's process
+/// gets, whatever this process's own manifest says.
+#[cfg(windows)]
+#[must_use]
+pub fn system_ansi_code_page() -> Option<u32> {
+    windows_registry::LOCAL_MACHINE
+        .open(r"SYSTEM\CurrentControlSet\Control\Nls\CodePage")
+        .ok()?
+        .get_string("ACP")
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+}
+
+/// Off Windows there is no system ANSI code page to read.
+#[cfg(not(windows))]
+#[must_use]
+pub const fn system_ansi_code_page() -> Option<u32> {
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_system_code_page_is_known_on_windows_only() {
+        let page = system_ansi_code_page();
+        if cfg!(windows) {
+            assert!(page.is_some_and(|p| p > 0), "a Windows machine has one");
+        } else {
+            assert_eq!(page, None);
+        }
+    }
 
     #[test]
     fn default_config_dir_exists() {

@@ -268,6 +268,97 @@ pub fn unicode_field_text(twin: Option<&str>, plain: &str) -> String {
     from_wire_text(plain).unwrap_or_else(|| plain.to_string())
 }
 
+/// The encoding of a Windows ANSI code page number.
+///
+/// Covers the pages an Altium machine runs under: the 125x family, Thai 874,
+/// the four East Asian double-byte pages and 65001 (the UTF-8 system locale).
+/// `None` for a page this crate cannot encode.
+#[must_use]
+pub fn ansi_encoding_for(code_page: u32) -> Option<&'static encoding_rs::Encoding> {
+    Some(match code_page {
+        874 => encoding_rs::WINDOWS_874,
+        932 => encoding_rs::SHIFT_JIS,
+        936 => encoding_rs::GBK,
+        949 => encoding_rs::EUC_KR,
+        950 => encoding_rs::BIG5,
+        1250 => encoding_rs::WINDOWS_1250,
+        1251 => encoding_rs::WINDOWS_1251,
+        1252 => encoding_rs::WINDOWS_1252,
+        1253 => encoding_rs::WINDOWS_1253,
+        1254 => encoding_rs::WINDOWS_1254,
+        1255 => encoding_rs::WINDOWS_1255,
+        1256 => encoding_rs::WINDOWS_1256,
+        1257 => encoding_rs::WINDOWS_1257,
+        1258 => encoding_rs::WINDOWS_1258,
+        65001 => encoding_rs::UTF_8,
+        _ => return None,
+    })
+}
+
+/// The ANSI code page new `PcbLib` names are written in: Windows-1252 until
+/// [`set_default_ansi_code_page`] says otherwise.
+static DEFAULT_ANSI_CODE_PAGE: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(1252);
+
+/// Sets the ANSI code page new `PcbLib` names are written in.
+///
+/// Altium Designer 21 takes a footprint's displayed name from the ANSI bytes
+/// of its name block, `PATTERN` and `Library/Data` entry, decoded through the
+/// machine's code page, and ignores the `UNICODE__PATTERN` twin (#516), so the
+/// server writes those bytes in the code page of the machine it runs on — the
+/// one Altium runs on. Returns `false`, changing nothing, for a page
+/// [`ansi_encoding_for`] does not know.
+pub fn set_default_ansi_code_page(code_page: u32) -> bool {
+    let known = ansi_encoding_for(code_page).is_some();
+    if known {
+        DEFAULT_ANSI_CODE_PAGE.store(code_page, std::sync::atomic::Ordering::Relaxed);
+    }
+    known
+}
+
+/// The encoding new `PcbLib` names are written in.
+#[must_use]
+pub fn default_ansi_encoding() -> &'static encoding_rs::Encoding {
+    ansi_encoding_for(DEFAULT_ANSI_CODE_PAGE.load(std::sync::atomic::Ordering::Relaxed))
+        .unwrap_or(encoding_rs::WINDOWS_1252)
+}
+
+/// A value's ANSI form in `encoding`, as wire text.
+///
+/// This is what Altium writes in a `PcbLib`'s ANSI-visible name fields: the
+/// code page's bytes, with `?` for every UTF-16 unit the page cannot hold, so
+/// a supplementary-plane character is `??` (`manual/i18n4.PcbLib`). The bytes
+/// come back one char per byte, so encoding the record as Windows-1252 emits
+/// exactly them.
+#[must_use]
+pub fn to_ansi_wire_text(value: &str, encoding: &'static encoding_rs::Encoding) -> String {
+    let mut bytes = Vec::with_capacity(value.len());
+    let mut buf = [0u8; 4];
+    for ch in value.chars() {
+        let (encoded, _, had_errors) = encoding.encode(ch.encode_utf8(&mut buf));
+        if had_errors {
+            bytes.extend(std::iter::repeat(b'?').take(ch.len_utf16()));
+        } else {
+            bytes.extend_from_slice(&encoded);
+        }
+    }
+    decode_windows1252(&bytes)
+}
+
+/// The storage name Altium derives for a name past the 31-unit cap.
+///
+/// Altium cuts the name's ANSI bytes at the cap and reads them back through
+/// the code page, so `wire` — those bytes as wire text — is cut at 31 bytes and
+/// decoded with `encoding`; `SectionKeys` records the cut bytes.
+pub(crate) fn ansi_cut_storage_name(
+    wire: &str,
+    encoding: &'static encoding_rs::Encoding,
+) -> String {
+    let bytes = encode_windows1252(wire);
+    let cut = &bytes[..bytes.len().min(MAX_OLE_NAME_LEN)];
+    encoding.decode_without_bom_handling(cut).0.into_owned()
+}
+
 /// Recovers real text from an ANSI-widened byte string, whatever single-byte
 /// code page did the widening.
 ///
@@ -1379,5 +1470,53 @@ mod tests {
             record_separator_path(&record, &[]).as_deref(),
             Some("items[].flags")
         );
+    }
+
+    /// The ANSI form is the code page's bytes with `?` per UTF-16 unit the page
+    /// cannot hold: GBK holds `（`, Windows-1250 holds `Č`, neither holds
+    /// Cherokee, and a supplementary-plane character is two units.
+    #[test]
+    fn ansi_wire_text_follows_the_code_page() {
+        let name = "\u{10C}\u{FF08}\u{13E3}\u{20BB7}"; // Č（Ꮳ𠮷
+        assert_eq!(
+            encode_windows1252(&to_ansi_wire_text(name, encoding_rs::WINDOWS_1250)),
+            b"\xC8????"
+        );
+        assert_eq!(
+            encode_windows1252(&to_ansi_wire_text(name, encoding_rs::GBK)),
+            b"?\xA3\xA8???"
+        );
+        assert_eq!(to_ansi_wire_text(name, encoding_rs::WINDOWS_1252), "?????");
+        assert_eq!(to_ansi_wire_text("R0402", encoding_rs::GBK), "R0402");
+    }
+
+    /// A long name's storage is its ANSI bytes cut at 31 and read back through
+    /// the code page, as Altium derives it.
+    #[test]
+    fn ansi_cut_storage_name_cuts_bytes_and_decodes_them() {
+        let name = format!("{}\u{FF08}TAIL", "A".repeat(29));
+        let wire = to_ansi_wire_text(&name, encoding_rs::GBK);
+        assert_eq!(
+            ansi_cut_storage_name(&wire, encoding_rs::GBK),
+            format!("{}\u{FF08}", "A".repeat(29)),
+            "29 bytes plus the two of the GBK character make 31"
+        );
+        assert_eq!(
+            ansi_cut_storage_name("SHORT", encoding_rs::WINDOWS_1252),
+            "SHORT"
+        );
+    }
+
+    #[test]
+    fn code_pages_map_to_encodings() {
+        assert_eq!(ansi_encoding_for(936), Some(encoding_rs::GBK));
+        assert_eq!(ansi_encoding_for(1250), Some(encoding_rs::WINDOWS_1250));
+        assert_eq!(ansi_encoding_for(65001), Some(encoding_rs::UTF_8));
+        assert_eq!(ansi_encoding_for(437), None);
+        assert!(
+            !set_default_ansi_code_page(437),
+            "an unknown page is refused"
+        );
+        assert_eq!(default_ansi_encoding(), encoding_rs::WINDOWS_1252);
     }
 }
