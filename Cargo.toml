@@ -81,6 +81,12 @@ indexmap = { version = "2.7", features = ["serde"] }
 # Date/time handling (for timestamped backups)
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
+# The system ANSI code page, read from the registry: the crate forbids unsafe
+# code, so `GetACP` is out, and this is Microsoft's own safe wrapper. 0.5 is the
+# last line that builds on the MSRV.
+[target.'cfg(windows)'.dependencies]
+windows-registry = "0.5"
+
 [dev-dependencies]
 # Async testing utilities
 tokio-test = "0.4"
