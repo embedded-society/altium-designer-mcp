@@ -120,9 +120,69 @@ fn merge_allow(
     Ok(config)
 }
 
+/// The system's Windows ANSI code page — the one an Altium on this machine
+/// reads a `PcbLib`'s ANSI name fields through. `None` off Windows, or when it
+/// cannot be read.
+///
+/// Read from the registry with `reg.exe` rather than `GetACP`: the crate
+/// forbids unsafe code, and the registry value is the system page Altium's
+/// process gets, whatever this process's own manifest says.
+#[must_use]
+pub fn system_ansi_code_page() -> Option<u32> {
+    if !cfg!(windows) {
+        return None;
+    }
+    // By absolute path, so a `reg.exe` planted on PATH is never run.
+    let reg = PathBuf::from(std::env::var_os("SystemRoot")?)
+        .join("System32")
+        .join("reg.exe");
+    let output = std::process::Command::new(reg)
+        .args([
+            "query",
+            r"HKLM\SYSTEM\CurrentControlSet\Control\Nls\CodePage",
+            "/v",
+            "ACP",
+        ])
+        .output()
+        .ok()?;
+    parse_reg_acp(&String::from_utf8_lossy(&output.stdout))
+}
+
+/// Picks the code page out of `reg query … /v ACP` output, whose value line
+/// reads `    ACP    REG_SZ    1250`.
+fn parse_reg_acp(output: &str) -> Option<u32> {
+    output.lines().find_map(|line| {
+        let mut fields = line.split_whitespace();
+        (fields.next() == Some("ACP") && fields.next() == Some("REG_SZ"))
+            .then(|| fields.next()?.parse().ok())
+            .flatten()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reg_acp_output_yields_the_code_page() {
+        let output = "\r\nHKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Nls\\CodePage\r\n    ACP    REG_SZ    936\r\n\r\n";
+        assert_eq!(parse_reg_acp(output), Some(936));
+        assert_eq!(
+            parse_reg_acp("ERROR: The system was unable to find the key."),
+            None
+        );
+        assert_eq!(parse_reg_acp("    ACP    REG_SZ    not-a-number"), None);
+    }
+
+    #[test]
+    fn the_system_code_page_is_known_on_windows_only() {
+        let page = system_ansi_code_page();
+        if cfg!(windows) {
+            assert!(page.is_some_and(|p| p > 0), "{page:?}");
+        } else {
+            assert_eq!(page, None);
+        }
+    }
 
     #[test]
     fn default_config_dir_exists() {

@@ -31,6 +31,12 @@ struct Args {
     #[arg(long = "allow", value_name = "DIR", num_args = 1..)]
     allow: Vec<PathBuf>,
 
+    /// The Windows ANSI code page new footprint names are written in (936 for
+    /// GBK, 1250, 1252, …). Overrides the config file; the default is the
+    /// system's on Windows and 1252 elsewhere
+    #[arg(long = "ansi-code-page", value_name = "PAGE")]
+    ansi_code_page: Option<u32>,
+
     /// Increase logging verbosity (-v for info, -vv for debug, -vvv for trace)
     #[arg(short, long, action = clap::ArgAction::Count)]
     verbose: u8,
@@ -120,6 +126,22 @@ fn main() -> ExitCode {
         version = env!("CARGO_PKG_VERSION"),
         "Starting altium-designer-mcp server"
     );
+
+    // The code page new PcbLib names are written in: the one the Altium on
+    // this machine reads them through, unless the user names another.
+    let code_page = args
+        .ansi_code_page
+        .or(cfg.ansi_code_page)
+        .or_else(config::system_ansi_code_page)
+        .unwrap_or(1252);
+    if altium_designer_mcp::altium::set_default_ansi_code_page(code_page) {
+        info!(code_page, "ANSI code page for new footprint names");
+    } else {
+        error!(
+            code_page,
+            "Unsupported ANSI code page; new footprint names are written as Windows-1252"
+        );
+    }
 
     // Get allowed paths from config
     let allowed_paths = if cfg.allowed_paths.is_empty() {

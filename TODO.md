@@ -48,7 +48,7 @@ record). The specialised worklists stay the single source of truth for their are
 ## D. Maintenance & waiting
 
 - [ ] **Waiting on others.**
-    - #516: Kylinghu's canary report or reduced fixture from the AD21 retest.
+    - #516: Kylinghu's AD21 re-run of the code-page build, and their G2/H2 canary files.
     - #67: if bingran names their AI client, answer with its section of
       `docs/CLIENT_SETUP.md`.
 - [ ] **Golden-fixture enrichment backlog**, detailed with its procedure in
@@ -59,19 +59,15 @@ record). The specialised worklists stay the single source of truth for their are
       footprint link with `IntegratedModel`/`DatabaseModel` as a golden, text beyond
       U+00FF, a via longer than the 321-byte template, and pad thermal relief or
       power-plane connection.
-- [ ] **Per-library code page for the text that has no twin** (#516). A name and
-      description travel in the `UNICODE__*` twins now, so they read and write exactly
-      whatever code page authored the library; the plain `PATTERN`, `Library/Data` and
-      `SectionKeys` bytes, pad names and designators, region names and text without a
-      `WideStrings` entry are still read and written as Windows-1252. A GBK or
-      Windows-1250 library's plain bytes therefore show as mojibake only where no twin
-      exists, and a new long non-ASCII name's `SectionKeys` entry, which Altium would
-      write as the code page's bytes cut at 31, is the wire form cut instead —
-      self-consistent through the stream, unverified against an Altium on that locale. The
-      fix is the code-page detection sketched on #516 (the storage-name-versus-`PATTERN`
-      oracle on read, `GetACP` for a new library on Windows, `encoding_rs` labels for GBK,
-      Big5, Shift_JIS, EUC-KR and the 125x pages). Wanted first: Kylinghu's canary report
-      or fixture on #516, which also confirms that AD21 reads the twin.
+- [ ] **Read ANSI-only text through the library's code page.** New names and descriptions
+      are written in the server's ANSI code page and travel in the `UNICODE__*` twins, so
+      they read exactly on any machine. Text that has no twin is still read as
+      Windows-1252: pad names and designators, region names, text without a `WideStrings`
+      entry, and the name of a footprint whose library predates the twins. A GBK or
+      Windows-1250 library shows those as mojibake in JSON, though a rewrite puts the same
+      bytes back. The fix detects the library's code page on read — the
+      storage-name-versus-`PATTERN` oracle, else the server's — records it on the library
+      and decodes and encodes that text through it.
 - [ ] **`IDENTIFIER` beyond the BMP.** A 3D body's identifier is written as decimal code
       points (`manual/identifier.PcbLib`: `µΩ电` = `181,937,30005`), while the sibling
       `UNICODE__*` keys hold UTF-16 code units (`𠮷` = `55362,57271`); every character in

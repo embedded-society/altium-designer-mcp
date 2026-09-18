@@ -34,6 +34,13 @@ pub struct Config {
     /// Rate-limiting settings for destructive (file-mutating) operations.
     #[serde(default)]
     pub rate_limit: RateLimitConfig,
+
+    /// The Windows ANSI code page new `PcbLib` names are written in (936 for
+    /// GBK, 1250, 1252, …). `None` takes the system's on Windows and 1252
+    /// elsewhere; set it when the libraries are opened by an Altium on a
+    /// machine with a different system locale than the server's.
+    #[serde(default)]
+    pub ansi_code_page: Option<u32>,
 }
 
 impl Default for Config {
@@ -46,6 +53,7 @@ impl Default for Config {
             allowed_paths: Vec::new(),
             logging: LoggingConfig::default(),
             rate_limit: RateLimitConfig::default(),
+            ansi_code_page: None,
         }
     }
 }
@@ -80,6 +88,17 @@ impl Config {
                 message: "rate_limit.refill_per_sec must be a finite, non-negative number"
                     .to_string(),
             });
+        }
+
+        if let Some(code_page) = self.ansi_code_page {
+            if crate::altium::ansi_encoding_for(code_page).is_none() {
+                return Err(ConfigError::ValidationError {
+                    message: format!(
+                        "ansi_code_page {code_page} is not supported. Use one of: 874, 932, 936, \
+                         949, 950, 1250 to 1258, 65001"
+                    ),
+                });
+            }
         }
 
         Ok(())
@@ -251,6 +270,20 @@ mod tests {
         let json = r#"{ "rate_limit": { "max_burst": 5, "refill_per_sec": 0.0 } }"#;
         let config: Config = serde_json::from_str(json).unwrap();
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn ansi_code_page_must_be_one_the_server_encodes() {
+        let gbk: Config = serde_json::from_str(r#"{ "ansi_code_page": 936 }"#).unwrap();
+        assert_eq!(gbk.ansi_code_page, Some(936));
+        assert!(gbk.validate().is_ok());
+
+        let oem: Config = serde_json::from_str(r#"{ "ansi_code_page": 437 }"#).unwrap();
+        let err = oem.validate().unwrap_err().to_string();
+        assert!(err.contains("ansi_code_page 437"), "{err}");
+
+        let unset: Config = serde_json::from_str("{}").unwrap();
+        assert_eq!(unset.ansi_code_page, None);
     }
 
     #[test]

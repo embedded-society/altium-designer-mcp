@@ -2130,7 +2130,10 @@ struct ParamsPlan {
 }
 
 impl ParamsPlan {
-    fn of(footprint: &Footprint) -> Self {
+    /// `encoding` is the ANSI code page a rebuilt `PATTERN` or `DESCRIPTION`
+    /// is written in: Altium Designer 21 displays those bytes through the
+    /// machine's code page and never reads the twin (#516).
+    fn of(footprint: &Footprint, encoding: &'static encoding_rs::Encoding) -> Self {
         let name_current = carried_name_is_current(footprint);
         let description_current = carried_description_is_current(footprint);
         let plain = |current: bool, key: &str, value: &str| {
@@ -2139,7 +2142,7 @@ impl ParamsPlan {
                     .unwrap_or_default()
                     .to_string()
             } else {
-                crate::altium::to_wire_text(value)
+                crate::altium::to_ansi_wire_text(value, encoding)
             }
         };
         let twin = |current: bool, key: &str, value: &str| -> Option<String> {
@@ -2166,9 +2169,18 @@ impl ParamsPlan {
 
 /// The footprint's `PATTERN` text, which `Library/Data`, the Data stream's
 /// name block and `SectionKeys` carry in the same bytes: the carried bytes
-/// while they still describe the name, else the name's wire form.
+/// while they still describe the name, else the name's ANSI form in the
+/// default code page.
 pub(super) fn footprint_pattern_text(footprint: &Footprint) -> String {
-    ParamsPlan::of(footprint).pattern
+    footprint_pattern_text_in(footprint, crate::altium::default_ansi_encoding())
+}
+
+/// [`footprint_pattern_text`] with the code page given.
+pub(super) fn footprint_pattern_text_in(
+    footprint: &Footprint,
+    encoding: &'static encoding_rs::Encoding,
+) -> String {
+    ParamsPlan::of(footprint, encoding).pattern
 }
 
 /// The name Altium will read for the footprint, which is the name it derives
@@ -2176,7 +2188,7 @@ pub(super) fn footprint_pattern_text(footprint: &Footprint) -> String {
 /// carries or gains one — unfolded, since Altium does not fold a widened
 /// twin — else the `PATTERN` text as Windows-1252 characters.
 pub(super) fn footprint_name_as_altium_reads_it(footprint: &Footprint) -> String {
-    let plan = ParamsPlan::of(footprint);
+    let plan = ParamsPlan::of(footprint, crate::altium::default_ansi_encoding());
     plan.name_twin
         .as_deref()
         .and_then(crate::altium::text_from_utf16_units)
@@ -2196,14 +2208,23 @@ pub(super) fn footprint_name_as_altium_reads_it(footprint: &Footprint) -> String
 /// not, every other carried key verbatim. A twin the carried order lacks — a
 /// name that left ASCII — puts the block back in canonical order, since
 /// replaying could not be byte-faithful anyway.
-#[allow(clippy::too_many_lines)] // one block, one shape decision after another
 pub(super) fn build_footprint_params(footprint: &Footprint) -> String {
+    build_footprint_params_in(footprint, crate::altium::default_ansi_encoding())
+}
+
+/// [`build_footprint_params`] with the code page a rebuilt `PATTERN` or
+/// `DESCRIPTION` is written in.
+#[allow(clippy::too_many_lines)] // one block, one shape decision after another
+pub(super) fn build_footprint_params_in(
+    footprint: &Footprint,
+    encoding: &'static encoding_rs::Encoding,
+) -> String {
     let ParamsPlan {
         pattern,
         description,
         name_twin,
         description_twin,
-    } = ParamsPlan::of(footprint);
+    } = ParamsPlan::of(footprint, encoding);
     let unicode = name_twin.is_some() || description_twin.is_some();
     let height = format_mil_coord(footprint.height);
 
@@ -4721,21 +4742,45 @@ mod tests {
 
     /// A name outside ASCII gets its UTF-16 code units in a twin, bracketed by
     /// UNICODE=EXISTS at both ends, after the other keys — #507's canary, as
-    /// Altium would write it — and that twin is the name Altium will read.
+    /// Altium would write it on a Windows-1252 machine: `?` for the two
+    /// characters the page cannot hold, `×` as itself.
     #[test]
     fn footprint_params_add_a_unicode_twin_for_a_non_ascii_name() {
         let mut fp = Footprint::new("CANARY*X/\u{FF08}0402\u{FF09}\u{D7}"); // CANARY*X/（0402）×
         fp.description = "Canary".to_string();
-        let wire = crate::altium::to_wire_text(&fp.name);
+        let ansi = "CANARY*X/?0402?\u{D7}";
         assert_eq!(
             build_footprint_params(&fp),
             format!(
-                "|UNICODE=EXISTS|PATTERN={wire}|HEIGHT=0mil|DESCRIPTION=Canary|ITEMGUID=|REVISIONGUID=\
+                "|UNICODE=EXISTS|PATTERN={ansi}|HEIGHT=0mil|DESCRIPTION=Canary|ITEMGUID=|REVISIONGUID=\
                  |UNICODE__PATTERN=67,65,78,65,82,89,42,88,47,65288,48,52,48,50,65289,215|UNICODE=EXISTS"
             )
         );
-        assert_eq!(footprint_pattern_text(&fp), wire);
+        assert_eq!(footprint_pattern_text(&fp), ansi);
         assert_eq!(footprint_name_as_altium_reads_it(&fp), fp.name);
+    }
+
+    /// On a GBK machine the same name is written as GBK bytes, which is what
+    /// Altium Designer 21 displays the name from — it never reads the twin
+    /// (#516: GBK bytes display `CANARY*X/（0402）×`, `?` husks display husks).
+    #[test]
+    fn footprint_params_write_the_name_in_the_given_code_page() {
+        let fp = Footprint::new("CANARY*X/\u{FF08}0402\u{FF09}\u{D7}");
+        let gbk = crate::altium::decode_windows1252(b"CANARY*X/\xA3\xA80402\xA3\xA9\xA1\xC1");
+        assert_eq!(footprint_pattern_text_in(&fp, encoding_rs::GBK), gbk);
+        assert_eq!(
+            build_footprint_params_in(&fp, encoding_rs::GBK),
+            format!(
+                "|UNICODE=EXISTS|PATTERN={gbk}|HEIGHT=0mil|DESCRIPTION=|ITEMGUID=|REVISIONGUID=\
+                 |UNICODE__PATTERN=67,65,78,65,82,89,42,88,47,65288,48,52,48,50,65289,215|UNICODE=EXISTS"
+            )
+        );
+        // A character GBK cannot hold is a `?` per UTF-16 unit there too.
+        let cherokee = Footprint::new("\u{13E3}_\u{20BB7}");
+        assert_eq!(
+            footprint_pattern_text_in(&cherokee, encoding_rs::GBK),
+            "?_??"
+        );
     }
 
     /// A carried block is replayed verbatim while PATTERN and the twins still
@@ -4827,11 +4872,8 @@ mod tests {
         fp.name = "\u{3A9}_0402".to_string(); // Ω_0402
         assert_eq!(
             build_footprint_params(&fp),
-            format!(
-                "|UNICODE=EXISTS|PATTERN={}|HEIGHT=0mil|DESCRIPTION=|ITEMGUID=|REVISIONGUID=\
-                 |UNICODE__PATTERN=937,95,48,52,48,50|UNICODE=EXISTS",
-                crate::altium::to_wire_text(&fp.name)
-            )
+            "|UNICODE=EXISTS|PATTERN=?_0402|HEIGHT=0mil|DESCRIPTION=|ITEMGUID=|REVISIONGUID=\
+             |UNICODE__PATTERN=937,95,48,52,48,50|UNICODE=EXISTS"
         );
 
         fp.name = "R0402".to_string();
@@ -4869,11 +4911,8 @@ mod tests {
         fp.name = "R0402\u{3A9}".to_string();
         assert_eq!(
             build_footprint_params(&fp),
-            format!(
-                "|UNICODE=EXISTS|PATTERN={}|HEIGHT=0mil|DESCRIPTION=|ITEMGUID={{ITEM}}\
-                 |REVISIONGUID={{REV}}|UNICODE__PATTERN=82,48,52,48,50,937|UNICODE=EXISTS",
-                crate::altium::to_wire_text(&fp.name)
-            )
+            "|UNICODE=EXISTS|PATTERN=R0402?|HEIGHT=0mil|DESCRIPTION=|ITEMGUID={ITEM}\
+             |REVISIONGUID={REV}|UNICODE__PATTERN=82,48,52,48,50,937|UNICODE=EXISTS"
         );
     }
 

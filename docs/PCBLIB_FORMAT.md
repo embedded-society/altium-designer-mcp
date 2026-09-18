@@ -67,8 +67,8 @@ to its `SectionKey` (storage name) — an identity pair for a name of exactly 31
 Strings are the ANSI forms Altium writes everywhere else in the file — the machine's code page, `?`
 for a unit it cannot hold (`???_CR_LONG_NAME_ABCDEFGHIJKLMNOPQRS` → `???_CR_LONG_NAME_ABCDEFGHIJKLMN`
 in `manual/i18n4.PcbLib`). The writer keeps the bytes it read while they still describe the name
-and writes a new non-1252 name as its raw UTF-8 bytes, the same bytes as its `PATTERN`; either way
-`str_len` caps a name at 255 bytes.
+and writes a new name the same way, in the server's ANSI code page (below), the same bytes as its
+`PATTERN`; either way `str_len` caps a name at 255 bytes.
 Altium-authored libraries in the reference corpus carry exactly this
 layout with one entry per over-cap name; AltiumSharp reads the same. `Library/Data` lists the
 **full** names, so lookup for a long name goes `Library/Data` → `SectionKeys` → storage. The
@@ -178,10 +178,19 @@ description from the twins when present (a script-authored fixture's twin holds 
 through the authoring code page, which is folded back) and from the plain keys otherwise; `HEIGHT`
 becomes the footprint's height in mm, and every other key is carried verbatim, in order. The writer
 emits the five keys from scratch, adds the twins and the `UNICODE=EXISTS` brackets for a name or
-description outside ASCII — the plain key then holds the value's raw UTF-8 bytes, which Altium
-ignores in favour of the twin — and replays a carried block byte for byte, rebuilding only a
-`PATTERN`, `DESCRIPTION` or twin that no longer describes the footprint. `manual/i18n4.PcbLib`,
+description outside ASCII, and replays a carried block byte for byte, rebuilding only a `PATTERN`,
+`DESCRIPTION` or twin that no longer describes the footprint. `manual/i18n4.PcbLib`,
 `identifier.PcbLib` and `pipe.PcbLib` round-trip byte-identically (`golden_fidelity`).
+
+The ANSI bytes matter as much as the twins: **Altium Designer 21 displays a footprint's name from
+the ANSI-visible fields** — the Data stream's name block, `PATTERN` and the `Library/Data` entry —
+decoded through the machine's code page, and never reads `UNICODE__PATTERN` (#516: with GBK bytes
+there AD21 shows `CANARY*X/（0402）×`; with `?` husks and a correct twin it shows the husks). A
+rebuilt name or description is therefore written in the **server's ANSI code page** — the system's
+on Windows, read from the registry, since the server runs beside the Altium that opens the file;
+Windows-1252 elsewhere; `ansi_code_page` in the config or `--ansi-code-page` overrides it — with `?`
+for every UTF-16 unit the page cannot hold, exactly as Altium writes it. A name past the 31-unit cap
+is stored under those bytes cut at 31 and read back through the code page, which `SectionKeys` maps.
 
 ### `/{component}/WideStrings`
 

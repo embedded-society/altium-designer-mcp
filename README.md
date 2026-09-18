@@ -329,6 +329,7 @@ altium-designer-mcp [OPTIONS] [CONFIG_FILE]
 |--------|-------------|
 | `CONFIG_FILE` | Path to configuration file (optional, uses default location if omitted) |
 | `--allow <DIR>...` | Grant access to library folders directly (repeatable). Adds to the config file's `allowed_paths`, and works with no config file at all — the other settings then take their defaults |
+| `--ansi-code-page <PAGE>` | The Windows ANSI code page new footprint names are written in (`936` for GBK, `1250`, `1252`, …); overrides `ansi_code_page` in the config file |
 | `-v`, `--verbose` | Increase logging verbosity (`-v` info, `-vv` debug, `-vvv` trace) |
 | `-q`, `--quiet` | Decrease logging verbosity (only show errors) |
 | `-h`, `--help` | Print help information |
@@ -387,6 +388,7 @@ Claude Desktop extension starts it. Configuration file location:
 | `logging.audit_log_path` | Path to an append-only JSON-lines audit log of destructive operations (default: null — no audit log is written) |
 | `rate_limit.max_burst` | Maximum burst of mutating operations before throttling; read-only tools are never rate limited (default: 120) |
 | `rate_limit.refill_per_sec` | Token-bucket refill rate for mutating operations, in tokens per second (default: 30.0) |
+| `ansi_code_page` | The Windows ANSI code page new footprint names are written in: 874, 932, 936, 949, 950, 1250 to 1258 or 65001. Altium Designer 21 displays a footprint's name from those bytes through the machine's code page, so it should be the code page of the machine whose Altium opens the libraries (default: null — the system's code page on Windows, 1252 elsewhere) |
 
 ---
 

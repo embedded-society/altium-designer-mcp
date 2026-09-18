@@ -12,5 +12,6 @@
     "rate_limit": {
         "max_burst": 120,
         "refill_per_sec": 30.0
-    }
+    },
+    "ansi_code_page": null
 }

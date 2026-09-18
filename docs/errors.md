@@ -81,6 +81,8 @@ produces a `ValidationError` whose `message` names the offending field.
 - **Rate-limit burst.** `rate_limit.max_burst` must be greater than `0`; a zero burst would
     block every mutating operation. The default is `120`.
 - **Rate-limit refill.** `rate_limit.refill_per_sec` must be a finite, non-negative number.
+- **ANSI code page.** `ansi_code_page` must be one the server can encode: 874, 932, 936, 949,
+  950, 1250 to 1258 or 65001.
     A value of `0.0` is valid and permits a single burst with no refill. The default is
     `30.0`.
 

@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Altium Designer 21 shows the real name of a new, renamed or copied footprint outside
+  ASCII** (#516). AD21 displays a footprint's name from the ANSI bytes of its name block,
+  `PATTERN` and `Library/Data` entry, decoded through the machine's code page, and never reads
+  the `UNICODE__PATTERN` twin 1.0.4 relied on, so `CANARY*X/（0402）×` still showed as
+  `CANARY*X/锛?402锛壝?` on a GBK machine. Those bytes, the description and the `SectionKeys`
+  strings are now written in the server's ANSI code page — the system's on Windows, which is
+  the Altium machine's; Windows-1252 elsewhere — with `?` for what the page cannot hold, exactly
+  as Altium writes them; the twins and the real-name storage stay. A name past the 31-unit cap is
+  stored under those bytes cut at 31 and read back through the code page, as Altium derives it.
+
+### Added
+
+- **`ansi_code_page`** in the config file and **`--ansi-code-page`** on the command line, for
+  a server that writes libraries for an Altium on a machine with another system locale.
+
 ## [1.0.4] - 2026-09-16
 
 ### Fixed
