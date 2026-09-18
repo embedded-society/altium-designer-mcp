@@ -1,6 +1,6 @@
 [package]
 name = "altium-designer-mcp"
-version = "1.0.4"
+version = "1.0.5"
 edition = "2021"
 rust-version = "1.75"
 license = "GPL-3.0-or-later"

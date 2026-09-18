@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-09-18
+
 ### Fixed
 
 - **Altium Designer 21 shows the real name of a new, renamed or copied footprint outside
