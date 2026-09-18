@@ -127,23 +127,24 @@ fn merge_allow(
 /// Read from the registry rather than with `GetACP`: the crate forbids
 /// unsafe code, and the registry value is the system page Altium's process
 /// gets, whatever this process's own manifest says.
+#[cfg(windows)]
 #[must_use]
 pub fn system_ansi_code_page() -> Option<u32> {
-    #[cfg(windows)]
-    {
-        windows_registry::LOCAL_MACHINE
-            .open(r"SYSTEM\CurrentControlSet\Control\Nls\CodePage")
-            .ok()?
-            .get_string("ACP")
-            .ok()?
-            .trim()
-            .parse()
-            .ok()
-    }
-    #[cfg(not(windows))]
-    {
-        None
-    }
+    windows_registry::LOCAL_MACHINE
+        .open(r"SYSTEM\CurrentControlSet\Control\Nls\CodePage")
+        .ok()?
+        .get_string("ACP")
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+}
+
+/// Off Windows there is no system ANSI code page to read.
+#[cfg(not(windows))]
+#[must_use]
+pub const fn system_ansi_code_page() -> Option<u32> {
+    None
 }
 
 #[cfg(test)]
