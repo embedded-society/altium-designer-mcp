@@ -85,7 +85,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 # code, so `GetACP` is out, and this is Microsoft's own safe wrapper. 0.5 is the
 # last line that builds on the MSRV.
 [target.'cfg(windows)'.dependencies]
-windows-registry = "0.5"
+windows-registry = "0.100"
 
 [dev-dependencies]
 # Async testing utilities
