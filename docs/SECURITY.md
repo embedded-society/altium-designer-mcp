@@ -12,9 +12,11 @@ versions, response timelines), see the root [SECURITY.md](../SECURITY.md).
 ## Trust Model
 
 The MCP server is a **local binary-file-I/O tool for EDA component libraries**, not a
-network service. It speaks JSON-RPC over a stdio transport to a single, co-located MCP
-client (typically an AI assistant). There is no listening socket, no authentication
-boundary, and no multi-tenant separation.
+network service. By default it speaks JSON-RPC over a stdio transport to a single,
+co-located MCP client (typically an AI assistant), with no listening socket, no
+authentication boundary, and no multi-tenant separation. The optional Streamable HTTP
+transport (`--http`) does listen on a socket; its controls are under
+[HTTP transport](#http-transport---http) below.
 
 Given that shape, the realistic adversary is **untrusted input**, not an untrusted
 caller:
@@ -104,6 +106,27 @@ diffs, renders, validation) are never throttled. The bucket is configured by
 `refill_per_sec` (default `30.0`). Validation rejects a zero burst (which would block
 every operation) and a non-finite or negative refill rate
 (`Config::validate`, `src/config/settings.rs`).
+
+### HTTP transport (`--http`)
+
+The transport opens a listening socket, so it adds an authentication boundary the stdio
+server does not have (`src/mcp/http.rs`):
+
+- **Loopback unless authenticated.** `HttpOptions::validate` refuses to start on a
+  non-loopback address unless a bearer token is set, and refuses an empty token. The
+  token is read from `ALTIUM_DESIGNER_MCP_HTTP_TOKEN`, never from the command line, and
+  compared in constant time; a request without it is answered `401` before its body is
+  read.
+- **DNS rebinding.** A request with an `Origin` header is refused (`403`) unless the
+  origin is local or listed with `--http-allow-origin`, so a web page cannot drive the
+  server from the user's browser.
+- **Resource bounds.** Bodies are capped at 32 MiB (`413`); messages are handled one at
+  a time off the async runtime, so concurrent clients cannot interleave writes to one
+  library; and every session shares the one rate limiter, so opening more sessions is
+  no way around it.
+- **No TLS, no OAuth.** The server speaks plain HTTP and authenticates with a static
+  token. Anything that leaves the machine belongs behind a TLS reverse proxy; OAuth,
+  which public connectors such as claude.ai require, is not implemented.
 
 ### Error-path sanitisation
 

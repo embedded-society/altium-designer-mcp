@@ -66,6 +66,7 @@ src/
     ├── server.rs                # JSON-RPC dispatch, path validation, backups, audit
     ├── protocol.rs              # MCP protocol types
     ├── transport.rs             # stdio transport
+    ├── http.rs                  # Streamable HTTP transport (--http): sessions, token, origin checks
     ├── tool_definitions.rs      # Tool schemas (source of truth for docs/TOOLS.md)
     ├── tool_docs.rs             # docs/TOOLS.md generator + drift guard (test-only)
     └── tools/                   # One file per tool family (read_write, compare, …)

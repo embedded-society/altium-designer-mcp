@@ -37,6 +37,27 @@ struct Args {
     #[arg(long = "ansi-code-page", value_name = "PAGE")]
     ansi_code_page: Option<u32>,
 
+    // Help text as strings: it names an environment variable and a URL, which
+    // doc-comment lints would have wrapped in Markdown the terminal shows raw.
+    #[arg(
+        long = "http",
+        value_name = "ADDR",
+        help = "Serve the MCP Streamable HTTP transport on this address (for example \
+                127.0.0.1:8080) instead of stdio, at the path /mcp. A non-loopback address \
+                needs a bearer token in ALTIUM_DESIGNER_MCP_HTTP_TOKEN"
+    )]
+    http: Option<std::net::SocketAddr>,
+
+    #[arg(
+        long = "http-allow-origin",
+        value_name = "ORIGIN",
+        num_args = 1..,
+        requires = "http",
+        help = "A browser origin allowed to reach the HTTP transport besides the local ones, \
+                for example https://claude.ai (repeatable)"
+    )]
+    http_allow_origin: Vec<String>,
+
     /// Increase logging verbosity (-v for info, -vv for debug, -vvv for trace)
     #[arg(short, long, action = clap::ArgAction::Count)]
     verbose: u8,
@@ -169,19 +190,34 @@ fn main() -> ExitCode {
         info!(audit_log = %path.display(), "Audit logging destructive operations");
     }
 
-    let mut server = McpServer::new(allowed_paths)
-        .with_rate_limiter(rate_limiter)
-        .with_audit_logger(audit_logger);
-
-    info!("MCP server ready, waiting for client connection...");
-
-    // Run the server
+    let rate_limiter = std::sync::Arc::new(rate_limiter);
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("Failed to create Tokio runtime");
 
-    let result = runtime.block_on(server.run());
+    let result = if let Some(addr) = args.http {
+        // One server per session, all drawing on the same rate limiter.
+        let factory: altium_designer_mcp::mcp::http::ServerFactory =
+            std::sync::Arc::new(move || {
+                McpServer::new(allowed_paths.clone())
+                    .with_shared_rate_limiter(std::sync::Arc::clone(&rate_limiter))
+                    .with_audit_logger(audit_logger.clone())
+            });
+        let options = altium_designer_mcp::mcp::http::HttpOptions {
+            addr,
+            token: std::env::var(altium_designer_mcp::mcp::http::TOKEN_ENV).ok(),
+            allowed_origins: args.http_allow_origin,
+        };
+        info!(%addr, token = options.token.is_some(), "MCP server ready on HTTP");
+        runtime.block_on(altium_designer_mcp::mcp::http::serve(options, factory))
+    } else {
+        let mut server = McpServer::new(allowed_paths)
+            .with_shared_rate_limiter(rate_limiter)
+            .with_audit_logger(audit_logger);
+        info!("MCP server ready, waiting for client connection...");
+        runtime.block_on(server.run())
+    };
 
     match result {
         Ok(()) => {

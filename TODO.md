@@ -9,9 +9,13 @@ record). The specialised worklists stay the single source of truth for their are
 
 ## B. After v1.0.0
 
-- [ ] **Streamable HTTP transport** (v1.1.0) alongside stdio, so web-only assistants
-      (claude.ai in the browser, ChatGPT) can connect as a remote server — today they
-      cannot (`docs/CLIENT_SETUP.md` § Web-only assistants). Deliberately after 1.0.
+- [ ] **OAuth for the HTTP transport**, so claude.ai in the browser and ChatGPT can
+      connect: they reach only public HTTPS servers and authenticate with OAuth or not at
+      all, while `--http` takes a static bearer token (`docs/CLIENT_SETUP.md` § Web-only
+      assistants). The MCP authorization specification makes the server an OAuth resource
+      server that validates tokens from an external authorization server; the open
+      questions are which authorization server a single user runs and how the server is
+      hosted with TLS, both the maintainer's call before any code.
 - [ ] **Windows code signing through SignPath Foundation** — free for open-source
       projects, HSM-held key, signs from GitHub Actions. Decided 2026-09-02 over the paid
       routes (Azure Artifact Signing ~$10/month on a paid subscription, commercial OV/EV
@@ -36,7 +40,7 @@ record). The specialised worklists stay the single source of truth for their are
       On hold until the maintainer says go; needs a human with the account, plus the
       documentation URL, privacy policy URL and icon.
 - [ ] **OpenAI / ChatGPT** — its directory takes remote (HTTPS) servers only, so it waits
-      for the v1.1.0 Streamable HTTP transport; Codex CLI users are covered already.
+      for OAuth on the HTTP transport (§ B); Codex CLI users are covered already.
 - [ ] **Upstream: forward server instructions through `mcp-proxy`.** Glama runs every
       stdio server behind punkpeye/mcp-proxy, which builds its server from the backend's
       name, version and capabilities but never passes `instructions` on, so Glama shows

@@ -330,6 +330,8 @@ altium-designer-mcp [OPTIONS] [CONFIG_FILE]
 | `CONFIG_FILE` | Path to configuration file (optional, uses default location if omitted) |
 | `--allow <DIR>...` | Grant access to library folders directly (repeatable). Adds to the config file's `allowed_paths`, and works with no config file at all — the other settings then take their defaults |
 | `--ansi-code-page <PAGE>` | The Windows ANSI code page new footprint names are written in (`936` for GBK, `1250`, `1252`, …); overrides `ansi_code_page` in the config file |
+| `--http <ADDR>` | Serve the MCP Streamable HTTP transport on this address (for example `127.0.0.1:8080`) at the path `/mcp`, instead of stdio. A non-loopback address is refused unless a bearer token is set in `ALTIUM_DESIGNER_MCP_HTTP_TOKEN`. See [`docs/CLIENT_SETUP.md` § HTTP transport](docs/CLIENT_SETUP.md#http-transport) |
+| `--http-allow-origin <ORIGIN>...` | A browser origin allowed to reach the HTTP transport besides the local ones (repeatable) |
 | `-v`, `--verbose` | Increase logging verbosity (`-v` info, `-vv` debug, `-vvv` trace) |
 | `-q`, `--quiet` | Decrease logging verbosity (only show errors) |
 | `-h`, `--help` | Print help information |
