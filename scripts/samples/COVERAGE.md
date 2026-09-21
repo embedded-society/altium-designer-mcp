@@ -153,11 +153,11 @@ adds it (`scripts/altium/probe/RegionHoleProbe.pas`, 2026-09-21), and
 `manual/region_hole.PcbLib` pins the result. The region `NET` may be structurally absent
 like the net index (a `PcbLib` has no net table): the scripted copper region above carries
 no `NET` key, and assigning one is the probe that would settle whether its row becomes 🔒.
-A **text beyond U+00FF** (Ω, CJK) is 🚫 not scriptable: a source literal reaches Altium as
-its UTF-8 bytes widened through the machine's ANSI page and `Chr(N)` truncates modulo 256
-(`TEXT_WIDE_ONLY` pins the WideStrings-authoritative shape with a character the Data
-stream cannot hold instead; `manual/i18n4.PcbLib` pins names and descriptions beyond
-U+00FF by hand, a text primitive beyond U+00FF is still open). A **via block
+A **text beyond U+00FF** (Ω, CJK) is ✅ covered by `manual/wide.PcbLib`: a string literal
+reaches Altium as its UTF-8 bytes widened through the machine's ANSI page and `Chr(N)`
+truncates modulo 256, but a *character* literal (`#937`, `#55362#57271`) keeps its UTF-16
+unit (`scripts/altium/probe/WideProbe.pas`, 2026-09-21), which also authors body
+identifiers beyond the BMP through `SetState_Identifier`. A **via block
 longer than the 321-byte template** (an older Altium's 351-byte vias) cannot come from
 AD24 at all — hand-authored evidence only.
 Pad thermal-relief / power-plane is

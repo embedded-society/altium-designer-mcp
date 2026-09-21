@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A 3D body identifier beyond the BMP is read and written as Altium stores it.**
+  Altium writes `IDENTIFIER` as UTF-16 code units, so `𠮷` is `55362,57271`; the reader
+  took each number as a code point and dropped such an identifier entirely, and the
+  writer emitted `134071`. Both now use code units, and the reader still accepts the
+  code points earlier releases wrote.
 - **A library authored on a non-Western Windows reads its text as itself.** Pad designators,
   region and body names, text without a `WideStrings` entry and names with no Unicode twin were
   read as Windows-1252, so a GBK or Windows-1250 library showed them as mojibake (`£¨0402` for
@@ -29,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`scripts/samples/manual/wide.PcbLib`**, text and body identifiers beyond U+00FF and
+  beyond the BMP, scripted in Altium Designer 24 by `scripts/altium/probe/WideProbe.pas`
+  with character literals, which the script engine keeps as UTF-16 where a string
+  literal is widened; it round-trips byte-identically.
 - **`scripts/samples/manual/region_hole.PcbLib`**, a footprint whose copper region has a hole,
   scripted in Altium Designer 24 by the committed `scripts/altium/probe/RegionHoleProbe.pas`
   through `GeometricPolygon.AddContourIsHole`, with a test that pins the outline and the hole;

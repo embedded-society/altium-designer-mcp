@@ -378,14 +378,13 @@ pub fn decode_ansi(bytes: &[u8], encoding: &'static encoding_rs::Encoding) -> St
     decode_windows1252(bytes)
 }
 
-/// Encodes text to ANSI bytes in `encoding`, `?` for what the page cannot
-/// hold. Windows-1252 is [`encode_windows1252`] exactly; another page writes a
-/// `?` per UTF-16 unit, as Altium does.
+/// Encodes text to ANSI bytes in `encoding`.
+///
+/// Every UTF-16 unit the page cannot hold becomes a `?`, so a character beyond
+/// the BMP is `??`, as Altium writes it in every code page (`manual/wide.PcbLib`:
+/// `𠮷` in a text's Data block).
 #[must_use]
 pub fn encode_ansi(text: &str, encoding: &'static encoding_rs::Encoding) -> Vec<u8> {
-    if encoding == encoding_rs::WINDOWS_1252 {
-        return encode_windows1252(text);
-    }
     encode_windows1252(&to_ansi_wire_text(text, encoding))
 }
 
@@ -1688,5 +1687,15 @@ mod tests {
         });
         assert_eq!(inner, (encoding_rs::WINDOWS_1250, encoding_rs::GBK));
         assert_eq!(current_ansi_encoding(), encoding_rs::WINDOWS_1252);
+    }
+
+    /// Every page writes a `?` per UTF-16 unit it cannot hold, Windows-1252
+    /// included: a character beyond the BMP is `??`, as Altium writes it.
+    #[test]
+    fn encode_ansi_writes_a_husk_per_utf16_unit() {
+        assert_eq!(encode_ansi("\u{20BB7}", encoding_rs::WINDOWS_1252), b"??");
+        assert_eq!(encode_ansi("\u{3A9}", encoding_rs::WINDOWS_1252), b"?");
+        assert_eq!(encode_ansi("\u{B5}", encoding_rs::WINDOWS_1252), b"\xB5");
+        assert_eq!(encode_ansi("\u{20BB7}", encoding_rs::GBK), b"??");
     }
 }

@@ -1503,8 +1503,9 @@ pub(super) fn parse_fill(data: &[u8], offset: usize) -> ParseResult<Fill> {
 /// parameter block, then the 2D outline polygon — all within the one block.
 /// The body's decoded `IDENTIFIER` plus its four verbatim texture values
 /// (centre X/Y, size X/Y). IDENTIFIER is a comma-separated list of decimal
-/// Unicode code points (settled by `manual/identifier.PcbLib`: `µΩ电` =
-/// `181,937,30005`), decoded here and re-encoded symmetrically by the writer.
+/// UTF-16 code units (`manual/identifier.PcbLib`: `µΩ电` = `181,937,30005`;
+/// `manual/wide.PcbLib`: `𠮷` = `55362,57271`), decoded here and re-encoded
+/// symmetrically by the writer.
 /// The texture values round-trip verbatim: the UI writes
 /// `TEXTURESIZEX=0.0001mil` where a scripted body carries `0mil`, so they
 /// cannot be derived; `None` (absent key) lets the writer emit the
@@ -1529,24 +1530,35 @@ fn parse_body_identity_params(
     )
 }
 
-/// Decodes an `IDENTIFIER` value — comma-separated decimal Unicode code
-/// points — into the string it names. Empty input or any unparsable entry
-/// yields an empty identifier (never a half-decoded one).
+/// Decodes an `IDENTIFIER` value — comma-separated decimal UTF-16 code units,
+/// a character beyond the BMP as its surrogate pair — into the string it
+/// names. A number above `0xFFFF` is taken as a code point, which is how
+/// releases before 1.1.0 wrote such a character. Empty input, an unparsable
+/// entry or an unpaired surrogate yields an empty identifier (never a
+/// half-decoded one).
 fn decode_identifier(value: &str) -> String {
     if value.is_empty() {
         return String::new();
     }
-    value
+    let Some(numbers) = value
         .split(',')
-        .map(|part| {
-            part.trim()
-                .parse::<u32>()
-                .ok()
-                .and_then(char::from_u32)
-                .ok_or(())
-        })
-        .collect::<Result<String, ()>>()
-        .unwrap_or_default()
+        .map(|part| part.trim().parse::<u32>().ok())
+        .collect::<Option<Vec<u32>>>()
+    else {
+        return String::new();
+    };
+    let mut units = Vec::with_capacity(numbers.len() + 1);
+    for n in numbers {
+        if let Ok(unit) = u16::try_from(n) {
+            units.push(unit);
+        } else if let Some(c) = char::from_u32(n) {
+            let mut pair = [0u16; 2];
+            units.extend_from_slice(c.encode_utf16(&mut pair));
+        } else {
+            return String::new();
+        }
+    }
+    String::from_utf16(&units).unwrap_or_default()
 }
 
 /// The `MODEL.CHECKSUM` value, round-tripped verbatim (0 when absent).
@@ -3197,5 +3209,25 @@ mod tests {
         assert_eq!(body.layer, Layer::Mechanical20);
         assert_eq!(body.v7_layer, None);
         assert_eq!(body.raw_layer_id, None);
+    }
+
+    /// Identifiers decode from UTF-16 code units, surrogate pairs included, and
+    /// still from the code points releases before 1.1.0 wrote beyond the BMP.
+    #[test]
+    fn identifiers_decode_from_utf16_units_and_legacy_code_points() {
+        assert_eq!(decode_identifier("55362,57271"), "\u{20BB7}");
+        assert_eq!(decode_identifier("181,937,30005"), "\u{B5}\u{3A9}\u{7535}");
+        assert_eq!(
+            decode_identifier("134071"),
+            "\u{20BB7}",
+            "legacy code point"
+        );
+        assert_eq!(
+            decode_identifier("55362"),
+            "",
+            "an unpaired surrogate is refused"
+        );
+        assert_eq!(decode_identifier("x"), "");
+        assert_eq!(decode_identifier(""), "");
     }
 }

@@ -77,8 +77,9 @@ it in Altium (see the load+save warning above).
 One footprint, `BODY_IDENT`, with two extruded 3D bodies authored in the AD24 UI
 (2026-08-16). It settles three things no scripted fixture could:
 
-- **`IDENTIFIER` encoding**: comma-separated decimal Unicode code points — `BodyA` is
-  `66,111,100,121,65` and `µΩ电` is `181,937,30005`.
+- **`IDENTIFIER` encoding**: comma-separated decimal UTF-16 code units — `BodyA` is
+  `66,111,100,121,65` and `µΩ电` is `181,937,30005` (a character beyond the BMP is its
+  surrogate pair: `manual/wide.PcbLib`).
 - **UI-authored extruded bodies carry a `MODEL.*` group** (stable `MODELID`, checksum, real
   `MODEL.2D.X/Y` placement, `MODEL.MODELTYPE=0` + `MODEL.EXTRUDED.MINZ/MAXZ`, and
   `TEXTURESIZEX/Y=0.0001mil`), unlike script-authored ones, which carry none.
@@ -141,6 +142,27 @@ Remove-Item C:\Users\Public\altium_designer_mcp\probe\* -ErrorAction SilentlyCon
 & "$env:ALTIUM_EXE" -RScriptingSystem:RunScript(ProjectName="scripts\altium\probe\RegionHoleProbe.PrjScr"^|ProcName="RegionHoleProbe>Run")
 scripts\Watch-AltiumDialog.ps1 -ResponseFile C:\Users\Public\altium_designer_mcp\probe\probe_response.json
 ```
+
+### `manual/wide.PcbLib`
+
+One footprint, `WIDE`: two stroke texts and two extruded bodies whose text and
+identifier are `µΩ电` (beyond U+00FF) and `𠮷` (beyond the BMP). Scripted in AD24
+(2026-09-21) by `scripts/altium/probe/WideProbe.pas`, which settles three scripting
+questions:
+
+- A string *literal* reaches Altium as its UTF-8 bytes widened through the ANSI page,
+  but a *character* literal keeps its UTF-16 unit: `#937` is `Ω`, and `#55362#57271`
+  is `𠮷`. The hexadecimal form `#$D842` is not parsed as a character at all.
+- A body's `Identifier` property crashes the script engine even for ASCII;
+  `SetState_Identifier` sets it.
+- Altium writes the identifier `𠮷` as `55362,57271`, its UTF-16 code units, like
+  every other Unicode field in the format.
+
+`samples_manual_wide_text_and_identifiers_read_exactly` pins the texts and the
+identifiers, and `manual_pcblibs_survive_a_round_trip` the byte-identical rewrite.
+
+**To rebuild it:** as for `region_hole.PcbLib`, with `WideProbe.PrjScr` and
+`WideProbe>Run`; it saves `wide.PcbLib`.
 
 ### `manual/parameters.SchLib`
 

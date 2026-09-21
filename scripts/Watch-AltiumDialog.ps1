@@ -51,9 +51,20 @@ public class Win {
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowTextW(IntPtr h, StringBuilder s, int n);
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr SendMessageTimeoutW(
+    IntPtr h, uint msg, IntPtr w, StringBuilder l, uint flags, uint timeout, out IntPtr result);
   public static string Text(IntPtr h) {
     var sb = new StringBuilder(1024);
     GetWindowTextW(h, sb, sb.Capacity);
+    return sb.ToString();
+  }
+  // GetWindowText reads only a caption from another process's control; an
+  // edit or memo control's contents need WM_GETTEXT sent to it directly.
+  // SMTO_ABORTIFHUNG with a timeout, so a hung Altium cannot hang the watcher.
+  public static string ControlText(IntPtr h) {
+    var sb = new StringBuilder(4096);
+    IntPtr ignored;
+    SendMessageTimeoutW(h, 0x000D, (IntPtr)sb.Capacity, sb, 0x0002, 500, out ignored);
     return sb.ToString();
   }
 }
@@ -65,7 +76,7 @@ function Get-X2WindowText {
     $texts = New-Object System.Collections.ArrayList
     $collectChild = [Win+EnumProc] {
         param($h, $l)
-        $t = [Win]::Text($h)
+        $t = [Win]::ControlText($h)
         if ($t) { [void]$texts.Add($t) }
         return $true
     }
@@ -90,7 +101,8 @@ $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
 while ((Get-Date) -lt $deadline) {
     if (Test-Path $response) { Write-Output 'RESULT: response file appeared (run finished)'; exit 0 }
     foreach ($t in Get-X2WindowText) {
-        if ($t -match 'Undeclared identifier|Compiler|Syntax error|Unknown identifier|Access violation') {
+        # 'Send and Close' is the button of Altium's crash dialog, whatever its message.
+        if ($t -match 'Undeclared identifier|Compiler|Syntax error|Unknown identifier|Access violation|Send and Close') {
             Write-Output "COMPILE-ERROR: $t"
             Get-Process X2 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
             exit 2
