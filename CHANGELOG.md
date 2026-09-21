@@ -29,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`scripts/samples/manual/region_hole.PcbLib`**, a footprint whose copper region has a hole,
+  scripted in Altium Designer 24 by the committed `scripts/altium/probe/RegionHoleProbe.pas`
+  through `GeometricPolygon.AddContourIsHole`, with a test that pins the outline and the hole;
+  it round-trips byte-identically. `scripts/Watch-AltiumDialog.ps1` takes `-ResponseFile` so a
+  probe can be watched on its own response file.
 - **A Windows version resource on the binary**: product name, version, company and
   copyright, from `Cargo.toml` via `build.rs`, shown under Properties → Details and
   checked by the release build — the metadata code signing through SignPath Foundation

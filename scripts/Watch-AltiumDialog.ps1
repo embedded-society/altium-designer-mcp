@@ -27,10 +27,18 @@
 .PARAMETER TimeoutSeconds
     How long to watch before giving up (default 420, matching the generator).
 
+.PARAMETER ResponseFile
+    The file whose appearance means the run finished (default: the generator's
+    generate_response.json). A probe script that writes its own response names it
+    here; the caller deletes a stale copy before launching Altium.
+
 .NOTES
     On-site only: needs Altium installed. Never CI.
 #>
-param([int]$TimeoutSeconds = 420)
+param(
+    [int]$TimeoutSeconds = 420,
+    [string]$ResponseFile = 'C:\Users\Public\altium_designer_mcp\samples\generate_response.json'
+)
 
 Add-Type @'
 using System;
@@ -76,7 +84,7 @@ function Get-X2WindowText {
     return $texts.ToArray()
 }
 
-$response = 'C:\Users\Public\altium_designer_mcp\samples\generate_response.json'
+$response = $ResponseFile
 $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
 
 while ((Get-Date) -lt $deadline) {
