@@ -15,7 +15,67 @@ impl PcbLib {
     /// Returns an error if the file cannot be parsed.
     pub fn read(reader: impl std::io::Read + std::io::Seek) -> AltiumResult<Self> {
         let mut cfb = crate::altium::open_ole(reader)?;
+        // The library's ANSI-only text is in the code page of the machine that
+        // authored it; everything below reads through it.
+        let code_page = Self::detect_code_page(&mut cfb);
+        let encoding = code_page
+            .and_then(crate::altium::ansi_encoding_for)
+            .unwrap_or_else(crate::altium::current_ansi_encoding);
+        crate::altium::with_ansi_encoding(encoding, || Self::read_scoped(cfb, code_page))
+    }
 
+    /// Detects the code page the library was authored in from every footprint
+    /// whose real name — its `UNICODE__PATTERN` twin as Altium held it, else
+    /// its storage name — stands beside its `PATTERN` bytes.
+    fn detect_code_page<F: std::io::Read + std::io::Seek>(
+        cfb: &mut cfb::CompoundFile<F>,
+    ) -> Option<u32> {
+        let storages: Vec<std::path::PathBuf> = cfb
+            .walk()
+            .filter(cfb::Entry::is_storage)
+            .map(|entry| entry.path().to_path_buf())
+            .collect();
+        let mut pairs = Vec::new();
+        for storage in storages {
+            let Some(data) = crate::altium::read_stream_opt(cfb, storage.join("Parameters")) else {
+                continue;
+            };
+            let body = if data.first() == Some(&b'|') {
+                &data[..]
+            } else {
+                data.get(4..).unwrap_or_default()
+            };
+            let decoded = crate::altium::decode_windows1252(body);
+            let text = decoded.split('\0').next().unwrap_or_default();
+            let value_of = |wanted: &str| {
+                text.split('|')
+                    .filter_map(|part| part.split_once('='))
+                    .find(|(key, _)| key.eq_ignore_ascii_case(wanted))
+                    .map(|(_, value)| value.to_string())
+            };
+            let Some(pattern) = value_of("PATTERN") else {
+                continue;
+            };
+            let real = value_of("UNICODE__PATTERN")
+                .as_deref()
+                .and_then(crate::altium::text_from_utf16_units)
+                .or_else(|| {
+                    storage
+                        .file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                });
+            if let Some(real) = real {
+                pairs.push((real, pattern));
+            }
+        }
+        crate::altium::detect_ansi_code_page(&pairs)
+    }
+
+    /// The body of [`Self::read`], run under the library's ANSI encoding.
+    fn read_scoped<R: std::io::Read + std::io::Seek>(
+        mut cfb: cfb::CompoundFile<R>,
+        code_page: Option<u32>,
+    ) -> AltiumResult<Self> {
         let mut library = Self::new();
 
         // Read FileHeader for library metadata (validates file type)
@@ -23,6 +83,7 @@ impl PcbLib {
 
         // Read Library/Data for component ordering (preferred over FileHeader)
         Self::read_library_data(&mut cfb, &mut library.metadata);
+        library.metadata.ansi_code_page = code_page;
 
         // Read Storage stream for UniqueIdPrimitiveInformation (if present)
         // Note: This is currently a stub - the format is not fully documented
@@ -805,10 +866,10 @@ mod tests {
     /// An Altium-authored library stores `EC6*5.4` under `EC6_5.4`, and one
     /// authored on a non-1252 locale names a footprint in that locale's bytes
     /// in PATTERN and Library/Data while its storage carries the true text.
-    /// Both storages are found by name for ordering, remembered as the
-    /// footprint's storage, and kept — bytes and storages alike — through a
-    /// rewrite (#507: a rewrite used to derive `EC6*5.4` and a double-encoded
-    /// storage, which Altium could not load).
+    /// The storage beside the bytes identifies the code page — GBK here — so
+    /// the name reads as itself; both storages are found by name for ordering,
+    /// remembered as the footprint's storage, and kept — bytes and storages
+    /// alike — through a rewrite (#507).
     #[test]
     fn storage_names_are_carried_and_kept_through_a_rewrite() {
         let dir = temp_dir();
@@ -818,17 +879,14 @@ mod tests {
         library_with_raw_named_footprints(&path, &[star, gbk]);
 
         let mut library = PcbLib::open(&path).expect("the library should open");
-        assert_eq!(library.names(), vec!["EC6*5.4", "\u{A3}\u{A8}0402"]);
+        assert_eq!(library.metadata().ansi_code_page, Some(936), "GBK detected");
+        assert_eq!(library.names(), vec!["EC6*5.4", "\u{FF08}0402"]);
         assert_eq!(
             library.get("EC6*5.4").unwrap().storage_name.as_deref(),
             Some("EC6_5.4")
         );
         assert_eq!(
-            library
-                .get("\u{A3}\u{A8}0402")
-                .unwrap()
-                .storage_name
-                .as_deref(),
+            library.get("\u{FF08}0402").unwrap().storage_name.as_deref(),
             Some("\u{FF08}0402")
         );
 
