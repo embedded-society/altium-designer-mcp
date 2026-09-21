@@ -13,11 +13,11 @@
 //! [0x00]                                       // End marker
 //! ```
 
+use super::polygon_connect;
 use super::primitives::{
     Arc, ComponentBody, Fill, HoleShape, Layer, Pad, PadShape, PadStackMode, PcbFlags, Region,
     StrokeFont, Text, TextJustification, TextKind, Track, Via, ViaStackMode,
 };
-use super::reader::{PAD_POLYGON_CONNECT_AT, PAD_POLYGON_CONNECT_LEN};
 use super::{Footprint, PrimitiveKind};
 
 use super::units::{from_mm, mm_to_mil};
@@ -844,53 +844,7 @@ fn build_pad_extended_tail(pad: &Pad) -> Vec<u8> {
         tail[185 - START] = 0x03;
     }
 
-    apply_polygon_connect(&mut tail, pad);
     tail
-}
-
-/// The polygon-connect override AD24 writes when a pad's Thermal Relief box
-/// is ticked and nothing else is changed (`manual/thermal_relief.PcbLib`).
-/// [`apply_polygon_connect`] overlays the typed fields on it.
-#[rustfmt::skip]
-const PAD_POLYGON_CONNECT_TEMPLATE: [u8; PAD_POLYGON_CONNECT_LEN] = [
-    0x1E,0x00,0x00,0x00, 0x00,0x00,0x00,0x00, // length 30; reserved
-    0x01, 0x00,                               // present; style Relief
-    0xA0,0x86,0x01,0x00, 0xA0,0x86,0x01,0x00, // air gap, conductor width: 10 mil
-    0x01, 0x04,                               // 90 degrees; 4 conductors
-    0x00,0x00,0x00,0x01,0x00,0x00,0x00,       // not modelled
-    0x00,                                     // Auto conductors off
-    0xF0,0x49,0x02,0x00, 0x00, 0x00,          // min distance 15 mil, unticked; reserved
-];
-
-/// Writes the pad's polygon-connect override into its extended tail, or
-/// takes a present one out when the pad has none, so the pad then follows
-/// the design rules as it does in Altium with the box unticked. The override
-/// sits where AD24's 194-byte block ends; a longer base (the from-scratch
-/// template's 202 bytes) is cut to 194 first, as AD24 writes it.
-fn apply_polygon_connect(tail: &mut Vec<u8>, pad: &Pad) {
-    const AT: usize = PAD_POLYGON_CONNECT_AT - PAD_EXTENDED_TAIL_START;
-    const END: usize = AT + PAD_POLYGON_CONNECT_LEN;
-    let present = tail.len() >= END && tail[AT..AT + 4] == 30_i32.to_le_bytes();
-    let Some(connect) = pad.polygon_connect else {
-        if present && tail[AT + 8] == 1 {
-            tail.drain(AT..END);
-        }
-        return;
-    };
-    if !present {
-        tail.resize(AT, 0);
-        tail.extend_from_slice(&PAD_POLYGON_CONNECT_TEMPLATE);
-    }
-    let block = &mut tail[AT..END];
-    block[8] = 1;
-    block[9] = connect.style.to_id();
-    block[10..14].copy_from_slice(&from_mm(connect.air_gap).to_le_bytes());
-    block[14..18].copy_from_slice(&from_mm(connect.conductor_width).to_le_bytes());
-    block[18] = u8::from(connect.rotation != 45);
-    block[19] = connect.conductors;
-    block[27] = u8::from(connect.auto_conductors);
-    block[28..32].copy_from_slice(&from_mm(connect.min_distance).to_le_bytes());
-    block[32] = u8::from(connect.min_distance_enabled);
 }
 
 /// Encodes the 202-byte geometry block (`SubRecord-5`) for a pad.
@@ -984,6 +938,12 @@ fn encode_pad_geometry(pad: &Pad) -> Vec<u8> {
     // pad stays 194 bytes (133-byte tail), a from-scratch pad keeps the
     // 202-byte template layout.
     block.extend_from_slice(&build_pad_extended_tail(pad));
+    polygon_connect::write(
+        &mut block,
+        &polygon_connect::PAD,
+        pad.polygon_connect.as_ref(),
+        &polygon_connect::PAD_ENTRY_TEMPLATE,
+    );
 
     debug_assert!(
         block.len() == PAD_MAIN_BLOCK_LEN
@@ -1091,10 +1051,19 @@ fn encode_via(data: &mut Vec<u8>, via: &Via) {
     block[54..58].copy_from_slice(&from_mm(via.solder_mask_expansion).to_le_bytes());
     block[66] = via.solder_mask_expansion_mode.to_id();
 
-    // @258 mask-from-hole-edge bool and @312 drill-pair classification. Both are 0 in
-    // the template, so a default via stays byte-identical.
+    // @258 mask-from-hole-edge bool and the drill-pair classification. Both are 0
+    // in the template, so a default via stays byte-identical.
     block[258] = u8::from(via.solder_mask_expansion_from_hole_edge);
-    block[312] = via.drill_layer_pair_type.to_id();
+    // The polygon-connect entries sit at @308, so the drill-pair byte follows
+    // them (@312 in a via without one).
+    polygon_connect::write(
+        &mut block,
+        &polygon_connect::VIA,
+        via.polygon_connect.as_ref(),
+        &polygon_connect::VIA_ENTRY_TEMPLATE,
+    );
+    let entries = polygon_connect::entry_count(&block, &polygon_connect::VIA);
+    block[312 + entries * polygon_connect::ENTRY_LEN] = via.drill_layer_pair_type.to_id();
     block[74] = via_stack_mode_to_id(via.diameter_stack_mode);
 
     // Bottom-face solder-mask expansion @242. `None` mirrors the front face, so a

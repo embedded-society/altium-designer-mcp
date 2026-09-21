@@ -22,6 +22,7 @@
 
 #[allow(clippy::wildcard_imports)] // tightly-coupled reader split
 use super::*;
+use crate::altium::pcblib::polygon_connect;
 
 /// Reads the common-header connectivity indices from a primitive block/header:
 /// net index (u16 @3-4), polygon index (u16 @5-6) and component index (u16 @7-8,
@@ -247,7 +248,7 @@ pub(super) fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
     let relief_air_gap = read_i32(geometry, 74).map_or(0.254, to_mm);
     let power_plane_relief_expansion = read_i32(geometry, 78).map_or(0.508, to_mm);
     let power_plane_clearance = read_i32(geometry, 82).map_or(0.508, to_mm);
-    let polygon_connect = read_pad_polygon_connect(geometry);
+    let polygon_connect = polygon_connect::read(geometry, &polygon_connect::PAD);
 
     // Drill tolerances @162 / @166 (i32). The 0x7FFFFFFF ("unset") sentinel and
     // any absent (short pad) value read back as None.
@@ -367,34 +368,6 @@ pub(super) fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
     };
 
     Ok((pad, current))
-}
-
-/// Main-block offset of a pad's polygon-connect override: the end of the
-/// 194-byte block AD24 writes for every pad.
-pub const PAD_POLYGON_CONNECT_AT: usize = 194;
-
-/// Length of the override: an `i32` length of 30 and the 30 bytes it counts.
-pub const PAD_POLYGON_CONNECT_LEN: usize = 34;
-
-/// Reads a pad's polygon-connect override (see [`PadPolygonConnect`]).
-/// `None` when the block holds none, or holds one whose present byte is
-/// clear; the bytes still ride in `raw_tail`.
-fn read_pad_polygon_connect(geometry: &[u8]) -> Option<PadPolygonConnect> {
-    let block =
-        geometry.get(PAD_POLYGON_CONNECT_AT..PAD_POLYGON_CONNECT_AT + PAD_POLYGON_CONNECT_LEN)?;
-    if read_i32(block, 0)? != 30 || *block.get(8)? != 1 {
-        return None;
-    }
-    Some(PadPolygonConnect {
-        style: PowerPlaneConnectStyle::from_id(*block.get(9)?),
-        air_gap: to_mm(read_i32(block, 10)?),
-        conductor_width: to_mm(read_i32(block, 14)?),
-        rotation: if *block.get(18)? == 0 { 45 } else { 90 },
-        conductors: *block.get(19)?,
-        auto_conductors: *block.get(27)? != 0,
-        min_distance: to_mm(read_i32(block, 28)?),
-        min_distance_enabled: *block.get(32)? != 0,
-    })
 }
 
 /// Formats a 16-byte on-disk identity GUID as a braced uppercase GUID string
@@ -605,7 +578,11 @@ pub(super) fn parse_via(data: &[u8], offset: usize) -> ParseResult<Via> {
     // @258 bool: measure mask expansion from the hole edge; @312 byte: drill-pair
     // classification. Both sit past the per-layer diameter table.
     let solder_mask_expansion_from_hole_edge = block.get(258).is_some_and(|&b| b != 0);
-    let drill_layer_pair_type = DrillLayerPairType::from_id(block.get(312).copied().unwrap_or(0));
+    // Polygon-connect entries from @308 push the drill-pair byte (@312) along.
+    let shift =
+        polygon_connect::entry_count(block, &polygon_connect::VIA) * polygon_connect::ENTRY_LEN;
+    let drill_layer_pair_type = DrillLayerPairType::from_id(*block.get(312 + shift).unwrap_or(&0));
+    let polygon_connect = polygon_connect::read(block, &polygon_connect::VIA);
     let solder_mask_expansion_back = match (read_i32(block, 242), read_i32(block, 54)) {
         (Some(back), Some(front)) if back != front => Some(to_mm(back)),
         _ => None,
@@ -664,6 +641,7 @@ pub(super) fn parse_via(data: &[u8], offset: usize) -> ParseResult<Via> {
         // identity GUID slots (zeros in every AD-authored library via) and any
         // unmodelled cache bytes survive a rewrite.
         raw_block: Some(block.to_vec()),
+        polygon_connect,
     };
 
     Ok((via, next))

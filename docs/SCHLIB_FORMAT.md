@@ -842,8 +842,10 @@ A parameter-record variant selected by `Name=Designator`. As written by this cra
   while it is empty, all of which come back as stored. The flags are not what the UI writes:
   a link added in AD24 through Properties → Footprint → Add with the PCB library on "Any"
   carries neither and stores the dialog's status line (`Footprint not found`) as its
-  `Description` (`manual/footprint_link.SchLib`); of 62 links in two reference corpora one
-  carries them, and the route that writes them is unknown. A link **without a datafile** omits
+  `Description` (`manual/footprint_link.SchLib`). The one Altium-written link known to carry
+  them (`manual/intlib_link.SchLib`) belongs to a symbol whose header names an integrated
+  library as its source (`SourceLibraryName`), which points at a component taken from an
+  IntLib as their route. A link **without a datafile** omits
   the whole datafile group — `DatafileCount`, `ModelDatafile0`, `ModelDatafileEntity0`,
   `ModelDatafileKind0` (the `IMPLCHAIN` golden's name-only links); this crate writes the group
   for a from-scratch link, which is what lets Altium resolve the footprint, and keeps a read

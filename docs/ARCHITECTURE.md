@@ -48,6 +48,7 @@ src/
 │   │   ├── writer.rs            # Binary encoding (byte templates)
 │   │   ├── primitives/          # Pad, Via, Track, Arc, Region, Text, Fill, bodies
 │   │   ├── flags.rs             # On-disk flag-word bits
+│   │   ├── polygon_connect.rs   # Pad/via polygon-connect entries (count, size, entry)
 │   │   ├── units.rs             # mm ↔ Altium internal units
 │   │   └── assets/              # Captured Library/Data stack + FileVersionInfo
 │   └── schlib/                  # (mirrors pcblib/ — same module shape)

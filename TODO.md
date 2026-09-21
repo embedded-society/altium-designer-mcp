@@ -65,15 +65,8 @@ record). The specialised worklists stay the single source of truth for their are
       `docs/CLIENT_SETUP.md`.
 - [ ] **Golden-fixture enrichment backlog**, detailed with its procedure in
       `scripts/samples/COVERAGE.md` § Remaining enrichment backlog:
-    - Hand-authored evidence only, since AD24 scripting cannot produce it: a via longer
-      than the 321-byte template (an older Altium's), and a pad power-plane connection
-      (@67-85) other than the default: AD24's Thermal Relief box writes the
-      polygon-connect override instead (`manual/thermal_relief.PcbLib`). A footprint
-      link with `IntegratedModel`/`DatabaseModel` waits on finding the Altium action
-      that writes the flags: the UI's Add Footprint does not
-      (`manual/footprint_link.SchLib`).
-    - Not yet tried by UI or script: a region with a non-default `SUBPOLYINDEX` or
-      `CAVITYHEIGHT`.
+    - A region with a non-default `SUBPOLYINDEX`: no script can set it (`SubPolyIndex`
+      is undeclared on `IPCB_Region` in AD24), and a UI route is untried.
 
 ## E. v2.0 candidates (breaking)
 

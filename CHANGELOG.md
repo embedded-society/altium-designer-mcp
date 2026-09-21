@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An older Altium's 351-byte vias read their drill-pair type.** Such a via holds a
+  30-byte polygon-connect entry at @308, which moves the drill-pair byte from @312 to
+  @342; the reader took the entry's first flag for it, so a through via read as
+  `blind_buried_start`, and a changed drill-pair type was written into the entry. Both
+  now follow the entry count @300.
 - **A 3D body identifier beyond the BMP is read and written as Altium stores it.**
   Altium writes `IDENTIFIER` as UTF-16 code units, so `𠮷` is `55362,57271`; the reader
   took each number as a code point and dropped such an identifier entirely, and the
@@ -42,12 +47,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Designer 24 UI. It corrects the format documentation: that route writes no
   `IntegratedModel`/`DatabaseModel` flags, which one corpus link carries from a source
   still unknown, and it stores the dialog's status line as the link's description.
-- **A pad's own polygon-connect style (`polygon_connect`).** Altium Designer 24 sets it
-  under Pad Stack → Thermal Relief: relief, direct or no connection, air gap, conductor
-  width, 2, 4 or Auto conductors with an optional minimum distance, and a 45° or 90°
-  angle. `read_pcblib` reports it and
-  `write_pcblib` writes, changes or removes it. The layout was decoded from
-  `scripts/samples/manual/thermal_relief.PcbLib`, a new fixture made in the AD24 UI.
+- **A pad's or via's own polygon-connect style (`polygon_connect`).** Altium Designer 24
+  sets it under Pad Stack → Thermal Relief: relief, direct or no connection, air gap,
+  conductor width, 2, 4 or Auto conductors with an optional minimum distance, and a 45°
+  or 90° angle. `read_pcblib` reports it and `write_pcblib` writes, changes or removes it.
+  The layout was decoded from `scripts/samples/manual/thermal_relief.PcbLib`, a new
+  fixture made in the AD24 UI; a via keeps the same entry, as an older Altium's
+  351-byte vias show.
+- **Fixtures for evidence AD24's scripting cannot produce**:
+  `scripts/samples/manual/plane_and_via.PcbLib` (Direct and No Connect power-plane pads,
+  351-byte vias) and `intlib_link.SchLib` (a footprint link carrying
+  `IntegratedModel`/`DatabaseModel`), records copied from the maintainer's own Altium
+  library; and `cavity.PcbLib`, a region cavity height scripted by
+  `scripts/altium/probe/CavityProbe.pas`.
 - **`scripts/samples/manual/wide.PcbLib`**, text and body identifiers beyond U+00FF and
   beyond the BMP, scripted in Altium Designer 24 by `scripts/altium/probe/WideProbe.pas`
   with character literals, which the script engine keeps as UTF-16 where a string

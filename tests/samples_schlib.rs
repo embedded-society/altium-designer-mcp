@@ -2400,3 +2400,41 @@ fn samples_schlib_manual_footprint_link_from_the_ui() {
     assert_eq!(again.is_current, link.is_current);
     assert_eq!(again.raw_params, link.raw_params);
 }
+
+/// `manual/intlib_link.SchLib`: a symbol copied from the maintainer's own
+/// Altium library (github.com/MatejGomboc/altium-library), renamed
+/// `INTLIB_LINK` with generic names and descriptions. Its header names an
+/// integrated library as its source (`SourceLibraryName`, here
+/// `Library.IntLib`), and its footprint link is the only Altium-written one known to carry
+/// `IntegratedModel=T|DatabaseModel=T` — flags a link added in the library
+/// editor does not get (`manual/footprint_link.SchLib`). The reader keeps
+/// them verbatim and the writer puts them back.
+#[test]
+fn samples_schlib_manual_intlib_sourced_footprint_link() {
+    use std::io::Cursor;
+
+    let lib =
+        SchLib::open(sample("manual/intlib_link.SchLib")).expect("open manual/intlib_link.SchLib");
+    let flags = |lib: &SchLib| -> Vec<(String, String)> {
+        let sym = lib.get("INTLIB_LINK").expect("symbol INTLIB_LINK");
+        assert_eq!(sym.footprints.len(), 1, "one footprint link");
+        let link = &sym.footprints[0];
+        assert_eq!(link.name, "PLANE_DIRECT");
+        link.raw_params
+            .iter()
+            .filter(|(k, _)| k == "IntegratedModel" || k == "DatabaseModel")
+            .cloned()
+            .collect()
+    };
+    let expected = vec![
+        ("IntegratedModel".to_string(), "T".to_string()),
+        ("DatabaseModel".to_string(), "T".to_string()),
+    ];
+    assert_eq!(flags(&lib), expected);
+
+    let mut buffer = Cursor::new(Vec::new());
+    lib.write(&mut buffer).expect("write");
+    buffer.set_position(0);
+    let back = SchLib::read(&mut buffer).expect("read back");
+    assert_eq!(flags(&back), expected);
+}
