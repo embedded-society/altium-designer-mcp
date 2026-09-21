@@ -146,17 +146,46 @@ pub async fn serve_on(
     }
 }
 
+/// The most of a refused request's body read before answering. A refusal is
+/// sent before the body is read, and a socket closed with unread data in it
+/// is reset — on macOS before the client has read the answer — so up to this
+/// much is read and dropped first. A larger body is not worth reading for a
+/// refusal; its sender may then see the reset instead.
+const REFUSAL_DRAIN_BYTES: usize = 64 * 1024;
+
 /// Answers one HTTP request.
 async fn handle(state: &Arc<State>, req: Request<Incoming>) -> Response<Full<Bytes>> {
-    if req.uri().path() != ENDPOINT {
-        return status(StatusCode::NOT_FOUND, "no MCP endpoint here; use /mcp");
-    }
-    if let Some(refusal) = check_access(&state.options, req.headers()) {
+    if let Some(refusal) = refusal_before_body(state, &req) {
+        let _ = Limited::new(req.into_body(), REFUSAL_DRAIN_BYTES)
+            .collect()
+            .await;
         return refusal;
     }
     match *req.method() {
         Method::POST => post(state, req).await,
-        Method::DELETE => delete(state, req.headers()),
+        _ => delete(state, req.headers()),
+    }
+}
+
+/// Everything a request can be refused for from its method, path and headers
+/// alone: the path, the bearer token, the origin, the method, and a POST's
+/// media types and protocol version.
+fn refusal_before_body(
+    state: &Arc<State>,
+    req: &Request<Incoming>,
+) -> Option<Response<Full<Bytes>>> {
+    if req.uri().path() != ENDPOINT {
+        return Some(status(
+            StatusCode::NOT_FOUND,
+            "no MCP endpoint here; use /mcp",
+        ));
+    }
+    if let Some(refusal) = check_access(&state.options, req.headers()) {
+        return Some(refusal);
+    }
+    match *req.method() {
+        Method::POST => refusal_of_post_headers(req.headers()),
+        Method::DELETE => None,
         _ => {
             let mut response = status(
                 StatusCode::METHOD_NOT_ALLOWED,
@@ -165,7 +194,7 @@ async fn handle(state: &Arc<State>, req: Request<Incoming>) -> Response<Full<Byt
             response
                 .headers_mut()
                 .insert("allow", HeaderValue::from_static("POST, DELETE"));
-            response
+            Some(response)
         }
     }
 }
@@ -223,26 +252,37 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
-/// Handles a `POST`: one JSON-RPC message.
-async fn post(state: &Arc<State>, req: Request<Incoming>) -> Response<Full<Bytes>> {
-    let headers = req.headers().clone();
-    if !header_allows(&headers, CONTENT_TYPE, false) {
-        return status(StatusCode::UNSUPPORTED_MEDIA_TYPE, "send application/json");
+/// A POST's media types and protocol version, checked before its body is read.
+fn refusal_of_post_headers(headers: &HeaderMap) -> Option<Response<Full<Bytes>>> {
+    if !header_allows(headers, CONTENT_TYPE, false) {
+        return Some(status(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "send application/json",
+        ));
     }
-    if headers.contains_key(ACCEPT) && !header_allows(&headers, ACCEPT, true) {
-        return status(
+    if headers.contains_key(ACCEPT) && !header_allows(headers, ACCEPT, true) {
+        return Some(status(
             StatusCode::NOT_ACCEPTABLE,
             "this server answers with application/json",
-        );
+        ));
     }
     if let Some(version) = headers.get(PROTOCOL_HEADER) {
         let known = version
             .to_str()
             .is_ok_and(|v| SUPPORTED_PROTOCOL_VERSIONS.contains(&v));
         if !known {
-            return status(StatusCode::BAD_REQUEST, "unsupported MCP-Protocol-Version");
+            return Some(status(
+                StatusCode::BAD_REQUEST,
+                "unsupported MCP-Protocol-Version",
+            ));
         }
     }
+    None
+}
+
+/// Handles a `POST` whose headers passed: reads and answers the message.
+async fn post(state: &Arc<State>, req: Request<Incoming>) -> Response<Full<Bytes>> {
+    let headers = req.headers().clone();
     let body = match Limited::new(req.into_body(), MAX_BODY_BYTES)
         .collect()
         .await
