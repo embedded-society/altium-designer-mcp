@@ -202,7 +202,7 @@ jobs:
                 components: llvm-tools-preview
 
             - name: Install cargo-llvm-cov
-              uses: taiki-e/install-action@26e9283f268b880168bdbd2c545dfcd60ec2c6ab # v2.87.13
+              uses: taiki-e/install-action@4076c08d76dba979c11a7285295b0716c1d67908 # v2.87.15
               with:
                 tool: cargo-llvm-cov
 
@@ -242,7 +242,7 @@ jobs:
             # secrets, so its PRs would fail the upload — skip them instead.
             - name: Upload coverage to Codecov
               if: github.actor != 'dependabot[bot]'
-              uses: codecov/codecov-action@0b35c9ecc4f0529d0eb674914510c22f85b196b4 # v7.1.0
+              uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
               with:
                 files: lcov.info
                 fail_ci_if_error: true
