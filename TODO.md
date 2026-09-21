@@ -74,9 +74,6 @@ record). The specialised worklists stay the single source of truth for their are
       (`manual/footprint_link.SchLib`).
     - Not yet tried by UI or script: a region with a non-default `SUBPOLYINDEX` or
       `CAVITYHEIGHT`.
-- [ ] **Drop the `cfb` git pin** (`[patch.crates-io]`, rev `8c1ec76`) as soon as rust-cfb
-      publishes a release newer than v0.14.0 — check
-      [rust-cfb releases](https://github.com/mdsteele/rust-cfb/releases) at session start.
 
 ## E. v2.0 candidates (breaking)
 

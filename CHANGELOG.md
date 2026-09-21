@@ -31,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `uuid`), so building from source on anything older already failed. A CI job now checks
   the crate on the declared version on every change, so a dependency that raises the bar
   fails there instead of passing unnoticed. Prebuilt binaries are unaffected.
+- **`cfb` 0.15 from crates.io replaces the git pin.** The release carries the
+  compound-file fix the pin held (reading or writing a library of n components cost
+  O(n²)), along with faster sector I/O and a fix that zeroes a stream's bytes past its
+  new length.
 
 ### Added
 
