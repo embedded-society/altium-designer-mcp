@@ -557,6 +557,34 @@ replayed as the base — length included — with the modelled fields overlaid:
 All remaining bytes of the tail are reserved / cache values replayed verbatim — from `raw_tail`
 for a read pad, from the template for one built from scratch.
 
+**Polygon-connect override (@194-227).** AD24 writes a 194-byte main block for every pad.
+A pad whose Pad Stack → Thermal Relief box is ticked carries its own polygon-connect style (the
+"Edit Polygon Connect Style" dialog) in 34 more bytes, making the block 228 bytes long; a pad
+with the box unticked has none of them and takes the style from the design rules. The bytes
+@67-85 above are the *power-plane* connection and do not change with this box.
+Established by `manual/thermal_relief.PcbLib`, seven pads that each change one or two settings:
+
+| Offset | Size | Field | Modelled (`polygon_connect`) |
+|--------|------|-------|------------------------------|
+| 194-197 | 4 | Length of the rest (i32, always 30) | framing |
+| 198-201 | 4 | Reserved (`0`) | replayed |
+| 202 | 1 | Override present (`1`) | yes |
+| 203 | 1 | Connect style (0=Relief, 1=Direct, 2=NoConnect) | `style` |
+| 204-207 | 4 | Air gap (i32) | `air_gap` |
+| 208-211 | 4 | Conductor width (i32) | `conductor_width` |
+| 212 | 1 | Rotation (`1` = 90°, `0` = 45°) | `rotation` |
+| 213 | 1 | Conductor count (2 or 4) | `conductors` |
+| 214-220 | 7 | Unknown (`00 00 00 01 00 00 00` in every sample) | replayed |
+| 221 | 1 | Auto conductors (bool) | `auto_conductors` |
+| 222-225 | 4 | Min Distance (i32; default 15 mil) | `min_distance` |
+| 226 | 1 | Min Distance checkbox (bool) | `min_distance_enabled` |
+| 227 | 1 | Reserved (`0`) | replayed |
+
+The writer adds the block to a pad that gains an override: a from-scratch pad's 202-byte
+template is first cut to AD24's 194 bytes. It removes the block when the override is
+cleared. An override added to an unticked pad this way matches the bytes Altium wrote
+for the same settings (`samples_manual_pad_polygon_connect_edits`).
+
 **Parsing thresholds:**
 
 | Field | Threshold | Behaviour |

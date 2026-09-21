@@ -197,6 +197,12 @@ pub struct Pad {
     )]
     pub power_plane_clearance: f64,
 
+    /// The pad's own polygon-connect style — Pad Stack → Thermal Relief in
+    /// AD24 — stored after the main block's 194 bytes. `None` when the pad
+    /// takes the style from the design rules, as a new pad does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub polygon_connect: Option<PadPolygonConnect>,
+
     /// Corner radius as percentage of smaller pad dimension (0-100).
     /// Only applies to `RoundedRectangle` shape.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -393,6 +399,7 @@ impl Pad {
             relief_air_gap: default_pad_relief_air_gap(),
             power_plane_relief_expansion: default_pad_power_plane_relief_expansion(),
             power_plane_clearance: default_pad_power_plane_clearance(),
+            polygon_connect: None,
             corner_radius_percent: None,
             stack_mode: PadStackMode::Simple,
             per_layer_sizes: None,
@@ -450,6 +457,7 @@ impl Pad {
             relief_air_gap: default_pad_relief_air_gap(),
             power_plane_relief_expansion: default_pad_power_plane_relief_expansion(),
             power_plane_clearance: default_pad_power_plane_clearance(),
+            polygon_connect: None,
             corner_radius_percent: None,
             stack_mode: PadStackMode::Simple,
             per_layer_sizes: None,
@@ -624,6 +632,99 @@ impl PowerPlaneConnectStyle {
             Self::NoConnect => 2,
         }
     }
+}
+
+/// A pad's own polygon-connect style: how a polygon pour on the pad's net
+/// joins it, set per pad in AD24 under Pad Stack → Thermal Relief (the
+/// "Edit Polygon Connect Style" dialog).
+///
+/// Stored as a 34-byte block after the first 194 bytes of the pad's main
+/// block: an `i32` length of 30, four zero bytes, `1` (override present),
+/// the style byte, air gap and conductor width (`i32`), the rotation byte
+/// (`1` = 90°, `0` = 45°), the conductor count, seven bytes this crate
+/// does not model, the Auto-conductors byte, the minimum distance (`i32`),
+/// the Min Distance checkbox and a zero byte (`manual/thermal_relief.PcbLib`). A pad without an
+/// override has no such block.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct PadPolygonConnect {
+    /// How the pour joins the pad. Default: `Relief`.
+    #[serde(default)]
+    pub style: PowerPlaneConnectStyle,
+
+    /// Gap between the pad and the pour in mm. Default: 0.254 (10 mil).
+    #[serde(
+        default = "ten_mil",
+        serialize_with = "crate::altium::serde_round::serialize"
+    )]
+    pub air_gap: f64,
+
+    /// Width of each relief conductor in mm. Default: 0.254 (10 mil).
+    #[serde(
+        default = "ten_mil",
+        serialize_with = "crate::altium::serde_round::serialize"
+    )]
+    pub conductor_width: f64,
+
+    /// Number of relief conductors, 2 or 4. Default: 4.
+    #[serde(default = "four_conductors")]
+    pub conductors: u8,
+
+    /// Lets Altium choose the conductor count (the dialog's Auto).
+    #[serde(default)]
+    pub auto_conductors: bool,
+
+    /// Conductor angle in degrees, 45 or 90. Default: 90.
+    #[serde(default = "ninety_degrees")]
+    pub rotation: u16,
+
+    /// The dialog's Min Distance in mm (shown with Auto), used when
+    /// [`Self::min_distance_enabled`] is set. Default: 0.381 (15 mil).
+    #[serde(
+        default = "fifteen_mil",
+        serialize_with = "crate::altium::serde_round::serialize"
+    )]
+    pub min_distance: f64,
+
+    /// The dialog's Min Distance checkbox. Default: unticked.
+    #[serde(default)]
+    pub min_distance_enabled: bool,
+}
+
+impl Default for PadPolygonConnect {
+    /// The override AD24 writes when the Thermal Relief box is ticked and
+    /// nothing else is changed.
+    fn default() -> Self {
+        Self {
+            style: PowerPlaneConnectStyle::Relief,
+            air_gap: ten_mil(),
+            conductor_width: ten_mil(),
+            conductors: four_conductors(),
+            auto_conductors: false,
+            rotation: ninety_degrees(),
+            min_distance: fifteen_mil(),
+            min_distance_enabled: false,
+        }
+    }
+}
+
+/// 10 mil in mm.
+const fn ten_mil() -> f64 {
+    0.254
+}
+
+/// 15 mil in mm.
+const fn fifteen_mil() -> f64 {
+    0.381
+}
+
+/// The default relief conductor count.
+const fn four_conductors() -> u8 {
+    4
+}
+
+/// The default relief conductor angle.
+const fn ninety_degrees() -> u16 {
+    90
 }
 
 /// How a via's drill span is classified — `SubRecord-1` byte @312.

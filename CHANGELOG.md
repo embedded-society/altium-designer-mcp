@@ -38,6 +38,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Designer 24 UI. It corrects the format documentation: that route writes no
   `IntegratedModel`/`DatabaseModel` flags, which one corpus link carries from a source
   still unknown, and it stores the dialog's status line as the link's description.
+- **A pad's own polygon-connect style (`polygon_connect`).** Altium Designer 24 sets it
+  under Pad Stack → Thermal Relief: relief, direct or no connection, air gap, conductor
+  width, 2, 4 or Auto conductors with an optional minimum distance, and a 45° or 90°
+  angle. `read_pcblib` reports it and
+  `write_pcblib` writes, changes or removes it. The layout was decoded from
+  `scripts/samples/manual/thermal_relief.PcbLib`, a new fixture made in the AD24 UI.
 - **`scripts/samples/manual/wide.PcbLib`**, text and body identifiers beyond U+00FF and
   beyond the BMP, scripted in Altium Designer 24 by `scripts/altium/probe/WideProbe.pas`
   with character literals, which the script engine keeps as UTF-16 where a string

@@ -348,6 +348,20 @@ impl McpServer {
                             "relief_air_gap": { "type": "number", "description": "Thermal-relief air-gap width in mm. Default: 0.254 (10 mil)" },
                             "power_plane_relief_expansion": { "type": "number", "description": "Power-plane relief expansion in mm. Default: 0.508 (20 mil)" },
                             "power_plane_clearance": { "type": "number", "description": "Power-plane (anti-pad) clearance to the plane in mm. Default: 0.508 (20 mil)" },
+                            "polygon_connect": {
+                                "type": "object",
+                                "description": "The pad's own polygon-connect style (Altium: Pad Stack > Thermal Relief), overriding the design rules for how a polygon pour joins the pad. Omit to follow the rules (the default); a key left out takes Altium's default.",
+                                "properties": {
+                                    "style": { "type": "string", "enum": accepted::POWER_PLANE_CONNECT_STYLES, "description": "How the pour joins the pad. Default: relief" },
+                                    "air_gap": { "type": "number", "minimum": 0, "description": "Gap between the pad and the pour in mm. Default: 0.254 (10 mil)" },
+                                    "conductor_width": { "type": "number", "minimum": 0, "description": "Width of each relief conductor in mm. Default: 0.254 (10 mil)" },
+                                    "conductors": { "type": "integer", "minimum": 2, "maximum": 4, "enum": [2, 4], "description": "Number of relief conductors. Default: 4" },
+                                    "auto_conductors": { "type": "boolean", "description": "Let Altium choose the conductor count. Default: false" },
+                                    "rotation": { "type": "integer", "minimum": 45, "maximum": 90, "enum": [45, 90], "description": "Conductor angle in degrees. Default: 90" },
+                                    "min_distance": { "type": "number", "minimum": 0, "description": "Minimum distance used with auto_conductors when min_distance_enabled is set, in mm. Default: 0.381 (15 mil)" },
+                                    "min_distance_enabled": { "type": "boolean", "description": "Apply min_distance (Altium's Min Distance checkbox). Default: false" }
+                                }
+                            },
                             "net_index": { "type": "integer", "minimum": 0, "maximum": 65535, "description": "Net index into the board net list (common header, 0-65534; 65535 = no net). Normally omitted for library footprints; preserved on a read-modify-write. Default: 65535" },
                             "polygon_index": { "type": "integer", "minimum": 0, "maximum": 65535, "description": "Polygon index (common header; 65535 = none). Normally omitted; preserved on a read-modify-write. Default: 65535" },
                             "component_index": { "type": "integer", "minimum": -1, "description": "Component index into the board component list (common header; -1 = free primitive). Normally omitted; preserved on a read-modify-write. Default: -1" },

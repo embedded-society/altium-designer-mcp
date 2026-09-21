@@ -47,9 +47,9 @@ use serde::{Deserialize, Serialize};
 
 pub use primitives::{
     Arc, ComponentBody, DrillLayerPairType, EmbeddedModel, Fill, HoleShape, Layer,
-    MaskExpansionMode, Model3D, Pad, PadShape, PadStackMode, PcbFlags, PowerPlaneConnectStyle,
-    Region, RegionKind, StrokeFont, Text, TextJustification, TextKind, Track, Vertex, Via,
-    ViaStackMode,
+    MaskExpansionMode, Model3D, Pad, PadPolygonConnect, PadShape, PadStackMode, PcbFlags,
+    PowerPlaneConnectStyle, Region, RegionKind, StrokeFont, Text, TextJustification, TextKind,
+    Track, Vertex, Via, ViaStackMode,
 };
 
 use crate::altium::error::{AltiumError, AltiumResult};
@@ -1660,6 +1660,61 @@ mod tests {
         assert!(approx_eq(p.relief_air_gap, 0.2, 0.0001));
         assert!(approx_eq(p.power_plane_relief_expansion, 0.6, 0.0001));
         assert!(approx_eq(p.power_plane_clearance, 0.7, 0.0001));
+    }
+
+    #[test]
+    fn binary_roundtrip_pad_polygon_connect() {
+        // A from-scratch pad with an override is written in AD24's layout: the
+        // 194-byte block and the 34-byte override after it.
+        use super::PadPolygonConnect;
+
+        let connect = PadPolygonConnect {
+            style: PowerPlaneConnectStyle::Relief,
+            air_gap: 0.1524,
+            conductor_width: 0.3556,
+            conductors: 2,
+            auto_conductors: true,
+            rotation: 45,
+            min_distance: 0.508,
+            min_distance_enabled: true,
+        };
+        let mut original = Footprint::new("ROUNDTRIP_PAD_POLYGON_CONNECT");
+        let mut pad = Pad::through_hole("1", 0.0, 0.0, 1.6, 1.6, 0.8);
+        pad.polygon_connect = Some(connect);
+        original.add_pad(pad);
+        original.add_pad(Pad::through_hole("2", 2.54, 0.0, 1.6, 1.6, 0.8));
+
+        let data = writer::encode_data_stream(&original).expect("encoding should succeed");
+        let mut decoded = Footprint::new("ROUNDTRIP_PAD_POLYGON_CONNECT");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        assert_eq!(decoded.pads.len(), 2);
+        let with = &decoded.pads[0];
+        let got = with.polygon_connect.expect("override read back");
+        assert_eq!(got.style, connect.style);
+        assert!(approx_eq(got.air_gap, connect.air_gap, 0.0001));
+        assert!(approx_eq(
+            got.conductor_width,
+            connect.conductor_width,
+            0.0001
+        ));
+        assert_eq!(got.conductors, 2);
+        assert!(got.auto_conductors);
+        assert_eq!(got.rotation, 45);
+        assert!(approx_eq(got.min_distance, connect.min_distance, 0.0001));
+        assert!(got.min_distance_enabled);
+        assert_eq!(
+            with.raw_tail.as_ref().map(Vec::len),
+            Some(228 - 61),
+            "194-byte block plus the 34-byte override"
+        );
+        let without = &decoded.pads[1];
+        assert_eq!(without.polygon_connect, None);
+        assert_eq!(
+            without.raw_tail.as_ref().map(Vec::len),
+            Some(202 - 61),
+            "a pad without an override keeps the 202-byte template"
+        );
     }
 
     #[test]
