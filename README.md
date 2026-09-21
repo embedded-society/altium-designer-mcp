@@ -511,8 +511,9 @@ use any length component name and it will be preserved on read/write roundtrips.
 
 `altium-designer-mcp` is a local tool and collects nothing.
 
-- **Data collection**: none. The server has no network access, no telemetry and no
-  analytics; it never contacts any service, including this project's.
+- **Data collection**: none. The server has no telemetry and no analytics, and it never
+  contacts any service, including this project's. With `--http` it listens for an MCP
+  client on the address you give; it still sends nothing anywhere.
 - **Usage and storage**: it reads and writes only the library files inside the folders
   you grant (`allowed_paths` or `--allow`), plus the timestamped `.bak` copies it makes
   beside them before a change. The optional audit log (`logging.audit_log_path`) is a
