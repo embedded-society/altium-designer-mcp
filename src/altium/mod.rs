@@ -296,12 +296,16 @@ pub fn ansi_encoding_for(code_page: u32) -> Option<&'static encoding_rs::Encodin
     })
 }
 
-/// The ANSI code page new `PcbLib` names are written in: Windows-1252 until
-/// [`set_default_ansi_code_page`] says otherwise.
+/// The server's ANSI code page — the one new `PcbLib` names are written in,
+/// tried first when a library's page is detected, and used for a library
+/// that shows none: Windows-1252 until [`set_default_ansi_code_page`] says
+/// otherwise.
 static DEFAULT_ANSI_CODE_PAGE: std::sync::atomic::AtomicU32 =
     std::sync::atomic::AtomicU32::new(1252);
 
-/// Sets the ANSI code page new `PcbLib` names are written in.
+/// Sets the server's ANSI code page: the one new `PcbLib` names are written
+/// in, tried first when a library's page is detected, and used for a library
+/// that shows none.
 ///
 /// Altium Designer 21 takes a footprint's displayed name from the ANSI bytes
 /// of its name block, `PATTERN` and `Library/Data` entry, decoded through the

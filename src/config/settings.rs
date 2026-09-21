@@ -36,7 +36,8 @@ pub struct Config {
     pub rate_limit: RateLimitConfig,
 
     /// The Windows ANSI code page new `PcbLib` names are written in (936 for
-    /// GBK, 1250, 1252, …). `None` takes the system's on Windows and 1252
+    /// GBK, 1250, 1252, …), tried first when a library's page is detected and
+    /// used for a library that shows none. `None` takes the system's on Windows and 1252
     /// elsewhere; set it when the libraries are opened by an Altium on a
     /// machine with a different system locale than the server's.
     #[serde(default)]

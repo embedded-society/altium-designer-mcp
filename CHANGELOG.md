@@ -66,7 +66,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pushes nothing. It binds to loopback unless a bearer token is set in
   `ALTIUM_DESIGNER_MCP_HTTP_TOKEN`, refuses browser origins that are neither local nor
   listed with `--http-allow-origin`, caps bodies at 32 MiB, handles one message at a time,
-  and shares one rate limiter across sessions. OAuth, which claude.ai in the browser and
+  and shares one rate limiter across sessions. A refused request's body (up to 64 KiB) is
+  read before the refusal is sent, so the client sees the status rather than a reset. OAuth, which claude.ai in the browser and
   ChatGPT require, is not implemented yet.
 - **MCP protocol versions 2025-06-18 and 2025-03-26** alongside 2024-11-05: `initialize`
   answers with the version the client asks for when the server speaks it.
