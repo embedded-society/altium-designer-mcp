@@ -1762,7 +1762,7 @@ fn write_schlib_pin_aux_data_roundtrip() {
         "default pin symbol_line_width"
     );
     assert!(
-        p0.get("frac").map_or(true, Value::is_null),
+        p0.get("frac").is_none_or(Value::is_null),
         "default pin has no frac"
     );
 
@@ -1819,7 +1819,7 @@ fn write_schlib_embedded_image_bytes_roundtrip() {
         "embedded image bytes round-trip as base64"
     );
     assert!(
-        linked.get("image_data").map_or(true, Value::is_null),
+        linked.get("image_data").is_none_or(Value::is_null),
         "linked image carries no image_data"
     );
 }

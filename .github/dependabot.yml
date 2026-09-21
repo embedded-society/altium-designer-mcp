@@ -76,10 +76,10 @@ updates:
         cargo-dependencies:
           patterns:
             - "*"
-      # windows-registry 0.6 and later need a newer Rust than the package's
-      # `rust-version`; 0.5 is the last line that builds on it. Lift this
-      # together with the MSRV, not before.
+      # windows-registry 0.100 needs Rust 1.95, above the package's
+      # `rust-version`. Lift this together with the MSRV, not before; the
+      # CI's minimum-Rust job catches any other crate that does the same.
       ignore:
         - dependency-name: "windows-registry"
-          versions: [">=0.6"]
+          versions: [">=0.100"]
       labels: ["dependencies", "rust"]

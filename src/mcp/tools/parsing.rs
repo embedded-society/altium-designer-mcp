@@ -1524,7 +1524,7 @@ impl McpServer {
 
         // Parse hole_size first to determine default layer
         let hole_size = json.get("hole_size").and_then(Value::as_f64);
-        let is_smd = hole_size.map_or(true, |h| h <= 0.0); // SMD if no hole or hole size <= 0
+        let is_smd = hole_size.is_none_or(|h| h <= 0.0); // SMD if no hole or hole size <= 0
 
         // Plated hole (main-block byte @60). Altium defaults this to true for
         // every pad, SMD included (matches the golden fixture and AltiumSharp).

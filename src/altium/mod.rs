@@ -337,7 +337,7 @@ pub fn to_ansi_wire_text(value: &str, encoding: &'static encoding_rs::Encoding) 
     for ch in value.chars() {
         let (encoded, _, had_errors) = encoding.encode(ch.encode_utf8(&mut buf));
         if had_errors {
-            bytes.extend(std::iter::repeat(b'?').take(ch.len_utf16()));
+            bytes.extend(std::iter::repeat_n(b'?', ch.len_utf16()));
         } else {
             bytes.extend_from_slice(&encoded);
         }
