@@ -2596,3 +2596,39 @@ fn samples_manual_i18n4_survives_a_write_read_cycle() {
         assert_eq!(fp.pads.len(), 1, "{name}: pad");
     }
 }
+
+/// `manual/region_hole.PcbLib` (AD24, scripted 2026-09-21 by
+/// `scripts/altium/probe/RegionHoleProbe.pas`): a copper region with a
+/// 200 mil square outline and a 80 mil square hole, the hole added through
+/// `GeometricPolygon.AddContourIsHole`. The reader returns the outline as the
+/// region's vertices and the hole as its one `holes` contour, both exact; the
+/// byte-identical rewrite is `manual_pcblibs_survive_a_round_trip`.
+#[test]
+fn samples_manual_region_hole_reads_exactly() {
+    let lib =
+        PcbLib::open(sample("manual/region_hole.PcbLib")).expect("open manual/region_hole.PcbLib");
+    let fp = lib.get("REGION_HOLE").expect("footprint REGION_HOLE");
+    assert_eq!(fp.regions.len(), 1, "one region");
+    let region = &fp.regions[0];
+    assert_eq!(region.layer, Layer::TopLayer);
+
+    // The four corners of a square of the given half-width, in any order.
+    let corners = |points: &[(f64, f64)], half: f64| {
+        let want = [(-half, half), (-half, -half), (half, -half), (half, half)];
+        points.len() == want.len()
+            && want.iter().all(|w| {
+                points
+                    .iter()
+                    .any(|p| approx_eq(p.0, w.0, 1e-6) && approx_eq(p.1, w.1, 1e-6))
+            })
+    };
+    let outline: Vec<(f64, f64)> = region.vertices.iter().map(|v| (v.x, v.y)).collect();
+    assert!(
+        corners(&outline, 2.54),
+        "100 mil half-width outline: {outline:?}"
+    );
+
+    assert_eq!(region.holes.len(), 1, "one hole contour");
+    let hole: Vec<(f64, f64)> = region.holes[0].iter().map(|v| (v.x, v.y)).collect();
+    assert!(corners(&hole, 1.016), "40 mil half-width hole: {hole:?}");
+}
