@@ -38,6 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   beyond the BMP, scripted in Altium Designer 24 by `scripts/altium/probe/WideProbe.pas`
   with character literals, which the script engine keeps as UTF-16 where a string
   literal is widened; it round-trips byte-identically.
+- **`scripts/altium/probe/NetProbe.pas`**, the evidence that a library region cannot carry
+  a net: Altium accepts one in memory, but the saved region has no `NET` key and no net
+  index, so the coverage row is marked structurally absent rather than untested.
 - **`scripts/samples/manual/region_hole.PcbLib`**, a footprint whose copper region has a hole,
   scripted in Altium Designer 24 by the committed `scripts/altium/probe/RegionHoleProbe.pas`
   through `GeometricPolygon.AddContourIsHole`, with a test that pins the outline and the hole;
