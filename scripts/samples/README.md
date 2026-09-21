@@ -122,6 +122,26 @@ PCB Library panel, paste the name into Name and into Description, then place one
 (Tools → New Blank Footprint for the next); save ONCE as `i18n4.PcbLib` and never re-open
 it in Altium.
 
+### `manual/region_hole.PcbLib`
+
+One footprint, `REGION_HOLE`: a copper region whose 200 mil square outline has an 80 mil
+square hole. Scripted in AD24 (2026-09-21) by `scripts/altium/probe/RegionHoleProbe.pas`,
+which builds the outline the proven way (`MainContour.Replicate` → `SetOutlineContour`) and
+adds the hole through `GeometricPolygon.AddContourIsHole(Contour, True)` — the scripted route
+to a region hole the generator had not found. `samples_manual_region_hole_reads_exactly`
+pins the outline and the hole, and `manual_pcblibs_survive_a_round_trip` the byte-identical
+rewrite.
+
+**To rebuild it:** run the probe through Altium's `RunScript`, with the dialog watcher on the
+probe's own response file; it saves `region_hole.PcbLib` under
+`C:\Users\Public\altium_designer_mcp\probe\`:
+
+```powershell
+Remove-Item C:\Users\Public\altium_designer_mcp\probe\* -ErrorAction SilentlyContinue
+& "$env:ALTIUM_EXE" -RScriptingSystem:RunScript(ProjectName="scripts\altium\probe\RegionHoleProbe.PrjScr"^|ProcName="RegionHoleProbe>Run")
+scripts\Watch-AltiumDialog.ps1 -ResponseFile C:\Users\Public\altium_designer_mcp\probe\probe_response.json
+```
+
 ### `manual/parameters.SchLib`
 
 One component, `PARAMPROPS`, carrying three `RECORD=41` parameters that between them cover

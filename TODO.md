@@ -56,21 +56,12 @@ record). The specialised worklists stay the single source of truth for their are
       `docs/CLIENT_SETUP.md`.
 - [ ] **Golden-fixture enrichment backlog**, detailed with its procedure in
       `scripts/samples/COVERAGE.md` § Remaining enrichment backlog:
-    - PcbLib region hole contour: probe a two-contour `TGeometricPolygon` through
-      `PCBGeometricPolygonFactory`; the same probe settles whether a region `NET` exists.
+    - PcbLib region `NET`: assign one to a scripted region to settle whether a library
+      region can carry it at all (a `PcbLib` has no net table).
     - Hand-authored evidence only, since AD24 scripting cannot produce it: a symbol
       footprint link with `IntegratedModel`/`DatabaseModel` as a golden, text beyond
       U+00FF, a via longer than the 321-byte template, and pad thermal relief or
       power-plane connection.
-- [ ] **Read ANSI-only text through the library's code page.** New names and descriptions
-      are written in the server's ANSI code page and travel in the `UNICODE__*` twins, so
-      they read exactly on any machine. Text that has no twin is still read as
-      Windows-1252: pad names and designators, region names, text without a `WideStrings`
-      entry, and the name of a footprint whose library predates the twins. A GBK or
-      Windows-1250 library shows those as mojibake in JSON, though a rewrite puts the same
-      bytes back. The fix detects the library's code page on read — the
-      storage-name-versus-`PATTERN` oracle, else the server's — records it on the library
-      and decodes and encodes that text through it.
 - [ ] **`IDENTIFIER` beyond the BMP.** A 3D body's identifier is written as decimal code
       points (`manual/identifier.PcbLib`: `µΩ电` = `181,937,30005`), while the sibling
       `UNICODE__*` keys hold UTF-16 code units (`𠮷` = `55362,57271`); every character in
