@@ -188,6 +188,19 @@ does, and `manual_pcblibs_survive_a_round_trip` pins the byte-identical rewrite.
 the Properties panel under Pad Stack expand **All Layers**, tick **Thermal Relief** and click
 its link to set the row above; save ONCE as `thermal_relief.PcbLib`.
 
+### `manual/footprint_link.SchLib`
+
+One symbol, `Component_1`, with one pin and one footprint link `R0402`, added in the AD24 UI
+(2026-09-21) through Properties → Footprint → Add with the PCB library left on **Any**. It
+shows what that route writes: a `RECORD=45` link with the datafile group and `IsCurrent=T`,
+**no** `IntegratedModel`/`DatabaseModel` flags, and the dialog's status line
+`Footprint not found` as the `Description`. `samples_schlib_manual_footprint_link_from_the_ui`
+pins it.
+
+**To rebuild it:** File → New → Library → Schematic Library; place one pin; in the Properties
+panel under Footprint click **Add**, name it `R0402`, leave the PCB library on **Any**, OK;
+save ONCE as `footprint_link.SchLib`.
+
 ### `manual/parameters.SchLib`
 
 One component, `PARAMPROPS`, carrying three `RECORD=41` parameters that between them cover

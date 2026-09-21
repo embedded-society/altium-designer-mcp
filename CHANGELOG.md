@@ -34,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`scripts/samples/manual/footprint_link.SchLib`**, a footprint link added in the Altium
+  Designer 24 UI. It corrects the format documentation: that route writes no
+  `IntegratedModel`/`DatabaseModel` flags, which one corpus link carries from a source
+  still unknown, and it stores the dialog's status line as the link's description.
 - **A pad's own polygon-connect style (`polygon_connect`).** Altium Designer 24 sets it
   under Pad Stack → Thermal Relief: relief, direct or no connection, air gap, conductor
   width, 2, 4 or Auto conductors, and a 45° or 90° angle. `read_pcblib` reports it and
