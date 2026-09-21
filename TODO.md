@@ -59,17 +59,9 @@ record). The specialised worklists stay the single source of truth for their are
       `docs/CLIENT_SETUP.md`.
 - [ ] **Golden-fixture enrichment backlog**, detailed with its procedure in
       `scripts/samples/COVERAGE.md` § Remaining enrichment backlog:
-    - PcbLib region `NET`: assign one to a scripted region to settle whether a library
-      region can carry it at all (a `PcbLib` has no net table).
     - Hand-authored evidence only, since AD24 scripting cannot produce it: a symbol
-      footprint link with `IntegratedModel`/`DatabaseModel` as a golden, text beyond
-      U+00FF, a via longer than the 321-byte template, and pad thermal relief or
-      power-plane connection.
-- [ ] **`IDENTIFIER` beyond the BMP.** A 3D body's identifier is written as decimal code
-      points (`manual/identifier.PcbLib`: `µΩ电` = `181,937,30005`), while the sibling
-      `UNICODE__*` keys hold UTF-16 code units (`𠮷` = `55362,57271`); every character in
-      that fixture is a BMP one, where the two agree. One UI-authored body with the
-      identifier `𠮷` settles whether `encode_identifier` must emit surrogate units.
+      footprint link with `IntegratedModel`/`DatabaseModel` as a golden, a via longer
+      than the 321-byte template, and pad thermal relief or power-plane connection.
 - [ ] **Drop the `cfb` git pin** (`[patch.crates-io]`, rev `8c1ec76`) as soon as rust-cfb
       publishes a release newer than v0.14.0 — check
       [rust-cfb releases](https://github.com/mdsteele/rust-cfb/releases) at session start.

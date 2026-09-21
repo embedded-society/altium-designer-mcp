@@ -914,7 +914,7 @@ snap-point or reserved blocks, and there is no `MODEL.SNAPCOUNT` parameter.
 | `BODYPROJECTION` | Body projection | `0` |
 | `BODYCOLOR3D` | 3D body colour | `8421504` |
 | `BODYOPACITY3D` | 3D body opacity | `1.000` |
-| `IDENTIFIER` | Body name as comma-separated decimal Unicode code points (`µΩ电` = `181,937,30005`; empty stays empty) | `` |
+| `IDENTIFIER` | Body name as comma-separated decimal UTF-16 code units, a character beyond the BMP as its surrogate pair (`µΩ电` = `181,937,30005`, `𠮷` = `55362,57271`; empty stays empty) | `` |
 | `TEXTURE`, `TEXTURECENTERX/Y`, `TEXTURESIZEX/Y`, `TEXTUREROTATION` | Texture fields, round-tripped verbatim (a UI-authored body can carry a rotation of `9.00000000000000E+0001`, leading space included); from-scratch defaults `0mil` and a zero rotation | |
 | `MODELID` | Model GUID. A STEP reference the library does not embed takes one of two forms: UI-authored, **empty** (`MODELID=` followed by `MODEL.CHECKSUM=0`, `MODEL.EMBED=FALSE`, `MODEL.NAME=test_0805.step`, no `/Library/Models` entry); script-authored (`IPCB_Model.Embed := False`, the `STEP_REF` golden), a GUID with a `/Library/Models/Data` entry of `EMBED=FALSE` whose bytes are stored all the same. Both read; the writer reproduces the form it read | `{GUID}` |
 | `MODEL.CHECKSUM` | Model integrity checksum (round-tripped verbatim, see below) | `0` |

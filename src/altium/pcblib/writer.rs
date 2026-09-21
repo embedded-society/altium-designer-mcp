@@ -1872,12 +1872,12 @@ fn resolve_body_outline(body: &ComponentBody, footprint: &Footprint) -> Vec<(f64
 }
 
 /// Encodes a body identifier as its on-disk form: a comma-separated list of
-/// decimal Unicode code points (empty stays empty). Inverse of the reader's
-/// `decode_identifier`.
+/// decimal UTF-16 code units, a character beyond the BMP as its surrogate
+/// pair (empty stays empty). Inverse of the reader's `decode_identifier`.
 fn encode_identifier(identifier: &str) -> String {
     identifier
-        .chars()
-        .map(|c| (c as u32).to_string())
+        .encode_utf16()
+        .map(|unit| unit.to_string())
         .collect::<Vec<_>>()
         .join(",")
 }
@@ -1940,9 +1940,9 @@ fn build_component_body_params(body: &ComponentBody) -> String {
     params.push("ARCRESOLUTION=0.5mil".to_string());
     params.push(format!("BODYCOLOR3D={}", body.body_color_3d));
     params.push(format!("BODYOPACITY3D={:.3}", body.body_opacity_3d));
-    // IDENTIFIER is a comma-separated list of decimal Unicode code points
-    // (manual/identifier.PcbLib: `µΩ电` = `181,937,30005`); an empty
-    // identifier emits the bare key, as both authoring routes do.
+    // IDENTIFIER is a comma-separated list of decimal UTF-16 code units
+    // (manual/wide.PcbLib: `𠮷` = `55362,57271`); an empty identifier emits
+    // the bare key, as both authoring routes do.
     params.push(format!(
         "IDENTIFIER={}",
         encode_identifier(&body.identifier)
@@ -5033,5 +5033,15 @@ mod tests {
         let widened = crate::altium::text_from_utf16_units(widened_units).expect("units");
         assert_ne!(widened, real);
         assert_eq!(altium_name, widened);
+    }
+
+    /// A body identifier is written as UTF-16 code units, a character beyond
+    /// the BMP as its surrogate pair, as AD24 writes it (`manual/wide.PcbLib`).
+    #[test]
+    fn identifiers_are_written_as_utf16_units() {
+        assert_eq!(encode_identifier("BodyA"), "66,111,100,121,65");
+        assert_eq!(encode_identifier("\u{B5}\u{3A9}\u{7535}"), "181,937,30005");
+        assert_eq!(encode_identifier("\u{20BB7}"), "55362,57271");
+        assert_eq!(encode_identifier(""), "");
     }
 }

@@ -2632,3 +2632,31 @@ fn samples_manual_region_hole_reads_exactly() {
     let hole: Vec<(f64, f64)> = region.holes[0].iter().map(|v| (v.x, v.y)).collect();
     assert!(corners(&hole, 1.016), "40 mil half-width hole: {hole:?}");
 }
+
+/// `manual/wide.PcbLib` (AD24, scripted 2026-09-21 by
+/// `scripts/altium/probe/WideProbe.pas`): text and body identifiers beyond
+/// U+00FF, built from character literals (`#937`, `#55362#57271`), which the
+/// script engine keeps as UTF-16 where a string literal would not. The texts
+/// read from `WideStrings` and the identifiers from their UTF-16 code units;
+/// the byte-identical rewrite is `manual_pcblibs_survive_a_round_trip`.
+#[test]
+fn samples_manual_wide_text_and_identifiers_read_exactly() {
+    let lib = PcbLib::open(sample("manual/wide.PcbLib")).expect("open manual/wide.PcbLib");
+    let fp = lib.get("WIDE").expect("footprint WIDE");
+    let bmp = "\u{B5}\u{3A9}\u{7535}";
+    let astral = "\u{20BB7}";
+
+    let mut texts: Vec<&str> = fp.text.iter().map(|t| t.text.as_str()).collect();
+    texts.sort_unstable();
+    let mut want = vec![bmp, astral];
+    want.sort_unstable();
+    assert_eq!(texts, want, "both texts, beyond U+00FF and beyond the BMP");
+
+    let mut idents: Vec<&str> = fp
+        .component_bodies
+        .iter()
+        .map(|b| b.identifier.as_str())
+        .collect();
+    idents.sort_unstable();
+    assert_eq!(idents, want, "both body identifiers");
+}

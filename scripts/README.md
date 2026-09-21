@@ -17,7 +17,7 @@ oracle in [`tests/integration/`](../tests/integration/).)
 | [`Resolve-AltiumExe.ps1`](Resolve-AltiumExe.ps1) | Shared helper: read `ALTIUM_EXE` from the repo-root `.env.local` | — |
 | [`ConvertFrom-WireName.ps1`](ConvertFrom-WireName.ps1) | Shared helper: decode a component name from Altium's on-wire form | — |
 | [`altium/`](altium/) | The DelphiScript automation the launchers run | **Yes** |
-| [`altium/probe/`](altium/probe/) | One-off DelphiScript probes that settle a single scripting question and author the `samples/manual/` fixture proving it (`RegionHoleProbe.pas`: a region with a hole) | **Yes** |
+| [`altium/probe/`](altium/probe/) | One-off DelphiScript probes that settle a single scripting question and author the `samples/manual/` fixture proving it (`RegionHoleProbe.pas`: a region with a hole; `WideProbe.pas`: text and identifiers beyond U+00FF; `NetProbe.pas`: a region cannot keep a net, so it authors no fixture) | **Yes** |
 | [`release/`](release/) | `review-draft.sh` and `publish-draft.sh`: the hard-checking draft review and the guarded publish of `docs/RELEASING.md` steps 8 and 9 (need `gh`, `bash`, `python`) | No |
 | [`samples/`](samples/) | Altium-authored sample libraries (ground truth for the tests) | No |
 
