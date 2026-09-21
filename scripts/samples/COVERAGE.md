@@ -97,7 +97,7 @@ distinction stays visible: this is not an authoring gap waiting on an Altium run
 | Label | plain labels; ✅ justification variants + rotation (`JUSTIFY`); ✅ non-default colour (`SHAPECOLOR`); ✅ mirrored (`SHAPESTYLE2`); ✅ display flags (`LOCKFLAGS2`); ✅ `_Frac` coords (`FRACSHAPES2`) | — |
 | Parameter | Value etc.; ✅ justification + orientation (`JUSTIFY`: `Justification=8` on Value, `Justification=4` + `Orientation=1` on the hidden Tol); ✅ autoposition + justification from the hand-authored `manual/parameters.SchLib`; ✅ show_name + read_only_state + is_mirrored + param_type (`SHAPESTYLE2` — `is_mirrored` was not modelled at all until this fixture exposed it) | 🚫 is_rule / is_system_parameter / is_configurable / text anchors — read-only or never written into a library |
 | EllipticalArc | ✅ authored (`ELLARC`: radius 5 / secondary 3, 0–270°); ✅ `_Frac` on centre and both radii; ✅ GraphicallyLocked (`GraphicallyLocked=T` after `OwnerPartId`, as on every graphic) | 🚫 Disabled/Dimmed (not persisted on library shapes) |
-| FootprintModel | ✅ the RECORD=44/45/46/48 chain (`IMPLCHAIN`: current link with a datafile — `DatafileCount=1`, `ModelDatafile0`, entity, kind, `IsCurrent=T` — a name-only link with none of them and no `Description`, and a described non-current one) | 🚫 `IntegratedModel`/`DatabaseModel` (settable, not persisted from a script — hand-authored evidence only) |
+| FootprintModel | ✅ the RECORD=44/45/46/48 chain (`IMPLCHAIN`: current link with a datafile — `DatafileCount=1`, `ModelDatafile0`, entity, kind, `IsCurrent=T` — a name-only link with none of them and no `Description`, and a described non-current one) | 🚫 `IntegratedModel`/`DatabaseModel` (settable, not persisted from a script; the UI's Add Footprint route does not write them either — `manual/footprint_link.SchLib` — so their source is unknown) |
 | IeeeSymbol | ✅ authored (`IEEESYM`: a dot, a mirrored rotated clock, a locked coloured active-low input at scale 20 — `Symbol`, `ScaleFactor`, `Orientation`, `Mirror`, `Color`, `GraphicallyLocked`, no `UniqueID`) | 🚫 Disabled/Dimmed (not persisted on library shapes) |
 
 > **Five i18n symbols of the generated golden are internally inconsistent** (`_JV`, `_BN`,
@@ -143,9 +143,11 @@ rather than waited out — otherwise keep it to one unproven interface, or a tim
 not say which name was at fault.
 
 **SchLib:** `IntegratedModel`/`DatabaseModel` on a footprint link: settable by script
-(`ISch_Implementation`), but AD24 does not persist them from a script — the UI-authored form
-(`IntegratedModel=T|DatabaseModel=T`) is known from a hand-authored library and replayed
-verbatim, not from a golden.
+(`ISch_Implementation`), but AD24 does not persist them from a script, and the UI's
+Properties → Footprint → Add route does not write them either
+(`manual/footprint_link.SchLib`, library on "Any"). One link in the reference corpora
+carries `IntegratedModel=T|DatabaseModel=T`, and the reader replays it verbatim; which
+Altium action writes the flags is unknown.
 
 **PcbLib:** region net and the cavity/subpoly params. A region *hole* is covered: after
 outlining a region the proven way, `Rgn.GeometricPolygon.AddContourIsHole(Contour, True)`

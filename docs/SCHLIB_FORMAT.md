@@ -837,9 +837,13 @@ A parameter-record variant selected by `Name=Designator`. As written by this cra
   | `IsCurrent` | bool | `T` on the default footprint; omitted on every other (never `F`) |
 
   The record is carried and replayed like every content record (`raw_params`, see
-  [Component Header Record](#component-header-record1)): a UI-authored link also carries
-  `IntegratedModel=T|DatabaseModel=T`, which this crate does not model, and omits `Description`
-  while it is empty, all of which come back as stored. A link **without a datafile** omits
+  [Component Header Record](#component-header-record1)): some Altium-authored links also carry
+  `IntegratedModel=T|DatabaseModel=T`, which this crate does not model, and omit `Description`
+  while it is empty, all of which come back as stored. The flags are not what the UI writes:
+  a link added in AD24 through Properties → Footprint → Add with the PCB library on "Any"
+  carries neither and stores the dialog's status line (`Footprint not found`) as its
+  `Description` (`manual/footprint_link.SchLib`); of 62 links in two reference corpora one
+  carries them, and the route that writes them is unknown. A link **without a datafile** omits
   the whole datafile group — `DatafileCount`, `ModelDatafile0`, `ModelDatafileEntity0`,
   `ModelDatafileKind0` (the `IMPLCHAIN` golden's name-only links); this crate writes the group
   for a from-scratch link, which is what lets Altium resolve the footprint, and keeps a read
