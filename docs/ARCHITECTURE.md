@@ -32,7 +32,7 @@ src/
 │   └── rate_limit.rs            # Token-bucket rate limiter (mutating tools)
 │
 ├── altium/                      # Altium file I/O
-│   ├── mod.rs                   # Shared helpers: Windows-1252, OLE names, atomic save
+│   ├── mod.rs                   # Shared helpers: ANSI code pages, OLE names, atomic save
 │   ├── error.rs                 # Altium-specific errors (path-sanitised Display)
 │   ├── bytes.rs                 # Bounds-checked little-endian scalar readers
 │   ├── base64_opt.rs            # Serde base64 codec for embedded image bytes

@@ -7,6 +7,12 @@ record). The specialised worklists stay the single source of truth for their are
 |------|----------|
 | Golden-fixture enrichment and verified negatives | `scripts/samples/COVERAGE.md` |
 
+## A. Next release
+
+- [ ] **Release v1.1.0** by the book (`docs/RELEASING.md`): the HTTP transport, protocol
+      version negotiation, library code-page detection, the pad polygon-connect style,
+      the Windows version resource and the fixtures in `CHANGELOG.md` § Unreleased.
+
 ## B. After v1.0.0
 
 - [ ] **OAuth for the HTTP transport**, so claude.ai in the browser and ChatGPT can
@@ -66,6 +72,8 @@ record). The specialised worklists stay the single source of truth for their are
       link with `IntegratedModel`/`DatabaseModel` waits on finding the Altium action
       that writes the flags: the UI's Add Footprint does not
       (`manual/footprint_link.SchLib`).
+    - Not yet tried by UI or script: a region with a non-default `SUBPOLYINDEX` or
+      `CAVITYHEIGHT`.
 - [ ] **Drop the `cfb` git pin** (`[patch.crates-io]`, rev `8c1ec76`) as soon as rust-cfb
       publishes a release newer than v0.14.0 — check
       [rust-cfb releases](https://github.com/mdsteele/rust-cfb/releases) at session start.

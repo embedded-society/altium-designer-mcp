@@ -1,7 +1,7 @@
 # Sample libraries
 
 Altium-authored reference libraries — the ground truth for the reader and round-trip
-tests. **Generated on-site, not hand-edited** (one exception, in `manual/` — see below): run `scripts\Generate-Samples.ps1`,
+tests. **Generated on-site, not hand-edited** (the exceptions are in `manual/` — see below): run `scripts\Generate-Samples.ps1`,
 which drives a real Altium Designer (via `altium\generate\GenerateSamples.pas`) to
 author the libraries, then moves them here to be committed.
 
@@ -41,11 +41,12 @@ Regeneration via `Generate-Samples.ps1` is fine (it authors from scratch); openi
 committed golden in the AD UI to "just fix one thing" and saving is not. Hand-fix work
 happens in a fresh library committed under `manual/` instead.
 
-## `manual/` — hand-authored, do NOT regenerate
+## `manual/` — one-off fixtures, do NOT regenerate
 
-`Generate-Samples.ps1` cannot produce everything: a few properties exist only in Altium's
-UI and are not exposed on the scripting interfaces, so no DelphiScript can author them.
-Those live in `manual/`, made by hand and committed as-is.
+`Generate-Samples.ps1` cannot produce everything. Some properties exist only in Altium's
+UI and are not exposed on the scripting interfaces; others needed a question settled by a
+small probe script of their own. Those fixtures live in `manual/`, each made once — in the
+UI or by its probe — and committed as-is.
 
 **`Generate-Samples.ps1` never touches this folder** — it only copies its own outputs over
 the two top-level libraries. Equally, nothing regenerates these files: if one is deleted,
@@ -188,6 +189,21 @@ does, and `manual_pcblibs_survive_a_round_trip` pins the byte-identical rewrite.
 **To rebuild it:** File → New → Library → PCB Library; place the seven pads; for each, in
 the Properties panel under Pad Stack expand **All Layers**, tick **Thermal Relief** and click
 its link to set the row above; save ONCE as `thermal_relief.PcbLib`.
+
+### `manual/pipe.SchLib` and `manual/pipe.PcbLib`
+
+A symbol, `PIPESYM`, and a footprint, `PIPEFP`, given a `|` through Altium's scripting API
+in AD24 (2026-08-30): the symbol's description, a parameter's name and value, and a label,
+and the footprint's description. They show what Altium does with the
+record separator. The schematic editor stores every `|` as `¦` (U+00A6); the PCB editor
+writes it raw and reads the description back cut at it (`A|B=C` comes back as `A`).
+`manual_pipe_fixture_shows_altium_stores_a_pipe_as_a_broken_bar` and
+`manual_pipe_fixture_shows_altium_cuts_pcb_text_at_the_pipe` pin both, and the writers
+refuse a `|` on that evidence.
+
+**To rebuild them:** the probe was a one-off and is not committed. In a script, set those
+fields on a new symbol and footprint to text containing `|` (`A|B=C`, `Val|ue`, `1|2`,
+`x|y`), and save each library once.
 
 ### `manual/footprint_link.SchLib`
 

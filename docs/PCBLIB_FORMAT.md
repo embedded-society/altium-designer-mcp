@@ -93,7 +93,9 @@ All Altium streams use these common encoding patterns:
   ComponentBody nested param blocks and the `Models/Data` records, which have **no** leading pipe)
 - Parameter blocks ALWAYS end with `\x00`, and the block length INCLUDES the null terminator
 - There is NO trailing pipe after the last `KEY=VALUE`
-- All strings use Windows-1252 encoding, NOT UTF-8
+- Strings are ANSI text in the library's code page (Windows-1252 on a Western machine; see
+  the `Parameters` stream section on how it is detected), NOT UTF-8; Unicode text
+  rides in separate twins (`UNICODE__PATTERN`, `WideStrings`, UTF-16 `IDENTIFIER` units)
 
 ## `FileHeader` Stream
 
@@ -215,7 +217,7 @@ copied from a library of another code page is written in the target's.
 One `|ENCODEDTEXT{n}=` entry per text primitive with real (non-special, non-empty) content, in
 primitive order — a leading pipe per entry, NO trailing pipe. The value is the text as
 comma-separated **UTF-16 code units** in decimal (`10µF` → `49,48,181,70`, `Ω` → `937`), which is
-how the stream carries text the Windows-1252 `Data` block cannot; a text with an entry here is
+how the stream carries text the ANSI `Data` block cannot; a text with an entry here is
 read from it in preference to the `Data` block.
 
 When empty (no text content): `[block_len:4][\x00]` (`block_len` = 1 — just the null terminator,
@@ -742,7 +744,7 @@ Text has 2 blocks:
   the modelled fields onto the record as read (`raw_geometry`) or, from scratch, onto a
   canonical template captured from a real Altium text primitive, and replays every reserved
   byte verbatim.
-- **Block 1**: the text content as a `WriteStringBlock` (`[u32 len][u8 str_len][Windows-1252 text]`).
+- **Block 1**: the text content as a `WriteStringBlock` (`[u32 len][u8 str_len][ANSI text]`, in the library's code page).
 
 **Block 0 — 252-byte geometry record:**
 
@@ -848,7 +850,7 @@ as an invalid record type, silently dropping every primitive after the region.
 | 14-15 | 2 | Hole contour count (u16) |
 | 16-17 | 2 | Reserved (`0x00 0x00`) |
 | 18-21 | 4 | Parameter string length (u32, INCLUDES the null terminator) |
-| 22.. | var | Parameter string (Windows-1252 C-string, **no leading pipe**) |
+| 22.. | var | Parameter string (ANSI C-string in the library's code page, **no leading pipe**) |
 | +0 | 4 | Outline vertex count (u32) |
 | +4 | 16×N | Outline vertices: N × (f64 X, f64 Y) in internal units |
 | ... | var | Hole contours: hole_count × `[u32 count][count × (f64 X, f64 Y)]` |
@@ -918,7 +920,7 @@ snap-point or reserved blocks, and there is no `MODEL.SNAPCOUNT` parameter.
 | 3-12 | 10 | Net/polygon/component indices + reserved (`0xFF` fill for a free body) |
 | 13-17 | 5 | Zeros |
 | 18-21 | 4 | Parameter string length (u32, INCLUDES the null) |
-| 22.. | var | Parameter string (Windows-1252 C-string, **no leading pipe**, starts `V7_LAYER=`) |
+| 22.. | var | Parameter string (ANSI C-string in the library's code page, **no leading pipe**, starts `V7_LAYER=`) |
 | +0 | 4 | Outline vertex count (u32) |
 | +4 | 16×N | Outline vertices: N × (f64 X, f64 Y) in internal units |
 

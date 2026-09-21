@@ -95,8 +95,8 @@ for itself.
    writer is checked against an independent Altium-readability oracle, not just its own reader.
 3. **Round-trip fidelity.** Reading a library and writing it back preserves everything the
    model represents — coordinates, parameters, and unique IDs.
-4. **Byte-exact Altium output.** Windows-1252 strings and the precise binary record layout —
-   match Altium on disk, not an approximation.
+4. **Byte-exact Altium output.** ANSI strings in the library's code page, their Unicode
+   twins and the precise binary record layout — match Altium on disk, not an approximation.
 5. **Safe by default.** Validate and canonicalise every path, back up before mutating, and keep
    file paths out of error messages.
 

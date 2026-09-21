@@ -27,7 +27,8 @@ file is** — and differs only in where that pair is written down.
    altium-designer-mcp --version
    ```
 
-The server speaks MCP over **stdio**. Point it at your config file with its single
+The server speaks MCP over **stdio** (or HTTP, for clients that connect to a URL — see
+[§ HTTP transport](#http-transport)). Point it at your config file with its single
 positional argument — or skip the file entirely and grant folders directly with
 `--allow <DIR>` (repeatable; every other setting then takes its default). Throughout
 this page:
