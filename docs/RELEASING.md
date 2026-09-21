@@ -231,4 +231,7 @@ deliberate commits (`cargo update`, run the full suite, commit the lockfile).
   (`TODO.md` § After v1.0.0) is Windows signing through SignPath Foundation's
   free open-source programme, wired into the `build` job so the attestation
   covers the signed binary; macOS notarisation waits until macOS downloads
-  justify the Apple Developer Program fee.
+  justify the Apple Developer Program fee. The
+  [code signing policy](CODE_SIGNING_POLICY.md) their terms require is published,
+  and the Windows binary already carries the product name and version they check
+  (embedded by `build.rs`, verified in the `build` job).

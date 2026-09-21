@@ -347,6 +347,23 @@ jobs:
                     exit 1
                 fi
 
+            # Code signing requires every signed binary to carry its product
+            # name and version (build.rs embeds them); a build without them
+            # must not reach a release.
+            - name: Verify the Windows version resource
+              if: runner.os == 'Windows'
+              shell: pwsh
+              env:
+                EXPECTED_VERSION: ${{ needs.validate.outputs.version }}
+              run: |
+                $info = (Get-Item "verify/${{ matrix.binary }}").VersionInfo
+                $base = $env:EXPECTED_VERSION.Split('-')[0]
+                Write-Host "ProductName=$($info.ProductName) ProductVersion=$($info.ProductVersion) FileVersion=$($info.FileVersion)"
+                if ($info.ProductName -ne 'altium-designer-mcp' -or $info.ProductVersion -ne $base -or $info.FileVersion -ne $base) {
+                    Write-Error "the Windows binary does not carry product name altium-designer-mcp and version $base"
+                    exit 1
+                }
+
             - name: Upload artifact (Unix)
               if: runner.os != 'Windows'
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -612,6 +629,8 @@ jobs:
                     echo "The binaries are unsigned, so Windows SmartScreen and macOS"
                     echo "Gatekeeper will warn on first run; on macOS use right-click →"
                     echo "Open. The attestation above is the stronger check either way."
+                    echo ""
+                    echo "Code signing policy: https://github.com/${GITHUB_REPOSITORY}/blob/main/docs/CODE_SIGNING_POLICY.md"
                 } >> release_notes.md
 
                 echo "--- Release Notes ---"
