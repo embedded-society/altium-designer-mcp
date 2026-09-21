@@ -48,7 +48,6 @@ record). The specialised worklists stay the single source of truth for their are
 ## D. Maintenance & waiting
 
 - [ ] **Waiting on others.**
-    - #516: Kylinghu's AD21 re-run of the code-page build, and their G2/H2 canary files.
     - #67: if bingran names their AI client, answer with its section of
       `docs/CLIENT_SETUP.md`.
 - [ ] **Golden-fixture enrichment backlog**, detailed with its procedure in
