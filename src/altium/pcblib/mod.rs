@@ -798,6 +798,15 @@ pub struct LibraryMetadata {
     ///
     /// `None` for a library built in memory, which has no stack to preserve.
     pub library_params: Option<Vec<u8>>,
+
+    /// The Windows ANSI code page the library was authored in, detected on
+    /// read from a footprint whose real name stands beside its `PATTERN` bytes
+    /// (`crate::altium::detect_ansi_code_page`). The library's ANSI-only text
+    /// is read through it and a rewrite writes through it again, so a GBK or
+    /// Windows-1250 library reads as its real text and stays byte-identical.
+    /// `None` without evidence, and for a library built in memory: the
+    /// server's code page then applies.
+    pub ansi_code_page: Option<u32>,
 }
 
 /// A `PcbLib` footprint library.
@@ -1113,6 +1122,41 @@ impl PcbLib {
         }
 
         results
+    }
+
+    /// The ANSI encoding the library's text is read and written in: the code
+    /// page detected when it was read; for a library built in memory, the one
+    /// its footprints' carried `PATTERN` bytes were written in, so footprints
+    /// replayed into a new library keep their bytes; else the one in force
+    /// (the server's).
+    #[must_use]
+    pub fn ansi_encoding(&self) -> &'static encoding_rs::Encoding {
+        self.metadata
+            .ansi_code_page
+            .or_else(|| self.carried_code_page())
+            .and_then(crate::altium::ansi_encoding_for)
+            .unwrap_or_else(crate::altium::current_ansi_encoding)
+    }
+
+    /// The code page the footprints' carried `PATTERN` bytes and
+    /// `UNICODE__PATTERN` twins agree on, if any.
+    fn carried_code_page(&self) -> Option<u32> {
+        let carried = |fp: &Footprint, key: &str| {
+            fp.additional_parameters
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(key))
+                .map(|(_, v)| v.clone())
+        };
+        let pairs: Vec<(String, String)> = self
+            .footprints
+            .iter()
+            .filter_map(|fp| {
+                let twin = carried(fp, "UNICODE__PATTERN")?;
+                let held = crate::altium::text_from_utf16_units(&twin)?;
+                Some((held, carried(fp, "PATTERN")?))
+            })
+            .collect();
+        crate::altium::detect_ansi_code_page(&pairs)
     }
 
     /// Returns a reference to the library metadata.

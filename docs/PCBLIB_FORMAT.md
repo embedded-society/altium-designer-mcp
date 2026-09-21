@@ -192,6 +192,20 @@ Windows-1252 elsewhere; `ansi_code_page` in the config or `--ansi-code-page` ove
 for every UTF-16 unit the page cannot hold, exactly as Altium writes it. A name past the 31-unit cap
 is stored under those bytes cut at 31 and read back through the code page, which `SectionKeys` maps.
 
+The same code page covers every other piece of ANSI-only text in the library — pad designators,
+region and body names, text without a `WideStrings` entry, a name with no twin — and nothing in the
+file names it. The reader therefore **detects the library's code page** from its footprints: each
+one whose real name, from its `UNICODE__PATTERN` twin or its storage name, stands beside its
+`PATTERN` bytes is evidence, and the code page is the first candidate, the server's own ahead of
+the rest, under which every such pair agrees (`?` husks and ASCII prove nothing). All ANSI text is
+then read through it, and a rewrite writes through it again. A byte string the page does not define
+is read as Windows-1252 instead, whose byte-per-character mapping always writes back what it read,
+so a rewrite stays byte-identical either way. A library without such evidence uses the server's code
+page, and one built in memory takes the page its footprints' carried `PATTERN` bytes agree on, so
+footprints replayed into a new library keep their bytes. A carried `PATTERN` or `DESCRIPTION` is
+re-emitted only when it is what the library's page writes for the text its twin holds; a footprint
+copied from a library of another code page is written in the target's.
+
 ### `/{component}/WideStrings`
 
 ```text

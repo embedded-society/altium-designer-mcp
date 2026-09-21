@@ -56,11 +56,37 @@ fn write_string_block(
     s: &str,
     field_name: &str,
 ) -> crate::altium::error::AltiumResult<()> {
+    // Altium stores strings in the ANSI code page, not UTF-8; the Pascal
+    // length prefix is the encoded byte count.
+    let bytes = crate::altium::encode_ansi(s, crate::altium::current_ansi_encoding());
+    write_bytes_block(data, &bytes, s, field_name)
+}
+
+/// [`write_string_block`] for wire text — a string that already stands for its
+/// bytes one char per byte, such as a footprint's `PATTERN` text — which is
+/// written as those bytes whatever the code page.
+fn write_wire_string_block(
+    data: &mut Vec<u8>,
+    wire: &str,
+    field_name: &str,
+) -> crate::altium::error::AltiumResult<()> {
+    write_bytes_block(
+        data,
+        &crate::altium::encode_windows1252(wire),
+        wire,
+        field_name,
+    )
+}
+
+/// Writes `bytes` as a string block, refusing more than a Pascal string holds.
+fn write_bytes_block(
+    data: &mut Vec<u8>,
+    bytes: &[u8],
+    s: &str,
+    field_name: &str,
+) -> crate::altium::error::AltiumResult<()> {
     use crate::altium::error::AltiumError;
 
-    // Altium stores strings as Windows-1252, not UTF-8; the Pascal length
-    // prefix is the encoded byte count.
-    let bytes = crate::altium::encode_windows1252(s);
     if bytes.len() > 255 {
         return Err(AltiumError::InvalidParameter {
             name: field_name.to_string(),
@@ -72,7 +98,7 @@ fn write_string_block(
         });
     }
 
-    crate::altium::framing::write_string_block(data, &bytes);
+    crate::altium::framing::write_string_block(data, bytes);
     Ok(())
 }
 
@@ -341,7 +367,7 @@ pub fn encode_data_stream(footprint: &Footprint) -> crate::altium::error::Altium
 
     // Write name block: [block_len:4][str_len:1][name:str_len] — the same
     // bytes as PATTERN and the library component list.
-    write_string_block(
+    write_wire_string_block(
         &mut data,
         &footprint_pattern_text(footprint),
         "footprint.name",
@@ -1255,7 +1281,7 @@ fn encode_text(data: &mut Vec<u8>, text: &Text, wide_index: Option<u32>) {
     // the geometry block above — which is how Altium itself stores it, and the
     // only way a text that Altium can author survives a read-modify-write.
     // Windows-1252 is single-byte, so the cut cannot split a character.
-    let encoded = crate::altium::encode_windows1252(&text.text);
+    let encoded = crate::altium::encode_ansi(&text.text, crate::altium::current_ansi_encoding());
     let truncated = &encoded[..encoded.len().min(255)];
     crate::altium::framing::write_string_block(data, truncated);
 }
@@ -1619,7 +1645,7 @@ fn encode_region_properties(region: &Region) -> Vec<u8> {
     // now taken from the typed field; a default region reproduces the historical
     // hard-coded string byte-for-byte (KIND=0, NAME=, ARCRESOLUTION=0mil, ...).
     let params = build_region_param_text(region);
-    let params_bytes = crate::altium::encode_windows1252(&params);
+    let params_bytes = crate::altium::encode_ansi(&params, crate::altium::current_ansi_encoding());
 
     let mut block = Vec::with_capacity(22 + params_bytes.len() + 4 + vertex_count * 16);
 
@@ -1787,7 +1813,10 @@ fn encode_component_body_block(body: &ComponentBody, outline: &[(f64, f64)]) -> 
 
     // Parameter string as a C-string block (length includes the null).
     let param_str = build_component_body_params(body);
-    write_cstring_param_block(&mut block, &crate::altium::encode_windows1252(&param_str));
+    write_cstring_param_block(
+        &mut block,
+        &crate::altium::encode_ansi(&param_str, crate::altium::current_ansi_encoding()),
+    );
 
     // Outline polygon: vertex count then (f64 x, f64 y) per vertex, in Altium
     // internal units. Coordinates MUST be whole internal units (like every other
@@ -2100,23 +2129,56 @@ fn carried_param<'a>(footprint: &'a Footprint, key: &str) -> Option<&'a str> {
         .map(|(_, v)| v.as_str())
 }
 
+/// Whether a carried plain key and its `UNICODE__` twin still describe
+/// `value` in `encoding`: the pair reads as `value`, and when there is a twin,
+/// the plain bytes are what `encoding` writes for the text the twin holds. The
+/// second test is what keeps a footprint copied from a library of another code
+/// page from carrying that page's bytes into this one.
+fn carried_pair_is_current(
+    plain: &str,
+    twin: Option<&str>,
+    value: &str,
+    encoding: &'static encoding_rs::Encoding,
+) -> bool {
+    if crate::altium::unicode_field_text(twin, plain) != value {
+        return false;
+    }
+    // Unfolded: a script-authored twin holds the value widened through the
+    // authoring page, and it is that text the plain key was written from.
+    twin.and_then(crate::altium::text_from_utf16_units)
+        .is_none_or(|held| crate::altium::to_ansi_wire_text(&held, encoding) == plain)
+}
+
 /// Whether the carried `PATTERN` and `UNICODE__PATTERN` entries still describe
-/// the footprint's name. They are re-emitted verbatim then — a widened twin
-/// included, since Altium derives the storage from the name it reads there —
-/// and rebuilt from the name otherwise.
-fn carried_name_is_current(footprint: &Footprint) -> bool {
+/// the footprint's name in `encoding`. They are re-emitted verbatim then — a
+/// widened twin included, since Altium derives the storage from the name it
+/// reads there — and rebuilt from the name otherwise.
+fn carried_name_is_current(
+    footprint: &Footprint,
+    encoding: &'static encoding_rs::Encoding,
+) -> bool {
     carried_param(footprint, "PATTERN").is_some_and(|plain| {
-        crate::altium::unicode_field_text(carried_param(footprint, "UNICODE__PATTERN"), plain)
-            == footprint.name
+        carried_pair_is_current(
+            plain,
+            carried_param(footprint, "UNICODE__PATTERN"),
+            &footprint.name,
+            encoding,
+        )
     })
 }
 
 /// Whether the carried `DESCRIPTION` and `UNICODE__DESCRIPTION` entries still
-/// describe the footprint's description.
-fn carried_description_is_current(footprint: &Footprint) -> bool {
-    let plain = carried_param(footprint, "DESCRIPTION").unwrap_or_default();
-    crate::altium::unicode_field_text(carried_param(footprint, "UNICODE__DESCRIPTION"), plain)
-        == footprint.description
+/// describe the footprint's description in `encoding`.
+fn carried_description_is_current(
+    footprint: &Footprint,
+    encoding: &'static encoding_rs::Encoding,
+) -> bool {
+    carried_pair_is_current(
+        carried_param(footprint, "DESCRIPTION").unwrap_or_default(),
+        carried_param(footprint, "UNICODE__DESCRIPTION"),
+        &footprint.description,
+        encoding,
+    )
 }
 
 /// The text the footprint's `PATTERN`, `DESCRIPTION` and `UNICODE` twins
@@ -2134,8 +2196,8 @@ impl ParamsPlan {
     /// is written in: Altium Designer 21 displays those bytes through the
     /// machine's code page and never reads the twin (#516).
     fn of(footprint: &Footprint, encoding: &'static encoding_rs::Encoding) -> Self {
-        let name_current = carried_name_is_current(footprint);
-        let description_current = carried_description_is_current(footprint);
+        let name_current = carried_name_is_current(footprint, encoding);
+        let description_current = carried_description_is_current(footprint, encoding);
         let plain = |current: bool, key: &str, value: &str| {
             if current {
                 carried_param(footprint, key)
@@ -2172,7 +2234,7 @@ impl ParamsPlan {
 /// while they still describe the name, else the name's ANSI form in the
 /// default code page.
 pub(super) fn footprint_pattern_text(footprint: &Footprint) -> String {
-    footprint_pattern_text_in(footprint, crate::altium::default_ansi_encoding())
+    footprint_pattern_text_in(footprint, crate::altium::current_ansi_encoding())
 }
 
 /// [`footprint_pattern_text`] with the code page given.
@@ -2188,7 +2250,7 @@ pub(super) fn footprint_pattern_text_in(
 /// carries or gains one — unfolded, since Altium does not fold a widened
 /// twin — else the `PATTERN` text as Windows-1252 characters.
 pub(super) fn footprint_name_as_altium_reads_it(footprint: &Footprint) -> String {
-    let plan = ParamsPlan::of(footprint, crate::altium::default_ansi_encoding());
+    let plan = ParamsPlan::of(footprint, crate::altium::current_ansi_encoding());
     plan.name_twin
         .as_deref()
         .and_then(crate::altium::text_from_utf16_units)
@@ -2209,7 +2271,7 @@ pub(super) fn footprint_name_as_altium_reads_it(footprint: &Footprint) -> String
 /// name that left ASCII — puts the block back in canonical order, since
 /// replaying could not be byte-faithful anyway.
 pub(super) fn build_footprint_params(footprint: &Footprint) -> String {
-    build_footprint_params_in(footprint, crate::altium::default_ansi_encoding())
+    build_footprint_params_in(footprint, crate::altium::current_ansi_encoding())
 }
 
 /// [`build_footprint_params`] with the code page a rebuilt `PATTERN` or
@@ -4919,8 +4981,9 @@ mod tests {
     /// The golden's script-authored Cyrillic footprint: PATTERN holds the
     /// name's UTF-8 bytes and the twin those bytes widened through
     /// Windows-1250 — the name Altium reads and derives the storage from.
-    /// Both are replayed verbatim, and the Altium-side name is the widened
-    /// one, not the real one the reader folds it back to.
+    /// In the library's Windows-1250 code page both are replayed verbatim,
+    /// and the Altium-side name is the widened one, not the real one the
+    /// reader folds it back to.
     #[test]
     fn footprint_params_keep_a_widened_twin_and_report_altiums_view() {
         let real = "\u{420}\u{435}\u{437}\u{438}\u{441}\u{442}\u{43E}\u{440}_0402"; // Резистор_0402
@@ -4953,8 +5016,15 @@ mod tests {
         .iter()
         .map(|k| (*k).to_string())
         .collect();
+        let (params, altium_name) =
+            crate::altium::with_ansi_encoding(encoding_rs::WINDOWS_1250, || {
+                (
+                    build_footprint_params(&fp),
+                    footprint_name_as_altium_reads_it(&fp),
+                )
+            });
         assert_eq!(
-            build_footprint_params(&fp),
+            params,
             format!(
                 "|UNICODE=EXISTS|PATTERN={wire}|HEIGHT=0mil|DESCRIPTION=|ITEMGUID=|REVISIONGUID=\
                  |UNICODE__PATTERN={widened_units}|UNICODE=EXISTS"
@@ -4962,6 +5032,6 @@ mod tests {
         );
         let widened = crate::altium::text_from_utf16_units(widened_units).expect("units");
         assert_ne!(widened, real);
-        assert_eq!(footprint_name_as_altium_reads_it(&fp), widened);
+        assert_eq!(altium_name, widened);
     }
 }

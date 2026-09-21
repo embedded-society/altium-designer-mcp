@@ -395,7 +395,11 @@ fn read_block(data: &[u8], offset: usize) -> Option<(&[u8], usize)> {
 fn read_string_from_block(block: &[u8]) -> String {
     // Pascal short string at the start of the block; Altium stores strings as
     // Windows-1252 (pairs with `write_string_block`).
-    crate::altium::framing::read_pascal_string(block, 0).0
+    let Some(&len) = block.first() else {
+        return String::new();
+    };
+    let end = (1 + usize::from(len)).min(block.len());
+    crate::altium::decode_altium_text_in(&block[1..end], crate::altium::current_ansi_encoding())
 }
 
 // Flag bits shared with the writer via `super::flags`.
