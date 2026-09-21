@@ -393,6 +393,7 @@ fn read_pad_polygon_connect(geometry: &[u8]) -> Option<PadPolygonConnect> {
         conductors: *block.get(19)?,
         auto_conductors: *block.get(27)? != 0,
         min_distance: to_mm(read_i32(block, 28)?),
+        min_distance_enabled: *block.get(32)? != 0,
     })
 }
 

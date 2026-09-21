@@ -2662,7 +2662,7 @@ fn samples_manual_wide_text_and_identifiers_read_exactly() {
     assert_eq!(idents, want, "both body identifiers");
 }
 
-/// `manual/thermal_relief.PcbLib` (AD24 UI, 2026-09-21): six through-hole
+/// `manual/thermal_relief.PcbLib` (AD24 UI, 2026-09-21): seven through-hole
 /// pads, each with a different Pad Stack → Thermal Relief setting. Pad 4
 /// leaves the box unticked; the others tick it and change one or two
 /// settings of the "Edit Polygon Connect Style" dialog each, so every field
@@ -2704,6 +2704,10 @@ fn samples_manual_pad_polygon_connect() {
         assert!(
             approx_eq(got.min_distance, want.min_distance, 1e-6),
             "pad {designator} min distance"
+        );
+        assert_eq!(
+            got.min_distance_enabled, want.min_distance_enabled,
+            "pad {designator} min distance checkbox"
         );
     };
 
@@ -2748,6 +2752,15 @@ fn samples_manual_pad_polygon_connect() {
         "8",
         PadPolygonConnect {
             style: PowerPlaneConnectStyle::NoConnect,
+            ..PadPolygonConnect::default()
+        },
+    );
+    expect(
+        "9",
+        PadPolygonConnect {
+            auto_conductors: true,
+            min_distance: mil(20.0),
+            min_distance_enabled: true,
             ..PadPolygonConnect::default()
         },
     );

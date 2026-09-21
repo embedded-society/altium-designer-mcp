@@ -859,7 +859,7 @@ const PAD_POLYGON_CONNECT_TEMPLATE: [u8; PAD_POLYGON_CONNECT_LEN] = [
     0x01, 0x04,                               // 90 degrees; 4 conductors
     0x00,0x00,0x00,0x01,0x00,0x00,0x00,       // not modelled
     0x00,                                     // Auto conductors off
-    0xF0,0x49,0x02,0x00, 0x00,0x00,           // min distance 15 mil; reserved
+    0xF0,0x49,0x02,0x00, 0x00, 0x00,          // min distance 15 mil, unticked; reserved
 ];
 
 /// Writes the pad's polygon-connect override into its extended tail, or
@@ -890,6 +890,7 @@ fn apply_polygon_connect(tail: &mut Vec<u8>, pad: &Pad) {
     block[19] = connect.conductors;
     block[27] = u8::from(connect.auto_conductors);
     block[28..32].copy_from_slice(&from_mm(connect.min_distance).to_le_bytes());
+    block[32] = u8::from(connect.min_distance_enabled);
 }
 
 /// Encodes the 202-byte geometry block (`SubRecord-5`) for a pad.

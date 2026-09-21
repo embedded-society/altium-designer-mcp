@@ -642,8 +642,8 @@ impl PowerPlaneConnectStyle {
 /// block: an `i32` length of 30, four zero bytes, `1` (override present),
 /// the style byte, air gap and conductor width (`i32`), the rotation byte
 /// (`1` = 90°, `0` = 45°), the conductor count, seven bytes this crate
-/// does not model, the Auto-conductors byte, the minimum distance (`i32`)
-/// and two zero bytes (`manual/thermal_relief.PcbLib`). A pad without an
+/// does not model, the Auto-conductors byte, the minimum distance (`i32`),
+/// the Min Distance checkbox and a zero byte (`manual/thermal_relief.PcbLib`). A pad without an
 /// override has no such block.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PadPolygonConnect {
@@ -677,13 +677,17 @@ pub struct PadPolygonConnect {
     #[serde(default = "ninety_degrees")]
     pub rotation: u16,
 
-    /// The dialog's Min Distance in mm (shown with Auto). Default: 0.381
-    /// (15 mil).
+    /// The dialog's Min Distance in mm (shown with Auto), used when
+    /// [`Self::min_distance_enabled`] is set. Default: 0.381 (15 mil).
     #[serde(
         default = "fifteen_mil",
         serialize_with = "crate::altium::serde_round::serialize"
     )]
     pub min_distance: f64,
+
+    /// The dialog's Min Distance checkbox. Default: unticked.
+    #[serde(default)]
+    pub min_distance_enabled: bool,
 }
 
 impl Default for PadPolygonConnect {
@@ -698,6 +702,7 @@ impl Default for PadPolygonConnect {
             auto_conductors: false,
             rotation: ninety_degrees(),
             min_distance: fifteen_mil(),
+            min_distance_enabled: false,
         }
     }
 }

@@ -166,7 +166,7 @@ identifiers, and `manual_pcblibs_survive_a_round_trip` the byte-identical rewrit
 
 ### `manual/thermal_relief.PcbLib`
 
-One footprint with six through-hole pads (60 mil round, 30 mil hole), made in the AD24 UI
+One footprint with seven through-hole pads (60 mil round, 30 mil hole), made in the AD24 UI
 (2026-09-21) to decode the per-pad polygon-connect override. Pad 4 leaves Pad Stack → All
 Layers → **Thermal Relief** unticked; each other pad ticks it and changes one or two settings
 in the "Edit Polygon Connect Style" dialog:
@@ -179,12 +179,13 @@ in the "Edit Polygon Connect Style" dialog:
 | 6 | Direct Connect |
 | 7 | Relief, Auto conductors |
 | 8 | No Connect |
+| 9 | Relief, Auto conductors, Min Distance ticked at 20 mil |
 
 `samples_manual_pad_polygon_connect` pins every override,
 `samples_manual_pad_polygon_connect_edits` shows the writer adds and removes one as Altium
 does, and `manual_pcblibs_survive_a_round_trip` pins the byte-identical rewrite.
 
-**To rebuild it:** File → New → Library → PCB Library; place the six pads; for each, in
+**To rebuild it:** File → New → Library → PCB Library; place the seven pads; for each, in
 the Properties panel under Pad Stack expand **All Layers**, tick **Thermal Relief** and click
 its link to set the row above; save ONCE as `thermal_relief.PcbLib`.
 

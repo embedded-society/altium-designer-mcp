@@ -40,7 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   still unknown, and it stores the dialog's status line as the link's description.
 - **A pad's own polygon-connect style (`polygon_connect`).** Altium Designer 24 sets it
   under Pad Stack → Thermal Relief: relief, direct or no connection, air gap, conductor
-  width, 2, 4 or Auto conductors, and a 45° or 90° angle. `read_pcblib` reports it and
+  width, 2, 4 or Auto conductors with an optional minimum distance, and a 45° or 90°
+  angle. `read_pcblib` reports it and
   `write_pcblib` writes, changes or removes it. The layout was decoded from
   `scripts/samples/manual/thermal_relief.PcbLib`, a new fixture made in the AD24 UI.
 - **`scripts/samples/manual/wide.PcbLib`**, text and body identifiers beyond U+00FF and

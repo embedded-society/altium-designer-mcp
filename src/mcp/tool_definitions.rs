@@ -358,7 +358,8 @@ impl McpServer {
                                     "conductors": { "type": "integer", "minimum": 2, "maximum": 4, "enum": [2, 4], "description": "Number of relief conductors. Default: 4" },
                                     "auto_conductors": { "type": "boolean", "description": "Let Altium choose the conductor count. Default: false" },
                                     "rotation": { "type": "integer", "minimum": 45, "maximum": 90, "enum": [45, 90], "description": "Conductor angle in degrees. Default: 90" },
-                                    "min_distance": { "type": "number", "minimum": 0, "description": "Minimum distance used with auto_conductors, in mm. Default: 0.381 (15 mil)" }
+                                    "min_distance": { "type": "number", "minimum": 0, "description": "Minimum distance used with auto_conductors when min_distance_enabled is set, in mm. Default: 0.381 (15 mil)" },
+                                    "min_distance_enabled": { "type": "boolean", "description": "Apply min_distance (Altium's Min Distance checkbox). Default: false" }
                                 }
                             },
                             "net_index": { "type": "integer", "minimum": 0, "maximum": 65535, "description": "Net index into the board net list (common header, 0-65534; 65535 = no net). Normally omitted for library footprints; preserved on a read-modify-write. Default: 65535" },

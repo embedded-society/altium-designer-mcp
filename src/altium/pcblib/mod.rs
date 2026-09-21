@@ -1676,6 +1676,7 @@ mod tests {
             auto_conductors: true,
             rotation: 45,
             min_distance: 0.508,
+            min_distance_enabled: true,
         };
         let mut original = Footprint::new("ROUNDTRIP_PAD_POLYGON_CONNECT");
         let mut pad = Pad::through_hole("1", 0.0, 0.0, 1.6, 1.6, 0.8);
@@ -1701,6 +1702,7 @@ mod tests {
         assert!(got.auto_conductors);
         assert_eq!(got.rotation, 45);
         assert!(approx_eq(got.min_distance, connect.min_distance, 0.0001));
+        assert!(got.min_distance_enabled);
         assert_eq!(
             with.raw_tail.as_ref().map(Vec::len),
             Some(228 - 61),

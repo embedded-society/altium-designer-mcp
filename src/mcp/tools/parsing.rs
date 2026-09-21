@@ -544,12 +544,14 @@ fn pad_polygon_connect(
             _ => return Err(format!("{field}.rotation must be 45 or 90, got {v}")),
         },
     };
-    let auto_conductors = match value.get("auto_conductors") {
-        None | Some(Value::Null) => defaults.auto_conductors,
+    let flag = |key: &str, default: bool| match value.get(key) {
+        None | Some(Value::Null) => Ok(default),
         Some(v) => v
             .as_bool()
-            .ok_or_else(|| format!("{field}.auto_conductors must be true or false, got {v}"))?,
+            .ok_or_else(|| format!("{field}.{key} must be true or false, got {v}")),
     };
+    let auto_conductors = flag("auto_conductors", defaults.auto_conductors)?;
+    let min_distance_enabled = flag("min_distance_enabled", defaults.min_distance_enabled)?;
     Ok(PadPolygonConnect {
         style: enum_field(
             value,
@@ -565,6 +567,7 @@ fn pad_polygon_connect(
         auto_conductors,
         rotation,
         min_distance: length("min_distance", defaults.min_distance)?,
+        min_distance_enabled,
     })
 }
 
@@ -3802,6 +3805,7 @@ mod tests {
         let full = pad(json!({
             "style": "no_connect", "air_gap": 0.2, "conductor_width": 0.3,
             "conductors": 2, "auto_conductors": true, "rotation": 45, "min_distance": 0.5,
+            "min_distance_enabled": true,
         }))
         .expect("full")
         .polygon_connect
@@ -3816,6 +3820,7 @@ mod tests {
                 auto_conductors: true,
                 rotation: 45,
                 min_distance: 0.5,
+                min_distance_enabled: true,
             }
         );
         for (bad, needle) in [
@@ -3830,6 +3835,10 @@ mod tests {
             (
                 json!({ "auto_conductors": 1 }),
                 "auto_conductors must be true or false",
+            ),
+            (
+                json!({ "min_distance_enabled": "yes" }),
+                "min_distance_enabled must be true or false",
             ),
             (json!({ "style": "solid" }), "style"),
         ] {
