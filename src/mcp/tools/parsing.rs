@@ -508,6 +508,66 @@ fn font_face_name<'a>(name: &'a str, field: &str) -> Result<&'a str, String> {
 /// A corner-radius percentage: a whole number from 0 to 100. Anything else —
 /// negative, fractional, over 100 — is refused, since the writer would
 /// otherwise store "no radius" for it without a word.
+/// A pad's `polygon_connect` object. Absent keys take AD24's defaults; a
+/// value the dialog cannot hold (a count other than 2 or 4, an angle other
+/// than 45 or 90, a negative length) is refused rather than written.
+fn pad_polygon_connect(
+    value: &Value,
+    field: &str,
+) -> Result<crate::altium::pcblib::PadPolygonConnect, String> {
+    use crate::altium::pcblib::PadPolygonConnect;
+
+    if !value.is_object() {
+        return Err(format!("{field} must be an object, got {value}"));
+    }
+    let defaults = PadPolygonConnect::default();
+    let length = |key: &str, default: f64| match value.get(key) {
+        None | Some(Value::Null) => Ok(default),
+        Some(v) => v
+            .as_f64()
+            .filter(|mm| mm.is_finite() && *mm >= 0.0)
+            .ok_or_else(|| format!("{field}.{key} must be a length in mm (0 or more), got {v}")),
+    };
+    let conductors = match value.get("conductors") {
+        None | Some(Value::Null) => defaults.conductors,
+        Some(v) => match v.as_u64() {
+            Some(2) => 2,
+            Some(4) => 4,
+            _ => return Err(format!("{field}.conductors must be 2 or 4, got {v}")),
+        },
+    };
+    let rotation = match value.get("rotation") {
+        None | Some(Value::Null) => defaults.rotation,
+        Some(v) => match v.as_f64() {
+            Some(45.0) => 45,
+            Some(90.0) => 90,
+            _ => return Err(format!("{field}.rotation must be 45 or 90, got {v}")),
+        },
+    };
+    let auto_conductors = match value.get("auto_conductors") {
+        None | Some(Value::Null) => defaults.auto_conductors,
+        Some(v) => v
+            .as_bool()
+            .ok_or_else(|| format!("{field}.auto_conductors must be true or false, got {v}"))?,
+    };
+    Ok(PadPolygonConnect {
+        style: enum_field(
+            value,
+            "style",
+            &format!("{field}.style"),
+            accepted::POWER_PLANE_CONNECT_STYLES,
+            &[],
+        )?
+        .unwrap_or_default(),
+        air_gap: length("air_gap", defaults.air_gap)?,
+        conductor_width: length("conductor_width", defaults.conductor_width)?,
+        conductors,
+        auto_conductors,
+        rotation,
+        min_distance: length("min_distance", defaults.min_distance)?,
+    })
+}
+
 fn percent(value: &Value, field: &str) -> Result<u8, String> {
     value
         .as_u64()
@@ -1620,6 +1680,10 @@ impl McpServer {
             .get("power_plane_clearance")
             .and_then(Value::as_f64)
             .unwrap_or(0.508);
+        let polygon_connect = match json.get("polygon_connect") {
+            None | Some(Value::Null) => None,
+            Some(value) => Some(pad_polygon_connect(value, &pad_field("polygon_connect"))?),
+        };
 
         // Slot geometry + drill tolerances. Absent keys keep the struct defaults
         // (slot 0, rotation 0, tolerances unset), so an unspecified pad round-trips
@@ -1757,6 +1821,7 @@ impl McpServer {
             relief_air_gap,
             power_plane_relief_expansion,
             power_plane_clearance,
+            polygon_connect,
             corner_radius_percent,
             stack_mode,
             per_layer_sizes,
@@ -3712,6 +3777,66 @@ mod tests {
         assert!(bare.is_plated);
         assert_eq!(bare.identity_guid, None);
         assert_eq!(bare.identity_guid_b, None);
+    }
+
+    #[test]
+    fn parse_pad_reads_polygon_connect() {
+        use crate::altium::pcblib::{PadPolygonConnect, PowerPlaneConnectStyle};
+
+        let pad = |connect: serde_json::Value| {
+            McpServer::parse_pad(&json!({
+                "designator": "1", "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0,
+                "polygon_connect": connect,
+            }))
+        };
+        assert_eq!(
+            pad(serde_json::Value::Null).expect("null").polygon_connect,
+            None,
+            "null follows the rules"
+        );
+        assert_eq!(
+            pad(json!({})).expect("empty").polygon_connect,
+            Some(PadPolygonConnect::default()),
+            "an empty object is the override Altium writes on ticking the box"
+        );
+        let full = pad(json!({
+            "style": "no_connect", "air_gap": 0.2, "conductor_width": 0.3,
+            "conductors": 2, "auto_conductors": true, "rotation": 45, "min_distance": 0.5,
+        }))
+        .expect("full")
+        .polygon_connect
+        .expect("override");
+        assert_eq!(
+            full,
+            PadPolygonConnect {
+                style: PowerPlaneConnectStyle::NoConnect,
+                air_gap: 0.2,
+                conductor_width: 0.3,
+                conductors: 2,
+                auto_conductors: true,
+                rotation: 45,
+                min_distance: 0.5,
+            }
+        );
+        for (bad, needle) in [
+            (json!(true), "must be an object"),
+            (json!({ "conductors": 3 }), "conductors must be 2 or 4"),
+            (json!({ "rotation": 30 }), "rotation must be 45 or 90"),
+            (json!({ "air_gap": -0.1 }), "air_gap must be a length"),
+            (
+                json!({ "min_distance": "x" }),
+                "min_distance must be a length",
+            ),
+            (
+                json!({ "auto_conductors": 1 }),
+                "auto_conductors must be true or false",
+            ),
+            (json!({ "style": "solid" }), "style"),
+        ] {
+            let err = pad(bad.clone()).expect_err(&format!("{bad} must be refused"));
+            assert!(err.contains(needle), "{bad}: {err}");
+            assert!(err.contains("Pad '1' polygon_connect"), "{bad}: {err}");
+        }
     }
 
     #[test]

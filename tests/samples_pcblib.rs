@@ -6,8 +6,9 @@
 //! writer's output, as `file_io_roundtrip.rs` does).
 
 use altium_designer_mcp::altium::pcblib::{
-    DrillLayerPairType, HoleShape, Layer, MaskExpansionMode, PadShape, PadStackMode, PcbFlags,
-    PcbLib, PrimitiveKind, RegionKind, StrokeFont, TextKind,
+    DrillLayerPairType, HoleShape, Layer, MaskExpansionMode, PadPolygonConnect, PadShape,
+    PadStackMode, PcbFlags, PcbLib, PowerPlaneConnectStyle, PrimitiveKind, RegionKind, StrokeFont,
+    TextKind,
 };
 use std::path::PathBuf;
 
@@ -2659,4 +2660,157 @@ fn samples_manual_wide_text_and_identifiers_read_exactly() {
         .collect();
     idents.sort_unstable();
     assert_eq!(idents, want, "both body identifiers");
+}
+
+/// `manual/thermal_relief.PcbLib` (AD24 UI, 2026-09-21): six through-hole
+/// pads, each with a different Pad Stack → Thermal Relief setting. Pad 4
+/// leaves the box unticked; the others tick it and change one or two
+/// settings of the "Edit Polygon Connect Style" dialog each, so every field
+/// of the override is pinned to its byte.
+#[test]
+fn samples_manual_pad_polygon_connect() {
+    let lib = PcbLib::open(sample("manual/thermal_relief.PcbLib"))
+        .expect("failed to open manual/thermal_relief.PcbLib");
+    let fp = lib.iter().next().expect("one footprint");
+    let pad = |designator: &str| {
+        fp.pads
+            .iter()
+            .find(|p| p.designator == designator)
+            .unwrap_or_else(|| panic!("pad {designator}"))
+    };
+    let mil = |m: f64| m * 0.0254;
+    let expect = |designator: &str, want: PadPolygonConnect| {
+        let got = pad(designator)
+            .polygon_connect
+            .unwrap_or_else(|| panic!("pad {designator} has an override"));
+        assert_eq!(got.style, want.style, "pad {designator} style");
+        assert!(
+            approx_eq(got.air_gap, want.air_gap, 1e-6),
+            "pad {designator} air gap"
+        );
+        assert!(
+            approx_eq(got.conductor_width, want.conductor_width, 1e-6),
+            "pad {designator} conductor width"
+        );
+        assert_eq!(
+            got.conductors, want.conductors,
+            "pad {designator} conductors"
+        );
+        assert_eq!(
+            got.auto_conductors, want.auto_conductors,
+            "pad {designator} auto"
+        );
+        assert_eq!(got.rotation, want.rotation, "pad {designator} rotation");
+        assert!(
+            approx_eq(got.min_distance, want.min_distance, 1e-6),
+            "pad {designator} min distance"
+        );
+    };
+
+    assert_eq!(
+        pad("4").polygon_connect,
+        None,
+        "an unticked pad follows the rules"
+    );
+    expect(
+        "3",
+        PadPolygonConnect {
+            air_gap: mil(9.0),
+            conductor_width: mil(11.0),
+            ..PadPolygonConnect::default()
+        },
+    );
+    expect(
+        "5",
+        PadPolygonConnect {
+            air_gap: mil(6.0),
+            conductor_width: mil(14.0),
+            conductors: 2,
+            rotation: 45,
+            ..PadPolygonConnect::default()
+        },
+    );
+    expect(
+        "6",
+        PadPolygonConnect {
+            style: PowerPlaneConnectStyle::Direct,
+            ..PadPolygonConnect::default()
+        },
+    );
+    expect(
+        "7",
+        PadPolygonConnect {
+            auto_conductors: true,
+            ..PadPolygonConnect::default()
+        },
+    );
+    expect(
+        "8",
+        PadPolygonConnect {
+            style: PowerPlaneConnectStyle::NoConnect,
+            ..PadPolygonConnect::default()
+        },
+    );
+}
+
+/// Setting, changing and clearing a pad's override writes what AD24 writes:
+/// an override added to the unticked pad matches the bytes of an Altium pad
+/// ticked with the same settings, and clearing it gives back the unticked
+/// pad's 194-byte block.
+#[test]
+fn samples_manual_pad_polygon_connect_edits() {
+    use std::io::Cursor;
+
+    let mut lib = PcbLib::open(sample("manual/thermal_relief.PcbLib"))
+        .expect("failed to open manual/thermal_relief.PcbLib");
+    let name = lib.names()[0].clone();
+    let reread = |lib: &mut PcbLib| {
+        let mut buffer = Cursor::new(Vec::new());
+        lib.write(&mut buffer).expect("write");
+        buffer.set_position(0);
+        PcbLib::read(&mut buffer).expect("read back")
+    };
+
+    let wanted = PadPolygonConnect {
+        style: PowerPlaneConnectStyle::NoConnect,
+        ..PadPolygonConnect::default()
+    };
+    {
+        let fp = lib.get_mut(&name).expect("footprint");
+        for pad in &mut fp.pads {
+            match pad.designator.as_str() {
+                "4" => pad.polygon_connect = Some(wanted),
+                "8" => pad.polygon_connect = None,
+                _ => {}
+            }
+        }
+    }
+    let back = reread(&mut lib);
+    let fp = back.get(&name).expect("footprint");
+    let pad = |d: &str| fp.pads.iter().find(|p| p.designator == d).expect("pad");
+    assert_eq!(pad("4").polygon_connect, Some(wanted));
+    assert_eq!(pad("8").polygon_connect, None);
+    let tail = |d: &str| pad(d).raw_tail.clone().expect("raw tail");
+    assert_eq!(
+        tail("8").len(),
+        194 - 61,
+        "a cleared override leaves AD24's plain block"
+    );
+    // Pad 4 and Altium's own pad 8 now carry the same override bytes.
+    assert_eq!(tail("4")[133..], tail_of_original("8")[133..]);
+}
+
+/// Pad `designator`'s extended tail as Altium wrote it.
+fn tail_of_original(designator: &str) -> Vec<u8> {
+    let lib = PcbLib::open(sample("manual/thermal_relief.PcbLib")).expect("open");
+    let tail = lib
+        .iter()
+        .next()
+        .expect("one footprint")
+        .pads
+        .iter()
+        .find(|p| p.designator == designator)
+        .and_then(|p| p.raw_tail.clone())
+        .expect("raw tail");
+    tail
 }

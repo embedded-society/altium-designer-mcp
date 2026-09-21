@@ -61,7 +61,8 @@ record). The specialised worklists stay the single source of truth for their are
       `scripts/samples/COVERAGE.md` § Remaining enrichment backlog:
     - Hand-authored evidence only, since AD24 scripting cannot produce it: a symbol
       footprint link with `IntegratedModel`/`DatabaseModel` as a golden, a via longer
-      than the 321-byte template, and pad thermal relief or power-plane connection.
+      than the 321-byte template, and a pad power-plane connection (@67-85) other than
+      the default: AD24's Thermal Relief box writes the polygon-connect override instead.
 - [ ] **Drop the `cfb` git pin** (`[patch.crates-io]`, rev `8c1ec76`) as soon as rust-cfb
       publishes a release newer than v0.14.0 — check
       [rust-cfb releases](https://github.com/mdsteele/rust-cfb/releases) at session start.

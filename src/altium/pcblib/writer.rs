@@ -17,6 +17,7 @@ use super::primitives::{
     Arc, ComponentBody, Fill, HoleShape, Layer, Pad, PadShape, PadStackMode, PcbFlags, Region,
     StrokeFont, Text, TextJustification, TextKind, Track, Via, ViaStackMode,
 };
+use super::reader::{PAD_POLYGON_CONNECT_AT, PAD_POLYGON_CONNECT_LEN};
 use super::{Footprint, PrimitiveKind};
 
 use super::units::{from_mm, mm_to_mil};
@@ -843,7 +844,52 @@ fn build_pad_extended_tail(pad: &Pad) -> Vec<u8> {
         tail[185 - START] = 0x03;
     }
 
+    apply_polygon_connect(&mut tail, pad);
     tail
+}
+
+/// The polygon-connect override AD24 writes when a pad's Thermal Relief box
+/// is ticked and nothing else is changed (`manual/thermal_relief.PcbLib`).
+/// [`apply_polygon_connect`] overlays the typed fields on it.
+#[rustfmt::skip]
+const PAD_POLYGON_CONNECT_TEMPLATE: [u8; PAD_POLYGON_CONNECT_LEN] = [
+    0x1E,0x00,0x00,0x00, 0x00,0x00,0x00,0x00, // length 30; reserved
+    0x01, 0x00,                               // present; style Relief
+    0xA0,0x86,0x01,0x00, 0xA0,0x86,0x01,0x00, // air gap, conductor width: 10 mil
+    0x01, 0x04,                               // 90 degrees; 4 conductors
+    0x00,0x00,0x00,0x01,0x00,0x00,0x00,       // not modelled
+    0x00,                                     // Auto conductors off
+    0xF0,0x49,0x02,0x00, 0x00,0x00,           // min distance 15 mil; reserved
+];
+
+/// Writes the pad's polygon-connect override into its extended tail, or
+/// takes a present one out when the pad has none, so the pad then follows
+/// the design rules as it does in Altium with the box unticked. The override
+/// sits where AD24's 194-byte block ends; a longer base (the from-scratch
+/// template's 202 bytes) is cut to 194 first, as AD24 writes it.
+fn apply_polygon_connect(tail: &mut Vec<u8>, pad: &Pad) {
+    const AT: usize = PAD_POLYGON_CONNECT_AT - PAD_EXTENDED_TAIL_START;
+    const END: usize = AT + PAD_POLYGON_CONNECT_LEN;
+    let present = tail.len() >= END && tail[AT..AT + 4] == 30_i32.to_le_bytes();
+    let Some(connect) = pad.polygon_connect else {
+        if present && tail[AT + 8] == 1 {
+            tail.drain(AT..END);
+        }
+        return;
+    };
+    if !present {
+        tail.resize(AT, 0);
+        tail.extend_from_slice(&PAD_POLYGON_CONNECT_TEMPLATE);
+    }
+    let block = &mut tail[AT..END];
+    block[8] = 1;
+    block[9] = connect.style.to_id();
+    block[10..14].copy_from_slice(&from_mm(connect.air_gap).to_le_bytes());
+    block[14..18].copy_from_slice(&from_mm(connect.conductor_width).to_le_bytes());
+    block[18] = u8::from(connect.rotation != 45);
+    block[19] = connect.conductors;
+    block[27] = u8::from(connect.auto_conductors);
+    block[28..32].copy_from_slice(&from_mm(connect.min_distance).to_le_bytes());
 }
 
 /// Encodes the 202-byte geometry block (`SubRecord-5`) for a pad.
@@ -939,7 +985,9 @@ fn encode_pad_geometry(pad: &Pad) -> Vec<u8> {
     block.extend_from_slice(&build_pad_extended_tail(pad));
 
     debug_assert!(
-        block.len() == PAD_MAIN_BLOCK_LEN || pad.raw_tail.is_some(),
+        block.len() == PAD_MAIN_BLOCK_LEN
+            || pad.raw_tail.is_some()
+            || pad.polygon_connect.is_some(),
         "from-scratch pad main block must stay {PAD_MAIN_BLOCK_LEN} bytes"
     );
     block

@@ -247,6 +247,7 @@ pub(super) fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
     let relief_air_gap = read_i32(geometry, 74).map_or(0.254, to_mm);
     let power_plane_relief_expansion = read_i32(geometry, 78).map_or(0.508, to_mm);
     let power_plane_clearance = read_i32(geometry, 82).map_or(0.508, to_mm);
+    let polygon_connect = read_pad_polygon_connect(geometry);
 
     // Drill tolerances @162 / @166 (i32). The 0x7FFFFFFF ("unset") sentinel and
     // any absent (short pad) value read back as None.
@@ -344,6 +345,7 @@ pub(super) fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
         relief_air_gap,
         power_plane_relief_expansion,
         power_plane_clearance,
+        polygon_connect,
         corner_radius_percent,
         stack_mode,
         per_layer_sizes,
@@ -365,6 +367,33 @@ pub(super) fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
     };
 
     Ok((pad, current))
+}
+
+/// Main-block offset of a pad's polygon-connect override: the end of the
+/// 194-byte block AD24 writes for every pad.
+pub const PAD_POLYGON_CONNECT_AT: usize = 194;
+
+/// Length of the override: an `i32` length of 30 and the 30 bytes it counts.
+pub const PAD_POLYGON_CONNECT_LEN: usize = 34;
+
+/// Reads a pad's polygon-connect override (see [`PadPolygonConnect`]).
+/// `None` when the block holds none, or holds one whose present byte is
+/// clear; the bytes still ride in `raw_tail`.
+fn read_pad_polygon_connect(geometry: &[u8]) -> Option<PadPolygonConnect> {
+    let block =
+        geometry.get(PAD_POLYGON_CONNECT_AT..PAD_POLYGON_CONNECT_AT + PAD_POLYGON_CONNECT_LEN)?;
+    if read_i32(block, 0)? != 30 || *block.get(8)? != 1 {
+        return None;
+    }
+    Some(PadPolygonConnect {
+        style: PowerPlaneConnectStyle::from_id(*block.get(9)?),
+        air_gap: to_mm(read_i32(block, 10)?),
+        conductor_width: to_mm(read_i32(block, 14)?),
+        rotation: if *block.get(18)? == 0 { 45 } else { 90 },
+        conductors: *block.get(19)?,
+        auto_conductors: *block.get(27)? != 0,
+        min_distance: to_mm(read_i32(block, 28)?),
+    })
 }
 
 /// Formats a 16-byte on-disk identity GUID as a braced uppercase GUID string
