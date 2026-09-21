@@ -287,6 +287,10 @@ wires the server into every MCP client we know of.
 `altium-designer-mcp.dxt`) via Settings → Extensions → Advanced settings →
 Install Extension… — see [CLIENT_SETUP.md § Claude Desktop](docs/CLIENT_SETUP.md#claude-desktop).
 
+**Code signing policy**: [docs/CODE_SIGNING_POLICY.md](docs/CODE_SIGNING_POLICY.md). The
+Windows binaries are to be signed through SignPath Foundation; until that is approved
+they are unsigned, and every release carries a signed build-provenance attestation.
+
 **In a container** — for a Linux box, a NAS or a CI job that generates libraries into a
 mounted folder (Altium itself never needs to be inside): the repository's `Dockerfile`
 produces the same `--locked` release build as the published binaries.
@@ -535,7 +539,7 @@ use any length component name and it will be preserved on read/write roundtrips.
 | Why it is built this way | [docs/VISION.md](docs/VISION.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | The file formats, byte by byte | [docs/PCBLIB_FORMAT.md](docs/PCBLIB_FORMAT.md), [docs/SCHLIB_FORMAT.md](docs/SCHLIB_FORMAT.md) |
 | Security model and threat analysis | [docs/SECURITY.md](docs/SECURITY.md) (reporting: [SECURITY.md](SECURITY.md)) |
-| How releases are built and verified | [docs/RELEASING.md](docs/RELEASING.md) |
+| How releases are built and verified | [docs/RELEASING.md](docs/RELEASING.md); [code signing policy](docs/CODE_SIGNING_POLICY.md) |
 
 ---
 

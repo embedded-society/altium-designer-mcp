@@ -27,6 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the crate on the declared version on every change, so a dependency that raises the bar
   fails there instead of passing unnoticed. Prebuilt binaries are unaffected.
 
+### Added
+
+- **A Windows version resource on the binary**: product name, version, company and
+  copyright, from `Cargo.toml` via `build.rs`, shown under Properties → Details and
+  checked by the release build — the metadata code signing through SignPath Foundation
+  requires. With it, **`docs/CODE_SIGNING_POLICY.md`**, the policy page their terms ask
+  for, linked from the README and every release's notes.
+
 ## [1.0.5] - 2026-09-18
 
 ### Fixed
