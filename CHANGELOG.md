@@ -34,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`scripts/samples/manual/footprint_link.SchLib`**, a footprint link added in the Altium
+  Designer 24 UI. It corrects the format documentation: that route writes no
+  `IntegratedModel`/`DatabaseModel` flags, which one corpus link carries from a source
+  still unknown, and it stores the dialog's status line as the link's description.
 - **`scripts/samples/manual/wide.PcbLib`**, text and body identifiers beyond U+00FF and
   beyond the BMP, scripted in Altium Designer 24 by `scripts/altium/probe/WideProbe.pas`
   with character literals, which the script engine keeps as UTF-16 where a string

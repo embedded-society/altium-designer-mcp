@@ -2360,3 +2360,43 @@ fn manual_pipe_fixture_shows_altium_stores_a_pipe_as_a_broken_bar() {
     assert_eq!(param.value, "1\u{a6}2");
     assert_eq!(sym.labels[0].text, "x\u{a6}y");
 }
+
+/// `manual/footprint_link.SchLib` (AD24 UI, 2026-09-21): one symbol whose
+/// footprint link `R0402` was added through Properties → Footprint → Add, with
+/// the PCB library left on "Any". Altium writes the link without
+/// `IntegratedModel` or `DatabaseModel` — the flags one corpus link carries do
+/// not come from this route — and stores the dialog's status line,
+/// `Footprint not found`, as the description.
+#[test]
+fn samples_schlib_manual_footprint_link_from_the_ui() {
+    use std::io::Cursor;
+
+    let lib = SchLib::open(sample("manual/footprint_link.SchLib"))
+        .expect("open manual/footprint_link.SchLib");
+    let sym = lib.get("Component_1").expect("symbol Component_1");
+    assert_eq!(sym.footprints.len(), 1, "one footprint link");
+    let link = &sym.footprints[0];
+    assert_eq!(link.name, "R0402");
+    assert_eq!(link.description, "Footprint not found");
+    assert!(link.is_current, "the only link is the current one");
+    for flag in ["IntegratedModel", "DatabaseModel"] {
+        assert!(
+            !link
+                .raw_params
+                .iter()
+                .any(|(k, _)| k.eq_ignore_ascii_case(flag)),
+            "a UI link with the library on Any carries no {flag}"
+        );
+    }
+
+    // The link survives our own write -> read unchanged.
+    let mut buffer = Cursor::new(Vec::new());
+    lib.write(&mut buffer).expect("write");
+    buffer.set_position(0);
+    let back = SchLib::read(&mut buffer).expect("read back");
+    let again = &back.get("Component_1").expect("symbol").footprints[0];
+    assert_eq!(again.name, link.name);
+    assert_eq!(again.description, link.description);
+    assert_eq!(again.is_current, link.is_current);
+    assert_eq!(again.raw_params, link.raw_params);
+}
