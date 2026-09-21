@@ -17,14 +17,17 @@ record). The specialised worklists stay the single source of truth for their are
       questions are which authorization server a single user runs and how the server is
       hosted with TLS, both the maintainer's call before any code.
 - [ ] **Windows code signing through SignPath Foundation** — free for open-source
-      projects, HSM-held key, signs from GitHub Actions. Decided 2026-09-02 over the paid
-      routes (Azure Artifact Signing ~$10/month on a paid subscription, commercial OV/EV
-      $200–700/year): the publisher line reads "SignPath Foundation", which is fine, and
-      SmartScreen reputation then builds under an established identity. Steps: write the
-      short code-signing policy page their terms require (roles, MFA, credit), apply, add
-      their action to the repository's action allow-list, sign in the `build` job before
-      packaging so the attestation covers the signed binary, and drop the SmartScreen
-      caveat from the docs and release notes.
+      projects, HSM-held key, signs from GitHub Actions; decided 2026-09-02 over the paid
+      routes. Ready on the repository side: the [code signing
+      policy](docs/CODE_SIGNING_POLICY.md) their terms require (attribution line, roles,
+      privacy statement), linked from the README and every release's notes; the Windows
+      version resource with product name and version, checked in the `build` job;
+      organisation-wide two-factor authentication. Left, in order: the maintainer applies
+      at signpath.org; after approval, add SignPath's GitHub action to the repository's
+      action allow-list and its API token as a secret; configure the artifact (product
+      name and version restrictions); sign in the `build` job before packaging so the
+      attestation covers the signed binary; then drop the SmartScreen caveat and the
+      "application pending" note from the docs and release notes.
 - [ ] **Sign the `.mcpb` bundle too** (`mcpb sign` / `mcpb verify`) once a certificate
       exists — after checking what Claude Desktop shows for a signed side-loaded bundle.
 - [ ] **macOS notarisation** (Apple Developer Program, $99/year) only when macOS downloads
