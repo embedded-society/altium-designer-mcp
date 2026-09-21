@@ -28,7 +28,12 @@ path = "src/main.rs"
 # - time: timeout for operations
 # - signal: graceful shutdown handling (SIGTERM/SIGINT/Ctrl+C)
 # - fs: async file operations for library I/O
-tokio = { version = "1", features = ["rt", "io-util", "io-std", "macros", "time", "signal", "fs"] }
+tokio = { version = "1", features = ["rt", "io-util", "io-std", "macros", "time", "signal", "fs", "net"] }
+
+# The Streamable HTTP transport (--http): hyper's HTTP/1.1 server, nothing more.
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
 
 # Serialisation
 serde = { version = "1", features = ["derive"] }

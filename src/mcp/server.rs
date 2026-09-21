@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 
 use crate::mcp::protocol::{
     ErrorCode, IncomingMessage, JsonRpcError, JsonRpcErrorData, JsonRpcNotification,
-    JsonRpcRequest, JsonRpcResponse, RequestId, MCP_PROTOCOL_VERSION, SERVER_NAME,
+    JsonRpcRequest, JsonRpcResponse, RequestId, SERVER_NAME,
 };
 use crate::mcp::transport::StdioTransport;
 use crate::security::{AuditEvent, AuditLogger, AuditOutcome, RateLimiter};
@@ -315,8 +315,10 @@ pub struct McpServer {
     protocol_version: Option<String>,
     /// Allowed paths for library operations.
     allowed_paths: Vec<PathBuf>,
-    /// Rate limiter for destructive (file-mutating) operations.
-    rate_limiter: RateLimiter,
+    /// Rate limiter for destructive (file-mutating) operations, shared by
+    /// every session the HTTP transport serves so that opening another session
+    /// is no way around it.
+    rate_limiter: std::sync::Arc<RateLimiter>,
     /// Optional append-only audit log for destructive operations.
     audit_logger: Option<AuditLogger>,
 }
@@ -545,7 +547,7 @@ impl McpServer {
             transport: StdioTransport::new(),
             protocol_version: None,
             allowed_paths,
-            rate_limiter: RateLimiter::unlimited(),
+            rate_limiter: std::sync::Arc::new(RateLimiter::unlimited()),
             audit_logger: None,
         }
     }
@@ -562,7 +564,14 @@ impl McpServer {
     /// futex-based targets where it *would* be const, so suppress it.
     #[must_use]
     #[allow(clippy::missing_const_for_fn)]
-    pub fn with_rate_limiter(mut self, rate_limiter: RateLimiter) -> Self {
+    pub fn with_rate_limiter(self, rate_limiter: RateLimiter) -> Self {
+        self.with_shared_rate_limiter(std::sync::Arc::new(rate_limiter))
+    }
+
+    /// Installs a rate limiter shared with other servers — every HTTP session
+    /// draws on the same one.
+    #[must_use]
+    pub fn with_shared_rate_limiter(mut self, rate_limiter: std::sync::Arc<RateLimiter>) -> Self {
         self.rate_limiter = rate_limiter;
         self
     }
@@ -960,18 +969,53 @@ impl McpServer {
 
     /// Handles an incoming request.
     async fn handle_request(&mut self, req: JsonRpcRequest) -> std::io::Result<()> {
-        let response = match req.method.as_str() {
-            "initialize" => self.handle_initialize(&req),
-            "tools/list" => self.handle_tools_list(&req),
-            "tools/call" => self.handle_tools_call(&req),
-            "ping" => Ok(Self::handle_ping(&req)),
-            _ => Err(JsonRpcError::method_not_found(req.id.clone(), &req.method)),
-        };
-
-        match response {
+        match self.dispatch_request(&req) {
             Ok(resp) => self.transport.write_response(&resp).await,
             Err(error) => self.transport.write_error(&error).await,
         }
+    }
+
+    /// Computes the response to a request, whatever transport carries it.
+    fn dispatch_request(&mut self, req: &JsonRpcRequest) -> Result<JsonRpcResponse, JsonRpcError> {
+        match req.method.as_str() {
+            "initialize" => self.handle_initialize(req),
+            "tools/list" => self.handle_tools_list(req),
+            "tools/call" => self.handle_tools_call(req),
+            "ping" => Ok(Self::handle_ping(req)),
+            _ => Err(JsonRpcError::method_not_found(req.id.clone(), &req.method)),
+        }
+    }
+
+    /// Handles one JSON-RPC message given as text and returns the reply as
+    /// text: the response or error for a request (or for a message that does
+    /// not parse), `None` for a notification. This is the Streamable HTTP
+    /// transport's entry point; stdio goes through [`McpServer::run`].
+    #[must_use]
+    pub fn handle_message_text(&mut self, text: &str) -> Option<String> {
+        use crate::mcp::protocol::parse_message;
+
+        let reply = match parse_message(text) {
+            Ok(IncomingMessage::Request(req)) => match self.dispatch_request(&req) {
+                Ok(resp) => serde_json::to_string(&resp),
+                Err(error) => serde_json::to_string(&error),
+            },
+            Ok(IncomingMessage::Notification(notif)) => {
+                self.handle_notification(&notif);
+                return None;
+            }
+            Err(error) => serde_json::to_string(&error),
+        };
+        Some(reply.unwrap_or_else(|e| {
+            tracing::error!(error = %e, "failed to serialise a JSON-RPC reply");
+            r#"{"jsonrpc":"2.0","id":null,"error":{"code":-32603,"message":"Internal error"}}"#
+                .to_string()
+        }))
+    }
+
+    /// The protocol version negotiated at `initialize`, if it has happened.
+    #[must_use]
+    pub fn negotiated_protocol_version(&self) -> Option<&str> {
+        self.protocol_version.as_deref()
     }
 
     /// Handles an incoming notification.
@@ -993,7 +1037,7 @@ impl McpServer {
             ));
         }
 
-        let _params: InitializeParams = req
+        let params: InitializeParams = req
             .params
             .as_ref()
             .map(|p| serde_json::from_value(p.clone()))
@@ -1008,7 +1052,8 @@ impl McpServer {
                 JsonRpcError::invalid_params(req.id.clone(), "Missing initialize params")
             })?;
 
-        let negotiated_version = MCP_PROTOCOL_VERSION.to_string();
+        let negotiated_version =
+            crate::mcp::protocol::negotiate_protocol_version(&params.protocol_version).to_string();
 
         self.protocol_version = Some(negotiated_version.clone());
         self.state = ServerState::Initialising;

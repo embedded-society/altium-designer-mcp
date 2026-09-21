@@ -34,6 +34,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   through `GeometricPolygon.AddContourIsHole`, with a test that pins the outline and the hole;
   it round-trips byte-identically. `scripts/Watch-AltiumDialog.ps1` takes `-ResponseFile` so a
   probe can be watched on its own response file.
+- **The MCP Streamable HTTP transport** (`--http <ADDR>`), for clients that connect to a
+  URL rather than starting the server themselves. One endpoint, `/mcp`: `POST` for
+  messages, answered as JSON; `DELETE` to end a session; `GET` answered 405, as the server
+  pushes nothing. It binds to loopback unless a bearer token is set in
+  `ALTIUM_DESIGNER_MCP_HTTP_TOKEN`, refuses browser origins that are neither local nor
+  listed with `--http-allow-origin`, caps bodies at 32 MiB, handles one message at a time,
+  and shares one rate limiter across sessions. OAuth, which claude.ai in the browser and
+  ChatGPT require, is not implemented yet.
+- **MCP protocol versions 2025-06-18 and 2025-03-26** alongside 2024-11-05: `initialize`
+  answers with the version the client asks for when the server speaks it.
 
 ## [1.0.5] - 2026-09-18
 

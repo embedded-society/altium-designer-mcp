@@ -330,6 +330,8 @@ altium-designer-mcp [OPTIONS] [CONFIG_FILE]
 | `CONFIG_FILE` | Path to configuration file (optional, uses default location if omitted) |
 | `--allow <DIR>...` | Grant access to library folders directly (repeatable). Adds to the config file's `allowed_paths`, and works with no config file at all — the other settings then take their defaults |
 | `--ansi-code-page <PAGE>` | The Windows ANSI code page new footprint names are written in (`936` for GBK, `1250`, `1252`, …); overrides `ansi_code_page` in the config file |
+| `--http <ADDR>` | Serve the MCP Streamable HTTP transport on this address (for example `127.0.0.1:8080`) at the path `/mcp`, instead of stdio. A non-loopback address is refused unless a bearer token is set in `ALTIUM_DESIGNER_MCP_HTTP_TOKEN`. See [`docs/CLIENT_SETUP.md` § HTTP transport](docs/CLIENT_SETUP.md#http-transport) |
+| `--http-allow-origin <ORIGIN>...` | A browser origin allowed to reach the HTTP transport besides the local ones (repeatable) |
 | `-v`, `--verbose` | Increase logging verbosity (`-v` info, `-vv` debug, `-vvv` trace) |
 | `-q`, `--quiet` | Decrease logging verbosity (only show errors) |
 | `-h`, `--help` | Print help information |
@@ -509,8 +511,9 @@ use any length component name and it will be preserved on read/write roundtrips.
 
 `altium-designer-mcp` is a local tool and collects nothing.
 
-- **Data collection**: none. The server has no network access, no telemetry and no
-  analytics; it never contacts any service, including this project's.
+- **Data collection**: none. The server has no telemetry and no analytics, and it never
+  contacts any service, including this project's. With `--http` it listens for an MCP
+  client on the address you give; it still sends nothing anywhere.
 - **Usage and storage**: it reads and writes only the library files inside the folders
   you grant (`allowed_paths` or `--allow`), plus the timestamped `.bak` copies it makes
   beside them before a change. The optional audit log (`logging.audit_log_path`) is a
