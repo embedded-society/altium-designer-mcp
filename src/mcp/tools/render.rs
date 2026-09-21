@@ -648,7 +648,7 @@ struct Bounds {
 }
 
 impl Bounds {
-    fn add(&mut self, x: f64, y: f64) {
+    const fn add(&mut self, x: f64, y: f64) {
         if self.any {
             self.min_x = self.min_x.min(x);
             self.max_x = self.max_x.max(x);
@@ -660,7 +660,7 @@ impl Bounds {
         }
     }
 
-    fn add_rect(&mut self, x1: f64, y1: f64, x2: f64, y2: f64) {
+    const fn add_rect(&mut self, x1: f64, y1: f64, x2: f64, y2: f64) {
         self.add(x1, y1);
         self.add(x2, y2);
     }

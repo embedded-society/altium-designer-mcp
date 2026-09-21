@@ -186,6 +186,38 @@ jobs:
                   tests/integration/.venv/bin/pip install --quiet -r tests/integration/requirements.txt
                   tests/integration/.venv/bin/python tests/integration/test_altium_readability.py
 
+    msrv:
+        name: Minimum Rust version
+        needs: quick-checks
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            # The version Cargo.toml declares, so the job follows the manifest.
+            - name: Read rust-version from Cargo.toml
+              id: msrv
+              run: |
+                version="$(sed -nE 's/^rust-version = "([0-9.]+)"$/\1/p' Cargo.toml)"
+                if [[ -z "$version" ]]; then
+                    echo "No rust-version in Cargo.toml"
+                    exit 1
+                fi
+                echo "version=$version" >> "$GITHUB_OUTPUT"
+
+            # rustup rather than the pinned toolchain action: that pin is the
+            # development toolchain, which check-toolchain-pin.sh holds to one
+            # version across the workflows.
+            - name: Install the minimum toolchain
+              run: rustup toolchain install "${{ steps.msrv.outputs.version }}" --profile minimal
+
+            # A dependency bump that needs a newer Rust fails here instead of
+            # passing unnoticed under the development toolchain.
+            - name: Check on the minimum Rust version
+              run: cargo "+${{ steps.msrv.outputs.version }}" check --locked --all-targets
+
     coverage:
         name: Code Coverage
         needs: build
@@ -252,7 +284,7 @@ jobs:
 
     ci-success:
         name: CI Success
-        needs: [quick-checks, build, coverage]
+        needs: [quick-checks, build, msrv, coverage]
         runs-on: ubuntu-latest
         timeout-minutes: 5
         if: always()
@@ -264,6 +296,7 @@ jobs:
                 # CODECOV_TOKEN secret, so treat "skipped" as acceptable.
                 if [[ "${{ needs.quick-checks.result }}" != "success" ]] ||
                    [[ "${{ needs.build.result }}" != "success" ]] ||
+                   [[ "${{ needs.msrv.result }}" != "success" ]] ||
                    [[ "${{ needs.coverage.result }}" != "success" &&
                       "${{ needs.coverage.result }}" != "skipped" ]]; then
                     echo "One or more jobs failed"

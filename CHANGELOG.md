@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The minimum Rust version is 1.88, and CI builds on it.** The manifest declared 1.75, but
+  the locked dependencies have needed 1.85 to 1.88 for some time (`encoding_rs`, `clap`,
+  `uuid`), so building from source on anything older already failed. A CI job now checks
+  the crate on the declared version on every change, so a dependency that raises the bar
+  fails there instead of passing unnoticed. Prebuilt binaries are unaffected.
+
 ## [1.0.5] - 2026-09-18
 
 ### Fixed

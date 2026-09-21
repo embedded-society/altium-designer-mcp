@@ -329,7 +329,7 @@ fn replay_header(symbol: &Symbol, canonical: &[(String, String)]) -> Vec<String>
         let unchanged = if is_text_key(plain_key) {
             plain_unchanged(plain_key)
         } else {
-            index.map_or(true, |i| canonical[i].1 == *raw)
+            index.is_none_or(|i| canonical[i].1 == *raw)
         };
         if unchanged {
             parts.push(format!("{key}={raw}"));

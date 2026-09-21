@@ -247,7 +247,7 @@ fn decode_unicode_param_block(payload: &[u8]) -> Option<String> {
     let inner_len = read_u32_le(payload, 0)? as usize;
     let start = 4usize;
     let end = start.checked_add(inner_len)?;
-    if end > payload.len() || inner_len % 2 != 0 {
+    if end > payload.len() || !inner_len.is_multiple_of(2) {
         return None;
     }
     let units: Vec<u16> = payload[start..end]

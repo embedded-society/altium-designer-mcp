@@ -403,8 +403,8 @@ impl Footprint {
                 // Intersection extent, not penetration depth: when one pad sits
                 // wholly inside the other's span on an axis, the overlap there is
                 // the smaller pad's size, which is what a reader expects to see.
-                let ox = ((aw + bw) / 2.0 - (a.x - b.x).abs()).min(aw).min(bw);
-                let oy = ((ah + bh) / 2.0 - (a.y - b.y).abs()).min(ah).min(bh);
+                let ox = (f64::midpoint(aw, bw) - (a.x - b.x).abs()).min(aw).min(bw);
+                let oy = (f64::midpoint(ah, bh) - (a.y - b.y).abs()).min(ah).min(bh);
                 if ox >= -TOUCH_TOL && oy >= -TOUCH_TOL {
                     hits.push((i, j, ox.max(0.0), oy.max(0.0)));
                 }
@@ -707,7 +707,7 @@ impl Footprint {
 
     /// How many primitives of one kind the footprint holds.
     #[must_use]
-    pub fn count_of(&self, kind: PrimitiveKind) -> usize {
+    pub const fn count_of(&self, kind: PrimitiveKind) -> usize {
         match kind {
             PrimitiveKind::Arc => self.arcs.len(),
             PrimitiveKind::Pad => self.pads.len(),
@@ -743,7 +743,7 @@ impl Footprint {
 
     /// How many primitives the footprint holds in total.
     #[must_use]
-    pub fn primitive_count(&self) -> usize {
+    pub const fn primitive_count(&self) -> usize {
         self.pads.len()
             + self.vias.len()
             + self.tracks.len()
@@ -885,13 +885,13 @@ impl PcbLib {
 
     /// Returns the number of footprints in the library.
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.footprints.len()
     }
 
     /// Returns true if the library is empty.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.footprints.is_empty()
     }
 
@@ -1014,7 +1014,7 @@ impl PcbLib {
 
     /// Returns the number of embedded 3D models in the library.
     #[must_use]
-    pub fn model_count(&self) -> usize {
+    pub const fn model_count(&self) -> usize {
         self.models.len()
     }
 

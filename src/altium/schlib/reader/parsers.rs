@@ -261,7 +261,7 @@ pub(super) fn parse_parameter(props: &HashMap<String, String>) -> Option<Paramet
     let is_configurable = props.get("isconfigurable").is_some_and(|s| s == "T");
     // Inverted on the wire: Altium writes NotAutoPosition=T only when the user turns
     // auto-positioning OFF, and omits the key entirely while it is on.
-    let auto_position = props.get("notautoposition").map_or(true, |v| v != "T");
+    let auto_position = props.get("notautoposition").is_none_or(|v| v != "T");
     let is_rule = props.get("isrule").is_some_and(|s| s == "T");
     let is_system_parameter = props.get("issystemparameter").is_some_and(|s| s == "T");
     let text_horz_anchor = props

@@ -2,7 +2,7 @@
 name = "altium-designer-mcp"
 version = "1.0.5"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.88"
 license = "GPL-3.0-or-later"
 description = "MCP server for AI-assisted Altium Designer component library management"
 repository = "https://github.com/embedded-society/altium-designer-mcp"
@@ -82,8 +82,8 @@ indexmap = { version = "2.7", features = ["serde"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 # The system ANSI code page, read from the registry: the crate forbids unsafe
-# code, so `GetACP` is out, and this is Microsoft's own safe wrapper. 0.5 is the
-# last line that builds on the MSRV.
+# code, so `GetACP` is out, and this is Microsoft's own safe wrapper. Held below
+# 0.100, which needs a newer Rust than `rust-version` (see dependabot.yml).
 [target.'cfg(windows)'.dependencies]
 windows-registry = "0.5"
 

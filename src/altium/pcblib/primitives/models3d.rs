@@ -68,7 +68,7 @@ impl EmbeddedModel {
 
     /// Returns the size of the decompressed data in bytes.
     #[must_use]
-    pub fn size(&self) -> usize {
+    pub const fn size(&self) -> usize {
         self.data.len()
     }
 }

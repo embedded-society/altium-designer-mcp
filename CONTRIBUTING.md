@@ -119,7 +119,8 @@ When submitting:
 
 ### Prerequisites
 
-- Rust 1.75+ (see `Cargo.toml` for minimum version, `rust-toolchain.toml` for channel)
+- Rust 1.88+ (see `Cargo.toml` for minimum version, which CI builds on every change;
+  `rust-toolchain.toml` for the development channel)
 
 ### Setup
 

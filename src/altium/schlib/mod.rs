@@ -948,7 +948,7 @@ impl Symbol {
 
     /// How many content records of one kind the symbol holds.
     #[must_use]
-    pub fn count_of(&self, kind: SchPrimitiveKind) -> usize {
+    pub const fn count_of(&self, kind: SchPrimitiveKind) -> usize {
         match kind {
             SchPrimitiveKind::Rectangle => self.rectangles.len(),
             SchPrimitiveKind::Pin => self.pins.len(),

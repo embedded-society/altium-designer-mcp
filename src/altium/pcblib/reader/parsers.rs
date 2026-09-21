@@ -171,7 +171,7 @@ pub(super) fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
     // Is plated - offset 60 (bool). An independent flag Altium defaults to 1
     // for every pad, SMD included (verified against AltiumSharp ReadPad and
     // the golden fixture), so an absent byte reads back as `true`.
-    let is_plated = geometry.get(60).map_or(true, |&b| b != 0);
+    let is_plated = geometry.get(60).is_none_or(|&b| b != 0);
     let solder_mask_expansion_from_hole_edge = geometry.get(125).is_some_and(|&b| b != 0);
     let jumper_id = read_i16(geometry, 110).unwrap_or(0);
 

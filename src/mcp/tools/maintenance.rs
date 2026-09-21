@@ -521,7 +521,7 @@ impl McpServer {
                         let entry_path = entry.path().to_string_lossy().into_owned();
                         if most_recent
                             .as_ref()
-                            .map_or(true, |(_, ts)| middle > ts.as_str())
+                            .is_none_or(|(_, ts)| middle > ts.as_str())
                         {
                             most_recent = Some((entry_path, middle.to_string()));
                         }
