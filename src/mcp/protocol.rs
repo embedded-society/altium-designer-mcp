@@ -17,8 +17,26 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// The MCP protocol version this implementation supports.
-pub const MCP_PROTOCOL_VERSION: &str = "2024-11-05";
+/// The newest MCP protocol version this implementation speaks, offered when a
+/// client asks for one it does not know.
+pub const MCP_PROTOCOL_VERSION: &str = "2025-06-18";
+
+/// Every MCP protocol version this implementation speaks, newest first.
+///
+/// A client asking for one of them gets it back; the tool surface is the same
+/// in all three, and the Streamable HTTP transport is defined from 2025-03-26 on.
+pub const SUPPORTED_PROTOCOL_VERSIONS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
+
+/// The protocol version to answer an `initialize` with: the client's own when
+/// this server speaks it, else [`MCP_PROTOCOL_VERSION`].
+#[must_use]
+pub fn negotiate_protocol_version(requested: &str) -> &'static str {
+    SUPPORTED_PROTOCOL_VERSIONS
+        .iter()
+        .find(|v| **v == requested)
+        .copied()
+        .unwrap_or(MCP_PROTOCOL_VERSION)
+}
 
 /// Server name for capability negotiation.
 pub const SERVER_NAME: &str = "altium-designer-mcp";

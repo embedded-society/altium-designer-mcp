@@ -24,8 +24,10 @@
 //!
 //! # Protocol Version
 //!
-//! This implementation targets MCP protocol version 2024-11-05.
+//! This implementation speaks MCP protocol versions 2025-06-18, 2025-03-26 and
+//! 2024-11-05, over stdio or the Streamable HTTP transport ([`http`]).
 
+pub mod http;
 pub mod protocol;
 pub mod server;
 mod tool_definitions;

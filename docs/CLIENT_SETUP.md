@@ -364,11 +364,54 @@ If it supports **local (stdio) servers**, it will ask for a command and argument
 command `<binary>`, one argument `<config>`, no environment variables. The standard block
 is the de-facto interchange format — many clients import it directly.
 
+## HTTP transport
+
+Every client above starts the server itself and talks to it over stdio. A client that
+prefers a URL — or several clients sharing one server — can use the MCP Streamable HTTP
+transport instead:
+
+```bash
+altium-designer-mcp --allow ~/Altium/Libraries --http 127.0.0.1:8080
+```
+
+The endpoint is `http://127.0.0.1:8080/mcp`. For example, in Claude Code:
+
+```bash
+claude mcp add --transport http altium http://127.0.0.1:8080/mcp
+```
+
+and in VS Code's `mcp.json`:
+
+```json
+{ "servers": { "altium": { "type": "http", "url": "http://127.0.0.1:8080/mcp" } } }
+```
+
+What the transport does to stay safe on a machine where it writes files:
+
+- **Loopback by default.** A non-loopback address (`0.0.0.0:8080`, a LAN address) is
+  refused unless a bearer token is set in the `ALTIUM_DESIGNER_MCP_HTTP_TOKEN`
+  environment variable; every request must then send `Authorization: Bearer <token>`
+  (Claude Code: `--header "Authorization: Bearer <token>"`; VS Code: a `headers`
+  entry). The token is never taken from the command line, which other users of the
+  machine can list. Put a TLS reverse proxy in front of anything that leaves the
+  machine: the server itself speaks plain HTTP.
+- **Browser origins.** A request carrying an `Origin` header is refused unless the
+  origin is local (`localhost`, `127.0.0.1`, `[::1]`, any port) or listed with
+  `--http-allow-origin`. That is what stops a web page from reaching the server through
+  DNS rebinding.
+- **Sessions and limits.** `initialize` opens a session (`Mcp-Session-Id`); `DELETE
+  /mcp` ends it. Messages are capped at 32 MiB, handled one at a time so two clients
+  never write the same library at once, and every session draws on the one rate
+  limiter in the config. The server sends no event stream, so `GET /mcp` answers 405.
+
 ### Web-only assistants
 
-claude.ai in the browser and ChatGPT connect only to *remote* MCP servers over HTTP.
-This server speaks stdio, so it pairs with the desktop, CLI and IDE clients above; a
-Streamable HTTP transport is planned for v1.1.0, after the 1.0 release.
+claude.ai in the browser and ChatGPT connect only to *public* HTTPS MCP servers, and
+they authenticate with OAuth or not at all. The HTTP transport authenticates with a
+static bearer token and does not implement OAuth, so it cannot yet be offered to them
+safely: exposing it to the internet without a token would let anyone who finds the URL
+write your libraries. Use one of the desktop, CLI or IDE clients above until OAuth
+lands.
 
 ## Troubleshooting
 
