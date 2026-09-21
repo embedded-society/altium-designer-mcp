@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the crate on the declared version on every change, so a dependency that raises the bar
   fails there instead of passing unnoticed. Prebuilt binaries are unaffected.
 
+### Added
+
+- **`scripts/samples/manual/region_hole.PcbLib`**, a footprint whose copper region has a hole,
+  scripted in Altium Designer 24 by the committed `scripts/altium/probe/RegionHoleProbe.pas`
+  through `GeometricPolygon.AddContourIsHole`, with a test that pins the outline and the hole;
+  it round-trips byte-identically. `scripts/Watch-AltiumDialog.ps1` takes `-ResponseFile` so a
+  probe can be watched on its own response file.
+
 ## [1.0.5] - 2026-09-18
 
 ### Fixed
