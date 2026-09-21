@@ -85,7 +85,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 # code, so `GetACP` is out, and this is Microsoft's own safe wrapper. Held below
 # 0.100, which needs a newer Rust than `rust-version` (see dependabot.yml).
 [target.'cfg(windows)'.dependencies]
-windows-registry = "0.5"
+windows-registry = "0.6"
 
 [dev-dependencies]
 # Async testing utilities

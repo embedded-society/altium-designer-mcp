@@ -1240,7 +1240,10 @@ pub(super) fn parse_region(data: &[u8], offset: usize) -> ParseResult<Region> {
             format!("Region parameter block truncated: needs {param_end} bytes"),
         ));
     }
-    let params_str = crate::altium::decode_windows1252(&props_block[22..param_end]);
+    let params_str = crate::altium::decode_ansi(
+        &props_block[22..param_end],
+        crate::altium::current_ansi_encoding(),
+    );
     let params = crate::altium::parse_pipe_params_raw(&params_str);
 
     // The header byte names the layer, except that a mechanical byte defers
@@ -1568,7 +1571,7 @@ pub(super) fn parse_component_body(data: &[u8], offset: usize) -> ParseResult<Co
     // Format: [header bytes][parameter_string]
     // Parameter string is pipe-separated key=value pairs starting with V7_LAYER=
     // Altium stores these as Windows-1252, not UTF-8 (#68).
-    let block_str = crate::altium::decode_windows1252(block0);
+    let block_str = crate::altium::decode_ansi(block0, crate::altium::current_ansi_encoding());
 
     // Find the parameter string (starts with V7_LAYER= or similar key)
     let params = parse_component_body_params(&block_str);

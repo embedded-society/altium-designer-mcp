@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A library authored on a non-Western Windows reads its text as itself.** Pad designators,
+  region and body names, text without a `WideStrings` entry and names with no Unicode twin were
+  read as Windows-1252, so a GBK or Windows-1250 library showed them as mojibake (`£¨0402` for
+  `（0402`). The reader now detects the library's code page from footprints whose real name stands
+  beside their `PATTERN` bytes, reads all ANSI text through it, and a rewrite writes through it
+  again, byte-identically. A footprint copied from a library of another code page is written in
+  the target's, rather than carrying bytes Altium would read as something else.
+
 ### Changed
 
 - **The minimum Rust version is 1.88, and CI builds on it.** The manifest declared 1.75, but

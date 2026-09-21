@@ -19,6 +19,17 @@ impl PcbLib {
         &mut self,
         writer: impl std::io::Read + std::io::Write + std::io::Seek,
     ) -> AltiumResult<()> {
+        // A library read from disk is written back in the code page it was
+        // authored in; one built in memory, in the server's.
+        let encoding = self.ansi_encoding();
+        crate::altium::with_ansi_encoding(encoding, || self.write_scoped(writer))
+    }
+
+    /// The body of [`Self::write`], run under the library's ANSI encoding.
+    fn write_scoped(
+        &mut self,
+        writer: impl std::io::Read + std::io::Write + std::io::Seek,
+    ) -> AltiumResult<()> {
         // An empty name has no storage name to derive — the root storage
         // would be "created" twice and the save fail half-way — so refuse it
         // before touching the file.
@@ -73,7 +84,7 @@ impl PcbLib {
                         } else {
                             crate::altium::ansi_cut_storage_name(
                                 wire,
-                                crate::altium::default_ansi_encoding(),
+                                crate::altium::current_ansi_encoding(),
                             )
                         };
                     (seed, fp.storage_name.clone())
@@ -763,7 +774,7 @@ impl PcbLib {
 
 #[cfg(test)]
 mod tests {
-    use crate::altium::pcblib::{Footprint, Pad, PcbLib};
+    use crate::altium::pcblib::{writer, Footprint, Pad, PcbLib};
 
     fn temp_dir() -> tempfile::TempDir {
         std::fs::create_dir_all(".tmp").expect("create .tmp");
@@ -983,5 +994,91 @@ mod tests {
         let tall = reread.get("TALL").expect("TALL");
         assert!((tall.height - 2.5).abs() < 1e-6, "{}", tall.height);
         assert!(tall.additional_parameters.is_empty());
+    }
+
+    /// A library in a GBK code page reads its ANSI-only text — here a pad
+    /// designator — as itself, and a rewrite keeps every byte.
+    #[test]
+    fn a_gbk_library_reads_its_ansi_text_and_rewrites_it_byte_identically() {
+        let dir = temp_dir();
+        let path = dir.path().join("Gbk.PcbLib");
+        let name = "DFN\u{FF08}0402\u{FF09}";
+        let mut lib = PcbLib::new();
+        lib.metadata.ansi_code_page = Some(936);
+        let mut fp = Footprint::new(name);
+        fp.add_pad(Pad::smd("\u{FF08}1\u{FF09}", 0.0, 0.0, 1.0, 1.0));
+        lib.add(fp);
+        lib.save(&path).expect("save");
+
+        let data_of = |p: &std::path::Path| {
+            let mut cfb = cfb::open(p).expect("open compound document");
+            crate::altium::read_stream_opt(&mut cfb, format!("/{name}/Data")).expect("Data")
+        };
+        assert!(
+            data_of(&path).windows(5).any(|w| w == b"\xA3\xA81\xA3\xA9"),
+            "the designator is written in GBK"
+        );
+
+        let mut back = PcbLib::open(&path).expect("read back");
+        assert_eq!(back.metadata().ansi_code_page, Some(936), "detected");
+        assert_eq!(
+            back.get(name).expect("footprint").pads[0].designator,
+            "\u{FF08}1\u{FF09}"
+        );
+
+        let again = dir.path().join("Again.PcbLib");
+        back.save(&again).expect("rewrite");
+        assert_eq!(data_of(&again), data_of(&path), "byte-identical rewrite");
+    }
+
+    /// A footprint carried from a GBK library keeps its GBK bytes in a library
+    /// of that page, but is rebuilt in a Windows-1250 one rather than carrying
+    /// bytes Altium would read as something else there.
+    #[test]
+    fn a_footprint_carried_across_code_pages_is_rewritten_in_the_target_page() {
+        let mut fp = Footprint::new("DFN\u{FF08}0402\u{FF09}");
+        let gbk = crate::altium::decode_windows1252(b"DFN\xA3\xA80402\xA3\xA9");
+        fp.additional_parameters = vec![
+            ("PATTERN".to_string(), gbk.clone()),
+            ("DESCRIPTION".to_string(), String::new()),
+            (
+                "UNICODE__PATTERN".to_string(),
+                crate::altium::utf16_units_decimal(&fp.name),
+            ),
+        ];
+        fp.param_key_order = ["PATTERN", "HEIGHT", "DESCRIPTION", "UNICODE__PATTERN"]
+            .iter()
+            .map(|k| (*k).to_string())
+            .collect();
+        let in_gbk = crate::altium::with_ansi_encoding(encoding_rs::GBK, || {
+            writer::footprint_pattern_text(&fp)
+        });
+        assert_eq!(in_gbk, gbk);
+        let in_1250 = crate::altium::with_ansi_encoding(encoding_rs::WINDOWS_1250, || {
+            writer::footprint_pattern_text(&fp)
+        });
+        assert_eq!(in_1250, "DFN?0402?", "rebuilt as Windows-1250 husks");
+    }
+
+    /// A library built in memory from footprints read elsewhere takes the code
+    /// page their carried bytes were written in, so replaying them through a
+    /// new library stays byte-identical.
+    #[test]
+    fn a_new_library_takes_the_code_page_of_its_carried_footprints() {
+        let mut fp = Footprint::new("DFN\u{FF08}0402\u{FF09}");
+        fp.additional_parameters = vec![
+            (
+                "PATTERN".to_string(),
+                crate::altium::decode_windows1252(b"DFN\xA3\xA80402\xA3\xA9"),
+            ),
+            (
+                "UNICODE__PATTERN".to_string(),
+                crate::altium::utf16_units_decimal(&fp.name),
+            ),
+        ];
+        let mut lib = PcbLib::new();
+        lib.add(fp);
+        assert_eq!(lib.ansi_encoding(), encoding_rs::GBK);
+        assert_eq!(PcbLib::new().ansi_encoding(), encoding_rs::WINDOWS_1252);
     }
 }

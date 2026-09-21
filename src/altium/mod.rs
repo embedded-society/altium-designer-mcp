@@ -258,14 +258,15 @@ pub fn text_from_utf16_units(value: &str) -> Option<String> {
 /// decodes. A script-authored fixture's twin holds the value widened through
 /// the authoring code page — Altium believed the UTF-8 bytes it was handed were
 /// characters — which [`fold_ansi_widened`] undoes. Without a twin the plain key
-/// holds either the value's raw UTF-8 bytes, the wire form this crate writes,
-/// or plain Windows-1252 text.
+/// holds either the value's raw UTF-8 bytes, the wire form earlier releases
+/// wrote, or text in the library's ANSI code page ([`current_ansi_encoding`]).
 #[must_use]
 pub fn unicode_field_text(twin: Option<&str>, plain: &str) -> String {
     if let Some(real) = twin.and_then(text_from_utf16_units) {
         return fold_ansi_widened(&real).unwrap_or(real);
     }
-    from_wire_text(plain).unwrap_or_else(|| plain.to_string())
+    from_wire_text(plain)
+        .unwrap_or_else(|| decode_ansi(&encode_windows1252(plain), current_ansi_encoding()))
 }
 
 /// The encoding of a Windows ANSI code page number.
@@ -321,6 +322,125 @@ pub fn set_default_ansi_code_page(code_page: u32) -> bool {
 pub fn default_ansi_encoding() -> &'static encoding_rs::Encoding {
     ansi_encoding_for(DEFAULT_ANSI_CODE_PAGE.load(std::sync::atomic::Ordering::Relaxed))
         .unwrap_or(encoding_rs::WINDOWS_1252)
+}
+
+// The encoding a `PcbLib` read or write on this thread is scoped to, if any.
+thread_local! {
+    static SCOPED_ANSI_ENCODING: std::cell::Cell<Option<&'static encoding_rs::Encoding>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// Runs `f` with `encoding` as this thread's ANSI encoding.
+///
+/// A library's ANSI-only text — pad designators, region and body names, text
+/// without a `WideStrings` entry, a name with no `UNICODE__` twin — is in the
+/// code page of the machine that authored it, which the library read detects
+/// and the write reuses. The scope carries it to the decoders and encoders
+/// deep in the record parsers without threading a parameter through every one
+/// of them; the previous scope comes back when `f` returns or unwinds.
+pub(crate) fn with_ansi_encoding<R>(
+    encoding: &'static encoding_rs::Encoding,
+    f: impl FnOnce() -> R,
+) -> R {
+    struct Restore(Option<&'static encoding_rs::Encoding>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            SCOPED_ANSI_ENCODING.with(|scoped| scoped.set(self.0));
+        }
+    }
+    let _restore = Restore(SCOPED_ANSI_ENCODING.with(|scoped| scoped.replace(Some(encoding))));
+    f()
+}
+
+/// The ANSI encoding in force: the library's inside `with_ansi_encoding`,
+/// else the server's default.
+#[must_use]
+pub fn current_ansi_encoding() -> &'static encoding_rs::Encoding {
+    SCOPED_ANSI_ENCODING
+        .with(std::cell::Cell::get)
+        .unwrap_or_else(default_ansi_encoding)
+}
+
+/// Decodes ANSI bytes through `encoding`, keeping the rewrite byte-identical.
+///
+/// The text is taken through the code page only when it encodes back to the
+/// same bytes; anything else — bytes the page does not define — is read as
+/// Windows-1252, whose byte-per-character mapping always writes back what it
+/// read. Windows-1252 itself takes that path directly.
+#[must_use]
+pub fn decode_ansi(bytes: &[u8], encoding: &'static encoding_rs::Encoding) -> String {
+    if encoding != encoding_rs::WINDOWS_1252 {
+        let (text, had_errors) = encoding.decode_without_bom_handling(bytes);
+        if !had_errors && encode_ansi(&text, encoding) == bytes {
+            return text.into_owned();
+        }
+    }
+    decode_windows1252(bytes)
+}
+
+/// Encodes text to ANSI bytes in `encoding`, `?` for what the page cannot
+/// hold. Windows-1252 is [`encode_windows1252`] exactly; another page writes a
+/// `?` per UTF-16 unit, as Altium does.
+#[must_use]
+pub fn encode_ansi(text: &str, encoding: &'static encoding_rs::Encoding) -> Vec<u8> {
+    if encoding == encoding_rs::WINDOWS_1252 {
+        return encode_windows1252(text);
+    }
+    encode_windows1252(&to_ansi_wire_text(text, encoding))
+}
+
+/// [`decode_altium_text`] with the ANSI side in `encoding`: valid non-ASCII
+/// UTF-8 is UTF-8, anything else is the code page's.
+#[must_use]
+pub fn decode_altium_text_in(bytes: &[u8], encoding: &'static encoding_rs::Encoding) -> String {
+    if !bytes.is_ascii() {
+        if let Ok(text) = std::str::from_utf8(bytes) {
+            return text.to_string();
+        }
+    }
+    decode_ansi(bytes, encoding)
+}
+
+/// The code pages a library's evidence is tried against, the server's first.
+const ANSI_CODE_PAGE_CANDIDATES: [u32; 14] = [
+    1252, 936, 950, 932, 949, 1250, 1251, 1253, 1254, 1255, 1256, 1257, 1258, 874,
+];
+
+/// Detects the ANSI code page a library was authored in.
+///
+/// Nothing in the file names it, but a footprint outside ASCII carries its real
+/// name — in the `UNICODE__PATTERN` twin, or as the storage name — beside the
+/// `PATTERN` bytes Altium wrote through the machine's code page. Each pair is
+/// `(real name, PATTERN as wire text)`; the page is the first candidate, the
+/// server's own ahead of the rest, under which every pair that any candidate
+/// explains agrees. `None` without such evidence.
+#[must_use]
+pub fn detect_ansi_code_page(pairs: &[(String, String)]) -> Option<u32> {
+    let default_page = DEFAULT_ANSI_CODE_PAGE.load(std::sync::atomic::Ordering::Relaxed);
+    let candidates: Vec<u32> = std::iter::once(default_page)
+        .chain(
+            ANSI_CODE_PAGE_CANDIDATES
+                .into_iter()
+                .filter(|page| *page != default_page),
+        )
+        .collect();
+    let explains = |page: u32, (real, pattern): &(String, String)| {
+        ansi_encoding_for(page).is_some_and(|encoding| {
+            // A `?` husk proves nothing: every page writes it for what it lacks.
+            !pattern.contains('?') && to_ansi_wire_text(real, encoding) == *pattern
+        })
+    };
+    let evidence: Vec<&(String, String)> = pairs
+        .iter()
+        .filter(|pair| !pair.1.is_ascii())
+        .filter(|pair| candidates.iter().any(|page| explains(*page, pair)))
+        .collect();
+    if evidence.is_empty() {
+        return None;
+    }
+    candidates
+        .into_iter()
+        .find(|page| evidence.iter().all(|pair| explains(*page, pair)))
 }
 
 /// A value's ANSI form in `encoding`, as wire text.
@@ -1518,5 +1638,55 @@ mod tests {
             "an unknown page is refused"
         );
         assert_eq!(default_ansi_encoding(), encoding_rs::WINDOWS_1252);
+    }
+
+    /// Decoding through a code page keeps the bytes: GBK text reads as itself,
+    /// and bytes GBK does not define fall back to Windows-1252, which always
+    /// writes back what it read.
+    #[test]
+    fn decode_ansi_round_trips_every_byte() {
+        let gbk = b"\xA3\xA80402";
+        assert_eq!(decode_ansi(gbk, encoding_rs::GBK), "\u{FF08}0402");
+        assert_eq!(
+            encode_ansi(&decode_ansi(gbk, encoding_rs::GBK), encoding_rs::GBK),
+            gbk
+        );
+        // A lone lead byte is not GBK text: read byte for byte instead.
+        let broken = b"A\x81";
+        let text = decode_ansi(broken, encoding_rs::GBK);
+        assert_eq!(text, decode_windows1252(broken));
+        assert_eq!(encode_windows1252(&text), broken);
+        assert_eq!(decode_ansi(b"\xB1", encoding_rs::WINDOWS_1252), "\u{B1}");
+    }
+
+    /// A library's code page is the one under which every footprint's real name
+    /// gives its PATTERN bytes; `?` husks and ASCII prove nothing.
+    #[test]
+    fn detect_ansi_code_page_follows_the_evidence() {
+        let gbk_pattern = decode_windows1252(b"DFN\xA3\xA80402\xA3\xA9");
+        let pairs = vec![
+            ("DFN\u{FF08}0402\u{FF09}".to_string(), gbk_pattern),
+            ("R0402".to_string(), "R0402".to_string()),
+            ("\u{13E3}_CR".to_string(), "?_CR".to_string()),
+        ];
+        assert_eq!(detect_ansi_code_page(&pairs), Some(936));
+        let cp1250 = vec![(
+            "\u{10C}\u{110}\u{17D}_SL".to_string(),
+            decode_windows1252(b"\xC8\xD0\x8E_SL"),
+        )];
+        assert_eq!(detect_ansi_code_page(&cp1250), Some(1250));
+        assert_eq!(detect_ansi_code_page(&pairs[1..]), None, "no evidence");
+    }
+
+    /// The scope sets the encoding for its body and restores the previous one.
+    #[test]
+    fn with_ansi_encoding_scopes_and_restores() {
+        assert_eq!(current_ansi_encoding(), encoding_rs::WINDOWS_1252);
+        let inner = with_ansi_encoding(encoding_rs::GBK, || {
+            let nested = with_ansi_encoding(encoding_rs::WINDOWS_1250, current_ansi_encoding);
+            (nested, current_ansi_encoding())
+        });
+        assert_eq!(inner, (encoding_rs::WINDOWS_1250, encoding_rs::GBK));
+        assert_eq!(current_ansi_encoding(), encoding_rs::WINDOWS_1252);
     }
 }
