@@ -54,7 +54,7 @@ thiserror = "2.0"
 dirs = "7.0"
 
 # OLE Compound File Binary format (for Altium files)
-cfb = "0.14"
+cfb = "0.15"
 
 # CSV handling for component database
 csv = "1.3"
@@ -126,11 +126,3 @@ nursery = { level = "warn", priority = -1 }
 cargo = { level = "warn", priority = -1 }
 # Allow multiple versions of transitive dependencies (we can't control these)
 multiple_crate_versions = "allow"
-
-# cfb 0.14.0 walks the whole mini-stream FAT chain on every access to a small
-# stream and every path lookup walks an unbalanced tree, so a library of n
-# components costs O(n^2) to read or write. Fixed upstream in
-# mdsteele/rust-cfb#81 (merged 2026-08-28); pinned to that merge until a
-# release carries it — then bump `cfb` above and delete this block.
-[patch.crates-io]
-cfb = { git = "https://github.com/mdsteele/rust-cfb", rev = "8c1ec76" }

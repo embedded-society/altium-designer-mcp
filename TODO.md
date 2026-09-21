@@ -66,9 +66,6 @@ record). The specialised worklists stay the single source of truth for their are
       link with `IntegratedModel`/`DatabaseModel` waits on finding the Altium action
       that writes the flags: the UI's Add Footprint does not
       (`manual/footprint_link.SchLib`).
-- [ ] **Drop the `cfb` git pin** (`[patch.crates-io]`, rev `8c1ec76`) as soon as rust-cfb
-      publishes a release newer than v0.14.0 — check
-      [rust-cfb releases](https://github.com/mdsteele/rust-cfb/releases) at session start.
 
 ## E. v2.0 candidates (breaking)
 
