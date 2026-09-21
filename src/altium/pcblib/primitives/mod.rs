@@ -45,8 +45,8 @@ mod models3d;
 pub use models3d::{ComponentBody, EmbeddedModel, Model3D};
 mod pads;
 pub use pads::{
-    DrillLayerPairType, HoleShape, MaskExpansionMode, Pad, PadPolygonConnect, PadShape,
-    PadStackMode, PowerPlaneConnectStyle, Via, ViaStackMode,
+    DrillLayerPairType, HoleShape, MaskExpansionMode, Pad, PadShape, PadStackMode, PolygonConnect,
+    PowerPlaneConnectStyle, Via, ViaStackMode,
 };
 mod shapes;
 pub use shapes::{Arc, Region, RegionKind, Track, Vertex};

@@ -36,6 +36,7 @@
 //! Record types: Arc(1), Pad(2), Via(3), Track(4), Text(5), Fill(6), Region(11), ComponentBody(12)
 
 mod flags;
+mod polygon_connect;
 pub mod primitives;
 mod read_io;
 mod reader;
@@ -47,7 +48,7 @@ use serde::{Deserialize, Serialize};
 
 pub use primitives::{
     Arc, ComponentBody, DrillLayerPairType, EmbeddedModel, Fill, HoleShape, Layer,
-    MaskExpansionMode, Model3D, Pad, PadPolygonConnect, PadShape, PadStackMode, PcbFlags,
+    MaskExpansionMode, Model3D, Pad, PadShape, PadStackMode, PcbFlags, PolygonConnect,
     PowerPlaneConnectStyle, Region, RegionKind, StrokeFont, Text, TextJustification, TextKind,
     Track, Vertex, Via, ViaStackMode,
 };
@@ -1666,9 +1667,9 @@ mod tests {
     fn binary_roundtrip_pad_polygon_connect() {
         // A from-scratch pad with an override is written in AD24's layout: the
         // 194-byte block and the 34-byte override after it.
-        use super::PadPolygonConnect;
+        use super::PolygonConnect;
 
-        let connect = PadPolygonConnect {
+        let connect = PolygonConnect {
             style: PowerPlaneConnectStyle::Relief,
             air_gap: 0.1524,
             conductor_width: 0.3556,
@@ -1708,6 +1709,8 @@ mod tests {
             Some(228 - 61),
             "194-byte block plus the 34-byte override"
         );
+        let tail = with.raw_tail.as_ref().expect("raw tail");
+        assert_eq!(tail[176 - 61..180 - 61], [1, 0, 0, 0], "entry count @176");
         let without = &decoded.pads[1];
         assert_eq!(without.polygon_connect, None);
         assert_eq!(
@@ -1715,6 +1718,39 @@ mod tests {
             Some(202 - 61),
             "a pad without an override keeps the 202-byte template"
         );
+    }
+
+    #[test]
+    fn binary_roundtrip_via_polygon_connect() {
+        // A from-scratch via with an override gains the 30-byte entry at @308
+        // and a count of 1 @300; its drill-pair byte moves to @342 with it.
+        use super::{DrillLayerPairType, PolygonConnect};
+
+        let connect = PolygonConnect {
+            style: PowerPlaneConnectStyle::Direct,
+            conductors: 2,
+            ..PolygonConnect::default()
+        };
+        let mut original = Footprint::new("ROUNDTRIP_VIA_POLYGON_CONNECT");
+        let mut via = Via::new(0.0, 0.0, 0.6, 0.3);
+        via.polygon_connect = Some(connect);
+        via.drill_layer_pair_type = DrillLayerPairType::End;
+        original.add_via(via);
+        original.add_via(Via::new(1.0, 0.0, 0.6, 0.3));
+
+        let data = writer::encode_data_stream(&original).expect("encoding should succeed");
+        let mut decoded = Footprint::new("ROUNDTRIP_VIA_POLYGON_CONNECT");
+        reader::parse_data_stream(&mut decoded, &data, None);
+
+        let with = &decoded.vias[0];
+        assert_eq!(with.polygon_connect, Some(connect));
+        assert_eq!(with.drill_layer_pair_type, DrillLayerPairType::End);
+        let raw = with.raw_block.as_ref().expect("raw block");
+        assert_eq!(raw.len(), 351);
+        assert_eq!(raw[300..304], [1, 0, 0, 0]);
+        let without = &decoded.vias[1];
+        assert_eq!(without.polygon_connect, None);
+        assert_eq!(without.raw_block.as_ref().map(Vec::len), Some(321));
     }
 
     #[test]

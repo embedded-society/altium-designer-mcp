@@ -291,7 +291,7 @@ breaks the stream (issue #68). Never emit one.
 |----|------|-------------|
 | `0x01` | Arc | Arc or circle (single 60-byte block) |
 | `0x02` | Pad | SMD or through-hole pad (6 blocks) |
-| `0x03` | Via | Via (single 321-byte block) |
+| `0x03` | Via | Via (single block: 321 bytes, 351 with a polygon-connect entry) |
 | `0x04` | Track | Line segment (single 49-byte block) |
 | `0x05` | Text | Text string (2 blocks) |
 | `0x06` | Fill | Filled rectangle (single 50-byte block) |
@@ -559,16 +559,19 @@ replayed as the base — length included — with the modelled fields overlaid:
 All remaining bytes of the tail are reserved / cache values replayed verbatim — from `raw_tail`
 for a read pad, from the template for one built from scratch.
 
-**Polygon-connect override (@194-227).** AD24 writes a 194-byte main block for every pad.
+**Polygon-connect override (@176, @194-227).** AD24 writes a 194-byte main block for every pad.
 A pad whose Pad Stack → Thermal Relief box is ticked carries its own polygon-connect style (the
-"Edit Polygon Connect Style" dialog) in 34 more bytes, making the block 228 bytes long; a pad
-with the box unticked has none of them and takes the style from the design rules. The bytes
+"Edit Polygon Connect Style" dialog) as one 30-byte entry, counted @176 and stored after an
+entry size of 30, making the block 228 bytes long; a pad with the box unticked counts 0, has
+neither the size nor the entry, and takes the style from the design rules. A via keeps the
+same entry the same way, at other offsets (see [Via](#via-0x03)). The bytes
 @67-85 above are the *power-plane* connection and do not change with this box.
 Established by `manual/thermal_relief.PcbLib`, seven pads that each change one or two settings:
 
 | Offset | Size | Field | Modelled (`polygon_connect`) |
 |--------|------|-------|------------------------------|
-| 194-197 | 4 | Length of the rest (i32, always 30) | framing |
+| 176-179 | 4 | Entry count (i32; 1 with an override, 0 without) | framing |
+| 194-197 | 4 | Entry size (i32, 30) | framing |
 | 198-201 | 4 | Reserved (`0`) | replayed |
 | 202 | 1 | Override present (`1`) | yes |
 | 203 | 1 | Connect style (0=Relief, 1=Direct, 2=NoConnect) | `style` |
@@ -582,9 +585,9 @@ Established by `manual/thermal_relief.PcbLib`, seven pads that each change one o
 | 226 | 1 | Min Distance checkbox (bool) | `min_distance_enabled` |
 | 227 | 1 | Reserved (`0`) | replayed |
 
-The writer adds the block to a pad that gains an override: a from-scratch pad's 202-byte
-template is first cut to AD24's 194 bytes. It removes the block when the override is
-cleared. An override added to an unticked pad this way matches the bytes Altium wrote
+The writer adds the entry to a pad that gains an override, counting it @176: a from-scratch
+pad's 202-byte template is first cut to AD24's 194 bytes. It removes the size and the entry
+and counts 0 when the override is cleared. An override added to an unticked pad this way matches the bytes Altium wrote
 for the same settings (`samples_manual_pad_polygon_connect_edits`).
 
 **Parsing thresholds:**
@@ -1026,12 +1029,18 @@ constant regions are replayed verbatim.
 | 275-290 | 16 | Identity GUID B — as GUID A | replay |
 | 291-294 | 4 | Hole positive tolerance (i32; `0x7FFFFFFF` = unset) | yes |
 | 295-298 | 4 | Hole negative tolerance (i32; `0x7FFFFFFF` = unset) | yes |
-| 312 | 1 | Drill-pair classification (0=Through, 1=BlindBuriedStart, 2=Mid, 3=End) | yes |
+| 300-303 | 4 | Polygon-connect entry count (i32; 0 in every AD24 via) | framing |
+| 304-307 | 4 | Polygon-connect entry size (i32, 30) | framing |
+| 308.. | 30 each | Polygon-connect entries, laid out as the pad's (`polygon_connect`, first entry) | yes |
+| 312 | 1 | Drill-pair classification (0=Through, 1=BlindBuriedStart, 2=Mid, 3=End); 30 bytes further on per entry | yes |
 | 320 | 1 | Trailing constant (`0x01`) | template |
 
 The reader accepts any block ≥ 31 bytes and defaults every absent field. The whole block as
-read is the via's `raw_block` and the write base, **length included**: an older library stores
-351-byte vias, and the thirty bytes past the template go back verbatim. A read block shorter
+read is the via's `raw_block` and the write base, **length included**. An older Altium's
+351-byte vias are the 321-byte layout with one polygon-connect entry at @308, so everything
+the table places from @308 on — the drill-pair byte included, @342 there — sits 30 bytes
+further on (`manual/plane_and_via.PcbLib`). The writer adds, updates or removes the entry
+and keeps the count @300 in step. A read block shorter
 than the template cannot take the overlays, so the template is the base instead.
 
 ### 3D Model Storage

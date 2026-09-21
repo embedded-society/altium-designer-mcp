@@ -30,8 +30,8 @@ use std::collections::HashMap;
 
 use super::primitives::{
     Arc, ComponentBody, DrillLayerPairType, Fill, HoleShape, Layer, MaskExpansionMode, Pad,
-    PadPolygonConnect, PadShape, PadStackMode, PcbFlags, PowerPlaneConnectStyle, Region,
-    RegionKind, StrokeFont, Text, TextJustification, TextKind, Track, Vertex, Via, ViaStackMode,
+    PadShape, PadStackMode, PcbFlags, PowerPlaneConnectStyle, Region, RegionKind, StrokeFont, Text,
+    TextJustification, TextKind, Track, Vertex, Via, ViaStackMode,
 };
 use super::Footprint;
 use crate::altium::bytes::{
@@ -47,7 +47,6 @@ pub use models::{parse_embedded_models, parse_model_data_stream, parse_model_hea
 pub use parsers::parse_mil_value;
 #[allow(clippy::wildcard_imports)] // tightly-coupled reader split
 use parsers::*;
-pub use parsers::{PAD_POLYGON_CONNECT_AT, PAD_POLYGON_CONNECT_LEN};
 
 /// Result type for internal parse functions.
 ///

@@ -6,8 +6,8 @@
 //! writer's output, as `file_io_roundtrip.rs` does).
 
 use altium_designer_mcp::altium::pcblib::{
-    DrillLayerPairType, HoleShape, Layer, MaskExpansionMode, PadPolygonConnect, PadShape,
-    PadStackMode, PcbFlags, PcbLib, PowerPlaneConnectStyle, PrimitiveKind, RegionKind, StrokeFont,
+    DrillLayerPairType, HoleShape, Layer, MaskExpansionMode, PadShape, PadStackMode, PcbFlags,
+    PcbLib, PolygonConnect, PowerPlaneConnectStyle, PrimitiveKind, RegionKind, StrokeFont,
     TextKind,
 };
 use std::path::PathBuf;
@@ -2679,7 +2679,7 @@ fn samples_manual_pad_polygon_connect() {
             .unwrap_or_else(|| panic!("pad {designator}"))
     };
     let mil = |m: f64| m * 0.0254;
-    let expect = |designator: &str, want: PadPolygonConnect| {
+    let expect = |designator: &str, want: PolygonConnect| {
         let got = pad(designator)
             .polygon_connect
             .unwrap_or_else(|| panic!("pad {designator} has an override"));
@@ -2718,50 +2718,50 @@ fn samples_manual_pad_polygon_connect() {
     );
     expect(
         "3",
-        PadPolygonConnect {
+        PolygonConnect {
             air_gap: mil(9.0),
             conductor_width: mil(11.0),
-            ..PadPolygonConnect::default()
+            ..PolygonConnect::default()
         },
     );
     expect(
         "5",
-        PadPolygonConnect {
+        PolygonConnect {
             air_gap: mil(6.0),
             conductor_width: mil(14.0),
             conductors: 2,
             rotation: 45,
-            ..PadPolygonConnect::default()
+            ..PolygonConnect::default()
         },
     );
     expect(
         "6",
-        PadPolygonConnect {
+        PolygonConnect {
             style: PowerPlaneConnectStyle::Direct,
-            ..PadPolygonConnect::default()
+            ..PolygonConnect::default()
         },
     );
     expect(
         "7",
-        PadPolygonConnect {
+        PolygonConnect {
             auto_conductors: true,
-            ..PadPolygonConnect::default()
+            ..PolygonConnect::default()
         },
     );
     expect(
         "8",
-        PadPolygonConnect {
+        PolygonConnect {
             style: PowerPlaneConnectStyle::NoConnect,
-            ..PadPolygonConnect::default()
+            ..PolygonConnect::default()
         },
     );
     expect(
         "9",
-        PadPolygonConnect {
+        PolygonConnect {
             auto_conductors: true,
             min_distance: mil(20.0),
             min_distance_enabled: true,
-            ..PadPolygonConnect::default()
+            ..PolygonConnect::default()
         },
     );
 }
@@ -2784,9 +2784,9 @@ fn samples_manual_pad_polygon_connect_edits() {
         PcbLib::read(&mut buffer).expect("read back")
     };
 
-    let wanted = PadPolygonConnect {
+    let wanted = PolygonConnect {
         style: PowerPlaneConnectStyle::NoConnect,
-        ..PadPolygonConnect::default()
+        ..PolygonConnect::default()
     };
     {
         let fp = lib.get_mut(&name).expect("footprint");
@@ -2809,8 +2809,81 @@ fn samples_manual_pad_polygon_connect_edits() {
         194 - 61,
         "a cleared override leaves AD24's plain block"
     );
-    // Pad 4 and Altium's own pad 8 now carry the same override bytes.
+    // Pad 4 and Altium's own pad 8 now carry the same override bytes, and
+    // the entry count @176 says so; the cleared pad 8 counts none.
     assert_eq!(tail("4")[133..], tail_of_original("8")[133..]);
+    let count = |tail: &[u8]| tail[176 - 61..180 - 61].to_vec();
+    assert_eq!(count(&tail("4")), count(&tail_of_original("8")));
+    assert_eq!(count(&tail("4")), [1, 0, 0, 0]);
+    assert_eq!(count(&tail("8")), count(&tail_of_original("4")));
+    assert_eq!(count(&tail("8")), [0, 0, 0, 0]);
+}
+
+/// `manual/plane_and_via.PcbLib`: pad and via records copied byte for byte
+/// from the maintainer's own Altium library
+/// (github.com/MatejGomboc/altium-library), under generic footprint names.
+/// `PLANE_DIRECT` and `PLANE_NO_CONNECT` carry the only Altium-written
+/// non-default pad power-plane styles known, and `VIA_ENTRY` an older
+/// Altium's 351-byte vias: the 321-byte layout plus one 30-byte
+/// polygon-connect entry at @308, which moves the drill-pair byte to @342.
+#[test]
+fn samples_manual_plane_and_via_power_plane_and_via_entries() {
+    use altium_designer_mcp::altium::pcblib::PowerPlaneConnectStyle as Style;
+
+    let lib = PcbLib::open(sample("manual/plane_and_via.PcbLib"))
+        .expect("failed to open manual/plane_and_via.PcbLib");
+    let styles = |name: &str| -> Vec<Style> {
+        let fp = lib.get(name).unwrap_or_else(|| panic!("footprint {name}"));
+        fp.pads
+            .iter()
+            .map(|p| p.power_plane_connect_style)
+            .collect()
+    };
+    assert_eq!(styles("PLANE_DIRECT"), vec![Style::Direct; 7]);
+    assert_eq!(styles("PLANE_NO_CONNECT"), vec![Style::NoConnect; 2]);
+
+    let vias = &lib.get("VIA_ENTRY").expect("VIA_ENTRY").vias;
+    assert_eq!(vias.len(), 12, "VIA_ENTRY has twelve vias");
+    for via in vias {
+        assert_eq!(via.raw_block.as_ref().map(Vec::len), Some(351));
+        assert_eq!(via.drill_layer_pair_type, DrillLayerPairType::Through);
+        assert_eq!(via.polygon_connect, Some(PolygonConnect::default()));
+    }
+}
+
+/// Clearing a via's polygon-connect entry gives back the 321-byte layout, and
+/// the drill-pair byte follows the entries wherever they leave it.
+#[test]
+fn samples_manual_plane_and_via_entry_edits() {
+    use std::io::Cursor;
+
+    let mut lib = PcbLib::open(sample("manual/plane_and_via.PcbLib"))
+        .expect("failed to open manual/plane_and_via.PcbLib");
+    {
+        let fp = lib.get_mut("VIA_ENTRY").expect("VIA_ENTRY");
+        fp.vias[0].polygon_connect = None;
+        fp.vias[0].drill_layer_pair_type = DrillLayerPairType::Mid;
+        fp.vias[1].drill_layer_pair_type = DrillLayerPairType::End;
+    }
+    let mut buffer = Cursor::new(Vec::new());
+    lib.write(&mut buffer).expect("write");
+    buffer.set_position(0);
+    let back = PcbLib::read(&mut buffer).expect("read back");
+    let vias = &back.get("VIA_ENTRY").expect("VIA_ENTRY").vias;
+
+    let cleared = &vias[0];
+    assert_eq!(cleared.polygon_connect, None);
+    assert_eq!(cleared.drill_layer_pair_type, DrillLayerPairType::Mid);
+    let raw = cleared.raw_block.as_ref().expect("raw block");
+    assert_eq!(raw.len(), 321);
+    assert_eq!(raw[300..304], [0, 0, 0, 0], "no entries counted");
+
+    let kept = &vias[1];
+    assert_eq!(kept.polygon_connect, Some(PolygonConnect::default()));
+    assert_eq!(kept.drill_layer_pair_type, DrillLayerPairType::End);
+    let raw = kept.raw_block.as_ref().expect("raw block");
+    assert_eq!(raw.len(), 351);
+    assert_eq!(raw[312], 1, "the entry's present byte is untouched");
 }
 
 /// Pad `designator`'s extended tail as Altium wrote it.
@@ -2826,4 +2899,19 @@ fn tail_of_original(designator: &str) -> Vec<u8> {
         .and_then(|p| p.raw_tail.clone())
         .expect("raw tail");
     tail
+}
+
+/// `manual/cavity.PcbLib` (AD24, scripted 2026-09-21 by
+/// `scripts/altium/probe/CavityProbe.pas`): a cavity region whose cavity
+/// height was set to 12 mil through the scripting API, which Altium saves as
+/// `CAVITYHEIGHT=12mil`. `SubPolyIndex` is not on `IPCB_Region` in AD24's
+/// scripting, so `SUBPOLYINDEX` keeps its `-1` default here.
+#[test]
+fn samples_manual_cavity_height() {
+    let lib = PcbLib::open(sample("manual/cavity.PcbLib")).expect("open manual/cavity.PcbLib");
+    let fp = lib.get("CAVITY").expect("footprint CAVITY");
+    assert_eq!(fp.regions.len(), 1);
+    let region = &fp.regions[0];
+    assert_eq!(region.kind, RegionKind::Cavity);
+    assert!(approx_eq(region.cavity_height, 12.0 * 0.0254, 1e-6));
 }

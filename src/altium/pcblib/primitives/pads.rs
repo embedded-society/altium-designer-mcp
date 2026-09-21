@@ -198,10 +198,11 @@ pub struct Pad {
     pub power_plane_clearance: f64,
 
     /// The pad's own polygon-connect style — Pad Stack → Thermal Relief in
-    /// AD24 — stored after the main block's 194 bytes. `None` when the pad
-    /// takes the style from the design rules, as a new pad does.
+    /// AD24 — counted @176 and stored after the main block's 194 bytes.
+    /// `None` when the pad takes the style from the design rules, as a new
+    /// pad does.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub polygon_connect: Option<PadPolygonConnect>,
+    pub polygon_connect: Option<PolygonConnect>,
 
     /// Corner radius as percentage of smaller pad dimension (0-100).
     /// Only applies to `RoundedRectangle` shape.
@@ -634,19 +635,18 @@ impl PowerPlaneConnectStyle {
     }
 }
 
-/// A pad's own polygon-connect style: how a polygon pour on the pad's net
-/// joins it, set per pad in AD24 under Pad Stack → Thermal Relief (the
+/// A pad's or via's own polygon-connect style: how a polygon pour on its
+/// net joins it, set per pad in AD24 under Pad Stack → Thermal Relief (the
 /// "Edit Polygon Connect Style" dialog).
 ///
-/// Stored as a 34-byte block after the first 194 bytes of the pad's main
-/// block: an `i32` length of 30, four zero bytes, `1` (override present),
-/// the style byte, air gap and conductor width (`i32`), the rotation byte
+/// Stored as a 30-byte entry: four reserved bytes, `1` (present), the
+/// style byte, air gap and conductor width (`i32`), the rotation byte
 /// (`1` = 90°, `0` = 45°), the conductor count, seven bytes this crate
 /// does not model, the Auto-conductors byte, the minimum distance (`i32`),
-/// the Min Distance checkbox and a zero byte (`manual/thermal_relief.PcbLib`). A pad without an
-/// override has no such block.
+/// the Min Distance checkbox and a reserved byte. See
+/// `docs/PCBLIB_FORMAT.md` for where a pad and a via keep it.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct PadPolygonConnect {
+pub struct PolygonConnect {
     /// How the pour joins the pad. Default: `Relief`.
     #[serde(default)]
     pub style: PowerPlaneConnectStyle,
@@ -690,7 +690,7 @@ pub struct PadPolygonConnect {
     pub min_distance_enabled: bool,
 }
 
-impl Default for PadPolygonConnect {
+impl Default for PolygonConnect {
     /// The override AD24 writes when the Thermal Relief box is ticked and
     /// nothing else is changed.
     fn default() -> Self {
@@ -941,8 +941,8 @@ pub struct Via {
     /// The via's whole record block exactly as read (base64 in JSON), used as
     /// the write-side base with every typed field overlaid — so unmodelled
     /// bytes (the two in-record identity GUID slots, cache values, template
-    /// drift between AD versions, the thirty bytes an older library's
-    /// 351-byte vias carry past the 321-byte template) round-trip verbatim,
+    /// drift between AD versions, the unmodelled bytes of a polygon-connect
+    /// entry) round-trip verbatim,
     /// length included. `None` (from scratch) uses the template with the GUID
     /// slots zeroed, which is what AD24 itself writes for library vias (the
     /// golden's are all zeros).
@@ -952,6 +952,12 @@ pub struct Via {
         with = "crate::altium::base64_opt"
     )]
     pub raw_block: Option<Vec<u8>>,
+
+    /// The via's own polygon-connect style, counted @300 and stored from @308
+    /// (an older Altium's 351-byte vias carry one). `None` when the via takes
+    /// the style from the design rules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub polygon_connect: Option<PolygonConnect>,
 }
 
 /// Default thermal relief gap (10 mils = 0.254mm).
@@ -1021,6 +1027,7 @@ impl Via {
             unique_id: None,
             guid: None,
             raw_block: None,
+            polygon_connect: None,
         }
     }
 
@@ -1064,6 +1071,7 @@ impl Via {
             unique_id: None,
             guid: None,
             raw_block: None,
+            polygon_connect: None,
         }
     }
 }

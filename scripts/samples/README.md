@@ -218,6 +218,33 @@ pins it.
 panel under Footprint click **Add**, name it `R0402`, leave the PCB library on **Any**, OK;
 save ONCE as `footprint_link.SchLib`.
 
+### `manual/plane_and_via.PcbLib` and `manual/intlib_link.SchLib`
+
+Records copied from the maintainer's own Altium library
+([MatejGomboc/altium-library](https://github.com/MatejGomboc/altium-library)), which an
+older Altium and AD24 wrote, for evidence AD24's scripting cannot produce. Only the records
+under test were kept, byte for byte, under generic names; everything else was removed and
+the names and descriptions were made generic with this crate's writer.
+
+| Footprint / symbol | Evidence | Test |
+|--------------------|----------|------|
+| `PLANE_DIRECT` | 7 pads with a Direct power-plane connection | `samples_manual_plane_and_via_power_plane_and_via_entries` |
+| `PLANE_NO_CONNECT` | 2 pads with a No Connect power-plane connection | the same |
+| `VIA_ENTRY` | 12 of an older Altium's 351-byte vias, each with one polygon-connect entry | the same, and `samples_manual_plane_and_via_entry_edits` |
+| `INTLIB_LINK` | a footprint link with `IntegratedModel=T\|DatabaseModel=T`, on a symbol taken from an integrated library | `samples_schlib_manual_intlib_sourced_footprint_link` |
+
+**To rebuild them:** they cannot be regenerated; recover them from git history.
+
+### `manual/cavity.PcbLib`
+
+One footprint, `CAVITY`: a cavity region whose cavity height is 12 mil, which Altium saves
+as `CAVITYHEIGHT=12mil`. Scripted in AD24 (2026-09-21) by
+`scripts/altium/probe/CavityProbe.pas`; the same probe showed `SubPolyIndex` is not on
+`IPCB_Region`, so no script can set `SUBPOLYINDEX`. `samples_manual_cavity_height` pins it.
+
+**To rebuild it:** as for `region_hole.PcbLib`, with `CavityProbe.PrjScr` and
+`CavityProbe>Run`; it saves `cavity.PcbLib`.
+
 ### `manual/parameters.SchLib`
 
 One component, `PARAMPROPS`, carrying three `RECORD=41` parameters that between them cover

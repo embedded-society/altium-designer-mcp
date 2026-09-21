@@ -508,19 +508,19 @@ fn font_face_name<'a>(name: &'a str, field: &str) -> Result<&'a str, String> {
 /// A corner-radius percentage: a whole number from 0 to 100. Anything else —
 /// negative, fractional, over 100 — is refused, since the writer would
 /// otherwise store "no radius" for it without a word.
-/// A pad's `polygon_connect` object. Absent keys take AD24's defaults; a
+/// A pad's or via's `polygon_connect` object. Absent keys take AD24's defaults; a
 /// value the dialog cannot hold (a count other than 2 or 4, an angle other
 /// than 45 or 90, a negative length) is refused rather than written.
-fn pad_polygon_connect(
+fn polygon_connect_field(
     value: &Value,
     field: &str,
-) -> Result<crate::altium::pcblib::PadPolygonConnect, String> {
-    use crate::altium::pcblib::PadPolygonConnect;
+) -> Result<crate::altium::pcblib::PolygonConnect, String> {
+    use crate::altium::pcblib::PolygonConnect;
 
     if !value.is_object() {
         return Err(format!("{field} must be an object, got {value}"));
     }
-    let defaults = PadPolygonConnect::default();
+    let defaults = PolygonConnect::default();
     let length = |key: &str, default: f64| match value.get(key) {
         None | Some(Value::Null) => Ok(default),
         Some(v) => v
@@ -552,7 +552,7 @@ fn pad_polygon_connect(
     };
     let auto_conductors = flag("auto_conductors", defaults.auto_conductors)?;
     let min_distance_enabled = flag("min_distance_enabled", defaults.min_distance_enabled)?;
-    Ok(PadPolygonConnect {
+    Ok(PolygonConnect {
         style: enum_field(
             value,
             "style",
@@ -1685,7 +1685,7 @@ impl McpServer {
             .unwrap_or(0.508);
         let polygon_connect = match json.get("polygon_connect") {
             None | Some(Value::Null) => None,
-            Some(value) => Some(pad_polygon_connect(value, &pad_field("polygon_connect"))?),
+            Some(value) => Some(polygon_connect_field(value, &pad_field("polygon_connect"))?),
         };
 
         // Slot geometry + drill tolerances. Absent keys keep the struct defaults
@@ -2571,6 +2571,10 @@ impl McpServer {
         via.unique_id = json_unique_id(json);
         via.guid = guid_field(json, "guid", "Via guid")?;
         via.raw_block = json_base64(json, "raw_block");
+        via.polygon_connect = match json.get("polygon_connect") {
+            None | Some(Value::Null) => None,
+            Some(value) => Some(polygon_connect_field(value, "Via polygon_connect")?),
+        };
 
         Ok(via)
     }
@@ -3784,7 +3788,7 @@ mod tests {
 
     #[test]
     fn parse_pad_reads_polygon_connect() {
-        use crate::altium::pcblib::{PadPolygonConnect, PowerPlaneConnectStyle};
+        use crate::altium::pcblib::{PolygonConnect, PowerPlaneConnectStyle};
 
         let pad = |connect: serde_json::Value| {
             McpServer::parse_pad(&json!({
@@ -3799,7 +3803,7 @@ mod tests {
         );
         assert_eq!(
             pad(json!({})).expect("empty").polygon_connect,
-            Some(PadPolygonConnect::default()),
+            Some(PolygonConnect::default()),
             "an empty object is the override Altium writes on ticking the box"
         );
         let full = pad(json!({
@@ -3812,7 +3816,7 @@ mod tests {
         .expect("override");
         assert_eq!(
             full,
-            PadPolygonConnect {
+            PolygonConnect {
                 style: PowerPlaneConnectStyle::NoConnect,
                 air_gap: 0.2,
                 conductor_width: 0.3,
@@ -3846,6 +3850,33 @@ mod tests {
             assert!(err.contains(needle), "{bad}: {err}");
             assert!(err.contains("Pad '1' polygon_connect"), "{bad}: {err}");
         }
+    }
+
+    #[test]
+    fn parse_via_reads_polygon_connect() {
+        use crate::altium::pcblib::{PolygonConnect, PowerPlaneConnectStyle};
+
+        let via = McpServer::parse_via(&json!({
+            "x": 0.0, "y": 0.0, "diameter": 0.6, "hole_size": 0.3,
+            "polygon_connect": { "style": "direct" },
+        }))
+        .expect("via");
+        assert_eq!(
+            via.polygon_connect,
+            Some(PolygonConnect {
+                style: PowerPlaneConnectStyle::Direct,
+                ..PolygonConnect::default()
+            })
+        );
+        let err = McpServer::parse_via(&json!({
+            "x": 0.0, "y": 0.0, "diameter": 0.6, "hole_size": 0.3,
+            "polygon_connect": { "conductors": 3 },
+        }))
+        .expect_err("3 conductors");
+        assert!(
+            err.contains("Via polygon_connect.conductors must be 2 or 4"),
+            "{err}"
+        );
     }
 
     #[test]
