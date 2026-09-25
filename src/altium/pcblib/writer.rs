@@ -16,7 +16,7 @@
 use super::polygon_connect;
 use super::primitives::{
     Arc, ComponentBody, Fill, HoleShape, Layer, Pad, PadShape, PadStackMode, PcbFlags, Region,
-    StrokeFont, Text, TextJustification, TextKind, Track, Via, ViaStackMode,
+    StrokeFont, Text, TextJustification, TextKind, Track, Vertex, Via, ViaStackMode,
 };
 use super::{Footprint, PrimitiveKind};
 
@@ -1689,6 +1689,16 @@ fn encode_region_properties(region: &Region) -> Vec<u8> {
     // C-string parameter block (length includes the null terminator).
     write_cstring_param_block(&mut block, &params_bytes);
 
+    // Altium's own contour bytes, whenever they still describe the typed
+    // vertices: a poured polygon's copper sits on fractional internal units,
+    // which `from_mm` below would round to whole ones.
+    if let Some(raw) = region.raw_contours.as_deref() {
+        if raw_contours_match(raw, region) {
+            block.extend_from_slice(raw);
+            return block;
+        }
+    }
+
     // Outline vertex count
     write_u32(&mut block, vertex_count as u32);
 
@@ -1711,6 +1721,47 @@ fn encode_region_properties(region: &Region) -> Vec<u8> {
     }
 
     block
+}
+
+/// Whether `raw` — a region's contour section as read — still describes
+/// `region`'s outline and holes, vertex for vertex, so the rewrite can replay
+/// Altium's exact bytes instead of the whole internal units [`from_mm`]
+/// produces. Any edit to a vertex, or to a contour's length, fails the check
+/// and the typed vertices are encoded instead.
+fn raw_contours_match(raw: &[u8], region: &Region) -> bool {
+    fn u32_at(raw: &[u8], at: usize) -> Option<u32> {
+        raw.get(at..at + 4)
+            .map(|b| u32::from_le_bytes(b.try_into().unwrap_or_default()))
+    }
+    fn f64_at(raw: &[u8], at: usize) -> Option<f64> {
+        raw.get(at..at + 8)
+            .map(|b| f64::from_le_bytes(b.try_into().unwrap_or_default()))
+    }
+    #[allow(clippy::cast_possible_truncation)] // Altium coordinates fit in i32
+    fn contour_matches(raw: &[u8], at: &mut usize, vertices: &[Vertex]) -> bool {
+        if u32_at(raw, *at).map(|c| c as usize) != Some(vertices.len()) {
+            return false;
+        }
+        *at += 4;
+        for vertex in vertices {
+            let (Some(x), Some(y)) = (f64_at(raw, *at), f64_at(raw, *at + 8)) else {
+                return false;
+            };
+            if x.round() as i32 != from_mm(vertex.x) || y.round() as i32 != from_mm(vertex.y) {
+                return false;
+            }
+            *at += 16;
+        }
+        true
+    }
+
+    let mut at = 0;
+    contour_matches(raw, &mut at, &region.vertices)
+        && region
+            .holes
+            .iter()
+            .all(|hole| contour_matches(raw, &mut at, hole))
+        && at == raw.len()
 }
 
 /// Encodes a Fill primitive (filled rectangle).

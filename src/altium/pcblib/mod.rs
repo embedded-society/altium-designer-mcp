@@ -1721,6 +1721,59 @@ mod tests {
     }
 
     #[test]
+    fn region_replays_altium_fractional_contour_bytes() {
+        // Altium writes a vertex as a double in internal units, and a poured
+        // polygon's copper lands on fractional ones (`manual/subpoly.PcbLib`).
+        // The bytes as read are replayed while they still describe the typed
+        // vertices, and dropped as soon as one moves.
+        use super::{Region, Vertex};
+
+        let authored: [(f64, f64); 3] = [(1000.4, 2000.6), (3000.5, 4000.25), (5000.75, 6000.125)];
+        let mut raw = Vec::new();
+        raw.extend_from_slice(&3u32.to_le_bytes());
+        for (x, y) in authored {
+            raw.extend_from_slice(&x.to_le_bytes());
+            raw.extend_from_slice(&y.to_le_bytes());
+        }
+
+        #[allow(clippy::cast_possible_truncation)] // the test's own whole coordinates
+        let mut region = Region {
+            layer: Layer::TopLayer,
+            raw_contours: Some(raw.clone()),
+            vertices: authored
+                .iter()
+                .map(|&(x, y)| Vertex {
+                    x: units::to_mm(x.round() as i32),
+                    y: units::to_mm(y.round() as i32),
+                })
+                .collect(),
+            ..Region::default()
+        };
+        let mut footprint = Footprint::new("REGION_RAW_CONTOURS");
+        footprint.regions.push(region.clone());
+        let replayed = writer::encode_data_stream(&footprint).expect("encode");
+        assert!(
+            replayed.windows(raw.len()).any(|w| w == raw),
+            "Altium's own contour bytes are written back"
+        );
+
+        // Moving one vertex invalidates the bytes: the typed vertices are
+        // encoded instead, on whole internal units.
+        region.vertices[0].x = units::to_mm(1234);
+        let mut edited = Footprint::new("REGION_RAW_CONTOURS");
+        edited.regions.push(region);
+        let written = writer::encode_data_stream(&edited).expect("encode");
+        assert!(
+            !written.windows(raw.len()).any(|w| w == raw),
+            "an edited outline drops the replay"
+        );
+        assert!(
+            written.windows(8).any(|w| w == 1234_f64.to_le_bytes()),
+            "the moved vertex is written on whole internal units"
+        );
+    }
+
+    #[test]
     fn binary_roundtrip_via_polygon_connect() {
         // A from-scratch via with an override gains the 30-byte entry at @308
         // and a count of 1 @300; its drill-pair byte moves to @342 with it.

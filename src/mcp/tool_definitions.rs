@@ -514,6 +514,7 @@ impl McpServer {
                             "sub_poly_index": { "type": "integer", "minimum": -1, "description": "Altium SUBPOLYINDEX; -1 when not a polygon sub-shape. Preserved on a read-modify-write. Default: -1" },
                             "union_index": { "type": "integer", "minimum": 0, "description": "Altium UNIONINDEX for grouped primitives. Preserved on a read-modify-write. Default: 0" },
                             "is_shape_based": { "type": "boolean", "description": "Altium ISSHAPEBASED. Preserved on a read-modify-write. Default: false" },
+                            "raw_contours": { "type": "string", "description": "Base64 of the region's contour bytes exactly as read_pcblib emitted them (outline and hole vertices). Altium stores a vertex as a double in internal units and a poured polygon's copper sits on fractional ones, so the bytes are replayed while they still describe the vertices above; an edited outline drops them. Pass back unchanged; omit when authoring." },
                             "holes": {
                                 "type": "array",
                                 "description": "Interior hole/cutout contours (optional). Each hole is an array of {x,y} vertices subtracted from the outline.",

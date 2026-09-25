@@ -1336,9 +1336,16 @@ pub(super) fn parse_region(data: &[u8], offset: usize) -> ParseResult<Region> {
         .and_then(|v| v.parse::<u16>().ok())
         .unwrap_or(net_index);
 
+    // The contour bytes as read, replayed when they still describe the typed
+    // vertices: Altium's own can carry fractional internal units.
+    let raw_contours = props_block
+        .get(vertex_offset..next_offset)
+        .map(<[u8]>::to_vec);
+
     let region = Region {
         vertices,
         holes,
+        raw_contours,
         layer,
         v7_layer,
         flags,

@@ -235,6 +235,22 @@ the names and descriptions were made generic with this crate's writer.
 
 **To rebuild them:** they cannot be regenerated; recover them from git history.
 
+### `manual/subpoly.PcbLib`
+
+One footprint with the two copper regions a polygon pour splits into, each carrying the
+sub-polygon index Altium gave it (`SUBPOLYINDEX=0` and `=1`). Made in the AD24 UI
+(2026-09-25): the library editor has no polygon pour and `IPCB_Region` has no
+`SubPolyIndex` for a script, so the only route is to pour in a PCB document and paste the
+result into a library. Its vertices also sit on fractional internal units, which is what
+`raw_contours` replays. `samples_manual_subpoly_index` pins the indices and
+`manual_pcblibs_survive_a_round_trip` the byte-identical rewrite.
+
+**To rebuild it:** File → New → PCB; place a Top-layer track ~400 mil long; Place →
+Polygon Pour with **Solid (Copper Regions)**, **No Net** and **Remove Dead Copper** off,
+drawn as a ~600 × 300 mil rectangle the track crosses end to end; select the polygon,
+Ctrl+C with a reference click; File → New → Library → PCB Library and Ctrl+V; save ONCE
+as `subpoly.PcbLib`, and do not save the PCB document.
+
 ### `manual/cavity.PcbLib`
 
 One footprint, `CAVITY`: a cavity region whose cavity height is 12 mil, which Altium saves

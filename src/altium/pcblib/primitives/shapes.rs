@@ -368,6 +368,19 @@ pub struct Region {
     /// Whether the region is shape-based — the `ISSHAPEBASED` param. `false` from scratch.
     #[serde(default)]
     pub is_shape_based: bool,
+    /// The contour section exactly as read (base64 in JSON): the outline's
+    /// count and vertices followed by each hole's. Altium writes a vertex as
+    /// a double in internal units and a poured polygon's copper lands on
+    /// fractional ones, which the typed vertices round to whole units, so the
+    /// bytes are replayed whenever they still describe
+    /// [`Self::vertices`] and [`Self::holes`]. `None` (from scratch, or after
+    /// an edit) writes the typed vertices instead.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::altium::base64_opt"
+    )]
+    pub raw_contours: Option<Vec<u8>>,
     /// Unique ID assigned by Altium (8-character alphanumeric string).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unique_id: Option<String>,
@@ -468,6 +481,7 @@ impl Default for Region {
             sub_poly_index: default_region_sub_poly_index(),
             union_index: 0,
             is_shape_based: false,
+            raw_contours: None,
             unique_id: None,
             guid: None,
             additional_parameters: Vec::new(),
