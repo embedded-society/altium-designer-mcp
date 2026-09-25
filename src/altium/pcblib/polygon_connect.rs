@@ -163,3 +163,25 @@ pub fn write(
 fn set_count(record: &mut [u8], layout: &Layout, count: i32) {
     record[layout.count_at..layout.count_at + 4].copy_from_slice(&count.to_le_bytes());
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{read, ENTRY_LEN, PAD, PAD_ENTRY_TEMPLATE};
+
+    /// A counted entry whose present byte is clear is no override — the
+    /// bytes still ride in the record as read, and a rewrite replays them.
+    #[test]
+    fn an_entry_that_is_not_present_reads_as_none() {
+        let mut record = vec![0u8; PAD.entries_at + ENTRY_LEN];
+        record[PAD.count_at..PAD.count_at + 4].copy_from_slice(&1_i32.to_le_bytes());
+        record[PAD.size_at..PAD.size_at + 4].copy_from_slice(&30_i32.to_le_bytes());
+        record[PAD.entries_at..].copy_from_slice(&PAD_ENTRY_TEMPLATE);
+        assert!(
+            read(&record, &PAD).is_some(),
+            "the template entry is present"
+        );
+
+        record[PAD.entries_at + 4] = 0;
+        assert_eq!(read(&record, &PAD), None);
+    }
+}

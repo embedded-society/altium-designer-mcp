@@ -58,6 +58,17 @@ async fn send(
     headers: &[(&str, &str)],
     body: &str,
 ) -> Reply {
+    send_bytes(addr, method, path, headers, body.as_bytes()).await
+}
+
+/// As [`send`], with a body that need not be text.
+async fn send_bytes(
+    addr: SocketAddr,
+    method: &str,
+    path: &str,
+    headers: &[(&str, &str)],
+    body: &[u8],
+) -> Reply {
     let mut stream = TcpStream::connect(addr).await.expect("connect");
     let mut request = format!(
         "{method} {path} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\nContent-Length: {}\r\n",
@@ -74,7 +85,7 @@ async fn send(
         .write_all(request.as_bytes())
         .await
         .expect("write head");
-    stream.write_all(body.as_bytes()).await.expect("write body");
+    stream.write_all(body).await.expect("write body");
     let mut raw = Vec::new();
     stream.read_to_end(&mut raw).await.expect("read");
     let text = String::from_utf8_lossy(&raw).into_owned();
@@ -395,4 +406,45 @@ async fn a_foreign_browser_origin_is_refused() {
         .status,
         200
     );
+}
+
+/// A body that is not UTF-8 is refused before it is parsed: the transport
+/// answers 400 rather than letting the bytes reach the JSON reader.
+#[tokio::test]
+async fn a_body_that_is_not_utf8_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let addr = start(None, &[], RateLimiter::unlimited(), dir.path()).await;
+
+    let reply = send_bytes(
+        addr,
+        "POST",
+        "/mcp",
+        &[
+            ("Content-Type", "application/json"),
+            ("Accept", "application/json"),
+        ],
+        &[b'{', 0xff, 0xfe, b'}'],
+    )
+    .await;
+    assert_eq!(reply.status, 400);
+    assert!(reply.body.contains("UTF-8"), "{}", reply.body);
+}
+
+/// `serve` refuses options that would expose the server before it binds
+/// anything: a non-loopback address without a bearer token.
+#[tokio::test]
+async fn serve_refuses_options_that_would_expose_the_server() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let factory: ServerFactory = Arc::new(move || McpServer::new(vec![root.clone()]));
+    let options = HttpOptions {
+        addr: "0.0.0.0:0".parse().expect("addr"),
+        token: None,
+        allowed_origins: Vec::new(),
+    };
+
+    let error = http::serve(options, factory)
+        .await
+        .expect_err("a non-loopback address without a token is refused");
+    assert!(error.to_string().contains("beyond this machine"), "{error}");
 }

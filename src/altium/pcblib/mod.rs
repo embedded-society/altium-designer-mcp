@@ -1771,6 +1771,25 @@ mod tests {
             written.windows(8).any(|w| w == 1234_f64.to_le_bytes()),
             "the moved vertex is written on whole internal units"
         );
+
+        // Bytes that do not describe the vertices at all — a contour of another
+        // length, or one cut short — are dropped just as an edit drops them.
+        let wrong_count = {
+            let mut bytes = raw.clone();
+            bytes[..4].copy_from_slice(&9_u32.to_le_bytes());
+            bytes
+        };
+        for broken in [raw[..raw.len() - 4].to_vec(), wrong_count] {
+            let mut region = footprint.regions[0].clone();
+            region.raw_contours = Some(broken.clone());
+            let mut one = Footprint::new("REGION_RAW_CONTOURS");
+            one.regions.push(region);
+            let written = writer::encode_data_stream(&one).expect("encode");
+            assert!(
+                !written.windows(broken.len()).any(|w| w == broken),
+                "bytes that do not describe the vertices are not replayed"
+            );
+        }
     }
 
     #[test]
