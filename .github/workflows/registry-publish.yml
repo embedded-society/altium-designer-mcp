@@ -96,7 +96,18 @@ jobs:
               run: |
                 set -euo pipefail
                 VERSION="${TAG#v}"
-                LISTING="$(curl -sSf "https://registry.modelcontextprotocol.io/v0/servers?search=altium-designer-mcp")"
-                echo "$LISTING" | grep -q "\"version\":\"${VERSION}\"" \
-                    || { echo "Error: version ${VERSION} not found in the registry listing"; echo "$LISTING"; exit 1; }
-                echo "Registry lists io.github.embedded-society/altium-designer-mcp ${VERSION}."
+                # The registry's search lags a publish by a second or more, so poll for up
+                # to two minutes before calling the version missing.
+                LISTING=""
+                for attempt in $(seq 1 12); do
+                    LISTING="$(curl -sSf "https://registry.modelcontextprotocol.io/v0/servers?search=altium-designer-mcp")" || LISTING=""
+                    if echo "$LISTING" | grep -q "\"version\":\"${VERSION}\""; then
+                        echo "Registry lists io.github.embedded-society/altium-designer-mcp ${VERSION}."
+                        exit 0
+                    fi
+                    echo "Attempt ${attempt}: ${VERSION} not listed yet; retrying in 10 s."
+                    sleep 10
+                done
+                echo "Error: version ${VERSION} not found in the registry listing after two minutes"
+                echo "$LISTING"
+                exit 1
