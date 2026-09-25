@@ -2032,6 +2032,10 @@ impl McpServer {
         Ok(Region {
             vertices,
             holes,
+            // The contour bytes a read emitted, replayed when they still
+            // describe the vertices above (Altium's own can carry fractional
+            // internal units); an edited outline drops them.
+            raw_contours: json_base64(json, "raw_contours"),
             layer,
             // Derived from `layer` unless a read supplied a divergent token
             // (a board cutout); the tool schema does not expose it.
@@ -4385,6 +4389,17 @@ mod tests {
         );
         assert_eq!(super::json_base64(&json!({ "raw": "!!!" }), "raw"), None);
         assert_eq!(super::json_base64(&json!({}), "raw"), None);
+    }
+
+    #[test]
+    fn parse_region_preserves_raw_contours() {
+        let region = McpServer::parse_region(&json!({
+            "vertices": [{"x": 0.0, "y": 0.0}, {"x": 1.0, "y": 0.0}, {"x": 1.0, "y": 1.0}],
+            "layer": "Top Layer",
+            "raw_contours": "AAECAwQ=",
+        }))
+        .expect("region should parse");
+        assert_eq!(region.raw_contours.as_deref(), Some(&[0u8, 1, 2, 3, 4][..]));
     }
 
     #[test]

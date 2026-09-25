@@ -858,6 +858,13 @@ as an invalid record type, silently dropping every primitive after the region.
 | +4 | 16×N | Outline vertices: N × (f64 X, f64 Y) in internal units |
 | ... | var | Hole contours: hole_count × `[u32 count][count × (f64 X, f64 Y)]` |
 
+A vertex is a **double**, and Altium does not keep it whole: the copper a polygon pour
+leaves behind sits on fractional internal units (`manual/subpoly.PcbLib`). The typed
+vertices are millimetres rounded to whole units, so the contour section as read is kept
+as the region's `raw_contours` and replayed whenever it still describes them; an edited
+outline drops it and the vertices are written on whole units, as Altium's own editor
+writes a drawn region.
+
 **Parameter string** — canonical key order (no leading pipe, `|`-separated):
 
 ```text
