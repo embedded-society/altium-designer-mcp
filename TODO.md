@@ -63,10 +63,6 @@ record). The specialised worklists stay the single source of truth for their are
 - [ ] **Waiting on others.**
     - #67: if bingran names their AI client, answer with its section of
       `docs/CLIENT_SETUP.md`.
-- [ ] **Golden-fixture enrichment backlog**, detailed with its procedure in
-      `scripts/samples/COVERAGE.md` § Remaining enrichment backlog:
-    - A region with a non-default `SUBPOLYINDEX`: no script can set it (`SubPolyIndex`
-      is undeclared on `IPCB_Region` in AD24), and a UI route is untried.
 
 ## E. v2.0 candidates (breaking)
 

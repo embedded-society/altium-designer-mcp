@@ -14,11 +14,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 The first feature release since 1.0.0. The server now speaks MCP over HTTP as well as
 stdio, negotiates the protocol version a client asks for, and reads and writes a library
 authored on a non-Western Windows in that machine's code page. Pads and vias carry their
-own polygon-connect style, and the Windows binary carries a version resource. Seven new
+own polygon-connect style, and the Windows binary carries a version resource. Eight new
 golden fixtures pin format questions only Altium itself could answer.
 
 ### Fixed
 
+- **A region keeps the vertices Altium wrote.** Altium stores a region vertex as a
+  double in internal units, and the copper a polygon pour leaves behind sits on
+  fractional ones; the reader rounded each to a whole unit, so a rewrite moved such a
+  vertex by a few nanometres and the file was no longer byte-identical. The contour
+  bytes as read are now replayed while they still describe the region's vertices
+  (`raw_contours`), and an edited outline is written on whole units as before.
 - **An older Altium's 351-byte vias read their drill-pair type.** Such a via holds a
   30-byte polygon-connect entry at @308, which moves the drill-pair byte from @312 to
   @342; the reader took the entry's first flag for it, so a through via read as
@@ -84,6 +90,10 @@ golden fixtures pin format questions only Altium itself could answer.
   `IntegratedModel`/`DatabaseModel`), records copied from the maintainer's own Altium
   library; and `cavity.PcbLib`, a region cavity height scripted by
   `scripts/altium/probe/CavityProbe.pas`.
+- **`scripts/samples/manual/subpoly.PcbLib`**, the two copper regions a polygon pour
+  splits into, pasted into a library from a PCB document: the only route to a
+  non-default `SUBPOLYINDEX`, since the library editor has no polygon pour and
+  `IPCB_Region` carries no `SubPolyIndex` for a script.
 - **`scripts/samples/manual/wide.PcbLib`**, text and body identifiers beyond U+00FF and
   beyond the BMP, scripted in Altium Designer 24 by `scripts/altium/probe/WideProbe.pas`
   with character literals, which the script engine keeps as UTF-16 where a string

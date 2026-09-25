@@ -2915,3 +2915,30 @@ fn samples_manual_cavity_height() {
     assert_eq!(region.kind, RegionKind::Cavity);
     assert!(approx_eq(region.cavity_height, 12.0 * 0.0254, 1e-6));
 }
+
+/// `manual/subpoly.PcbLib` (AD24 UI, 2026-09-25): the two copper regions a
+/// polygon pour splits into, poured in a PCB document and pasted into a
+/// library. Each keeps the sub-polygon index Altium gave its piece
+/// (`SUBPOLYINDEX=0` and `=1`) — the only route to a non-default value, since
+/// the library editor has no polygon pour and `IPCB_Region` carries no
+/// `SubPolyIndex` for a script (`scripts/altium/probe/CavityProbe.pas`).
+#[test]
+fn samples_manual_subpoly_index() {
+    let lib = PcbLib::open(sample("manual/subpoly.PcbLib")).expect("open manual/subpoly.PcbLib");
+    let fp = lib.get("PCBComponent_1").expect("footprint PCBComponent_1");
+    assert_eq!(fp.regions.len(), 2, "the pour split into two regions");
+
+    let mut indices: Vec<i32> = fp.regions.iter().map(|r| r.sub_poly_index).collect();
+    indices.sort_unstable();
+    assert_eq!(
+        indices,
+        vec![0, 1],
+        "each piece keeps its sub-polygon index"
+    );
+    for region in &fp.regions {
+        assert_eq!(region.kind, RegionKind::Copper);
+        assert_eq!(region.layer, Layer::TopLayer);
+        assert_eq!(region.vertices.len(), 4);
+        assert_eq!(region.union_index, 0);
+    }
+}
