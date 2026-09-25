@@ -16,10 +16,9 @@
 # held to it by .github/scripts/check-toolchain-pin.sh.
 FROM rust:1.95.0-slim-bookworm AS builder
 
-# git + CA certificates: Cargo.toml patches `cfb` to a git revision, which
-# cargo fetches over HTTPS.
+# CA certificates: cargo downloads every dependency from crates.io over HTTPS.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git ca-certificates \
+    && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
