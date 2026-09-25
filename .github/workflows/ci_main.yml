@@ -103,7 +103,10 @@ jobs:
     build:
         name: Build (${{ matrix.os }})
         needs: quick-checks
-        timeout-minutes: 20
+        # The Rust cache is keyed on Cargo.toml, so a version bump starts cold, and
+        # Windows then spends ~12 min building and testing plus ~8 min saving the new
+        # cache — 20 min was too tight for every release commit.
+        timeout-minutes: 30
 
         strategy:
             fail-fast: false
