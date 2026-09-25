@@ -502,6 +502,32 @@ without modifying files:
 
 ## Notes
 
+### Libraries from a Non-Western Windows
+
+Altium stores most names as plain bytes in the Windows code page of the machine that wrote
+them, with no record of which page that was. A library authored on a Chinese, Japanese,
+Korean, Central European, Cyrillic, Greek, Turkish, Baltic, Hebrew, Arabic, Vietnamese or
+Thai Windows therefore reads as mojibake (`£¨0402` for `（0402`) in a tool that assumes
+Windows-1252.
+
+This server works out the library's code page from the footprints whose real name is
+recorded twice — once as those bytes, once in Unicode — reads every name through it, and
+writes it back unchanged, so a rewrite stays byte-identical. Nothing needs configuring to
+read or edit such a library.
+
+Two cases are worth knowing:
+
+- **A name your Altium must display.** Altium Designer 21 and earlier show a footprint's
+  name from those bytes, decoded through the code page of the machine they run on, and
+  never read the Unicode copy. A new or renamed footprint is therefore written in the
+  server's own code page — the system's on Windows. When the server runs on a machine with
+  a different locale from the Altium that opens the libraries, name that page with
+  `ansi_code_page` in the configuration file or `--ansi-code-page` on the command line
+  (874, 932, 936, 949, 950, 1250 to 1258, or 65001).
+- **A character the page cannot hold.** Altium writes `?` in its place, and so does this
+  server; the full name is still preserved in the component parameters, as Altium preserves
+  it, and comes back intact on the next read.
+
 ### Long Component Names
 
 Component names longer than 31 characters are supported. The OLE Compound File format limits
