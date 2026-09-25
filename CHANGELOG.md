@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-25
+
+The first feature release since 1.0.0. The server now speaks MCP over HTTP as well as
+stdio, negotiates the protocol version a client asks for, and reads and writes a library
+authored on a non-Western Windows in that machine's code page. Pads and vias carry their
+own polygon-connect style, and the Windows binary carries a version resource. Eight new
+golden fixtures pin format questions only Altium itself could answer.
+
 ### Fixed
 
 - **A region keeps the vertices Altium wrote.** Altium stores a region vertex as a
@@ -49,39 +57,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`scripts/samples/manual/subpoly.PcbLib`**, the two copper regions a polygon pour
-  splits into, pasted into a library from a PCB document: the only route to a
-  non-default `SUBPOLYINDEX`, since the library editor has no polygon pour and
-  `IPCB_Region` carries no `SubPolyIndex` for a script.
-- **`scripts/samples/manual/footprint_link.SchLib`**, a footprint link added in the Altium
-  Designer 24 UI. It corrects the format documentation: that route writes no
-  `IntegratedModel`/`DatabaseModel` flags, which one corpus link carries from a source
-  still unknown, and it stores the dialog's status line as the link's description.
-- **A pad's or via's own polygon-connect style (`polygon_connect`).** Altium Designer 24
-  sets it under Pad Stack → Thermal Relief: relief, direct or no connection, air gap,
-  conductor width, 2, 4 or Auto conductors with an optional minimum distance, and a 45°
-  or 90° angle. `read_pcblib` reports it and `write_pcblib` writes, changes or removes it.
-  The layout was decoded from `scripts/samples/manual/thermal_relief.PcbLib`, a new
-  fixture made in the AD24 UI; a via keeps the same entry, as an older Altium's
-  351-byte vias show.
-- **Fixtures for evidence AD24's scripting cannot produce**:
-  `scripts/samples/manual/plane_and_via.PcbLib` (Direct and No Connect power-plane pads,
-  351-byte vias) and `intlib_link.SchLib` (a footprint link carrying
-  `IntegratedModel`/`DatabaseModel`), records copied from the maintainer's own Altium
-  library; and `cavity.PcbLib`, a region cavity height scripted by
-  `scripts/altium/probe/CavityProbe.pas`.
-- **`scripts/samples/manual/wide.PcbLib`**, text and body identifiers beyond U+00FF and
-  beyond the BMP, scripted in Altium Designer 24 by `scripts/altium/probe/WideProbe.pas`
-  with character literals, which the script engine keeps as UTF-16 where a string
-  literal is widened; it round-trips byte-identically.
-- **`scripts/altium/probe/NetProbe.pas`**, the evidence that a library region cannot carry
-  a net: Altium accepts one in memory, but the saved region has no `NET` key and no net
-  index, so the coverage row is marked structurally absent rather than untested.
-- **`scripts/samples/manual/region_hole.PcbLib`**, a footprint whose copper region has a hole,
-  scripted in Altium Designer 24 by the committed `scripts/altium/probe/RegionHoleProbe.pas`
-  through `GeometricPolygon.AddContourIsHole`, with a test that pins the outline and the hole;
-  it round-trips byte-identically. `scripts/Watch-AltiumDialog.ps1` takes `-ResponseFile` so a
-  probe can be watched on its own response file.
 - **The MCP Streamable HTTP transport** (`--http <ADDR>`), for clients that connect to a
   URL rather than starting the server themselves. One endpoint, `/mcp`: `POST` for
   messages, answered as JSON; `DELETE` to end a session; `GET` answered 405, as the server
@@ -89,15 +64,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ALTIUM_DESIGNER_MCP_HTTP_TOKEN`, refuses browser origins that are neither local nor
   listed with `--http-allow-origin`, caps bodies at 32 MiB, handles one message at a time,
   and shares one rate limiter across sessions. A refused request's body (up to 64 KiB) is
-  read before the refusal is sent, so the client sees the status rather than a reset. OAuth, which claude.ai in the browser and
-  ChatGPT require, is not implemented yet.
+  read before the refusal is sent, so the client sees the status rather than a reset.
+  OAuth, which claude.ai in the browser and ChatGPT require, is not implemented yet.
 - **MCP protocol versions 2025-06-18 and 2025-03-26** alongside 2024-11-05: `initialize`
   answers with the version the client asks for when the server speaks it.
+- **A pad's or via's own polygon-connect style (`polygon_connect`).** Altium Designer 24
+  sets it under Pad Stack → Thermal Relief: relief, direct or no connection, air gap,
+  conductor width, 2, 4 or Auto conductors with an optional minimum distance, and a 45°
+  or 90° angle. `read_pcblib` reports it and `write_pcblib` writes, changes or removes it.
+  The layout was decoded from `scripts/samples/manual/thermal_relief.PcbLib`, a new
+  fixture made in the AD24 UI; a via keeps the same entry, as an older Altium's
+  351-byte vias show.
 - **A Windows version resource on the binary**: product name, version, company and
   copyright, from `Cargo.toml` via `build.rs`, shown under Properties → Details and
   checked by the release build — the metadata code signing through SignPath Foundation
   requires. With it, **`docs/CODE_SIGNING_POLICY.md`**, the policy page their terms ask
   for, linked from the README and every release's notes.
+- **`scripts/samples/manual/footprint_link.SchLib`**, a footprint link added in the Altium
+  Designer 24 UI. It corrects the format documentation: that route writes no
+  `IntegratedModel`/`DatabaseModel` flags — those come with a component taken from an
+  integrated library — and it stores the dialog's status line as the link's description.
+- **Fixtures for evidence AD24's scripting cannot produce**:
+  `scripts/samples/manual/plane_and_via.PcbLib` (Direct and No Connect power-plane pads,
+  351-byte vias) and `intlib_link.SchLib` (a footprint link carrying
+  `IntegratedModel`/`DatabaseModel`), records copied from the maintainer's own Altium
+  library; and `cavity.PcbLib`, a region cavity height scripted by
+  `scripts/altium/probe/CavityProbe.pas`.
+- **`scripts/samples/manual/subpoly.PcbLib`**, the two copper regions a polygon pour
+  splits into, pasted into a library from a PCB document: the only route to a
+  non-default `SUBPOLYINDEX`, since the library editor has no polygon pour and
+  `IPCB_Region` carries no `SubPolyIndex` for a script.
+- **`scripts/samples/manual/wide.PcbLib`**, text and body identifiers beyond U+00FF and
+  beyond the BMP, scripted in Altium Designer 24 by `scripts/altium/probe/WideProbe.pas`
+  with character literals, which the script engine keeps as UTF-16 where a string
+  literal is widened; it round-trips byte-identically.
+- **`scripts/samples/manual/region_hole.PcbLib`**, a footprint whose copper region has a hole,
+  scripted in Altium Designer 24 by the committed `scripts/altium/probe/RegionHoleProbe.pas`
+  through `GeometricPolygon.AddContourIsHole`, with a test that pins the outline and the hole;
+  it round-trips byte-identically. `scripts/Watch-AltiumDialog.ps1` takes `-ResponseFile` so a
+  probe can be watched on its own response file.
+- **`scripts/altium/probe/NetProbe.pas`**, the evidence that a library region cannot carry
+  a net: Altium accepts one in memory, but the saved region has no `NET` key and no net
+  index, so the coverage row is marked structurally absent rather than untested.
 
 ## [1.0.5] - 2026-09-18
 
