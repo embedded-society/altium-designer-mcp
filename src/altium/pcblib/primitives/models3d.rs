@@ -44,6 +44,12 @@ pub struct EmbeddedModel {
     /// Compressed size in bytes (for reference).
     #[serde(skip)]
     pub compressed_size: usize,
+
+    /// The model's record in the `/Library/Models/Data` index, keys in the
+    /// order read, so a rewrite replays what Altium wrote. Empty for a model
+    /// added by this crate, which gets the index template instead.
+    #[serde(skip)]
+    pub index_params: Vec<(String, String)>,
 }
 
 impl EmbeddedModel {
@@ -55,6 +61,7 @@ impl EmbeddedModel {
             name: name.into(),
             compressed_size: 0,
             data,
+            index_params: Vec::new(),
         }
     }
 

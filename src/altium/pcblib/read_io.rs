@@ -507,9 +507,9 @@ impl PcbLib {
 
         // Read Data stream to get GUID-to-index mapping
         let data_path = models_storage.join("Data");
-        let model_index = crate::altium::read_stream_opt(cfb, &data_path)
-            .map(|data| reader::parse_model_data_stream(&data))
-            .unwrap_or_default();
+        let index_data = crate::altium::read_stream_opt(cfb, &data_path).unwrap_or_default();
+        let model_index = reader::parse_model_data_stream(&index_data);
+        let mut index_records = reader::parse_model_index_records(&index_data);
 
         if model_index.is_empty() {
             tracing::debug!("No model index found in /Library/Models/Data");
@@ -551,7 +551,10 @@ impl PcbLib {
             // Don't break early - indices might not be sequential
         }
 
-        let models = reader::parse_embedded_models(&model_index, &model_data);
+        let mut models = reader::parse_embedded_models(&model_index, &model_data);
+        for model in &mut models {
+            model.index_params = index_records.remove(&model.id).unwrap_or_default();
+        }
         tracing::debug!(count = models.len(), "Parsed embedded 3D models");
         models
     }

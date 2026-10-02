@@ -2521,22 +2521,95 @@ pub fn encode_model_header_stream(model_count: usize) -> Vec<u8> {
 /// - `DZ=0` - Z offset
 /// - `CHECKSUM={value}` - Model checksum
 /// - `NAME=filename.step` - The model filename
-#[allow(clippy::cast_possible_truncation)] // Record lengths are always small enough for u32
-pub fn encode_model_data_stream(models: &[EmbeddedModel]) -> Vec<u8> {
+///
+/// Each record is the model's own as read ([`EmbeddedModel::index_params`]),
+/// or the template for a model added here. Altium mirrors the placement of
+/// the body that references the model into it — `EMBED`, `ROTX`/`ROTY`/
+/// `ROTZ` (`%.3f`), `DZ` (whole internal units) and `CHECKSUM` (the body's,
+/// as a signed 32-bit integer) — so those follow the first referencing body
+/// in `footprints`. A value is rewritten only when it no longer means the
+/// body's, so a record read back unchanged keeps Altium's exact text.
+pub fn encode_model_data_stream(models: &[EmbeddedModel], footprints: &[Footprint]) -> Vec<u8> {
     let mut output = Vec::new();
 
     for model in models {
-        // Pipe-delimited parameters, NO leading pipe (matches AltiumSharp's
-        // string.Join and every BODY_3D golden, whose record starts at EMBED=).
-        let record = format!(
-            "EMBED=TRUE|MODELSOURCE=Undefined|ID={}|ROTX=0.000|ROTY=0.000|ROTZ=0.000|DZ=0|CHECKSUM=0|NAME={}",
-            model.id, model.name
-        );
+        let body = footprints
+            .iter()
+            .flat_map(|fp| &fp.component_bodies)
+            .find(|b| b.model_id.eq_ignore_ascii_case(&model.id));
+        let record = model_index_record(model, body);
         // C-string parameter block (length includes the null terminator).
         write_cstring_param_block(&mut output, record.as_bytes());
     }
 
     output
+}
+
+/// One `/Library/Models/Data` record: pipe-delimited, NO leading pipe (every
+/// Altium-written record starts at `EMBED=`). See [`encode_model_data_stream`].
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss
+)] // the index holds the checksum as 32 signed bits
+fn model_index_record(model: &EmbeddedModel, body: Option<&ComponentBody>) -> String {
+    let mut params: Vec<(String, String)> = if model.index_params.is_empty() {
+        [
+            ("EMBED", "TRUE"),
+            ("MODELSOURCE", "Undefined"),
+            ("ID", ""),
+            ("ROTX", "0.000"),
+            ("ROTY", "0.000"),
+            ("ROTZ", "0.000"),
+            ("DZ", "0"),
+            ("CHECKSUM", "0"),
+            ("NAME", ""),
+        ]
+        .iter()
+        .map(|&(k, v)| (k.to_string(), v.to_string()))
+        .collect()
+    } else {
+        model.index_params.clone()
+    };
+
+    // Sets `key` to `value` unless the current value already means the same.
+    let mut set = |key: &str, value: String, same: &dyn Fn(&str) -> bool| match params
+        .iter_mut()
+        .find(|(k, _)| k == key)
+    {
+        Some((_, current)) if same(current) => {}
+        Some((_, current)) => *current = value,
+        None => params.push((key.to_string(), value)),
+    };
+    set("ID", model.id.clone(), &|v| v == model.id);
+    set("NAME", model.name.clone(), &|v| v == model.name);
+    if let Some(body) = body {
+        let flag = if body.embedded { "TRUE" } else { "FALSE" };
+        set("EMBED", flag.to_string(), &|v| v.eq_ignore_ascii_case(flag));
+        for (key, degrees) in [
+            ("ROTX", body.rotation_x),
+            ("ROTY", body.rotation_y),
+            ("ROTZ", body.rotation_z),
+        ] {
+            set(key, format!("{degrees:.3}"), &|v| {
+                v.parse::<f64>().is_ok_and(|r| (r - degrees).abs() < 0.0005)
+            });
+        }
+        let dz = from_mm(body.z_offset);
+        set("DZ", dz.to_string(), &|v| {
+            v.parse::<i64>() == Ok(i64::from(dz))
+        });
+        let checksum = body.model_checksum as u32 as i32;
+        set("CHECKSUM", checksum.to_string(), &|v| {
+            v.parse::<i64>().is_ok_and(|c| c as u32 as i32 == checksum)
+        });
+    }
+
+    params
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join("|")
 }
 
 /// Prepares models for writing by compressing and indexing them.
@@ -4408,7 +4481,7 @@ mod tests {
             EmbeddedModel::new("{GUID-2}", "model2.step", vec![]),
         ];
 
-        let data = encode_model_data_stream(&models);
+        let data = encode_model_data_stream(&models, &[]);
 
         // Verify we can parse it back with our reader
         let parsed = super::super::reader::parse_model_data_stream(&data);
@@ -4428,7 +4501,7 @@ mod tests {
     #[test]
     fn test_encode_model_data_stream_empty() {
         let models: Vec<EmbeddedModel> = vec![];
-        let data = encode_model_data_stream(&models);
+        let data = encode_model_data_stream(&models, &[]);
         assert!(data.is_empty());
     }
 

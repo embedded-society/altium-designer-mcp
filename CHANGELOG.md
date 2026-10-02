@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A rewrite keeps the embedded-model index Altium wrote** (#555). Every write rebuilt
+  `/Library/Models/Data` from a template, so a model's rotation, Z offset and checksum
+  became zero, and a referenced (not embedded) model was marked embedded. Each record is
+  now kept as read and written back byte for byte, and its placement and checksum follow
+  the body that references the model, as Altium writes them. The round-trip tests now
+  compare the index, which they had skipped along with the compressed models.
+
 ## [1.1.0] - 2026-09-25
 
 The first feature release since 1.0.0. The server now speaks MCP over HTTP as well as
