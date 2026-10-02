@@ -335,7 +335,7 @@ impl PcbLib {
         crate::altium::write_stream(cfb, "/Library/Models/Header", &header_data)?;
 
         // Write Data stream (GUID-to-index mapping)
-        let data_content = writer::encode_model_data_stream(&self.models);
+        let data_content = writer::encode_model_data_stream(&self.models, &self.footprints);
         crate::altium::write_stream(cfb, "/Library/Models/Data", &data_content)?;
 
         // Write individual model streams (compressed)

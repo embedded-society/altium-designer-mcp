@@ -1078,13 +1078,19 @@ Block length includes the null terminator.
 
 | Field | Description |
 |-------|-------------|
-| `EMBED` | `TRUE` if model is embedded |
+| `EMBED` | The referencing body's `MODEL.EMBED`: `FALSE` for a referenced STEP whose bytes are stored all the same (the `STEP_REF` golden) |
 | `MODELSOURCE` | Model source (usually `Undefined`) |
 | `ID` | GUID matching `MODELID` in ComponentBody |
-| `ROTX`, `ROTY`, `ROTZ` | Rotation values (degrees) |
-| `DZ` | Z offset |
-| `CHECKSUM` | Model checksum (see below) |
+| `ROTX`, `ROTY`, `ROTZ` | The body's `MODEL.3D.ROTX/ROTY/ROTZ`, in degrees, `%.3f` |
+| `DZ` | The body's `MODEL.3D.DZ` in whole internal units (1/10000 mil: 452.7559 mil is `4527559`) |
+| `CHECKSUM` | The body's `MODEL.CHECKSUM` as a signed 32-bit integer (3253077088 is `-1041890208`); see below |
 | `NAME` | Model filename (e.g. `model.step`) |
+
+Altium mirrors the placement and checksum of the body that references a model into its record
+(#555). The reader keeps each record as read; the writer replays it and rewrites only a value
+that no longer means the first referencing body's, so an unchanged library writes its index
+back byte for byte, and a moved or re-rotated body carries its record along. A model added by
+this crate starts from the template above.
 
 The record's position (0, 1, 2, ...) corresponds to the numbered model stream index. The
 numbered streams (`/Library/Models/0`, ...) are the raw model bytes with a standard **zlib**
@@ -1093,8 +1099,9 @@ wrapper (RFC 1950: `78 9C` header + Adler-32; matches flate2 `ZlibEncoder` / .NE
 **Checksum algorithm** (`PcbModel.ComputeChecksum` in AltiumSharp): a position-weighted byte sum
 over the **uncompressed** model bytes — weight 1 for byte 0, weight `i` for byte `i` — modulo
 2^32, stored as a signed i32. `CHECKSUM=0` is explicitly tolerated by Altium, and this crate
-writes 0 rather than recomputing (the value is round-tripped verbatim on read-modify-write; a
-recomputed body checksum that disagreed with the Models/Data record would be worse than 0/0).
+writes 0 rather than recomputing for a body it builds (the body's value is round-tripped
+verbatim on read-modify-write, and the index record follows it; a recomputed checksum that
+disagreed between the two would be worse than 0/0).
 
 ## Primitive Writing Order
 

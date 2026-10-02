@@ -87,6 +87,35 @@ pub fn parse_model_data_stream(data: &[u8]) -> ModelIndex {
     index
 }
 
+/// The records of a `/Library/Models/Data` stream by model GUID, each with
+/// its keys in the order Altium wrote them — what a rewrite replays.
+#[must_use]
+pub fn parse_model_index_records(data: &[u8]) -> HashMap<String, Vec<(String, String)>> {
+    let mut records = HashMap::new();
+    let mut offset = 0usize;
+    while let Some(len_bytes) = data.get(offset..offset + 4) {
+        let len =
+            u32::from_le_bytes([len_bytes[0], len_bytes[1], len_bytes[2], len_bytes[3]]) as usize;
+        offset += 4;
+        let Some(record) = data.get(offset..offset + len).filter(|_| len > 0) else {
+            break;
+        };
+        let text = String::from_utf8(record.to_vec())
+            .unwrap_or_else(|_| record.iter().map(|&b| char::from(b)).collect());
+        let params = crate::altium::parse_pipe_params_ordered(&text);
+        if let Some((_, guid)) = params.iter().find(|(k, _)| k == "ID") {
+            if !guid.is_empty() {
+                records.insert(guid.clone(), params.clone());
+            }
+        }
+        offset += len;
+        if data.get(offset) == Some(&0) {
+            offset += 1;
+        }
+    }
+    records
+}
+
 /// Parses the `/Library/Models/Header` stream to get the model count.
 ///
 /// # Format
@@ -223,6 +252,7 @@ pub fn parse_embedded_models(
             name: (*name).clone(),
             data: decompressed,
             compressed_size: compressed.len(),
+            index_params: Vec::new(),
         };
 
         tracing::debug!(

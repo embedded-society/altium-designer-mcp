@@ -2942,3 +2942,62 @@ fn samples_manual_subpoly_index() {
         assert_eq!(region.union_index, 0);
     }
 }
+
+/// The `/Library/Models/Data` index records of an OLE library in `bytes`.
+fn model_index_records(bytes: Vec<u8>) -> Vec<String> {
+    use std::io::Read as _;
+    let mut cfb = cfb::CompoundFile::open(std::io::Cursor::new(bytes)).expect("parse OLE");
+    let mut data = Vec::new();
+    cfb.open_stream("/Library/Models/Data")
+        .expect("model index")
+        .read_to_end(&mut data)
+        .expect("read");
+    let mut records = Vec::new();
+    let mut at = 0;
+    while at + 4 <= data.len() {
+        let len = u32::from_le_bytes(data[at..at + 4].try_into().unwrap()) as usize;
+        let text = &data[at + 4..at + 4 + len];
+        records.push(String::from_utf8_lossy(text.strip_suffix(&[0]).unwrap_or(text)).into_owned());
+        at += 4 + len;
+    }
+    records
+}
+
+/// Issue #555: the model index mirrors the placement and checksum of the body
+/// that references each model, as Altium writes it. A body rotated 90° about
+/// X, raised 452.7559 mil and carrying the checksum 3253077088 must come back
+/// in the index as `ROTX=90.000`, `DZ=4527559` (whole 1/10000-mil units) and
+/// `CHECKSUM=-1041890208` (the same 32 bits, signed) — the values Altium
+/// wrote in the reporter's library — while the referenced (not embedded)
+/// model keeps `EMBED=FALSE`.
+#[test]
+fn model_index_follows_the_referencing_body() {
+    use std::io::Cursor;
+
+    let mut lib = PcbLib::open(sample("footprints.PcbLib")).expect("open footprints.PcbLib");
+    {
+        let body = &mut lib.get_mut("EMBSTEP").expect("EMBSTEP").component_bodies[0];
+        body.rotation_x = 90.0;
+        body.z_offset = 452.7559 * 0.0254;
+        body.model_checksum = 3_253_077_088;
+    }
+    let mut out = Cursor::new(Vec::new());
+    lib.write(&mut out).expect("write");
+    let records = model_index_records(out.into_inner());
+
+    let embedded = records
+        .iter()
+        .find(|r| r.contains("5228174B-CD25-4885-854E-1CAB840BFD0A"))
+        .expect("the embedded model's record");
+    assert_eq!(
+        embedded,
+        "EMBED=TRUE|MODELSOURCE=Undefined|ID={5228174B-CD25-4885-854E-1CAB840BFD0A}|\
+         ROTX=90.000|ROTY=0.000|ROTZ=0.000|DZ=4527559|CHECKSUM=-1041890208|NAME=minimal.step"
+    );
+    let referenced = records
+        .iter()
+        .find(|r| r.contains("97EDB62E-A90B-4A6C-B880-7F98CEBAADD0"))
+        .expect("the referenced model's record");
+    assert!(referenced.starts_with("EMBED=FALSE|"), "{referenced}");
+    assert!(referenced.contains("|CHECKSUM=1975055|"), "{referenced}");
+}

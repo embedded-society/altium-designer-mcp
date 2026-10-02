@@ -3202,7 +3202,7 @@ mod tests {
         // AltiumSharp and every BODY_3D golden start the record at EMBED= with no
         // leading pipe; the u32 length prefix is followed directly by 'E'.
         let models = vec![EmbeddedModel::new("{GUID}", "part.step", Vec::new())];
-        let stream = writer::encode_model_data_stream(&models);
+        let stream = writer::encode_model_data_stream(&models, &[]);
         // [u32 len][record + NUL]; first record byte (offset 4) must be 'E', not '|'.
         assert_eq!(stream[4], b'E', "Models/Data record must start at EMBED=");
         assert_ne!(

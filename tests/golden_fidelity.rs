@@ -321,6 +321,13 @@ fn pcblib_golden_survives_a_round_trip() {
         );
     }
 
+    // 2b. The embedded-model index, byte for byte: each record carries the
+    //     placement and checksum Altium mirrored from the referencing body,
+    //     and an EMBED=FALSE record for a referenced (not embedded) model.
+    if stream_bytes(&src, "/Library/Models/Data") != stream_bytes(&out, "/Library/Models/Data") {
+        failures.push("Library/Models/Data: not byte-identical".to_string());
+    }
+
     // 3. Parameter values inside each footprint's Data stream — every
     //    footprint the two files share, including the ones whose storage names
     //    differ only by authoring locale.
@@ -789,6 +796,9 @@ fn corpus_survives_a_round_trip() {
                 continue;
             };
             let component = canonical.split('/').next().unwrap_or("");
+            if canonical == "library/models/data" && g != o {
+                lines.push(format!("{canonical}: model index not byte-identical"));
+            }
             if component == "library" || is_known(canonical) {
                 continue;
             }
@@ -840,7 +850,8 @@ fn corpus_survives_a_round_trip() {
 /// byte-identical from a read -> write: each footprint's streams — the
 /// `Parameters` block Altium wrote, key order and all — the root
 /// `SectionKeys`, and `Library/Data` up to its volatile keys. The file header
-/// (a per-save unique id) and the library's model store are not compared.
+/// (a per-save unique id) and the compressed model streams are not compared;
+/// the model index (`Library/Models/Data`) is.
 #[test]
 fn manual_pcblibs_survive_a_round_trip() {
     let manual = sample("manual");
@@ -881,8 +892,14 @@ fn manual_pcblibs_survive_a_round_trip() {
                         .into_iter()
                         .filter(|d| !is_known(d)),
                 );
+            } else if canonical == "library/models/data" {
+                if g != o {
+                    failures.push(format!(
+                        "{file}: {canonical}: model index not byte-identical"
+                    ));
+                }
             } else if matches!(root, "fileheader" | "fileversioninfo" | "library") {
-                // The per-save unique id and the model store: not compared.
+                // The per-save unique id and the compressed models: not compared.
             } else if canonical.ends_with("primitiveguids/data") {
                 // Altium scrambles the record order; the identities are what
                 // matter, as in the golden test above.
