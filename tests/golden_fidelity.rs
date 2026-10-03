@@ -179,6 +179,21 @@ fn stream_map(path: &Path) -> BTreeMap<String, String> {
 }
 
 /// Reads one stream's bytes, or `None` when it is absent.
+/// Whether `canonical` is a numbered model stream (`library/models/0`, …).
+fn is_compressed_model(canonical: &str) -> bool {
+    canonical
+        .strip_prefix("library/models/")
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// A zlib stream's inflated bytes (empty when it is not one).
+fn inflate(bytes: &[u8]) -> Vec<u8> {
+    use std::io::Read as _;
+    let mut out = Vec::new();
+    let _ = flate2::read::ZlibDecoder::new(bytes).read_to_end(&mut out);
+    out
+}
+
 fn stream_bytes(path: &Path, stream: &str) -> Option<Vec<u8>> {
     use std::io::Read as _;
     let file = std::fs::File::open(path).expect("open library");
@@ -850,8 +865,8 @@ fn corpus_survives_a_round_trip() {
 /// byte-identical from a read -> write: each footprint's streams — the
 /// `Parameters` block Altium wrote, key order and all — the root
 /// `SectionKeys`, and `Library/Data` up to its volatile keys. The file header
-/// (a per-save unique id) and the compressed model streams are not compared;
-/// the model index (`Library/Models/Data`) is.
+/// (a per-save unique id) is not compared; every `Library` stream is, a
+/// compressed model by its inflated bytes.
 #[test]
 fn manual_pcblibs_survive_a_round_trip() {
     let manual = sample("manual");
@@ -898,8 +913,19 @@ fn manual_pcblibs_survive_a_round_trip() {
                         "{file}: {canonical}: model index not byte-identical"
                     ));
                 }
-            } else if matches!(root, "fileheader" | "fileversioninfo" | "library") {
-                // The per-save unique id and the compressed models: not compared.
+            } else if root == "library" {
+                // Every library-wide stream comes back as read; a compressed
+                // model only needs to hold the same bytes once inflated.
+                let same = if is_compressed_model(canonical) {
+                    inflate(&g) == inflate(&o)
+                } else {
+                    g == o
+                };
+                if !same {
+                    failures.push(format!("{file}: {canonical}: not byte-identical"));
+                }
+            } else if matches!(root, "fileheader" | "fileversioninfo") {
+                // The per-save unique id: not compared.
             } else if canonical.ends_with("primitiveguids/data") {
                 // Altium scrambles the record order; the identities are what
                 // matter, as in the golden test above.

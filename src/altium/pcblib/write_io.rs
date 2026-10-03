@@ -485,6 +485,29 @@ impl PcbLib {
         Ok(())
     }
 
+    /// The `/Library/ComponentParamsTOC/Data` stream this crate builds: one
+    /// CRLF-terminated line per footprint, in the library's ANSI code page.
+    pub(crate) fn component_params_toc_stream(&self) -> Vec<u8> {
+        use std::fmt::Write as _;
+
+        let mut toc = String::new();
+        for fp in &self.footprints {
+            let _ = write!(
+                toc,
+                "Name={}|Pad Count={}|Height=0|Description={}\r\n",
+                fp.name,
+                fp.pads.len(),
+                fp.description
+            );
+        }
+        let mut stream = Vec::new();
+        crate::altium::framing::write_cstring_param_block(
+            &mut stream,
+            &crate::altium::encode_ansi(&toc, self.ansi_encoding()),
+        );
+        stream
+    }
+
     /// Writes the `/Library` metadata storages that Altium emits for every
     /// library (`LayerKindMapping`, `PadViaLibrary`, `ComponentParamsTOC`, and
     /// the empty `Textures` / `ModelsNoEmbed`). Without these, Altium Designer
@@ -493,17 +516,20 @@ impl PcbLib {
         &self,
         cfb: &mut cfb::CompoundFile<F>,
     ) -> AltiumResult<()> {
-        use std::fmt::Write as _;
         use uuid::Uuid;
 
-        // LayerKindMapping: [u32 textLen][UTF-16LE "1.0\0"][u32 signature=0][u32 count=0]
-        let text16: Vec<u8> = "1.0\0".encode_utf16().flat_map(u16::to_le_bytes).collect();
-        let mut lkm = Vec::with_capacity(text16.len() + 12);
-        #[allow(clippy::cast_possible_truncation)]
-        lkm.extend_from_slice(&(text16.len() as u32).to_le_bytes());
-        lkm.extend_from_slice(&text16);
-        lkm.extend_from_slice(&0u32.to_le_bytes()); // signature
-        lkm.extend_from_slice(&0u32.to_le_bytes()); // entry count
+        // LayerKindMapping: the library's own, as read; else an empty mapping,
+        // [u32 textLen][UTF-16LE "1.0\0"][u32 signature=0][u32 count=0].
+        let lkm = self.metadata.layer_kind_mapping.clone().unwrap_or_else(|| {
+            let text16: Vec<u8> = "1.0\0".encode_utf16().flat_map(u16::to_le_bytes).collect();
+            let mut lkm = Vec::with_capacity(text16.len() + 12);
+            #[allow(clippy::cast_possible_truncation)]
+            lkm.extend_from_slice(&(text16.len() as u32).to_le_bytes());
+            lkm.extend_from_slice(&text16);
+            lkm.extend_from_slice(&0u32.to_le_bytes()); // signature
+            lkm.extend_from_slice(&0u32.to_le_bytes()); // entry count
+            lkm
+        });
         Self::write_meta_storage(cfb, "/Library/LayerKindMapping", 1, &lkm)?;
 
         // PadViaLibrary: empty cache under the library id it was read with
@@ -518,30 +544,27 @@ impl PcbLib {
         ));
         Self::write_meta_storage(cfb, "/Library/PadViaLibrary", 0, &pvl)?;
 
-        // ComponentParamsTOC: one CRLF-terminated line per footprint.
-        let mut toc = String::new();
-        for fp in &self.footprints {
-            let _ = write!(
-                toc,
-                "Name={}|Pad Count={}|Height=0|Description={}\r\n",
-                fp.name,
-                fp.pads.len(),
-                fp.description
-            );
-        }
-        Self::write_meta_storage(
-            cfb,
-            "/Library/ComponentParamsTOC",
-            1,
-            &Self::param_block(&toc),
-        )?;
+        // ComponentParamsTOC: Altium's own table while the footprints still
+        // build the one it was read with; else this crate's.
+        let built = self.component_params_toc_stream();
+        let toc = match &self.metadata.component_params_toc {
+            Some((read, basis)) if *basis == built => read.clone(),
+            _ => built,
+        };
+        Self::write_meta_storage(cfb, "/Library/ComponentParamsTOC", 1, &toc)?;
 
         // Always-empty library sub-storages.
         Self::write_meta_storage(cfb, "/Library/Textures", 0, &[])?;
         Self::write_meta_storage(cfb, "/Library/ModelsNoEmbed", 0, &[])?;
 
-        // EmbeddedFonts is a plain stream holding a u32 font count (0).
-        crate::altium::write_stream(cfb, "/Library/EmbeddedFonts", &0u32.to_le_bytes())?;
+        // EmbeddedFonts: the library's own fonts, as read; else a plain u32
+        // font count of 0.
+        let fonts = self
+            .metadata
+            .embedded_fonts
+            .clone()
+            .unwrap_or_else(|| 0u32.to_le_bytes().to_vec());
+        crate::altium::write_stream(cfb, "/Library/EmbeddedFonts", &fonts)?;
 
         // Empty Models storage when the library has no embedded models
         // (otherwise write_models creates it). Altium expects it to exist.

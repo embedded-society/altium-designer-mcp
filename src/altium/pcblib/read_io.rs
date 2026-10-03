@@ -212,6 +212,14 @@ impl PcbLib {
         // Populate model_3d from component_bodies for backward compatibility
         library.populate_model_3d_from_component_bodies();
 
+        // The table this crate would build for the footprints as read: while
+        // they still build it, Altium's own table is replayed (see
+        // `LibraryMetadata::component_params_toc`).
+        let built = library.component_params_toc_stream();
+        if let Some((_, basis)) = library.metadata.component_params_toc.as_mut() {
+            *basis = built;
+        }
+
         tracing::info!(count = library.footprints.len(), "Read PcbLib");
 
         Ok(library)
@@ -396,6 +404,12 @@ impl PcbLib {
             bytes::read_u32_le,
             framing::{read_block, read_pascal_string},
         };
+
+        metadata.layer_kind_mapping =
+            crate::altium::read_stream_opt(cfb, "/Library/LayerKindMapping/Data");
+        metadata.embedded_fonts = crate::altium::read_stream_opt(cfb, "/Library/EmbeddedFonts");
+        let toc = crate::altium::read_stream_opt(cfb, "/Library/ComponentParamsTOC/Data");
+        metadata.component_params_toc = toc.map(|bytes| (bytes, Vec::new()));
 
         let Some(data) = crate::altium::read_stream_opt(cfb, "/Library/Data") else {
             return;
