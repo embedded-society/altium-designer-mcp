@@ -235,6 +235,18 @@ the names and descriptions were made generic with this crate's writer.
 
 **To rebuild them:** they cannot be regenerated; recover them from git history.
 
+### `manual/layer_kinds.PcbLib`
+
+One footprint, `R 0805 Normal`, from a production library whose layer stack assigns its own
+kinds to the mechanical layers (Mechanical 4/3 = 3D Body, 6/7 = Component Center, 13/14 =
+Assembly, 15/16 = Courtyard). Shared by @Heegiiny in #555 for use as a GPL-3.0 test fixture.
+It also carries an embedded STEP model with a non-zero checksum, a `.Designator` text that
+Altium gave a `WideStrings` entry, embedded fonts, and a `LayerKindMapping` stream.
+`manual_pcblibs_survive_a_round_trip` pins the byte-identical rewrite, and
+`samples_manual_layer_kinds_special_string_keeps_its_entry` the `.Designator` entry.
+
+**To rebuild it:** it cannot be regenerated; recover it from git history.
+
 ### `manual/subpoly.PcbLib`
 
 One footprint with the two copper regions a polygon pour splits into, each carrying the

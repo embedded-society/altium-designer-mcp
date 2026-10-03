@@ -1122,7 +1122,10 @@ A footprint with no order of its own — one built in memory — is written kind
 8. ComponentBodies (0x0C)
 
 `WideStrings` is indexed over the text primitives alone, in their own relative order, so
-interleaving does not disturb the `ENCODEDTEXT{n}` numbering.
+interleaving does not disturb the `ENCODEDTEXT{n}` numbering. Altium gives a special string an
+entry too: `.Designator` in `manual/layer_kinds.PcbLib` is `ENCODEDTEXT0` with index 0 @115. A
+text read from a library keeps the entry it had (or its absence) on rewrite; a text built by
+this crate gets one unless it is empty or a special string.
 
 There is **no** end marker after the last primitive (issue #68).
 

@@ -3001,3 +3001,27 @@ fn model_index_follows_the_referencing_body() {
     assert!(referenced.starts_with("EMBED=FALSE|"), "{referenced}");
     assert!(referenced.contains("|CHECKSUM=1975055|"), "{referenced}");
 }
+
+/// `manual/layer_kinds.PcbLib` (#555): Altium gave the special string
+/// `.Designator` a `WideStrings` entry of its own (index 0 @115). A rewrite
+/// keeps it — the text's index field and the `ENCODEDTEXT0` entry both.
+#[test]
+fn samples_manual_layer_kinds_special_string_keeps_its_entry() {
+    use std::io::Cursor;
+
+    let mut lib = PcbLib::open(sample("manual/layer_kinds.PcbLib"))
+        .expect("failed to open manual/layer_kinds.PcbLib");
+    let index_of = |lib: &PcbLib| {
+        let text = &lib.get("R 0805 Normal").expect("footprint").text[0];
+        assert_eq!(text.text, ".Designator");
+        let raw = text.raw_geometry.as_ref().expect("raw geometry");
+        i32::from_le_bytes(raw[115..119].try_into().unwrap())
+    };
+    assert_eq!(index_of(&lib), 0, "Altium wrote an entry");
+
+    let mut out = Cursor::new(Vec::new());
+    lib.write(&mut out).expect("write");
+    out.set_position(0);
+    let back = PcbLib::read(&mut out).expect("read back");
+    assert_eq!(index_of(&back), 0, "the rewrite keeps it");
+}
