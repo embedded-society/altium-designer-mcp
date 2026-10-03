@@ -338,7 +338,7 @@ impl McpServer {
                     offset + returned_count < total_count
                 };
 
-                let result = json!({
+                let mut result = json!({
                     "status": "success",
                     "filepath": filepath,
                     "units": "mm",
@@ -349,6 +349,17 @@ impl McpServer {
                     "compact": compact,
                     "footprints": footprints,
                 });
+                // What the library's own layer stack makes of its mechanical
+                // layers, where it differs from the fixed names the layers are
+                // reported under: enabled layers and any with a declared kind.
+                let mechanical_layers: Vec<_> = library
+                    .mechanical_layers()
+                    .into_iter()
+                    .filter(|layer| layer.enabled || layer.kind.is_some())
+                    .collect();
+                if !mechanical_layers.is_empty() {
+                    result["mechanical_layers"] = json!(mechanical_layers);
+                }
 
                 ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
             }
@@ -3408,6 +3419,64 @@ mod tests {
             assert_eq!(fp0["vias"].as_array().unwrap().len(), 1);
             assert_eq!(fp0["fills"].as_array().unwrap().len(), 1);
             assert_eq!(fp0["component_bodies"].as_array().unwrap().len(), 1);
+        }
+
+        #[test]
+        fn read_pcblib_reports_the_library_mechanical_layers() {
+            // The library's own names and kinds for its mechanical layers ride
+            // beside the fixed layer names (#555); a library with no stack of
+            // its own has no such list.
+            let dir = test_temp_dir();
+            let server = create_test_server(dir.path());
+            let path = dir.path().join("Kinds.PcbLib");
+            std::fs::copy(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("scripts/samples/manual/layer_kinds.PcbLib"),
+                &path,
+            )
+            .expect("copy the fixture");
+
+            let r = server.call_read_pcblib(&json!({ "filepath": path.to_string_lossy() }));
+            assert!(!r.is_error, "{}", get_result_text(&r));
+            let layers = parse_result_json(&r)["mechanical_layers"].clone();
+            let mech4 = layers
+                .as_array()
+                .expect("mechanical_layers")
+                .iter()
+                .find(|l| l["number"] == 4)
+                .expect("Mechanical 4");
+            assert_eq!(
+                mech4,
+                &json!({ "number": 4, "name": "Top 3D Body", "kind": "3DBodyTop", "enabled": true })
+            );
+
+            let fresh = dir.path().join("Fresh.PcbLib");
+            server.call_write_pcblib(&json!({
+                "filepath": fresh.to_string_lossy(),
+                "footprints": [{ "name": "F", "pads": [{ "designator": "1", "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0 }] }],
+            }));
+            // The stack this crate writes declares the kinds its fixed layer
+            // names stand for: Mechanical 4 is `Top Courtyard` both ways.
+            let r = server.call_read_pcblib(&json!({ "filepath": fresh.to_string_lossy() }));
+            let p = parse_result_json(&r);
+            let kinds: Vec<(u64, String)> = p["mechanical_layers"]
+                .as_array()
+                .expect("mechanical_layers")
+                .iter()
+                .filter_map(|l| Some((l["number"].as_u64()?, l["kind"].as_str()?.to_string())))
+                .collect();
+            let want = |n: u64, k: &str| (n, k.to_string());
+            assert_eq!(
+                kinds,
+                vec![
+                    want(2, "AssemblyTop"),
+                    want(3, "AssemblyBottom"),
+                    want(4, "CourtyardTop"),
+                    want(5, "CourtyardBottom"),
+                    want(6, "3DBodyTop"),
+                    want(7, "3DBodyBottom"),
+                ]
+            );
         }
 
         #[test]
