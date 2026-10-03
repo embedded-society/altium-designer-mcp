@@ -2806,10 +2806,22 @@ fn guid_bytes_from_string(guid: &str) -> Option<[u8; 16]> {
 
 /// Whether a text primitive gets a `WideStrings` entry of its own.
 ///
-/// A special string (`.Designator` and friends) is resolved by Altium at draw
-/// time and an empty one has nothing to carry, so neither is encoded.
+/// An empty text has nothing to carry. A text read from a library keeps what
+/// it had there — its geometry's index field @115 is the entry number, or -1
+/// for none — since Altium gives some special strings an entry (`.Designator`
+/// in the #555 library) and the rewrite must not drop it. A text built here
+/// gets one unless it is a special string, which Altium resolves at draw time.
 fn carries_wide_string(text: &Text) -> bool {
-    !text.text.starts_with('.') && !text.text.is_empty()
+    if text.text.is_empty() {
+        return false;
+    }
+    text.raw_geometry
+        .as_deref()
+        .and_then(|raw| raw.get(115..119))
+        .map_or_else(
+            || !text.text.starts_with('.'),
+            |field| i32::from_le_bytes([field[0], field[1], field[2], field[3]]) >= 0,
+        )
 }
 
 /// The `WideStrings` entry index for each text primitive, positionally.

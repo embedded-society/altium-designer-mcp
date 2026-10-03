@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A special-string text keeps its `WideStrings` entry.** Altium can give `.Designator` an
+  entry of its own, and a rewrite dropped it: the entry vanished and the text's index became
+  -1. A text read from a library now keeps the entry it had; one built from scratch is
+  written as before. Found with the library shared in #555, now the fixture
+  `scripts/samples/manual/layer_kinds.PcbLib`.
 - **A rewrite keeps the embedded-model index Altium wrote** (#555). Every write rebuilt
   `/Library/Models/Data` from a template, so a model's rotation, Z offset and checksum
   became zero, and a referenced (not embedded) model was marked embedded. Each record is
