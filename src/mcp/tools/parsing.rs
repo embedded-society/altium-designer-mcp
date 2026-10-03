@@ -3310,6 +3310,9 @@ impl McpServer {
         // Base64-encoded raw image bytes destined for the library /Storage
         // stream.
         let image_data = json_base64(json, "image_data");
+        // Altium's compressed bytes as read_schlib emitted them, reused while
+        // they still hold image_data.
+        let image_compressed = json_base64(json, "image_compressed");
         let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
 
         Some(Image {
@@ -3329,6 +3332,7 @@ impl McpServer {
             embed_image: b("embed_image"),
             file_name,
             image_data,
+            image_compressed,
             owner_part_id,
             display_flags: parse_schlib_display_flags(json),
             unique_id: json_unique_id(json),

@@ -50,6 +50,13 @@ pub struct EmbeddedModel {
     /// added by this crate, which gets the index template instead.
     #[serde(skip)]
     pub index_params: Vec<(String, String)>,
+
+    /// The model's stream exactly as read — Altium's zlib compression of
+    /// [`Self::data`] — written back while it still inflates to `data`, so a
+    /// rewrite keeps Altium's bytes rather than this crate's compression of
+    /// the same model. Empty for a model added here.
+    #[serde(skip)]
+    pub compressed: Vec<u8>,
 }
 
 impl EmbeddedModel {
@@ -62,6 +69,7 @@ impl EmbeddedModel {
             compressed_size: 0,
             data,
             index_params: Vec::new(),
+            compressed: Vec::new(),
         }
     }
 

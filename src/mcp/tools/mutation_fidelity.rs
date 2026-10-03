@@ -458,7 +458,11 @@ fn schlib_export_then_import_is_byte_identical() {
             "json_data": { "file_type": "SchLib", "symbols": exported["symbols"] },
         }),
     );
-    b.assert_untouched_except(&[], Some(Path::new(&out)));
+    // A library built anew writes its own root SectionKeys: a rewrite of the
+    // source replays Altium's, whose entry order follows no rule this crate
+    // can reproduce for a library it builds. Every symbol's own streams must
+    // still come through untouched.
+    b.assert_untouched_except(&["SectionKeys"], Some(Path::new(&out)));
 }
 
 #[test]
@@ -469,5 +473,6 @@ fn schlib_merge_into_an_empty_library_is_byte_identical() {
         "merge_libraries",
         &json!({ "source_filepaths": [b.work()], "target_filepath": target, "on_duplicate": "skip" }),
     );
-    b.assert_untouched_except(&[], Some(Path::new(&target)));
+    // As for export and import: the new library's SectionKeys is its own.
+    b.assert_untouched_except(&["SectionKeys"], Some(Path::new(&target)));
 }

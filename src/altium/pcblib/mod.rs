@@ -71,6 +71,15 @@ const INTERNAL_OLE_ENTRIES: &[&str] = &[
     "UniqueIDPrimitiveInformation",
 ];
 
+/// The library storages written back exactly as read (see
+/// [`LibraryMetadata::carried_storages`]).
+const CARRIED_STORAGES: &[&str] = &[
+    "/Library/PadViaLibrary",
+    "/Library/Textures",
+    "/Library/ModelsNoEmbed",
+    "/FileVersionInfo",
+];
+
 /// A complete PCB footprint.
 ///
 /// # Example
@@ -198,6 +207,14 @@ pub struct Footprint {
     /// [`PrimitiveKind::WRITE_ORDER`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub primitive_order: Vec<PrimitiveKind>,
+
+    /// The `PrimitiveGuids/Data` stream exactly as read. Altium stores its
+    /// fixed 24-byte records in an order of its own, not primitive order, so
+    /// the stream goes back as read while it holds exactly the records the
+    /// writer would emit; otherwise they are written in primitive order.
+    /// `None` for a footprint built from scratch or without the stream.
+    #[serde(skip)]
+    pub primitive_guids_as_read: Option<Vec<u8>>,
 }
 
 /// How many primitives of each kind [`Footprint::move_layer`] moved.
@@ -435,6 +452,7 @@ impl Footprint {
             additional_parameters: Vec::new(),
             param_key_order: Vec::new(),
             primitive_order: Vec::new(),
+            primitive_guids_as_read: None,
         }
     }
 
@@ -784,7 +802,8 @@ pub struct LibraryMetadata {
     pub unique_id: Option<String>,
 
     /// The `PADVIALIBRARY.LIBRARYID` of `/Library/PadViaLibrary`, likewise
-    /// kept across saves rather than minted afresh each time.
+    /// kept across saves rather than minted afresh each time (the storage
+    /// itself goes back as read — see [`Self::carried_storages`]).
     pub pad_via_library_id: Option<String>,
 
     /// The `/Library/Data` parameter block exactly as it was read, without its
@@ -824,6 +843,14 @@ pub struct LibraryMetadata {
     /// the footprints still build that same table; once one changes, the
     /// table is rebuilt.
     pub component_params_toc: Option<(Vec<u8>, Vec<u8>)>,
+
+    /// Every stream of the library storages this crate does not model,
+    /// keyed by its path, exactly as read: `/Library/PadViaLibrary` (the
+    /// library's local pad and via templates), `/Library/Textures`,
+    /// `/Library/ModelsNoEmbed` and the root `/FileVersionInfo`. A storage
+    /// read goes back as it was; one the file lacked — every one, for a
+    /// library built in memory — gets Altium's empty default.
+    pub carried_storages: Vec<(String, Vec<u8>)>,
 }
 
 /// A mechanical layer as the library's own layer stack declares it.
@@ -4392,5 +4419,124 @@ mod tests {
             Some(vec![0xAA; 100].as_slice()),
             "a short raw block stays untouched"
         );
+    }
+
+    /// A library written to memory.
+    fn written(lib: &mut PcbLib) -> Vec<u8> {
+        let mut out = std::io::Cursor::new(Vec::new());
+        lib.write(&mut out).expect("write");
+        out.into_inner()
+    }
+
+    /// One stream of a library image.
+    fn stream_of(bytes: &[u8], path: &str) -> Option<Vec<u8>> {
+        let mut cfb = cfb::CompoundFile::open(std::io::Cursor::new(bytes)).expect("open");
+        crate::altium::read_stream_opt(&mut cfb, path)
+    }
+
+    /// Altium lists the `SectionKeys` entries in alphabetical order of the
+    /// name, whatever the library order (every Altium-written stream in the
+    /// corpus).
+    #[test]
+    fn section_keys_list_long_names_alphabetically() {
+        let long = |word: &str| format!("{word}_FOOTPRINT_NAME_PAST_THE_STORAGE_CAP");
+        let mut lib = PcbLib::new();
+        for word in ["ZETA", "ALPHA", "MIKE"] {
+            lib.add(Footprint::new(long(word)));
+        }
+        let bytes = written(&mut lib);
+        let section_keys = stream_of(&bytes, "/SectionKeys").expect("section keys");
+        let names: Vec<String> = crate::altium::parse_pcblib_section_keys(&section_keys)
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+        assert_eq!(names, [long("ALPHA"), long("MIKE"), long("ZETA")]);
+    }
+
+    /// Altium stores a footprint's `PrimitiveGuids` records in an order of its
+    /// own: the stream goes back as read while it holds the same records, and
+    /// is rebuilt in primitive order once one changes.
+    #[test]
+    fn primitive_guids_keep_their_read_order_until_a_record_changes() {
+        const STREAM: &str = "/GUIDS/PrimitiveGuids/Data";
+        let mut footprint = Footprint::new("GUIDS");
+        footprint.guid = Some("{11111111-2222-3333-4444-555555555555}".to_string());
+        for i in 0..3_u8 {
+            let x = f64::from(i);
+            let mut track = Track::new(x, 0.0, x + 1.0, 0.0, 0.1, Layer::TopOverlay);
+            track.guid = Some(format!("{{0000000{i}-0000-0000-0000-000000000000}}"));
+            footprint.add_track(track);
+        }
+        let mut lib = PcbLib::new();
+        lib.add(footprint);
+        let bytes = written(&mut lib);
+
+        // The same records in an order of Altium's own.
+        let built = stream_of(&bytes, STREAM).expect("guids");
+        assert_eq!(built.len(), 4 * 24, "the footprint's and three tracks'");
+        let altium: Vec<u8> = built.chunks(24).rev().flatten().copied().collect();
+        let mut cfb = cfb::CompoundFile::open(std::io::Cursor::new(bytes)).expect("open");
+        crate::altium::write_stream(&mut cfb, STREAM, &altium).expect("replace the stream");
+        let bytes = cfb.into_inner().into_inner();
+
+        let mut lib = PcbLib::read(std::io::Cursor::new(bytes)).expect("read");
+        assert_eq!(
+            stream_of(&written(&mut lib), STREAM),
+            Some(altium),
+            "unchanged: Altium's order"
+        );
+
+        lib.get_mut("GUIDS").expect("footprint").tracks[1].guid =
+            Some("{0000000F-0000-0000-0000-000000000000}".to_string());
+        let rebuilt = stream_of(&written(&mut lib), STREAM);
+        assert_eq!(
+            rebuilt,
+            writer::encode_primitive_guids(lib.get("GUIDS").expect("footprint")),
+            "changed: rebuilt in primitive order"
+        );
+    }
+
+    /// The library storages this crate does not model — the local pad/via
+    /// templates, textures, linked models, the version info — go back exactly
+    /// as read, streams the defaults lack included; a library built in memory
+    /// gets Altium's empty defaults.
+    #[test]
+    fn library_storages_this_crate_does_not_model_go_back_as_read() {
+        let mut lib = PcbLib::new();
+        lib.add(Footprint::new("FP"));
+        let bytes = written(&mut lib);
+        assert_eq!(
+            stream_of(&bytes, "/Library/Textures/Header"),
+            Some(0_u32.to_le_bytes().to_vec()),
+            "built in memory: no textures"
+        );
+        assert_eq!(
+            stream_of(&bytes, "/Library/ModelsNoEmbed/Data"),
+            Some(Vec::new())
+        );
+
+        let carried: [(&str, &[u8]); 7] = [
+            ("/Library/PadViaLibrary/Header", &[1, 0, 0, 0]),
+            (
+                "/Library/PadViaLibrary/Data",
+                b"|PADVIALIBRARY.LIBRARYID={LIB}|PADVIALIBRARY.LIBRARYNAME=<Local>|TEMPLATE=r50",
+            ),
+            ("/Library/Textures/Header", &[1, 0, 0, 0]),
+            ("/Library/Textures/Data", b"|TEXTURE=marking"),
+            ("/Library/Textures/0", b"pixels"),
+            ("/Library/ModelsNoEmbed/Data", b"|MODEL=linked.step"),
+            ("/FileVersionInfo/Data", b"|VERSION=a newer one"),
+        ];
+        let mut cfb = cfb::CompoundFile::open(std::io::Cursor::new(bytes)).expect("open");
+        for (path, data) in carried {
+            crate::altium::write_stream(&mut cfb, path, data).expect("carry");
+        }
+        let bytes = cfb.into_inner().into_inner();
+
+        let mut lib = PcbLib::read(std::io::Cursor::new(bytes)).expect("read");
+        let rewritten = written(&mut lib);
+        for (path, data) in carried {
+            assert_eq!(stream_of(&rewritten, path).as_deref(), Some(data), "{path}");
+        }
     }
 }

@@ -42,14 +42,15 @@ PcbLib files are OLE Compound Documents (CFB format, **OLE v3 with 512-byte sect
 > `UniqueIdPrimitiveInformation` and — when a component name exceeds the 31-unit storage cap —
 > a root `SectionKeys` stream mapping each real name to its plain-truncated storage name (see
 > § SectionKeys Stream below; unlike a `SchLib`'s, it is binary). All of these are read and written back.
-> A library read from disk gets its own `EmbeddedFonts` (the TrueType fonts its text uses) and
-> `LayerKindMapping` (the binary twin of its mechanical layer kinds) back byte for byte, and its
-> `ComponentParamsTOC` — a per-footprint summary, `Name|Pad Count|Height|Description`, with
-> Unicode twins appended — back as read while the footprints still match it; once one changes
-> the table is rebuilt, in the library's code page. A library built in memory gets an empty
-> font table and kind mapping. Every `Library` stream of the 26 libraries in the test fixtures
-> and the two reference corpora comes back exactly as read, a compressed model by its inflated
-> bytes.
+> A library read from disk gets its own `EmbeddedFonts` (the TrueType fonts its text uses),
+> `LayerKindMapping` (the binary twin of its mechanical layer kinds), `PadViaLibrary` (its local
+> pad and via templates), `Textures`, `ModelsNoEmbed` and `FileVersionInfo` back byte for byte,
+> every stream of each storage included, and its `ComponentParamsTOC` — a per-footprint summary,
+> `Name|Pad Count|Height|Description`, with Unicode twins appended — back as read while the
+> footprints still match it; once one changes the table is rebuilt, in the library's code page. A
+> library built in memory gets Altium's empty defaults. In the test fixtures and the two reference
+> corpora, every stream of every Altium-authored library comes back exactly as read, compressed
+> models included, but for the save's path, date and time in `Library/Data`.
 
 ## SectionKeys Stream
 
@@ -78,7 +79,9 @@ in `manual/i18n4.PcbLib`). The writer keeps the bytes it read while they still d
 and writes a new name the same way, in the server's ANSI code page (below), the same bytes as its
 `PATTERN`; either way `str_len` caps a name at 255 bytes.
 Altium-authored libraries in the reference corpus carry exactly this
-layout with one entry per over-cap name; AltiumSharp reads the same. `Library/Data` lists the
+layout with one entry per over-cap name, listed in alphabetical order of the name whatever the
+library order (all six; their names are all upper case, so the writer sorts case-insensitively,
+as Delphi's string lists do, with the bytes as tie-break); AltiumSharp reads the same. `Library/Data` lists the
 **full** names, so lookup for a long name goes `Library/Data` → `SectionKeys` → storage. The
 `SchLib` stream is a `|KeyCount=…|LibRef0=…|SectionKey0=…` text record instead
 (`SCHLIB_FORMAT.md` § SectionKeys Stream); writing that layout into a `PcbLib` is what left Altium
@@ -290,6 +293,11 @@ not a per-kind index: across the 22 golden footprints the ordinals are a permuta
 once the kind-85 record (always ordinal 0) is set aside, and `PRIMPROPS` has its regions at 0, 4,
 5 and 6 with a pad at 1 and texts at 2 and 3. Both streams are therefore meaningless unless the
 Data stream keeps the primitive order the file was written with.
+
+Altium stores the records in an order of its own, not ordinal order. A footprint read from a file
+gets its stream back as read while it holds exactly the records the primitives carry; once one
+is added, removed or given a new identity, the stream is written in primitive order, the
+footprint's own record first.
 
 ## Data Stream Format
 
@@ -1116,6 +1124,9 @@ this crate starts from the template above.
 The record's position (0, 1, 2, ...) corresponds to the numbered model stream index. The
 numbered streams (`/Library/Models/0`, ...) are the raw model bytes with a standard **zlib**
 wrapper (RFC 1950: `78 9C` header + Adler-32; matches flate2 `ZlibEncoder` / .NET `ZLibStream`).
+A model read from a file goes back as the compressed bytes it was read with while they still
+inflate to its data, since Altium's compression is not this crate's; a new or changed model is
+compressed afresh.
 
 **Checksum algorithm** (`PcbModel.ComputeChecksum` in AltiumSharp): a position-weighted byte sum
 over the **uncompressed** model bytes — weight 1 for byte 0, weight `i` for byte `i` — modulo

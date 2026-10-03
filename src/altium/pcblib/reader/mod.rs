@@ -44,8 +44,8 @@ mod models;
 mod parsers;
 
 pub use models::{
-    parse_embedded_models, parse_model_data_stream, parse_model_header_stream,
-    parse_model_index_records,
+    decompress_model_data, parse_embedded_models, parse_model_data_stream,
+    parse_model_header_stream, parse_model_index_records,
 };
 pub use parsers::parse_mil_value;
 #[allow(clippy::wildcard_imports)] // tightly-coupled reader split

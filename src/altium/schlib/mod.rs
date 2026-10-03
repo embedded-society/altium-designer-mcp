@@ -111,6 +111,23 @@ pub struct SchLib {
     /// library's lifetime as Altium keeps it; a library built from scratch
     /// is given one on its first save.
     unique_id: Option<String>,
+    /// The `FileHeader` as read, one segment per `|`-separated field, in
+    /// wire form (Windows-1252 decoding, which every byte survives): the
+    /// library's font table, sheet settings and any key this crate does not
+    /// model, replayed on write. Empty for a library built in memory.
+    file_header: Vec<String>,
+    /// The component list this crate builds for the symbols as read. While
+    /// the symbols still build it, the list goes back as Altium wrote it.
+    file_header_list_basis: Vec<String>,
+    /// The root `/SectionKeys` stream as read, `None` when the file had
+    /// none. Altium's entry order follows no rule the corpus reveals, so the
+    /// stream goes back as read while the symbols still build
+    /// [`Self::section_keys_basis`].
+    section_keys_read: Option<Vec<u8>>,
+    /// The `/SectionKeys` stream this crate builds for the symbols as read,
+    /// `None` when they need no entry. Both are `None` for a library built
+    /// in memory, which writes the stream it builds.
+    section_keys_basis: Option<Vec<u8>>,
 }
 
 impl SchLib {
@@ -2575,5 +2592,175 @@ mod tests {
         let text = err.to_string();
         assert!(text.contains("too large"), "{text}");
         assert!(text.contains("huge.bmp"), "{text}");
+    }
+
+    /// A stream of a library written to memory.
+    fn written_stream(lib: &SchLib, path: &str) -> Option<Vec<u8>> {
+        let mut out = Cursor::new(Vec::new());
+        lib.write(&mut out).expect("write");
+        let mut cfb = cfb::CompoundFile::open(Cursor::new(out.into_inner())).expect("open");
+        crate::altium::read_stream_opt(&mut cfb, path)
+    }
+
+    /// `bytes` (a library image) with the stream at `path` replaced.
+    fn with_stream(bytes: Vec<u8>, path: &str, data: &[u8]) -> Vec<u8> {
+        let mut cfb = cfb::CompoundFile::open(Cursor::new(bytes)).expect("open");
+        crate::altium::write_stream(&mut cfb, path, data).expect("replace the stream");
+        cfb.into_inner().into_inner()
+    }
+
+    /// `Weight` is the number of records in every symbol's `Data` stream plus
+    /// one, as Altium stores it (636 for the golden's 635 records).
+    #[test]
+    fn the_header_weight_counts_every_record_plus_one() {
+        let mut lib = SchLib::new();
+        let mut a = Symbol::new("A");
+        a.add_pin(Pin::new("1", "1", 0, 0, 10, PinOrientation::Left));
+        a.add_rectangle(Rectangle::new(-5, -5, 5, 5));
+        lib.add(a);
+        let mut b = Symbol::new("B");
+        b.add_parameter(Parameter::new("Value", "10k"));
+        lib.add(b);
+
+        let records: usize = ["/A/Data", "/B/Data"]
+            .iter()
+            .map(|path| writer::count_records(&written_stream(&lib, path).expect("data")))
+            .sum();
+        let header = written_stream(&lib, "/FileHeader").expect("header");
+        let text = crate::altium::decode_windows1252(&header);
+        assert!(
+            text.contains(&format!("|Weight={}|", records + 1)),
+            "{records} records: {text}"
+        );
+    }
+
+    /// A read header goes back as read — a second font a text's `FontID=2`
+    /// points into, sheet settings this crate does not model — with its own
+    /// `Weight`; once a symbol changes, its component list is rebuilt in
+    /// place and everything around it is still kept.
+    #[test]
+    fn a_read_header_keeps_its_font_table_and_rebuilds_its_list_after_an_edit() {
+        let mut symbol = Symbol::new("RES");
+        symbol.add_pin(Pin::new("1", "1", 0, 0, 10, PinOrientation::Left));
+        let mut lib = SchLib::new();
+        lib.add(symbol);
+        let mut buffer = Cursor::new(Vec::new());
+        lib.write(&mut buffer).expect("write");
+        let records = writer::count_records(&written_stream(&lib, "/RES/Data").expect("data"));
+
+        let header = format!(
+            "|HEADER=Protel for Windows - Schematic Library Editor Binary File Version 5.0\
+             |Weight={}|MinorVersion=9|UniqueID=QWERTYUI|FontIdCount=2|Size1=10\
+             |FontName1=Times New Roman|Size2=8|FontName2=Arial|Bold2=T|UseMBCS=T|IsBOC=T\
+             |SheetStyle=1|BorderOn=T|SnapGridSize=5|CompCount=1|LibRef0=RES|PartCount0=2",
+            records + 1
+        );
+        let mut block = Vec::new();
+        crate::altium::framing::write_cstring_param_block(&mut block, header.as_bytes());
+        let bytes = with_stream(buffer.into_inner(), "/FileHeader", &block);
+
+        let mut lib = SchLib::read(Cursor::new(bytes)).expect("read");
+        assert_eq!(
+            written_stream(&lib, "/FileHeader"),
+            Some(block),
+            "an unchanged library keeps Altium's header"
+        );
+
+        assert!(lib.rename("RES", "RES2"));
+        let edited = written_stream(&lib, "/FileHeader").expect("header");
+        assert_eq!(
+            crate::altium::decode_windows1252(&edited[4..edited.len() - 1]),
+            header.replace("|LibRef0=RES|", "|LibRef0=RES2|"),
+            "the list follows the edit; the fonts and settings stay"
+        );
+    }
+
+    /// A `SectionKeys` stream goes back as read — Altium's entry order follows
+    /// no rule this crate can derive — until the symbols no longer build the
+    /// stream they were read with; then it is rebuilt.
+    #[test]
+    fn section_keys_are_replayed_until_a_name_changes() {
+        let long = |c: char| {
+            format!(
+                "{}_SYMBOL_NAME_PAST_THE_STORAGE_CAP",
+                c.to_string().repeat(4)
+            )
+        };
+        let mut lib = SchLib::new();
+        lib.add(Symbol::new(long('A')));
+        lib.add(Symbol::new(long('B')));
+        let mut buffer = Cursor::new(Vec::new());
+        lib.write(&mut buffer).expect("write");
+
+        // The same entries in an order of Altium's own.
+        let mut pairs = crate::altium::parse_schlib_section_keys(
+            &written_stream(&lib, "/SectionKeys").expect("section keys"),
+        );
+        assert_eq!(pairs.len(), 2, "both names pass the cap");
+        pairs.reverse();
+        let altium = crate::altium::encode_schlib_section_keys(&pairs).expect("stream");
+        let bytes = with_stream(buffer.into_inner(), "/SectionKeys", &altium);
+
+        let mut lib = SchLib::read(Cursor::new(bytes)).expect("read");
+        assert_eq!(
+            written_stream(&lib, "/SectionKeys").as_deref(),
+            Some(altium.as_slice()),
+            "unchanged: Altium's order"
+        );
+
+        assert!(lib.rename(&long('B'), &long('C')));
+        let rebuilt = crate::altium::parse_schlib_section_keys(
+            &written_stream(&lib, "/SectionKeys").expect("section keys"),
+        );
+        let names: Vec<&str> = rebuilt.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names, [long('A'), long('C')], "rebuilt, in library order");
+    }
+
+    /// An embedded image goes back as the compressed bytes it was read with,
+    /// not this crate's compression of the same pixels, until it changes.
+    #[test]
+    fn an_unchanged_image_keeps_its_compressed_bytes() {
+        use std::io::Write as _;
+
+        let pixels = b"BM a small bitmap, a small bitmap, a small bitmap".to_vec();
+        let mut symbol = Symbol::new("LOGO");
+        let mut image = Image::new(0, 0, 10, 10, "logo.bmp");
+        image.embed_image = true;
+        image.image_data = Some(pixels.clone());
+        symbol.add_image(image);
+        let mut lib = SchLib::new();
+        lib.add(symbol);
+        let mut buffer = Cursor::new(Vec::new());
+        lib.write(&mut buffer).expect("write");
+
+        // Another compressor's bytes for the same pixels (stored blocks).
+        let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::none());
+        encoder.write_all(&pixels).expect("compress");
+        let altium = encoder.finish().expect("compress");
+        assert_ne!(Some(&altium), storage::zlib_compress(&pixels).ok().as_ref());
+        let stream = storage::encode_icon_storage(&[(
+            "logo.bmp",
+            pixels.as_slice(),
+            Some(altium.as_slice()),
+        )])
+        .expect("storage");
+        let bytes = with_stream(buffer.into_inner(), "/Storage", &stream);
+
+        let mut lib = SchLib::read(Cursor::new(bytes)).expect("read");
+        let image = &lib.get("LOGO").expect("symbol").images[0];
+        assert_eq!(image.image_compressed.as_ref(), Some(&altium));
+        assert_eq!(
+            written_stream(&lib, "/Storage"),
+            Some(stream),
+            "unchanged: Altium's bytes"
+        );
+
+        let replaced = b"BM another bitmap".to_vec();
+        lib.get_mut("LOGO").expect("symbol").images[0].image_data = Some(replaced.clone());
+        let entries =
+            storage::parse_icon_storage(&written_stream(&lib, "/Storage").expect("storage"));
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].0, replaced, "the new pixels");
+        assert_ne!(entries[0].1, altium, "compressed afresh");
     }
 }

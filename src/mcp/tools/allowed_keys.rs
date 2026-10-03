@@ -247,6 +247,7 @@ graphic_keys!(
         "embed_image",
         "file_name",
         "image_data",
+        "image_compressed",
         "is_not_accessible",
         "owner_part_id",
         "unique_id",
