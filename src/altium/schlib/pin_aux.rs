@@ -48,7 +48,7 @@ const MAX_ENTRY_DECOMPRESSED: usize = 64 * 1024;
 /// `on_entry(pin_index, decompressed_payload)` for each well-formed entry
 /// whose Pascal-string key parses as a pin ordinal.
 fn for_each_entry<F: FnMut(usize, &[u8])>(raw: &[u8], mut on_entry: F) {
-    storage::for_each_entry(raw, MAX_ENTRY_DECOMPRESSED, |key, payload| {
+    storage::for_each_entry(raw, MAX_ENTRY_DECOMPRESSED, |key, payload, _| {
         if let Ok(idx) = key.parse::<usize>() {
             on_entry(idx, payload);
         }

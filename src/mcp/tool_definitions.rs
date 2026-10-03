@@ -969,6 +969,7 @@ impl McpServer {
                             "embed_image": { "type": "boolean", "description": "Whether the image bytes are embedded (vs a link to file_name). Default: false" },
                             "file_name": { "type": "string", "description": "Image file name / embedded key (Altium stores the full source file path for embedded images)" },
                             "image_data": { "type": "string", "description": "Base64-encoded raw image bytes; stored in the library /Storage stream when embed_image is true" },
+                            "image_compressed": { "type": "string", "description": "Base64 of the image's compressed /Storage entry exactly as read_schlib emitted it; reused while it still holds image_data, so a rewrite keeps Altium's bytes. Pass back unchanged; omit when authoring or replacing an image." },
                             "is_not_accessible": { "type": "boolean", "description": "Whether the image is marked not-accessible (Altium tags every shape; default true)" },
                             "owner_part_id": { "type": "integer", "minimum": -1, "description": "Part number (1-based). Default: 1" },
                             "graphically_locked": { "type": "boolean", "description": "Whether the shape is graphically locked. Default: false" },

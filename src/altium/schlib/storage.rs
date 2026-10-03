@@ -87,7 +87,24 @@ pub(super) fn zlib_decompress(data: &[u8], max_decompressed: usize) -> Option<Ve
 /// Appends one compressed-storage entry (`0xD0` tag + Pascal-string key +
 /// zlib-compressed payload) named `name` (encoded Windows-1252).
 pub(super) fn write_entry(out: &mut Vec<u8>, name: &str, payload: &[u8]) -> AltiumResult<()> {
-    let compressed = zlib_compress(payload)?;
+    write_entry_with(out, name, payload, None)
+}
+
+/// [`write_entry`], taking `compressed` — the entry's zlib bytes as read —
+/// in place of this crate's own compression while it still inflates to
+/// `payload`, so an unchanged entry keeps Altium's bytes.
+pub(super) fn write_entry_with(
+    out: &mut Vec<u8>,
+    name: &str,
+    payload: &[u8],
+    compressed: Option<&[u8]>,
+) -> AltiumResult<()> {
+    let compressed = match compressed {
+        Some(read) if zlib_decompress(read, payload.len()).as_deref() == Some(payload) => {
+            read.to_vec()
+        }
+        _ => zlib_compress(payload)?,
+    };
     let name_bytes = crate::altium::encode_windows1252(name);
     if name_bytes.len() > 255 {
         return Err(AltiumError::InvalidParameter {
@@ -122,14 +139,15 @@ pub(super) fn write_entry(out: &mut Vec<u8>, name: &str, payload: &[u8]) -> Alti
 }
 
 /// Walks the compressed-storage entries after the header block, invoking
-/// `on_entry(entry_name, decompressed_payload)` for each well-formed entry.
+/// `on_entry(entry_name, decompressed_payload, compressed_bytes)` for each
+/// well-formed entry.
 ///
 /// Mirrors `AltiumSharp`'s parse loop: read the header length prefix and skip
 /// it, then read `[u32 size][0xD0][pascal key][u32 comp_len][comp]` entries
 /// until the stream is exhausted or a malformed entry is hit (which stops the
 /// walk with a debug log, matching `AltiumSharp`'s `break`). Entries whose
 /// payload fails to inflate or exceeds `max_decompressed` are skipped.
-pub(super) fn for_each_entry<F: FnMut(&str, &[u8])>(
+pub(super) fn for_each_entry<F: FnMut(&str, &[u8], &[u8])>(
     raw: &[u8],
     max_decompressed: usize,
     mut on_entry: F,
@@ -167,10 +185,9 @@ pub(super) fn for_each_entry<F: FnMut(&str, &[u8])>(
             let comp_start = after_key + 4;
             let comp_end = comp_start + comp_len as usize;
             if comp_end <= block.len() {
-                if let Some(payload) =
-                    zlib_decompress(&block[comp_start..comp_end], max_decompressed)
-                {
-                    on_entry(&key, &payload);
+                let compressed = &block[comp_start..comp_end];
+                if let Some(payload) = zlib_decompress(compressed, max_decompressed) {
+                    on_entry(&key, &payload, compressed);
                 } else {
                     tracing::debug!(entry = %key, "skipping storage entry that failed to inflate");
                 }
@@ -190,8 +207,12 @@ pub(super) fn start_stream(header_name: &str, count: usize) -> Vec<u8> {
     out
 }
 
-/// Encodes the root `/Storage` stream for `entries` of `(file_name, bytes)`,
-/// one compressed entry per embedded image in global symbol order.
+/// One embedded image's `/Storage` entry: its name, its bytes, and the
+/// compressed bytes it was read with, reused while they still hold it.
+pub(super) type IconEntry<'a> = (&'a str, &'a [u8], Option<&'a [u8]>);
+
+/// Encodes the root `/Storage` stream for `entries`, one compressed entry per
+/// embedded image in global symbol order.
 ///
 /// With no entries the stream is the bare `|HEADER=Icon storage` param block —
 /// byte-identical to the pre-embedded-image writer output (no `Weight` key),
@@ -201,7 +222,7 @@ pub(super) fn start_stream(header_name: &str, count: usize) -> Vec<u8> {
 ///
 /// Returns an error if an entry name exceeds 255 Windows-1252 bytes or a
 /// compressed entry exceeds the 24-bit block size.
-pub(super) fn encode_icon_storage(entries: &[(&str, &[u8])]) -> AltiumResult<Vec<u8>> {
+pub(super) fn encode_icon_storage(entries: &[IconEntry<'_>]) -> AltiumResult<Vec<u8>> {
     if entries.is_empty() {
         let mut out = Vec::new();
         write_cstring_param_block(&mut out, b"|HEADER=Icon storage");
@@ -209,8 +230,8 @@ pub(super) fn encode_icon_storage(entries: &[(&str, &[u8])]) -> AltiumResult<Vec
     }
 
     let mut out = start_stream("Icon storage", entries.len());
-    for (name, payload) in entries {
-        write_entry(&mut out, name, payload)?;
+    for (name, payload, compressed) in entries {
+        write_entry_with(&mut out, name, payload, *compressed)?;
     }
     Ok(out)
 }
@@ -219,10 +240,10 @@ pub(super) fn encode_icon_storage(entries: &[(&str, &[u8])]) -> AltiumResult<Vec
 /// image bytes in stream order. Entry names are ignored — `AltiumSharp`'s
 /// reader matches payloads to `EmbedImage=T` images purely by order — and
 /// malformed entries stop the walk (tolerant, never an error).
-pub(super) fn parse_icon_storage(raw: &[u8]) -> Vec<Vec<u8>> {
+pub(super) fn parse_icon_storage(raw: &[u8]) -> Vec<(Vec<u8>, Vec<u8>)> {
     let mut payloads = Vec::new();
-    for_each_entry(raw, MAX_IMAGE_DECOMPRESSED, |_name, payload| {
-        payloads.push(payload.to_vec());
+    for_each_entry(raw, MAX_IMAGE_DECOMPRESSED, |_name, payload, compressed| {
+        payloads.push((payload.to_vec(), compressed.to_vec()));
     });
     payloads
 }
@@ -249,7 +270,7 @@ mod tests {
     /// Collects the entries a walk yields.
     fn walk(raw: &[u8]) -> Vec<(String, Vec<u8>)> {
         let mut seen = Vec::new();
-        for_each_entry(raw, MAX_IMAGE_DECOMPRESSED, |name, payload| {
+        for_each_entry(raw, MAX_IMAGE_DECOMPRESSED, |name, payload, _| {
             seen.push((name.to_string(), payload.to_vec()));
         });
         seen
@@ -385,8 +406,8 @@ mod tests {
         let a = b"first payload".as_slice();
         let b = vec![0u8; 4096]; // compressible second payload
         let stream = encode_icon_storage(&[
-            (r"C:\Users\Public\a.bmp", a),
-            (r"C:\Users\Public\b.bmp", &b),
+            (r"C:\Users\Public\a.bmp", a, None),
+            (r"C:\Users\Public\b.bmp", &b, None),
         ])
         .expect("encode storage");
 
@@ -398,18 +419,18 @@ mod tests {
 
         let payloads = parse_icon_storage(&stream);
         assert_eq!(payloads.len(), 2, "both entries parse back");
-        assert_eq!(payloads[0], a, "first payload survives in order");
-        assert_eq!(payloads[1], b, "second payload survives in order");
+        assert_eq!(payloads[0].0, a, "first payload survives in order");
+        assert_eq!(payloads[1].0, b, "second payload survives in order");
     }
 
     #[test]
     fn icon_storage_entry_names_use_the_file_path() {
         // Real AD24 names each entry with the image's full file path (not the
         // AltiumSharp-writer index); verify the name is framed as authored.
-        let stream =
-            encode_icon_storage(&[(r"C:\img\logo.bmp", b"BM".as_slice())]).expect("encode storage");
+        let stream = encode_icon_storage(&[(r"C:\img\logo.bmp", b"BM".as_slice(), None)])
+            .expect("encode storage");
         let mut names = Vec::new();
-        for_each_entry(&stream, MAX_IMAGE_DECOMPRESSED, |name, _| {
+        for_each_entry(&stream, MAX_IMAGE_DECOMPRESSED, |name, _, _| {
             names.push(name.to_string());
         });
         assert_eq!(names, vec![r"C:\img\logo.bmp".to_string()]);
@@ -418,7 +439,7 @@ mod tests {
     #[test]
     fn icon_storage_rejects_overlong_entry_name() {
         let name = "x".repeat(256);
-        let err = encode_icon_storage(&[(name.as_str(), b"BM".as_slice())])
+        let err = encode_icon_storage(&[(name.as_str(), b"BM".as_slice(), None)])
             .expect_err("a >255-byte entry name must be rejected");
         assert!(
             err.to_string().contains("too long"),
@@ -435,10 +456,10 @@ mod tests {
 
         // A valid first entry followed by garbage keeps the first entry.
         let mut stream =
-            encode_icon_storage(&[("a.bmp", b"payload".as_slice())]).expect("encode storage");
+            encode_icon_storage(&[("a.bmp", b"payload".as_slice(), None)]).expect("encode storage");
         stream.extend_from_slice(&[0xAB; 7]);
         let payloads = parse_icon_storage(&stream);
         assert_eq!(payloads.len(), 1, "walk stops at the malformed tail");
-        assert_eq!(payloads[0], b"payload");
+        assert_eq!(payloads[0].0, b"payload");
     }
 }

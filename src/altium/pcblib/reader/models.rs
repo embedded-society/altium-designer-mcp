@@ -253,6 +253,7 @@ pub fn parse_embedded_models(
             data: decompressed,
             compressed_size: compressed.len(),
             index_params: Vec::new(),
+            compressed: compressed.clone(),
         };
 
         tracing::debug!(

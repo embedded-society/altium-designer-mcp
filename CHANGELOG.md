@@ -41,6 +41,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now kept as read and written back byte for byte, and its placement and checksum follow
   the body that references the model, as Altium writes them. The round-trip tests now
   compare the index, which they had skipped along with the compressed models.
+- **A `SchLib` rewrite keeps the library's file header.** Every write rebuilt `FileHeader`
+  from a template: a library's second font was dropped from its font table, leaving every
+  text set in it (`FontID=2`, as in an older library of the reference corpus) pointing at a
+  font that no longer existed; the sheet settings went back to defaults; and `Weight` was a
+  constant 47 where Altium stores the number of records plus one. The header now comes
+  back as read with its `Weight` counted, and its component list is rebuilt in place once a
+  symbol is added, removed, renamed or re-described.
+- **An empty symbol description is no longer written.** Altium omits `ComponentDescription`
+  from the symbol's header record and `CompDescr{i}` from the file header when the
+  description is empty; a symbol built here wrote both, empty.
+- **A `SchLib`'s `SectionKeys` keep Altium's order.** The map from a long symbol name to its
+  storage was rebuilt in library order on every write, where Altium's order follows no
+  rule the files reveal. It now goes back as read while the symbols still need the same
+  entries.
+- **A `PcbLib`'s `SectionKeys` are listed alphabetically**, as Altium lists them in every
+  library of the corpus that has one; the writer listed them in library order.
+- **Embedded images and 3D models keep Altium's compressed bytes.** A rewrite recompressed
+  every embedded image and model: the same content in different bytes, so a
+  version-controlled library showed each one as changed. Each now goes back as the bytes it
+  was read with while it still holds the same content. `read_schlib` reports an image's as
+  `image_compressed`, which `write_schlib` takes back.
+- **A footprint's `PrimitiveGuids` keep Altium's record order.** Altium stores the records
+  in an order of its own, which a rewrite sorted. The stream now goes back as read while
+  it holds the same records, and is written in primitive order once one changes.
+- **Pad/via templates, textures and linked models survive a rewrite.** Every `PcbLib` write
+  replaced `/Library/PadViaLibrary`, `/Library/Textures` and `/Library/ModelsNoEmbed` with
+  empty storages and `/FileVersionInfo` with a fixed copy, so a library using pad/via
+  templates, textured bodies or linked models lost them. No library in the corpus uses
+  them, which kept the loss out of sight. Each now comes back as read. The round-trip tests
+  now hold every stream of the golden and hand-authored libraries to its bytes, listing
+  the few `SchLib` streams that are not yet reproduced.
 
 ## [1.1.0] - 2026-09-25
 

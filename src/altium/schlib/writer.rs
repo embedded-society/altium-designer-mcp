@@ -589,7 +589,10 @@ fn encode_component_header(symbol: &Symbol) -> String {
     let part_id_locked = if symbol.part_id_locked { "T" } else { "F" };
     let mut canonical: Vec<(String, String)> = vec![("RECORD".to_string(), "1".to_string())];
     canonical.extend(text("LibReference", &symbol.name));
-    canonical.extend(text("ComponentDescription", &symbol.description));
+    // Altium omits an empty description (every UI- and API-authored header).
+    if !symbol.description.is_empty() {
+        canonical.extend(text("ComponentDescription", &symbol.description));
+    }
     canonical.extend([
         ("PartCount".to_string(), (symbol.part_count + 1).to_string()), // Altium uses part_count + 1
         (
@@ -1525,11 +1528,14 @@ fn encode_implementation_list() -> String {
     "|RECORD=44".to_string()
 }
 
-/// Counts the records already written to a Data-stream buffer, using the
-/// `[u24 length LE][u8 flags][payload]` framing. The result is the stream-index
-/// the next record will occupy (records are 0-indexed, matching the values
-/// Altium stores in `OwnerIndex`).
-fn count_records(data: &[u8]) -> usize {
+/// Counts the records already written to a Data-stream buffer.
+///
+/// Records use the `[u24 length LE][u8 flags][payload]` framing. The result is
+/// the stream index the next record will occupy (records are 0-indexed,
+/// matching the values Altium stores in `OwnerIndex`). Over a whole stream it
+/// is the stream's record count, which the `FileHeader`'s `Weight` sums.
+#[must_use]
+pub fn count_records(data: &[u8]) -> usize {
     let mut offset = 0;
     let mut count = 0;
     while offset + 4 <= data.len() {
@@ -1779,18 +1785,127 @@ pub fn encode_data_stream(symbol: &Symbol) -> crate::altium::error::AltiumResult
     Ok(data)
 }
 
+/// The component list of a `FileHeader`, one segment per `|`-separated field.
+///
+/// `CompCount`, then per symbol `LibRef{i}` (the component's real name — the
+/// golden stores a full 33-byte Khmer name here while its storage name is cut
+/// at 31; the root `SectionKeys` stream, not this list, maps a cut storage
+/// name back), `CompDescr{i}` and `PartCount{i}`. Altium omits `CompDescr{i}`
+/// for an empty description (every Altium-written library in the corpus), and
+/// a value outside ASCII carries its `%UTF8%` twin.
+pub(crate) fn component_list_segments(symbols: &[&Symbol]) -> Vec<String> {
+    let mut segments = vec![format!("CompCount={}", symbols.len())];
+    for (i, symbol) in symbols.iter().enumerate() {
+        segments.extend(
+            text_field(&format!("LibRef{i}"), &symbol.name)
+                .split('|')
+                .map(str::to_string),
+        );
+        if !symbol.description.is_empty() {
+            segments.extend(
+                text_field(&format!("CompDescr{i}"), &symbol.description)
+                    .split('|')
+                    .map(str::to_string),
+            );
+        }
+        segments.push(format!("PartCount{}={}", i, symbol.part_count + 1));
+    }
+    segments
+}
+
+/// Whether a `FileHeader` field belongs to the component list
+/// ([`component_list_segments`]).
+fn is_component_list_field(segment: &str) -> bool {
+    let key = segment.split_once('=').map_or(segment, |(k, _)| k);
+    let key = key
+        .get(..6)
+        .filter(|prefix| prefix.eq_ignore_ascii_case("%UTF8%"))
+        .map_or(key, |_| &key[6..]);
+    if key.eq_ignore_ascii_case("CompCount") {
+        return true;
+    }
+    ["LibRef", "CompDescr", "PartCount"].iter().any(|stem| {
+        key.get(..stem.len())
+            .is_some_and(|k| k.eq_ignore_ascii_case(stem))
+            && key.len() > stem.len()
+            && key[stem.len()..].bytes().all(|b| b.is_ascii_digit())
+    })
+}
+
 /// Encodes the `FileHeader` stream content.
+///
+/// A library read from a file replays its header (`read`, one segment per
+/// field): the font table every text record's `FontID` points into, the
+/// sheet settings and any key this crate does not model. Its component list
+/// goes back as read while the symbols still build `read_basis`, and is
+/// rebuilt in place once one changes. A library built from scratch gets the
+/// template header. Either way `Weight` is `weight`: Altium stores the number
+/// of records in all the symbols' `Data` streams plus one there (636 for the
+/// golden's 635, in every Altium-written library in the corpus).
 ///
 /// # Arguments
 ///
-/// * `symbols` - The symbols to encode
-/// * `ole_names` - OLE-safe storage names for each symbol (≤31 chars, unique)
+/// * `symbols` - The symbols to encode, in library order
 /// * `unique_id` - The library's own identity, kept across saves
+/// * `weight` - The record count plus one
+/// * `read` / `read_basis` - The header as read and the component list built
+///   for the symbols as read; both empty for a library built in memory
 #[must_use]
-pub fn encode_file_header(symbols: &[&Symbol], ole_names: &[String], unique_id: &str) -> Vec<u8> {
-    let mut parts = vec![
+pub fn encode_file_header(
+    symbols: &[&Symbol],
+    unique_id: &str,
+    weight: usize,
+    read: &[String],
+    read_basis: &[String],
+) -> Vec<u8> {
+    let list = component_list_segments(symbols);
+    let parts = if read.is_empty() {
+        let mut parts = file_header_template(unique_id, weight);
+        parts.extend(list);
+        parts
+    } else {
+        let start = read.iter().position(|s| is_component_list_field(s));
+        let end = read.iter().rposition(|s| is_component_list_field(s));
+        let (head, as_read, tail) = match (start, end) {
+            (Some(a), Some(b)) => (&read[..a], &read[a..=b], &read[b + 1..]),
+            _ => (read, &[][..], &[][..]),
+        };
+        let list = if !as_read.is_empty() && list == read_basis {
+            as_read.to_vec()
+        } else {
+            list
+        };
+        let with_weight = |segment: &String| match segment.split_once('=') {
+            Some((key, _)) if key.eq_ignore_ascii_case("Weight") => format!("{key}={weight}"),
+            _ => segment.clone(),
+        };
+        head.iter()
+            .map(with_weight)
+            .chain(list)
+            .chain(tail.iter().map(with_weight))
+            .collect()
+    };
+
+    let text = format!("|{}", parts.join("|"));
+    // Altium stores parameter strings as Windows-1252, not UTF-8 (#68).
+    let text_bytes = crate::altium::encode_windows1252(&text);
+
+    // Format: [length:4 LE][text + 0x00]. The block is a C-string: it MUST be
+    // null-terminated and the length MUST include the terminator (matches Altium
+    // WriteCStringParameterBlockRaw). Omitting it is issue #68's "Data does not
+    // end with 0x00".
+    let mut data = Vec::with_capacity(4 + text_bytes.len() + 1);
+    write_cstring_param_block(&mut data, &text_bytes);
+
+    data
+}
+
+/// The header fields a library built from scratch gets, before its
+/// component list.
+fn file_header_template(unique_id: &str, weight: usize) -> Vec<String> {
+    vec![
         "HEADER=Protel for Windows - Schematic Library Editor Binary File Version 5.0".to_string(),
-        "Weight=47".to_string(),
+        format!("Weight={weight}"),
         "MinorVersion=9".to_string(),
         format!("UniqueID={unique_id}"),
         "FontIdCount=1".to_string(),
@@ -1811,34 +1926,7 @@ pub fn encode_file_header(symbols: &[&Symbol], ole_names: &[String], unique_id: 
         "UseCustomSheet=T".to_string(),
         "ReferenceZonesOn=T".to_string(),
         "Display_Unit=0".to_string(),
-        format!("CompCount={}", symbols.len()),
-    ];
-
-    // LibRef{i} is the component's REAL name — the golden stores the full
-    // 33-byte Khmer name here while its storage name is cut at 31 — with a
-    // %UTF8% twin when the name leaves Windows-1252. The root SectionKeys
-    // stream, not this list, is what maps a truncated storage name back.
-    // `ole_names` still decides which entries need that map; it is unused here
-    // beyond keeping the two lists in lockstep by construction.
-    debug_assert_eq!(symbols.len(), ole_names.len());
-    for (i, symbol) in symbols.iter().enumerate() {
-        parts.push(text_field(&format!("LibRef{i}"), &symbol.name));
-        parts.push(text_field(&format!("CompDescr{i}"), &symbol.description));
-        parts.push(format!("PartCount{}={}", i, symbol.part_count + 1));
-    }
-
-    let text = format!("|{}", parts.join("|"));
-    // Altium stores parameter strings as Windows-1252, not UTF-8 (#68).
-    let text_bytes = crate::altium::encode_windows1252(&text);
-
-    // Format: [length:4 LE][text + 0x00]. The block is a C-string: it MUST be
-    // null-terminated and the length MUST include the terminator (matches Altium
-    // WriteCStringParameterBlockRaw). Omitting it is issue #68's "Data does not
-    // end with 0x00".
-    let mut data = Vec::with_capacity(4 + text_bytes.len() + 1);
-    write_cstring_param_block(&mut data, &text_bytes);
-
-    data
+    ]
 }
 
 #[cfg(test)]
@@ -2330,7 +2418,8 @@ mod tests {
     }
 
     /// From scratch the canonical header is unchanged: every constant key,
-    /// the pin count, and the scripted `%UTF8%` form for a non-ASCII value.
+    /// the pin count, the scripted `%UTF8%` form for a non-ASCII value, and
+    /// no description key while the description is empty.
     #[test]
     fn a_fresh_header_is_canonical() {
         let mut symbol = Symbol::new("R\u{e9}sistance");
@@ -2339,9 +2428,15 @@ mod tests {
         let bytes = crate::altium::encode_utf8_param_value("R\u{e9}sistance");
         assert!(
             header.starts_with(&format!(
-                "|RECORD=1|LibReference={bytes}|%UTF8%LibReference={bytes}|ComponentDescription=|"
+                "|RECORD=1|LibReference={bytes}|%UTF8%LibReference={bytes}|PartCount=2|"
             )),
-            "{header}"
+            "an empty description is omitted, as Altium omits it: {header}"
+        );
+        symbol.description = "Resistor".to_string();
+        assert!(
+            encode_component_header(&symbol)
+                .contains("|ComponentDescription=Resistor|PartCount=2|"),
+            "a description is written once set"
         );
         assert!(header.contains("|LibraryPath=*|SourceLibraryName=*|SheetPartFileName=*|TargetFileName=*|AllPinCount=1|"), "{header}");
         symbol.all_pin_count = Some(7);
@@ -2864,9 +2959,7 @@ mod tests {
     fn test_encode_file_header() {
         let symbol = Symbol::new("TEST_SYMBOL");
         let symbols = vec![&symbol];
-        let ole_names = vec!["TEST_SYMBOL".to_string()];
-
-        let data = encode_file_header(&symbols, &ole_names, "ABCDEFGH");
+        let data = encode_file_header(&symbols, "ABCDEFGH", 1, &[], &[]);
 
         // Should start with length
         assert!(data.len() > 4);
@@ -2889,9 +2982,7 @@ mod tests {
         let long_name = "A".repeat(64);
         let symbol = Symbol::new(&long_name);
         let symbols = vec![&symbol];
-        let ole_names = vec!["A".repeat(31)];
-
-        let data = encode_file_header(&symbols, &ole_names, "ABCDEFGH");
+        let data = encode_file_header(&symbols, "ABCDEFGH", 1, &[], &[]);
 
         let text = String::from_utf8_lossy(&data[4..]);
         assert!(

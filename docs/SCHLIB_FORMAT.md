@@ -15,6 +15,7 @@ SchLib files are OLE Compound Documents (CFB format, OLE v3) containing:
 ```text
 /
 ├── FileHeader              # Library metadata (C-string param block)
+├── SectionKeys             # OPTIONAL: full name -> storage name, for names past the cap
 ├── Storage                 # Embedded image bytes (compressed-storage stream)
 └── {ComponentName}/        # One storage per symbol
     ├── Data                # Symbol records stream
@@ -82,6 +83,11 @@ by `_`, the rule an AD21 `PcbLib` shows (issue #507), and a rewrite keeps an exi
 as it is. A `PcbLib`'s stream of the same name is a
 binary count-and-string-blocks layout, not this text record (`PCBLIB_FORMAT.md` § SectionKeys Stream).
 
+Altium's entries follow an order no rule reproduces: the golden's five sit at library positions
+19, 25, 21, 24 and 20, neither name order nor library order. So a library read from a file gets
+its stream back as read while its symbols still need the same entries, and one rebuilt in library
+order once a name changes.
+
 ## PinWideText Stream
 
 A non-ASCII pin **name** is stored in the binary pin record as its **UTF-8 bytes** (every one
@@ -103,16 +109,21 @@ through the plausible code pages and applies it only when the binary record yiel
 A single C-string parameter block:
 
 ```text
-[block_len:4 LE]["|HEADER=...|Weight=47|..." + 0x00]    # length INCLUDES the null terminator
+[block_len:4 LE]["|HEADER=...|Weight=636|..." + 0x00]    # length INCLUDES the null terminator
 ```
 
-Keys as written by this crate (matching the golden library; note the mixed-case key spellings —
-the reader is case-insensitive):
+A library read from a file gets its header back as read — the font table every text record's
+`FontID` indexes (an Altium library can carry a second font, `FontIdCount=2`), the sheet settings
+and any key this crate does not model — with only `Weight` recomputed. Its component list, from
+`CompCount` to the last `PartCount{i}`, goes back as read while the symbols still build it, and is
+rebuilt in place once a symbol is added, removed, renamed or re-described. A library built in
+memory gets these keys (matching the golden library; note the mixed-case key spellings — the
+reader is case-insensitive):
 
 | Key | Value | Notes |
 |-----|-------|-------|
 | `HEADER` | `Protel for Windows - Schematic Library Editor Binary File Version 5.0` | File type identifier |
-| `Weight` | 47 | File weight |
+| `Weight` | records + 1 | The number of records in all the symbols' `Data` streams, plus one: 636 for the golden's 635, as in every Altium-written library of the corpus |
 | `MinorVersion` | 9 | Minor version number |
 | `UniqueID` | 8-char alphanumeric | Library unique ID |
 | `FontIdCount` | 1 | Number of fonts in the font table |
@@ -131,8 +142,8 @@ the reader is case-insensitive):
 | `ReferenceZonesOn` | T | |
 | `Display_Unit` | 0 | |
 | `CompCount` | N | Number of components |
-| `LibRef{i}` | name | Component name (0-indexed; OLE-safe storage name) |
-| `CompDescr{i}` | text | Component description |
+| `LibRef{i}` | name | Component name, in full (0-indexed; a name past the storage cap is mapped by `SectionKeys`) |
+| `CompDescr{i}` | text | Component description; omitted when empty, as Altium omits it |
 | `PartCount{i}` | N+1 | Stored as **count + 1** |
 
 > **Note:** every `PartCount` in the format (here and in RECORD=1) is stored as
@@ -376,7 +387,10 @@ The root `/Storage` stream carries the raw bytes of every embedded image (`RECOR
 - **Matching:** entry names are ignored on read — payloads are matched to `EmbedImage=T` images
   **in order across all symbols** (global stream order), exactly like AltiumSharp's
   `ParseStorageImageData`.
-- **Payload:** the raw image file bytes (BMP/PNG/JPG), zlib-compressed (RFC 1950).
+- **Payload:** the raw image file bytes (BMP/PNG/JPG), zlib-compressed (RFC 1950). An image
+  read from a file keeps the compressed bytes it was read with (`Image::image_compressed`, base64
+  in JSON) while they still inflate to its bytes, since Altium's compression is not this crate's,
+  so an unchanged image goes back byte for byte; a new or replaced one is compressed afresh.
 
 ## Coordinate System
 
@@ -488,7 +502,7 @@ The first record of each component's Data stream. Keys as written (in order):
 | Property | Type | Description |
 |----------|------|-------------|
 | `LibReference` | string | Component name |
-| `ComponentDescription` | string | Description |
+| `ComponentDescription` | string | Description; omitted when empty, as Altium omits it |
 | `PartCount` | int | **Stored as count + 1** (see FileHeader note) |
 | `DisplayModeCount` | int | Number of display modes (typically 1) |
 | `IndexInSheet` | int | -1 for the component root |

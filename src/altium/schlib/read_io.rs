@@ -23,6 +23,7 @@ impl SchLib {
         // Read FileHeader to get component list
         let header = read_file_header(&mut cfb)?;
         lib.unique_id.clone_from(&header.unique_id);
+        lib.file_header.clone_from(&header.segments);
 
         // Components are discovered by walking the storages that actually hold a
         // `Data` stream, with the FileHeader's LibRef list used only for ordering
@@ -133,13 +134,27 @@ impl SchLib {
             let mut payloads = storage::parse_icon_storage(&raw).into_iter();
             'attach: for symbol in lib.symbols.values_mut() {
                 for image in symbol.images.iter_mut().filter(|i| i.embed_image) {
-                    let Some(data) = payloads.next() else {
+                    let Some((data, compressed)) = payloads.next() else {
                         break 'attach;
                     };
-                    image.image_data = if data.is_empty() { None } else { Some(data) };
+                    if data.is_empty() {
+                        image.image_data = None;
+                    } else {
+                        image.image_data = Some(data);
+                        image.image_compressed = Some(compressed);
+                    }
                 }
             }
         }
+
+        // What this crate would build for the symbols as read — the header's
+        // component list and the SectionKeys stream: while the symbols still
+        // build the same, Altium's own bytes are replayed.
+        let symbols: Vec<&Symbol> = lib.symbols.values().collect();
+        lib.file_header_list_basis = super::writer::component_list_segments(&symbols);
+        let (storage_names, ole_names) = Self::storage_plan(&symbols);
+        lib.section_keys_basis = Self::section_keys_stream(&storage_names, &ole_names);
+        lib.section_keys_read = crate::altium::read_stream_opt(&mut cfb, "/SectionKeys");
 
         Ok(lib)
     }
@@ -254,6 +269,9 @@ struct FileHeader {
     component_names: Vec<String>,
     component_descriptions: HashMap<String, String>,
     unique_id: Option<String>,
+    /// Every `|`-separated field as read, in wire form (see
+    /// `SchLib::file_header`).
+    segments: Vec<String>,
 }
 
 /// Reads the `FileHeader` stream.
@@ -348,10 +366,20 @@ fn read_file_header<R: Read + Seek>(cfb: &mut CompoundFile<R>) -> AltiumResult<F
         }
     }
 
+    let wire = crate::altium::decode_windows1252(&data[4..4 + length]);
+    let wire = wire.trim_end_matches('\u{0}');
+    let segments: Vec<String> = wire
+        .strip_prefix('|')
+        .unwrap_or(wire)
+        .split('|')
+        .map(str::to_string)
+        .collect();
+
     Ok(FileHeader {
         component_names,
         component_descriptions,
         unique_id: props.get("uniqueid").cloned(),
+        segments,
     })
 }
 

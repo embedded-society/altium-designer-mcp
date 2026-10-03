@@ -57,18 +57,12 @@ fn is_volatile_key(key: &str) -> bool {
 }
 
 /// Differences that are correct by design and will not change.
-const BY_DESIGN: &[(&str, &str)] = &[
-    (
-        "library/padvialibrary/data",
-        "an empty pad/via template cache with a fresh library id; no template is \
-         modelled, so there is nothing to carry",
-    ),
-    (
-        "library/componentparamstoc/data",
-        "regenerated from the footprints, so ordering and spacing follow our \
-         writer rather than the original",
-    ),
-];
+const BY_DESIGN: &[(&str, &str)] = &[(
+    "/pinwidetext",
+    "the golden's entries hold each pin name's DelphiScript mojibake (its UTF-8 bytes \
+     widened through Windows-1250); the reader takes the real name from the binary \
+     record, and the writer stores that name as real UTF-16",
+)];
 
 /// Known defects: real fidelity losses this test found, each still open.
 ///
@@ -179,21 +173,6 @@ fn stream_map(path: &Path) -> BTreeMap<String, String> {
 }
 
 /// Reads one stream's bytes, or `None` when it is absent.
-/// Whether `canonical` is a numbered model stream (`library/models/0`, …).
-fn is_compressed_model(canonical: &str) -> bool {
-    canonical
-        .strip_prefix("library/models/")
-        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
-}
-
-/// A zlib stream's inflated bytes (empty when it is not one).
-fn inflate(bytes: &[u8]) -> Vec<u8> {
-    use std::io::Read as _;
-    let mut out = Vec::new();
-    let _ = flate2::read::ZlibDecoder::new(bytes).read_to_end(&mut out);
-    out
-}
-
 fn stream_bytes(path: &Path, stream: &str) -> Option<Vec<u8>> {
     use std::io::Read as _;
     let file = std::fs::File::open(path).expect("open library");
@@ -323,6 +302,9 @@ fn pcblib_golden_survives_a_round_trip() {
             failures.push(format!("stream dropped entirely: {missing}"));
         }
     }
+    for added in after.keys().filter(|k| !before.contains_key(*k)) {
+        failures.push(format!("stream added: {added}"));
+    }
 
     // 2. The library-level layer stack and metadata.
     if let (Some(g), Some(o)) = (
@@ -366,43 +348,27 @@ fn pcblib_golden_survives_a_round_trip() {
         );
     }
 
-    // 4. The identity streams. Both key a primitive by its ordinal among all
-    //    of the footprint's primitives, and a block-level diff cannot see a
-    //    reordering. The unique-id records are rebuilt in ordinal order, which
-    //    is also the order Altium stores them — compared byte for byte.
-    //    PrimitiveGuids records are keyed (kind, ordinal, guid) but Altium
-    //    scrambles their order in the stream while our writer emits them
-    //    canonically, so they are compared as record SETS: same identities on
-    //    the same primitives, which is the property that matters.
+    // 4. The identity streams, byte for byte. Both key a primitive by its
+    //    ordinal among all of the footprint's primitives, and a block-level
+    //    diff cannot see a reordering. The unique-id records are rebuilt in
+    //    ordinal order, which is also the order Altium stores them; Altium
+    //    stores the PrimitiveGuids records in an order of its own, which the
+    //    writer replays while the records are unchanged.
     for (canonical, g_path) in &before {
-        if is_known(canonical) {
+        let identity = canonical.ends_with("uniqueidprimitiveinformation/data")
+            || canonical.ends_with("primitiveguids/data");
+        if !identity || is_known(canonical) {
             continue;
         }
-        if canonical.ends_with("uniqueidprimitiveinformation/data") {
-            let g = stream_bytes(&src, g_path).expect("walked stream exists");
-            match after.get(canonical).and_then(|p| stream_bytes(&out, p)) {
-                Some(o) if o == g => {}
-                Some(o) => failures.push(format!(
-                    "{canonical} differs: {} bytes golden, {} ours",
-                    g.len(),
-                    o.len()
-                )),
-                None => failures.push(format!("{canonical} was not written back")),
-            }
-        } else if canonical.ends_with("primitiveguids/data") {
-            let records = |bytes: &[u8]| -> std::collections::BTreeSet<Vec<u8>> {
-                bytes.chunks_exact(24).map(<[u8]>::to_vec).collect()
-            };
-            let g = stream_bytes(&src, g_path).expect("walked stream exists");
-            match after.get(canonical).and_then(|p| stream_bytes(&out, p)) {
-                Some(o) if records(&o) == records(&g) => {}
-                Some(o) => failures.push(format!(
-                    "{canonical} records differ: {} golden, {} ours",
-                    g.len() / 24,
-                    o.len() / 24
-                )),
-                None => failures.push(format!("{canonical} was not written back")),
-            }
+        let g = stream_bytes(&src, g_path).expect("walked stream exists");
+        match after.get(canonical).and_then(|p| stream_bytes(&out, p)) {
+            Some(o) if o == g => {}
+            Some(o) => failures.push(format!(
+                "{canonical} differs: {} bytes golden, {} ours",
+                g.len(),
+                o.len()
+            )),
+            None => failures.push(format!("{canonical} was not written back")),
         }
     }
 
@@ -467,6 +433,34 @@ fn pcblib_golden_survives_a_round_trip() {
                 String::from_utf8_lossy(&o)
             )),
             None => failures.push(format!("{name}: WideStrings not written back")),
+        }
+    }
+
+    // 7. Every other stream byte for byte: the file header, SectionKeys, the
+    //    version info, each Library stream but the parameter block of 2 (it
+    //    names the save's path, date and time) — compressed models included —
+    //    and each footprint's Header and Parameters.
+    for (canonical, g_path) in &before {
+        let root = canonical.split('/').next().unwrap_or("");
+        let footprint_stream = !matches!(
+            root,
+            "library" | "fileheader" | "sectionkeys" | "fileversioninfo"
+        );
+        let compared_above = matches!(canonical.as_str(), "library/data" | "library/models/data")
+            || (footprint_stream
+                && (canonical.ends_with("/data") || canonical.ends_with("/widestrings")));
+        if compared_above || is_known(canonical) {
+            continue;
+        }
+        let g = stream_bytes(&src, g_path).expect("walked stream exists");
+        match after.get(canonical).and_then(|p| stream_bytes(&out, p)) {
+            Some(o) if o == g => {}
+            Some(o) => failures.push(format!(
+                "{canonical}: not byte-identical (lens {}/{})",
+                g.len(),
+                o.len()
+            )),
+            None => {} // reported as dropped in 1
         }
     }
 
@@ -665,6 +659,9 @@ fn schlib_golden_survives_a_round_trip() {
             failures.push(format!("stream dropped entirely: {missing}"));
         }
     }
+    for added in after.keys().filter(|k| !before.contains_key(*k)) {
+        failures.push(format!("stream added: {added}"));
+    }
 
     for (canonical, g_path) in &before {
         let Some(name) = canonical
@@ -716,6 +713,25 @@ fn schlib_golden_survives_a_round_trip() {
                 gp.len(),
                 op.len()
             ));
+        }
+    }
+
+    // And every stream byte for byte: the file header (its font table, sheet
+    // settings and record-count Weight), SectionKeys, the image Storage, and
+    // each symbol's Data and pin streams.
+    for (canonical, g_path) in &before {
+        if is_known(canonical) {
+            continue;
+        }
+        let g = stream_bytes(&src, g_path).expect("walked stream exists");
+        match after.get(canonical).and_then(|p| stream_bytes(&out, p)) {
+            Some(o) if o == g => {}
+            Some(o) => failures.push(format!(
+                "{canonical}: not byte-identical (lens {}/{})",
+                g.len(),
+                o.len()
+            )),
+            None => {} // reported as dropped above
         }
     }
 
@@ -862,11 +878,11 @@ fn corpus_survives_a_round_trip() {
 }
 
 /// Every hand-authored `PcbLib` under `scripts/samples/manual/` comes back
-/// byte-identical from a read -> write: each footprint's streams — the
-/// `Parameters` block Altium wrote, key order and all — the root
-/// `SectionKeys`, and `Library/Data` up to its volatile keys. The file header
-/// (a per-save unique id) is not compared; every `Library` stream is, a
-/// compressed model by its inflated bytes.
+/// byte-identical from a read -> write: every stream — each footprint's,
+/// the `Parameters` block Altium wrote, key order and all, the root
+/// `FileHeader`, `SectionKeys` and `FileVersionInfo`, and every `Library`
+/// stream, compressed models included — but `Library/Data`, compared up to
+/// the save's path, date and time; no stream is dropped or added.
 #[test]
 fn manual_pcblibs_survive_a_round_trip() {
     let manual = sample("manual");
@@ -900,43 +916,12 @@ fn manual_pcblibs_survive_a_round_trip() {
             let (Some(g), Some(o)) = (stream_bytes(src, g_path), stream_bytes(&out, o_path)) else {
                 continue;
             };
-            let root = canonical.split('/').next().unwrap_or("");
             if canonical == "library/data" {
                 failures.extend(
                     block_divergences(&g, &o, &file)
                         .into_iter()
                         .filter(|d| !is_known(d)),
                 );
-            } else if canonical == "library/models/data" {
-                if g != o {
-                    failures.push(format!(
-                        "{file}: {canonical}: model index not byte-identical"
-                    ));
-                }
-            } else if root == "library" {
-                // Every library-wide stream comes back as read; a compressed
-                // model only needs to hold the same bytes once inflated.
-                let same = if is_compressed_model(canonical) {
-                    inflate(&g) == inflate(&o)
-                } else {
-                    g == o
-                };
-                if !same {
-                    failures.push(format!("{file}: {canonical}: not byte-identical"));
-                }
-            } else if matches!(root, "fileheader" | "fileversioninfo") {
-                // The per-save unique id: not compared.
-            } else if canonical.ends_with("primitiveguids/data") {
-                // Altium scrambles the record order; the identities are what
-                // matter, as in the golden test above.
-                let records = |bytes: &[u8]| -> std::collections::BTreeSet<Vec<u8>> {
-                    bytes.chunks_exact(24).map(<[u8]>::to_vec).collect()
-                };
-                if records(&g) != records(&o) {
-                    failures.push(format!(
-                        "{file}: {canonical}: PrimitiveGuids records differ"
-                    ));
-                }
             } else if g != o {
                 let first = g
                     .iter()
@@ -950,10 +935,110 @@ fn manual_pcblibs_survive_a_round_trip() {
                 ));
             }
         }
+        for added in after.keys().filter(|k| !before.contains_key(*k)) {
+            failures.push(format!("{file}: stream added: {added}"));
+        }
     }
     assert!(
         failures.is_empty(),
         "manual PcbLib round trip: {}",
+        failures.join("; ")
+    );
+}
+
+/// Why a plain text value differs: beside a `%UTF8%` twin, Altium writes the
+/// plain key in the code page — `?` for a character it cannot hold, byte
+/// `0x8E` for an escaped pipe — where this crate writes the UTF-8 bytes.
+const PLAIN_VALUE: &str = "the plain value beside a %UTF8% twin is the code page in Altium's \
+                           file, the UTF-8 bytes in ours";
+
+/// Why a pin record differs as well: Altium narrows a binary pin record's
+/// name through the code page, `?` for a character it cannot hold, where
+/// this crate writes the UTF-8 bytes.
+const PIN_NAME_AND_PLAIN_VALUE: &str = "the binary pin name and the plain value beside a \
+                                        %UTF8% twin are the code page in Altium's file, \
+                                        the UTF-8 bytes in ours";
+
+/// Streams of the hand-authored `SchLib`s that do not come back byte for
+/// byte, as (file, canonical stream suffix, what differs). Debt like
+/// [`KNOWN_DEFECTS`]: an entry whose stream comes back identical fails the
+/// test until it is deleted.
+const MANUAL_SCHLIB_DEFECTS: &[(&str, &str, &str)] = &[
+    ("i18n5.SchLib", "_bn/data", PIN_NAME_AND_PLAIN_VALUE),
+    ("i18n5.SchLib", "_cr/data", PIN_NAME_AND_PLAIN_VALUE),
+    ("i18n5.SchLib", "_iu/data", PIN_NAME_AND_PLAIN_VALUE),
+    ("i18n5.SchLib", "_jv/data", PIN_NAME_AND_PLAIN_VALUE),
+    ("i18n5.SchLib", "_sb/data", PIN_NAME_AND_PLAIN_VALUE),
+    ("parameters.SchLib", "paramprops/data", PLAIN_VALUE),
+    ("pipe.SchLib", "pipesym/data", PLAIN_VALUE),
+];
+
+/// Every hand-authored `SchLib` under `scripts/samples/manual/` comes back
+/// byte-identical from a read -> write: the file header — Altium's font
+/// table, sheet settings and record-count `Weight` — `SectionKeys`, the
+/// image `Storage` and each symbol's streams, all but the
+/// [`MANUAL_SCHLIB_DEFECTS`]; no stream is dropped or added.
+#[test]
+fn manual_schlibs_survive_a_round_trip() {
+    let manual = sample("manual");
+    let mut libraries: Vec<PathBuf> = std::fs::read_dir(&manual)
+        .expect("read the manual samples")
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| {
+            p.extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case("schlib"))
+        })
+        .collect();
+    libraries.sort();
+    assert!(!libraries.is_empty(), "no manual SchLibs");
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut failures = Vec::new();
+    let mut matched = vec![false; MANUAL_SCHLIB_DEFECTS.len()];
+    for src in &libraries {
+        let file = src.file_name().unwrap().to_string_lossy().into_owned();
+        let out = dir.path().join(&file);
+        SchLib::open(src)
+            .unwrap_or_else(|e| panic!("{file}: open: {e}"))
+            .save(&out)
+            .unwrap_or_else(|e| panic!("{file}: save: {e}"));
+        let (before, after) = (stream_map(src), stream_map(&out));
+        for (canonical, g_path) in &before {
+            let Some(o_path) = after.get(canonical) else {
+                failures.push(format!("{file}: stream dropped: {canonical}"));
+                continue;
+            };
+            let same = stream_bytes(src, g_path) == stream_bytes(&out, o_path);
+            let defect = MANUAL_SCHLIB_DEFECTS
+                .iter()
+                .position(|(f, suffix, _)| *f == file && canonical.ends_with(suffix));
+            if let Some(i) = defect {
+                matched[i] = true;
+            }
+            match (same, defect) {
+                (true, None) | (false, Some(_)) => {}
+                (false, None) => failures.push(format!("{file}: {canonical}: not byte-identical")),
+                (true, Some(_)) => failures.push(format!(
+                    "{file}: {canonical}: byte-identical now; delete its MANUAL_SCHLIB_DEFECTS entry"
+                )),
+            }
+        }
+        for added in after.keys().filter(|k| !before.contains_key(*k)) {
+            failures.push(format!("{file}: stream added: {added}"));
+        }
+    }
+    for ((file, suffix, _), _) in MANUAL_SCHLIB_DEFECTS
+        .iter()
+        .zip(&matched)
+        .filter(|(_, matched)| !**matched)
+    {
+        failures.push(format!("{file}: no stream ends with {suffix}"));
+    }
+    assert!(
+        failures.is_empty(),
+        "manual SchLib round trip: {}",
         failures.join("; ")
     );
 }

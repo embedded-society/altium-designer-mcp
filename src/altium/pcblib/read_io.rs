@@ -410,6 +410,10 @@ impl PcbLib {
         metadata.embedded_fonts = crate::altium::read_stream_opt(cfb, "/Library/EmbeddedFonts");
         let toc = crate::altium::read_stream_opt(cfb, "/Library/ComponentParamsTOC/Data");
         metadata.component_params_toc = toc.map(|bytes| (bytes, Vec::new()));
+        for storage in super::CARRIED_STORAGES {
+            let streams = Self::storage_streams(cfb, storage);
+            metadata.carried_storages.extend(streams);
+        }
 
         let Some(data) = crate::altium::read_stream_opt(cfb, "/Library/Data") else {
             return;
@@ -451,6 +455,30 @@ impl PcbLib {
             names = metadata.component_names.len(),
             "Parsed Library/Data"
         );
+    }
+
+    /// Every stream under the storage at `path`, sub-storages included,
+    /// keyed by its full `/`-separated path; empty when there is no such
+    /// storage.
+    fn storage_streams<F: std::io::Read + std::io::Seek>(
+        cfb: &mut cfb::CompoundFile<F>,
+        path: &str,
+    ) -> Vec<(String, Vec<u8>)> {
+        let paths: Vec<String> = cfb
+            .walk_storage(path)
+            .map(|entries| {
+                entries
+                    .filter(cfb::Entry::is_stream)
+                    .map(|entry| entry.path().to_string_lossy().replace('\\', "/"))
+                    .collect()
+            })
+            .unwrap_or_default();
+        paths
+            .into_iter()
+            .filter_map(|stream| {
+                crate::altium::read_stream_opt(cfb, &stream).map(|bytes| (stream, bytes))
+            })
+            .collect()
     }
 
     /// Reads the `/Storage` stream for `UniqueIdPrimitiveInformation` mappings.
@@ -627,6 +655,7 @@ impl PcbLib {
                 &mut footprint,
                 &reader::parse_primitive_guids(&guid_data),
             );
+            footprint.primitive_guids_as_read = Some(guid_data);
         }
 
         // Read UniqueIDPrimitiveInformation stream if present (contains unique IDs for primitives)

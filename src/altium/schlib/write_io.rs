@@ -44,19 +44,7 @@ impl SchLib {
         // the reader looks a header entry up by, so every symbol keeps its
         // place in the library on a read-modify-write (an ASCII-keyed rule
         // sent every Latin-1 name to the end of the list on the next read).
-        let storage_names: Vec<String> = symbols
-            .iter()
-            .map(|s| crate::altium::to_wire_text(&s.name))
-            .collect();
-        // Each symbol keeps the storage it was read from; one built from
-        // scratch, renamed or copied gets a name derived by Altium's rule.
-        let ole_names = crate::altium::resolve_storage_names(
-            &storage_names
-                .iter()
-                .zip(symbols.iter())
-                .map(|(wire, s)| (wire.clone(), s.storage_name.clone()))
-                .collect::<Vec<_>>(),
-        );
+        let (storage_names, ole_names) = Self::storage_plan(&symbols);
 
         // FileHeader stream. The library keeps the UniqueID it was read
         // with; one built from scratch is given its first here.
@@ -64,10 +52,27 @@ impl SchLib {
             .unique_id
             .clone()
             .unwrap_or_else(crate::util::generate_unique_id);
+        // Every symbol's Data stream, encoded first: the header's Weight is
+        // their record count plus one.
+        let datas = symbols
+            .iter()
+            .map(|symbol| writer::encode_data_stream(symbol))
+            .collect::<AltiumResult<Vec<_>>>()?;
+        let weight = datas
+            .iter()
+            .map(|d| writer::count_records(d))
+            .sum::<usize>()
+            + 1;
         crate::altium::write_stream(
             &mut cfb,
             "/FileHeader",
-            &writer::encode_file_header(&symbols, &ole_names, &unique_id),
+            &writer::encode_file_header(
+                &symbols,
+                &unique_id,
+                weight,
+                &self.file_header,
+                &self.file_header_list_basis,
+            ),
         )?;
 
         // Root SectionKeys stream: the LibRef -> storage-name map for every
@@ -81,24 +86,23 @@ impl SchLib {
         // locale differs from the wire name yet records the wire bytes, so it
         // is not listed (the golden lists five). With no such name the stream
         // is not written, as in Altium.
-        let truncated: Vec<(String, String)> = storage_names
-            .iter()
-            .zip(ole_names.iter())
-            .filter(|(wire, ole)| {
-                crate::altium::section_key_name(wire, ole) != wire.as_str()
-                    || wire.encode_utf16().count() >= crate::altium::MAX_OLE_NAME_LEN
-            })
-            .map(|(wire, ole)| (wire.clone(), crate::altium::section_key_name(wire, ole)))
-            .collect();
-        if let Some(section_keys) = crate::altium::encode_schlib_section_keys(&truncated) {
+        //
+        // Altium's own stream goes back as read while the symbols still build
+        // the stream they were read with (see `SchLib::section_keys_read`).
+        let built = Self::section_keys_stream(&storage_names, &ole_names);
+        let section_keys = if built == self.section_keys_basis {
+            self.section_keys_read.clone()
+        } else {
+            built
+        };
+        if let Some(section_keys) = section_keys {
             crate::altium::write_stream(&mut cfb, "/SectionKeys", &section_keys)?;
         }
 
         // One Data stream per symbol, under its own storage.
-        for (symbol, ole_name) in symbols.iter().zip(ole_names.iter()) {
+        for ((symbol, ole_name), data) in symbols.iter().zip(ole_names.iter()).zip(&datas) {
             crate::altium::create_storage(&mut cfb, &format!("/{ole_name}"))?;
-            let data = writer::encode_data_stream(symbol)?;
-            crate::altium::write_stream(&mut cfb, &format!("/{ole_name}/Data"), &data)?;
+            crate::altium::write_stream(&mut cfb, &format!("/{ole_name}/Data"), data)?;
 
             // Optional per-component pin auxiliary streams, written into the same
             // storage. Each is emitted ONLY when at least one pin carries a
@@ -123,17 +127,68 @@ impl SchLib {
             }
         }
 
-        // Root Storage stream (Altium's icon storage). Always present. EVERY
-        // image with `embed_image` contributes exactly one compressed entry,
-        // named with the image's `file_name` (real AD24 stores the full source
-        // file path there; the reader matches by order, not name). An embedded
-        // image without carried bytes emits an EMPTY entry rather than being
-        // skipped: the reader assigns payloads to `EmbedImage=T` images purely
-        // by ordinal, so skipping would shift every later payload onto the
-        // wrong image (including across symbols). With no embedded images the
-        // stream is just the header param block — byte-identical to the
-        // pre-embedded-image output.
-        let entries: Vec<(&str, &[u8])> = symbols
+        // Root Storage stream (Altium's icon storage).
+        crate::altium::write_stream(&mut cfb, "/Storage", &Self::storage_stream(&symbols)?)?;
+
+        cfb.flush()
+            .map_err(|e| AltiumError::invalid_ole(format!("Failed to flush OLE file: {e}")))?;
+
+        Ok(())
+    }
+
+    /// Each symbol's on-wire name and the storage it is written under.
+    ///
+    /// Storage names use the on-wire form — a name Windows-1252 cannot hold
+    /// becomes its UTF-8 bytes one char per byte — which is the form the
+    /// reader looks a header entry up by. Each symbol keeps the storage it was
+    /// read from; one built from scratch, renamed or copied gets a name
+    /// derived by Altium's rule.
+    pub(super) fn storage_plan(symbols: &[&Symbol]) -> (Vec<String>, Vec<String>) {
+        let storage_names: Vec<String> = symbols
+            .iter()
+            .map(|s| crate::altium::to_wire_text(&s.name))
+            .collect();
+        let ole_names = crate::altium::resolve_storage_names(
+            &storage_names
+                .iter()
+                .zip(symbols.iter())
+                .map(|(wire, s)| (wire.clone(), s.storage_name.clone()))
+                .collect::<Vec<_>>(),
+        );
+        (storage_names, ole_names)
+    }
+
+    /// The root `/SectionKeys` stream this crate builds, or `None` when no
+    /// symbol needs an entry (see `write` for the rule).
+    pub(super) fn section_keys_stream(
+        storage_names: &[String],
+        ole_names: &[String],
+    ) -> Option<Vec<u8>> {
+        let truncated: Vec<(String, String)> = storage_names
+            .iter()
+            .zip(ole_names.iter())
+            .filter(|(wire, ole)| {
+                crate::altium::section_key_name(wire, ole) != wire.as_str()
+                    || wire.encode_utf16().count() >= crate::altium::MAX_OLE_NAME_LEN
+            })
+            .map(|(wire, ole)| (wire.clone(), crate::altium::section_key_name(wire, ole)))
+            .collect();
+        crate::altium::encode_schlib_section_keys(&truncated)
+    }
+
+    /// The root `/Storage` stream this crate builds (Altium's icon storage).
+    ///
+    /// EVERY image with `embed_image` contributes exactly one compressed
+    /// entry, named with the image's `file_name` (real AD24 stores the full
+    /// source file path there; the reader matches by order, not name). An
+    /// embedded image without carried bytes emits an EMPTY entry rather than
+    /// being skipped: the reader assigns payloads to `EmbedImage=T` images
+    /// purely by ordinal, so skipping would shift every later payload onto the
+    /// wrong image (including across symbols). An image's compressed bytes as
+    /// read go back while they still hold it (`Image::image_compressed`).
+    /// With no embedded images the stream is just the header param block.
+    fn storage_stream(symbols: &[&Symbol]) -> AltiumResult<Vec<u8>> {
+        let entries: Vec<storage::IconEntry<'_>> = symbols
             .iter()
             .flat_map(|s| s.images.iter())
             .filter(|i| i.embed_image)
@@ -141,15 +196,10 @@ impl SchLib {
                 (
                     i.file_name.as_str(),
                     i.image_data.as_deref().unwrap_or_default(),
+                    i.image_compressed.as_deref(),
                 )
             })
             .collect();
-        let storage_stream = storage::encode_icon_storage(&entries)?;
-        crate::altium::write_stream(&mut cfb, "/Storage", &storage_stream)?;
-
-        cfb.flush()
-            .map_err(|e| AltiumError::invalid_ole(format!("Failed to flush OLE file: {e}")))?;
-
-        Ok(())
+        storage::encode_icon_storage(&entries)
     }
 }

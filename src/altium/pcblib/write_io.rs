@@ -119,6 +119,16 @@ impl PcbLib {
             })
             .map(|((wire, _), ole)| (wire.clone(), crate::altium::section_key_name(wire, ole)))
             .collect();
+        // Altium lists the entries in alphabetical order of the name (every
+        // Altium-written SectionKeys in the corpus: six libraries, all
+        // upper-case names, so the case rule is untested — case-insensitive
+        // here, as Delphi's string lists sort, with the bytes as tie-break).
+        let mut truncated = truncated;
+        truncated.sort_by(|(a, _), (b, _)| {
+            a.to_ascii_uppercase()
+                .cmp(&b.to_ascii_uppercase())
+                .then_with(|| a.cmp(b))
+        });
         if let Some(section_keys) = crate::altium::encode_pcblib_section_keys(&truncated)? {
             crate::altium::write_stream(&mut cfb, "/SectionKeys", &section_keys)?;
         }
@@ -131,8 +141,11 @@ impl PcbLib {
             self.write_footprint(&mut cfb, footprint, ole_name)?;
         }
 
-        // Write the root FileVersionInfo metadata storage.
-        Self::write_file_version_info(&mut cfb)?;
+        // Write the root FileVersionInfo metadata storage: as read, else
+        // Altium's own.
+        if !self.write_carried_storage(&mut cfb, "/FileVersionInfo")? {
+            Self::write_file_version_info(&mut cfb)?;
+        }
 
         tracing::info!(
             count = self.footprints.len(),
@@ -471,6 +484,40 @@ impl PcbLib {
         v
     }
 
+    /// Writes the storage at `path` back exactly as it was read (see
+    /// [`super::LibraryMetadata::carried_storages`]), sub-storages included;
+    /// `false`, writing nothing, when the library carries no stream under it.
+    fn write_carried_storage<F: std::io::Read + std::io::Write + std::io::Seek>(
+        &self,
+        cfb: &mut cfb::CompoundFile<F>,
+        path: &str,
+    ) -> AltiumResult<bool> {
+        let prefix = format!("{path}/");
+        let streams: Vec<&(String, Vec<u8>)> = self
+            .metadata
+            .carried_storages
+            .iter()
+            .filter(|(stream, _)| stream.starts_with(&prefix))
+            .collect();
+        if streams.is_empty() {
+            return Ok(false);
+        }
+        crate::altium::create_storage(cfb, path)?;
+        for (stream, bytes) in streams {
+            // Any sub-storage between the storage and the stream.
+            let mut storage = path.to_string();
+            let inner: Vec<&str> = stream[prefix.len()..].split('/').collect();
+            for name in &inner[..inner.len() - 1] {
+                storage = format!("{storage}/{name}");
+                if !cfb.exists(&storage) {
+                    crate::altium::create_storage(cfb, &storage)?;
+                }
+            }
+            crate::altium::write_stream(cfb, stream, bytes)?;
+        }
+        Ok(true)
+    }
+
     /// Creates a child storage containing a `Header` (record count) stream and a
     /// `Data` stream — the shape every Altium metadata storage uses.
     fn write_meta_storage<F: std::io::Read + std::io::Write + std::io::Seek>(
@@ -509,9 +556,10 @@ impl PcbLib {
     }
 
     /// Writes the `/Library` metadata storages that Altium emits for every
-    /// library (`LayerKindMapping`, `PadViaLibrary`, `ComponentParamsTOC`, and
-    /// the empty `Textures` / `ModelsNoEmbed`). Without these, Altium Designer
-    /// considers the library incomplete.
+    /// library (`LayerKindMapping`, `PadViaLibrary`, `ComponentParamsTOC`,
+    /// `Textures` and `ModelsNoEmbed`, the last two empty unless the library
+    /// read carried them). Without these, Altium Designer considers the
+    /// library incomplete.
     fn write_library_metadata<F: std::io::Read + std::io::Write + std::io::Seek>(
         &self,
         cfb: &mut cfb::CompoundFile<F>,
@@ -532,17 +580,19 @@ impl PcbLib {
         });
         Self::write_meta_storage(cfb, "/Library/LayerKindMapping", 1, &lkm)?;
 
-        // PadViaLibrary: empty cache under the library id it was read with
-        // (a fresh one for a library built from scratch).
-        let library_id = self
-            .metadata
-            .pad_via_library_id
-            .clone()
-            .unwrap_or_else(|| format!("{{{}}}", Uuid::new_v4().to_string().to_uppercase()));
-        let pvl = Self::param_block(&format!(
-            "|PADVIALIBRARY.LIBRARYID={library_id}|PADVIALIBRARY.LIBRARYNAME=<Local>|PADVIALIBRARY.DISPLAYUNITS=1"
-        ));
-        Self::write_meta_storage(cfb, "/Library/PadViaLibrary", 0, &pvl)?;
+        // PadViaLibrary: the library's own templates, as read; else an empty
+        // cache under the library id it was read with (a fresh one for a
+        // library built from scratch).
+        if !self.write_carried_storage(cfb, "/Library/PadViaLibrary")? {
+            let library_id =
+                self.metadata.pad_via_library_id.clone().unwrap_or_else(|| {
+                    format!("{{{}}}", Uuid::new_v4().to_string().to_uppercase())
+                });
+            let pvl = Self::param_block(&format!(
+                "|PADVIALIBRARY.LIBRARYID={library_id}|PADVIALIBRARY.LIBRARYNAME=<Local>|PADVIALIBRARY.DISPLAYUNITS=1"
+            ));
+            Self::write_meta_storage(cfb, "/Library/PadViaLibrary", 0, &pvl)?;
+        }
 
         // ComponentParamsTOC: Altium's own table while the footprints still
         // build the one it was read with; else this crate's.
@@ -553,9 +603,12 @@ impl PcbLib {
         };
         Self::write_meta_storage(cfb, "/Library/ComponentParamsTOC", 1, &toc)?;
 
-        // Always-empty library sub-storages.
-        Self::write_meta_storage(cfb, "/Library/Textures", 0, &[])?;
-        Self::write_meta_storage(cfb, "/Library/ModelsNoEmbed", 0, &[])?;
+        // Textures and ModelsNoEmbed: as read; else empty.
+        for path in ["/Library/Textures", "/Library/ModelsNoEmbed"] {
+            if !self.write_carried_storage(cfb, path)? {
+                Self::write_meta_storage(cfb, path, 0, &[])?;
+            }
+        }
 
         // EmbeddedFonts: the library's own fonts, as read; else a plain u32
         // font count of 0.
@@ -582,8 +635,9 @@ impl PcbLib {
     /// byte-for-byte the stream Altium emits.
     pub(crate) const FVI_TEXT: &str = include_str!("assets/file_version_info.txt");
 
-    /// Writes the root `/FileVersionInfo` storage. The payload is a fixed,
-    /// library-agnostic version-history blob (see [`Self::FVI_TEXT`]).
+    /// Writes the root `/FileVersionInfo` storage of a library that carries
+    /// none of its own: a fixed, library-agnostic version-history blob (see
+    /// [`Self::FVI_TEXT`]).
     fn write_file_version_info<F: std::io::Read + std::io::Write + std::io::Seek>(
         cfb: &mut cfb::CompoundFile<F>,
     ) -> AltiumResult<()> {
@@ -744,7 +798,18 @@ impl PcbLib {
         // when the footprint was read from a file that had one — a from-scratch
         // footprint has no identities to preserve, and inventing them would make
         // every save produce different bytes.
-        if let Some(guid_data) = writer::encode_primitive_guids(footprint) {
+        if let Some(guid_data) = writer::encode_primitive_guids(footprint).map(|built| {
+            // Altium's own order while the stream holds exactly these records.
+            let records = |bytes: &[u8]| {
+                let mut chunks: Vec<Vec<u8>> = bytes.chunks(24).map(<[u8]>::to_vec).collect();
+                chunks.sort();
+                chunks
+            };
+            match &footprint.primitive_guids_as_read {
+                Some(read) if records(read) == records(&built) => read.clone(),
+                _ => built,
+            }
+        }) {
             let guid_storage = format!("{storage_path}/PrimitiveGuids");
             crate::altium::create_storage(cfb, &guid_storage)?;
             // Header = record count; the data is fixed 24-byte records, so the

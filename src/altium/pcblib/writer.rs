@@ -2614,6 +2614,10 @@ fn model_index_record(model: &EmbeddedModel, body: Option<&ComponentBody>) -> St
 
 /// Prepares models for writing by compressing and indexing them.
 ///
+/// A model read from a file goes back as the compressed bytes it was read
+/// with while they still inflate to its data — Altium's compression, not this
+/// crate's, of the same model; a new or changed model is compressed afresh.
+///
 /// # Returns
 ///
 /// A vector of (index, `compressed_data`) tuples, or an error if compression fails.
@@ -2627,7 +2631,15 @@ pub fn prepare_models_for_writing(
     models
         .iter()
         .enumerate()
-        .map(|(idx, model)| Ok((idx, compress_model_data(&model.data)?)))
+        .map(|(idx, model)| {
+            // Altium's own compressed bytes while they still hold the model.
+            if !model.compressed.is_empty()
+                && super::reader::decompress_model_data(&model.compressed) == model.data
+            {
+                return Ok((idx, model.compressed.clone()));
+            }
+            Ok((idx, compress_model_data(&model.data)?))
+        })
         .collect()
 }
 
@@ -5197,5 +5209,33 @@ mod tests {
         assert_eq!(encode_identifier("\u{B5}\u{3A9}\u{7535}"), "181,937,30005");
         assert_eq!(encode_identifier("\u{20BB7}"), "55362,57271");
         assert_eq!(encode_identifier(""), "");
+    }
+
+    /// A model goes back as the compressed bytes it was read with, not this
+    /// crate's compression of the same model, until its data changes.
+    #[test]
+    fn an_unchanged_model_keeps_its_compressed_bytes() {
+        use std::io::Write as _;
+
+        let data = b"ISO-10303-21; a STEP model, a STEP model, a STEP model;".to_vec();
+        // Another compressor's bytes for the same model (stored blocks).
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::none());
+        encoder.write_all(&data).expect("compress");
+        let altium = encoder.finish().expect("compress");
+        let ours = compress_model_data(&data).expect("compress");
+        assert_ne!(altium, ours);
+
+        let mut model = EmbeddedModel::new("{MODEL}", "part.step", data);
+        model.compressed = altium.clone();
+        let prepared = prepare_models_for_writing(std::slice::from_ref(&model)).expect("prepare");
+        assert_eq!(prepared, [(0, altium)], "unchanged: the bytes as read");
+
+        model.data = b"ISO-10303-21; another model;".to_vec();
+        let prepared = prepare_models_for_writing(std::slice::from_ref(&model)).expect("prepare");
+        assert_eq!(
+            prepared,
+            [(0, compress_model_data(&model.data).expect("compress"))],
+            "changed: compressed afresh"
+        );
     }
 }

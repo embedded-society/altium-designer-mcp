@@ -52,6 +52,11 @@ UI or by its probe — and committed as-is.
 the two top-level libraries. Equally, nothing regenerates these files: if one is deleted,
 it has to be rebuilt by hand from the recipe below.
 
+Every library here must come back byte-identical from a rewrite:
+`manual_pcblibs_survive_a_round_trip` and `manual_schlibs_survive_a_round_trip` in
+`tests/golden_fidelity.rs` hold each one to it, the latter listing the streams that do not
+yet come back exactly.
+
 ### `manual/i18n5.SchLib`
 
 Five symbols, one per script whose *generated* fixture is internally inconsistent
@@ -224,7 +229,8 @@ Records copied from the maintainer's own Altium library
 ([MatejGomboc/altium-library](https://github.com/MatejGomboc/altium-library)), which an
 older Altium and AD24 wrote, for evidence AD24's scripting cannot produce. Only the records
 under test were kept, byte for byte, under generic names; everything else was removed and
-the names and descriptions were made generic with this crate's writer.
+the names and descriptions were made generic with this crate's writer. `intlib_link.SchLib`
+keeps its source library's own file header.
 
 | Footprint / symbol | Evidence | Test |
 |--------------------|----------|------|
