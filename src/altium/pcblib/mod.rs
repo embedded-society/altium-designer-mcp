@@ -808,6 +808,22 @@ pub struct LibraryMetadata {
     /// `None` without evidence, and for a library built in memory: the
     /// server's code page then applies.
     pub ansi_code_page: Option<u32>,
+
+    /// `/Library/LayerKindMapping/Data` exactly as read: the binary twin of
+    /// the mechanical layer kinds in [`Self::library_params`], replayed with
+    /// it so the two stay in step. `None` for a library built in memory.
+    pub layer_kind_mapping: Option<Vec<u8>>,
+
+    /// `/Library/EmbeddedFonts` exactly as read: the TrueType fonts the
+    /// library carries for its text, replayed on write. `None` for a library
+    /// built in memory, which carries none.
+    pub embedded_fonts: Option<Vec<u8>>,
+
+    /// `/Library/ComponentParamsTOC/Data` as read, with the table this crate
+    /// builds for the footprints as read. Altium's bytes are replayed while
+    /// the footprints still build that same table; once one changes, the
+    /// table is rebuilt.
+    pub component_params_toc: Option<(Vec<u8>, Vec<u8>)>,
 }
 
 /// A mechanical layer as the library's own layer stack declares it.

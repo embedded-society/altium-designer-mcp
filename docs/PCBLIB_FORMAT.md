@@ -42,6 +42,14 @@ PcbLib files are OLE Compound Documents (CFB format, **OLE v3 with 512-byte sect
 > `UniqueIdPrimitiveInformation` and — when a component name exceeds the 31-unit storage cap —
 > a root `SectionKeys` stream mapping each real name to its plain-truncated storage name (see
 > § SectionKeys Stream below; unlike a `SchLib`'s, it is binary). All of these are read and written back.
+> A library read from disk gets its own `EmbeddedFonts` (the TrueType fonts its text uses) and
+> `LayerKindMapping` (the binary twin of its mechanical layer kinds) back byte for byte, and its
+> `ComponentParamsTOC` — a per-footprint summary, `Name|Pad Count|Height|Description`, with
+> Unicode twins appended — back as read while the footprints still match it; once one changes
+> the table is rebuilt, in the library's code page. A library built in memory gets an empty
+> font table and kind mapping. Every `Library` stream of the 26 libraries in the test fixtures
+> and the two reference corpora comes back exactly as read, a compressed model by its inflated
+> bytes.
 
 ## SectionKeys Stream
 

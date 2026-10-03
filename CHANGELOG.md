@@ -19,6 +19,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A rewrite keeps a library's embedded fonts and layer-kind table.** Every write replaced
+  `/Library/EmbeddedFonts` with an empty table, so text in a TrueType font the library
+  carried (560 KB of fonts in the #555 library) fell back to a substitute in Altium, and
+  replaced `/Library/LayerKindMapping` with an empty mapping, out of step with the
+  mechanical layer kinds the library still declared. Both now come back as read.
+- **`/Library/ComponentParamsTOC` comes back as Altium wrote it.** The per-footprint summary
+  was rebuilt on every write, losing Altium's Unicode twins and writing names in
+  Windows-1252 whatever the library's code page (`ČĐŽ` became `??Ž` in a Windows-1250
+  library). It is replayed while the footprints still match it, and rebuilt in the
+  library's own code page once one changes. The round-trip tests now compare every
+  `Library` stream.
 - **A special-string text keeps its `WideStrings` entry.** Altium can give `.Designator` an
   entry of its own, and a rewrite dropped it: the entry vanished and the text's index became
   -1. A text read from a library now keeps the entry it had; one built from scratch is

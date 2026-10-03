@@ -3067,3 +3067,45 @@ fn samples_manual_layer_kinds_reports_the_library_stack() {
     // A library built in memory declares no stack of its own.
     assert!(PcbLib::new().mechanical_layers().is_empty());
 }
+
+/// `/Library/ComponentParamsTOC` replays Altium's table while the footprints
+/// still match it, and is rebuilt — in the library's own code page — once one
+/// changes. `manual/i18n4.PcbLib` lists `ČĐŽ_SL_0402` as Windows-1250 bytes
+/// `C8 D0 8E`, which a rebuild must keep rather than turn into `?`.
+#[test]
+fn component_params_toc_is_replayed_then_rebuilt_in_the_library_code_page() {
+    use std::io::{Cursor, Read as _};
+
+    let toc_of = |bytes: Vec<u8>| -> Vec<u8> {
+        let mut cfb = cfb::CompoundFile::open(Cursor::new(bytes)).expect("parse OLE");
+        let mut data = Vec::new();
+        cfb.open_stream("/Library/ComponentParamsTOC/Data")
+            .expect("TOC")
+            .read_to_end(&mut data)
+            .expect("read");
+        data
+    };
+    let altium = std::fs::read(sample("manual/i18n4.PcbLib")).expect("read fixture");
+    let altium_toc = toc_of(altium.clone());
+
+    let mut lib = PcbLib::read(&mut Cursor::new(altium)).expect("read");
+    let mut unchanged = Cursor::new(Vec::new());
+    lib.write(&mut unchanged).expect("write");
+    assert_eq!(
+        toc_of(unchanged.into_inner()),
+        altium_toc,
+        "replayed as read"
+    );
+
+    let first = lib.names()[0].clone();
+    lib.get_mut(&first).expect("footprint").description = "edited".to_string();
+    let mut edited = Cursor::new(Vec::new());
+    lib.write(&mut edited).expect("write");
+    let rebuilt = toc_of(edited.into_inner());
+    assert_ne!(rebuilt, altium_toc, "rebuilt after an edit");
+    assert!(
+        rebuilt.windows(3).any(|w| w == [0xC8, 0xD0, 0x8E]),
+        "the library's code page is kept: {:?}",
+        String::from_utf8_lossy(&rebuilt)
+    );
+}
