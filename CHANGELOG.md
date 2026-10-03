@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-03
+
+A fidelity release: a library Altium wrote now comes back from a rewrite byte for byte.
+Every Altium-authored library in the test fixtures and two reference collections does, but
+for the save's path, date and time a footprint library records, because the server no
+longer rebuilds what it was not asked to change — a footprint library's fonts, layer kinds,
+model index, pad/via templates and summary table; a symbol library's file header, text and
+compressed streams. Symbols written here now store their text and pin names as Altium does,
+verified in Altium Designer 24, which fixes pin names outside the code page: Altium showed
+them as `????`. `read_pcblib` also reports the library's own mechanical layer names and
+kinds.
+
 ### Added
 
 - **`mechanical_layers` in `read_pcblib`**: the name, kind and enabled flag the library's own
@@ -19,60 +31,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **A rewrite keeps a library's embedded fonts and layer-kind table.** Every write replaced
-  `/Library/EmbeddedFonts` with an empty table, so text in a TrueType font the library
-  carried (560 KB of fonts in the #555 library) fell back to a substitute in Altium, and
-  replaced `/Library/LayerKindMapping` with an empty mapping, out of step with the
-  mechanical layer kinds the library still declared. Both now come back as read.
-- **`/Library/ComponentParamsTOC` comes back as Altium wrote it.** The per-footprint summary
-  was rebuilt on every write, losing Altium's Unicode twins and writing names in
-  Windows-1252 whatever the library's code page (`ČĐŽ` became `??Ž` in a Windows-1250
-  library). It is replayed while the footprints still match it, and rebuilt in the
-  library's own code page once one changes. The round-trip tests now compare every
-  `Library` stream.
-- **A special-string text keeps its `WideStrings` entry.** Altium can give `.Designator` an
-  entry of its own, and a rewrite dropped it: the entry vanished and the text's index became
-  -1. A text read from a library now keeps the entry it had; one built from scratch is
-  written as before. Found with the library shared in #555, now the fixture
-  `scripts/samples/manual/layer_kinds.PcbLib`.
-- **A rewrite keeps the embedded-model index Altium wrote** (#555). Every write rebuilt
-  `/Library/Models/Data` from a template, so a model's rotation, Z offset and checksum
-  became zero, and a referenced (not embedded) model was marked embedded. Each record is
-  now kept as read and written back byte for byte, and its placement and checksum follow
-  the body that references the model, as Altium writes them. The round-trip tests now
-  compare the index, which they had skipped along with the compressed models.
-- **A `SchLib` rewrite keeps the library's file header.** Every write rebuilt `FileHeader`
-  from a template: a library's second font was dropped from its font table, leaving every
-  text set in it (`FontID=2`, as in an older library of the reference corpus) pointing at a
-  font that no longer existed; the sheet settings went back to defaults; and `Weight` was a
-  constant 47 where Altium stores the number of records plus one. The header now comes
-  back as read with its `Weight` counted, and its component list is rebuilt in place once a
-  symbol is added, removed, renamed or re-described.
-- **An empty symbol description is no longer written.** Altium omits `ComponentDescription`
-  from the symbol's header record and `CompDescr{i}` from the file header when the
-  description is empty; a symbol built here wrote both, empty.
-- **A `SchLib`'s `SectionKeys` keep Altium's order.** The map from a long symbol name to its
-  storage was rebuilt in library order on every write, where Altium's order follows no
-  rule the files reveal. It now goes back as read while the symbols still need the same
-  entries.
-- **A `PcbLib`'s `SectionKeys` are listed alphabetically**, as Altium lists them in every
-  library of the corpus that has one; the writer listed them in library order.
-- **Compressed streams come back as Altium wrote them.** Altium compresses with stock zlib,
-  and this crate's Rust compressor gave other bytes for the same content, so a rewrite
-  changed every embedded image and model and, in a script-authored library, every pin-name
-  entry: the same content, yet a version-controlled library showed each as changed.
-  Compression now runs on stock zlib, built from its source, which reproduces every
-  compressed entry of the goldens. An entry another writer compressed is kept as read while
-  it still holds the same content; `read_schlib` reports such an image's as
-  `image_compressed`, which `write_schlib` takes back.
-- **A footprint's `PrimitiveGuids` keep Altium's record order.** Altium stores the records
-  in an order of its own, which a rewrite sorted. The stream now goes back as read while
-  it holds the same records, and is written in primitive order once one changes.
-- **Pad/via templates, textures and linked models survive a rewrite.** Every `PcbLib` write
-  replaced `/Library/PadViaLibrary`, `/Library/Textures` and `/Library/ModelsNoEmbed` with
-  empty storages and `/FileVersionInfo` with a fixed copy, so a library using pad/via
-  templates, textured bodies or linked models lost them. No library in the corpus uses
-  them, which kept the loss out of sight. Each now comes back as read.
 - **Non-Latin pin names show in Altium.** A symbol written here was stored under its name's
   UTF-8 bytes rather than its name, and AD24 looks for a symbol's `PinWideText` under its
   name, so a pin named in Cyrillic, CJK or any script outside the code page showed as
@@ -94,9 +52,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   twin is read first, a script's widened text folded back, and the file header's component
   list the same way, which also keeps a UI-made library with non-Latin names in its own
   order. A script's pin name keeps the bytes Altium stored for it (`name_code_page` in
-  `read_schlib`). Every Altium-authored library in the test fixtures and both reference
-  corpora now comes back byte for byte, but for the save's path, date and time in a
-  `PcbLib`'s `Library/Data`.
+  `read_schlib`).
+- **A rewrite keeps the embedded-model index Altium wrote** (#555). Every write rebuilt
+  `/Library/Models/Data` from a template, so a model's rotation, Z offset and checksum
+  became zero, and a referenced (not embedded) model was marked embedded. Each record is
+  now kept as read and written back byte for byte, and its placement and checksum follow
+  the body that references the model, as Altium writes them.
+- **A rewrite keeps a library's embedded fonts and layer-kind table.** Every write replaced
+  `/Library/EmbeddedFonts` with an empty table, so text in a TrueType font the library
+  carried (560 KB of fonts in the #555 library) fell back to a substitute in Altium, and
+  replaced `/Library/LayerKindMapping` with an empty mapping, out of step with the
+  mechanical layer kinds the library still declared. Both now come back as read.
+- **Pad/via templates, textures and linked models survive a rewrite.** Every `PcbLib` write
+  replaced `/Library/PadViaLibrary`, `/Library/Textures` and `/Library/ModelsNoEmbed` with
+  empty storages and `/FileVersionInfo` with a fixed copy, so a library using pad/via
+  templates, textured bodies or linked models lost them. No library in the corpus uses
+  them, which kept the loss out of sight. Each now comes back as read.
+- **`/Library/ComponentParamsTOC` comes back as Altium wrote it.** The per-footprint summary
+  was rebuilt on every write, losing Altium's Unicode twins and writing names in
+  Windows-1252 whatever the library's code page (`ČĐŽ` became `??Ž` in a Windows-1250
+  library). It is replayed while the footprints still match it, and rebuilt in the
+  library's own code page once one changes.
+- **A special-string text keeps its `WideStrings` entry.** Altium can give `.Designator` an
+  entry of its own, and a rewrite dropped it: the entry vanished and the text's index became
+  -1. A text read from a library now keeps the entry it had; one built from scratch is
+  written as before. Found with the library shared in #555, now the fixture
+  `scripts/samples/manual/layer_kinds.PcbLib`.
+- **A `SchLib` rewrite keeps the library's file header.** Every write rebuilt `FileHeader`
+  from a template: a library's second font was dropped from its font table, leaving every
+  text set in it (`FontID=2`, as in an older library of the reference corpus) pointing at a
+  font that no longer existed; the sheet settings went back to defaults; and `Weight` was a
+  constant 47 where Altium stores the number of records plus one. The header now comes
+  back as read with its `Weight` counted, and its component list is rebuilt in place once a
+  symbol is added, removed, renamed or re-described.
+- **Compressed streams come back as Altium wrote them.** Altium compresses with stock zlib,
+  and this crate's Rust compressor gave other bytes for the same content, so a rewrite
+  changed every embedded image and model and, in a script-authored library, every pin-name
+  entry: the same content, yet a version-controlled library showed each as changed.
+  Compression now runs on stock zlib, built from its source, which reproduces every
+  compressed entry of the goldens. An entry another writer compressed is kept as read while
+  it still holds the same content; `read_schlib` reports such an image's as
+  `image_compressed`, which `write_schlib` takes back.
+- **An empty symbol description is no longer written.** Altium omits `ComponentDescription`
+  from the symbol's header record and `CompDescr{i}` from the file header when the
+  description is empty; a symbol built here wrote both, empty.
+- **A `SchLib`'s `SectionKeys` keep Altium's order.** The map from a long symbol name to its
+  storage was rebuilt in library order on every write, where Altium's order follows no
+  rule the files reveal. It now goes back as read while the symbols still need the same
+  entries.
+- **A `PcbLib`'s `SectionKeys` are listed alphabetically**, as Altium lists them in every
+  library of the corpus that has one; the writer listed them in library order.
+- **A footprint's `PrimitiveGuids` keep Altium's record order.** Altium stores the records
+  in an order of its own, which a rewrite sorted. The stream now goes back as read while
+  it holds the same records, and is written in primitive order once one changes.
 
 ## [1.1.0] - 2026-09-25
 
