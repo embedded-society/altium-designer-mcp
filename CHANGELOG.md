@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`mechanical_layers` in `read_pcblib`**: the name, kind and enabled flag the library's own
+  layer stack gives each mechanical layer it uses (#555). A library can make Mechanical 4
+  its 3D-body layer while primitives are still reported under this crate's fixed name for
+  it, `Top Courtyard`; the list says what the library means. Nothing existing changes, and
+  `PcbLib::mechanical_layers()` exposes the same in the library.
+
 ### Fixed
 
 - **A special-string text keeps its `WideStrings` entry.** Altium can give `.Designator` an

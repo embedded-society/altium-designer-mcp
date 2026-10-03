@@ -100,14 +100,19 @@ impl McpServer {
                     "Read an Altium .PcbLib file: every footprint with its description, height \
                      and primitives (pads, vias, tracks, arcs, regions, fills, text, \
                      component_bodies) as structured JSON, all coordinates and dimensions in \
-                     millimetres. Use it to study a library's footprint style or to fetch data \
+                     millimetres, plus mechanical_layers: the name, kind (3DBodyTop, AssemblyTop, \
+                     CourtyardTop and so on) and enabled flag the library's own layer stack gives \
+                     each mechanical layer it uses, which can differ from the fixed names \
+                     primitives are reported under (Mechanical 4 is Top Courtyard here, but a \
+                     library may make it its 3D Body layer). Use it to study a library's \
+                     footprint style or to fetch data \
                      for a read-modify-write. For one footprint whose name you know, \
                      get_component is cheaper; to find footprints by name pattern across \
                      libraries, search_components; for names alone, list_components. \
                      Each footprint is the same JSON shape get_component, export_library and \
                      write_pcblib use, so a footprint read here can be passed to write_pcblib \
                      or update_component as it is. Fields such as guid, unique_id, raw_tail, \
-                     raw_block, raw_geometry, raw_layer_id, additional_parameters, \
+                     raw_block, raw_geometry, raw_contours, raw_layer_id, additional_parameters, \
                      param_key_order, primitive_order and storage_name are fidelity carriers: \
                      pass them back unchanged and the rewrite is byte-identical to the source; \
                      omit them when authoring from scratch. A list with no entries and an \

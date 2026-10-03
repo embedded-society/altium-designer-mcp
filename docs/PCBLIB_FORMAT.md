@@ -144,6 +144,19 @@ in memory has no block to replay and gets a template stack captured from a real
 Altium-authored library; a synthesised one is rejected with "Catastrophic failure whilst
 loading section Library".
 
+**Mechanical layer names and kinds.** Each `V9_CACHE_LAYER{n}` entry whose `LAYERID` is
+`0x0102_00NN` describes Mechanical NN: its `NAME`, `MECHENABLED` and, for a layer the stack
+gives a role, `MECHKIND` (`3DBodyTop`, `AssemblyBottom`, `CourtyardTop`,
+`ComponentCenterTop`, …). Libraries differ: the template stack this crate writes makes
+Mechanical 2/3 the assembly, 4/5 the courtyard and 6/7 the 3D-body pairs — the fixed names
+the reader reports primitives under — while `manual/layer_kinds.PcbLib` (#555) makes 4/3 the
+3D-body pair, 6/7 component centre, 13/14 assembly and 15/16 courtyard. A name alone can
+mislead: there Mechanical 2 is still called `Top Component Center` but is disabled and has
+no kind. `read_pcblib` reports the enabled layers and any with a kind as
+`mechanical_layers`. The legacy `LAYER{id}MECHKIND` / `LAYER_V8_{n}MECHKIND` keys and the
+binary `/Library/LayerKindMapping` stream (a count, then legacy layer number and numeric
+kind code pairs) carry the same table; they are replayed, not read.
+
 ## Per-Component Streams
 
 ### `/{component}/Header`

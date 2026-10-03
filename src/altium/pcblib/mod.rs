@@ -810,6 +810,27 @@ pub struct LibraryMetadata {
     pub ansi_code_page: Option<u32>,
 }
 
+/// A mechanical layer as the library's own layer stack declares it.
+///
+/// It comes from the layer's `V9_CACHE_LAYER{n}_*` entries in `/Library/Data`
+/// (whose `LAYERID` is `0x0102_00NN` for Mechanical NN). A library can give its mechanical layers
+/// names and kinds of its own — Mechanical 4 as `Top 3D Body` with kind
+/// `3DBodyTop` in `manual/layer_kinds.PcbLib` — which this crate's fixed layer
+/// names (`Top Courtyard` for Mechanical 4) do not reflect.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MechanicalLayer {
+    /// The layer's number, 1 to 32: the one this crate names `Mechanical N`.
+    pub number: u8,
+    /// The name the library gives the layer.
+    pub name: String,
+    /// The kind the library declares (`3DBodyTop`, `AssemblyTop`,
+    /// `CourtyardBottom`, …), or `None` for a plain mechanical layer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    /// Whether the layer is enabled in the library.
+    pub enabled: bool,
+}
+
 /// A `PcbLib` footprint library.
 ///
 /// # Example
@@ -1167,6 +1188,44 @@ impl PcbLib {
     #[must_use]
     pub const fn metadata(&self) -> &LibraryMetadata {
         &self.metadata
+    }
+
+    /// The mechanical layers the library's layer stack declares (see
+    /// [`MechanicalLayer`]), by number. Empty for a library built in memory,
+    /// which has no stack of its own.
+    #[must_use]
+    pub fn mechanical_layers(&self) -> Vec<MechanicalLayer> {
+        let Some(block) = self.metadata.library_params.as_deref() else {
+            return Vec::new();
+        };
+        let params = crate::altium::parse_pipe_params_raw(&crate::altium::decode_ansi(
+            block,
+            self.ansi_encoding(),
+        ));
+        let mut layers: Vec<MechanicalLayer> = params
+            .iter()
+            .filter_map(|(key, id)| {
+                let slot = key
+                    .strip_prefix("V9_CACHE_LAYER")?
+                    .strip_suffix("_LAYERID")?;
+                let id = id.parse::<u32>().ok()?;
+                let number = u8::try_from(id & 0xFFFF)
+                    .ok()
+                    .filter(|n| (1..=32).contains(n))?;
+                if id >> 16 != 0x0102 {
+                    return None;
+                }
+                let field = |name: &str| params.get(&format!("V9_CACHE_LAYER{slot}_{name}"));
+                Some(MechanicalLayer {
+                    number,
+                    name: field("NAME").cloned().unwrap_or_default(),
+                    kind: field("MECHKIND").filter(|k| !k.is_empty()).cloned(),
+                    enabled: field("MECHENABLED").is_some_and(|v| v.eq_ignore_ascii_case("TRUE")),
+                })
+            })
+            .collect();
+        layers.sort_by_key(|layer| layer.number);
+        layers
     }
 }
 

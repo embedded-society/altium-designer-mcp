@@ -3025,3 +3025,45 @@ fn samples_manual_layer_kinds_special_string_keeps_its_entry() {
     let back = PcbLib::read(&mut out).expect("read back");
     assert_eq!(index_of(&back), 0, "the rewrite keeps it");
 }
+
+/// `manual/layer_kinds.PcbLib` (#555): the library's own layer stack gives
+/// its mechanical layers names and kinds of its own — the table in the
+/// reporter's Layers panel. Mechanical 2 shows why the kind matters as well as
+/// the name: it is still called `Top Component Center`, but disabled and
+/// without a kind.
+#[test]
+fn samples_manual_layer_kinds_reports_the_library_stack() {
+    let lib = PcbLib::open(sample("manual/layer_kinds.PcbLib"))
+        .expect("failed to open manual/layer_kinds.PcbLib");
+    let declared: Vec<(u8, String, Option<String>)> = lib
+        .mechanical_layers()
+        .into_iter()
+        .filter(|l| l.kind.is_some())
+        .map(|l| (l.number, l.name, l.kind))
+        .collect();
+    let want = |n: u8, name: &str, kind: &str| (n, name.to_string(), Some(kind.to_string()));
+    assert_eq!(
+        declared,
+        vec![
+            want(3, "Bottom 3D Body", "3DBodyBottom"),
+            want(4, "Top 3D Body", "3DBodyTop"),
+            want(6, "Top Component Center", "ComponentCenterTop"),
+            want(7, "Bottom Component Center", "ComponentCenterBottom"),
+            want(13, "Top Assembly", "AssemblyTop"),
+            want(14, "Bottom Assembly", "AssemblyBottom"),
+            want(15, "Top Courtyard", "CourtyardTop"),
+            want(16, "Bottom Courtyard", "CourtyardBottom"),
+        ]
+    );
+    let mech2 = lib
+        .mechanical_layers()
+        .into_iter()
+        .find(|l| l.number == 2)
+        .expect("Mechanical 2");
+    assert_eq!(mech2.name, "Top Component Center");
+    assert_eq!(mech2.kind, None);
+    assert!(!mech2.enabled);
+
+    // A library built in memory declares no stack of its own.
+    assert!(PcbLib::new().mechanical_layers().is_empty());
+}
