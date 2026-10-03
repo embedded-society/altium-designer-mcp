@@ -2615,8 +2615,9 @@ fn model_index_record(model: &EmbeddedModel, body: Option<&ComponentBody>) -> St
 /// Prepares models for writing by compressing and indexing them.
 ///
 /// A model read from a file goes back as the compressed bytes it was read
-/// with while they still inflate to its data — Altium's compression, not this
-/// crate's, of the same model; a new or changed model is compressed afresh.
+/// with while they still inflate to its data, whoever compressed them; a new
+/// or changed model is compressed afresh, with stock zlib at the default
+/// level as Altium compresses.
 ///
 /// # Returns
 ///

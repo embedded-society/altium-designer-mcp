@@ -10,11 +10,13 @@
     true name or that form. Decoding it back is the inverse of what the writer
     does, through the system ANSI page, because that is the one Altium widened
     through (see scripts/README.md § "Altium's PCB scripting API returns names
-    in their on-wire form").
+    in their on-wire form"). Altium hands back the broken bar it stores for a
+    pipe (byte 0xA6 widened) as `|`, which no name holds, so that is mapped
+    back first.
 #>
 function ConvertFrom-WireName([string]$Name) {
     try {
-        $bytes = [System.Text.Encoding]::Default.GetBytes($Name)
+        $bytes = [System.Text.Encoding]::Default.GetBytes($Name.Replace('|', [string][char]0xA6))
         $utf8  = New-Object System.Text.UTF8Encoding $false, $true
         return $utf8.GetString($bytes)
     } catch { return $Name }

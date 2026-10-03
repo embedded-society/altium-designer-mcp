@@ -121,11 +121,8 @@ pub(super) fn encode_pin_symbol_line_widths(
 /// This stream is the pin name's authoritative wide form. The binary pin
 /// record narrows the name through the writing machine's ANSI code page, so a
 /// name typed as real Unicode in the AD UI survives only here — which is the
-/// stream's whole purpose. We hold real Unicode in memory and write it as real
-/// UTF-16; the golden's own entries instead carry the ANSI-widened form of the
-/// name's UTF-8 bytes, because its script-authored pins were mangled to
-/// exactly that before Altium stored them (see `apply_pin_wide_text` for how
-/// both shapes read back).
+/// stream's whole purpose. A name a script authored goes back widened through
+/// its code page, as Altium stored it (`Pin::name_code_page`).
 ///
 /// Only `NAME` is emitted: it is the only key the golden's 52 streams carry,
 /// and inventing sibling keys (a designator, say) without evidence would write
@@ -133,11 +130,17 @@ pub(super) fn encode_pin_symbol_line_widths(
 pub(super) fn encode_pin_wide_text(
     pins: &[Pin],
 ) -> crate::altium::error::AltiumResult<Option<Vec<u8>>> {
-    let entries: Vec<(usize, &str)> = pins
+    let entries: Vec<(usize, String)> = pins
         .iter()
         .enumerate()
         .filter(|(_, p)| !p.name.is_ascii())
-        .map(|(i, p)| (i, p.name.as_str()))
+        .map(|(i, p)| {
+            let name = p.name_code_page.map_or_else(
+                || p.name.clone(),
+                |page| crate::altium::widen_through(&p.name, page),
+            );
+            (i, name)
+        })
         .collect();
     if entries.is_empty() {
         return Ok(None);
@@ -153,16 +156,13 @@ pub(super) fn encode_pin_wide_text(
 
 /// Applies a parsed `PinWideText` stream onto `pins`, keyed by pin ordinal.
 ///
-/// The stream's value wins only when it genuinely knows more than the binary
-/// record did:
-///
-/// - A record that carried the name's raw UTF-8 bytes already decoded to the
-///   real name (the golden's case), so a non-ASCII in-memory name is kept.
-/// - A record the ANSI narrowing reduced to `?`s leaves an ASCII husk, and the
-///   wide value replaces it — the UI-authored case the stream exists for.
-/// - A wide value that is itself the ANSI-widened form of UTF-8 bytes (the
-///   golden again) is folded back to the real name first, so applying it can
-///   only ever improve the husk, never install mojibake.
+/// The stream's value is the name: the binary record holds only its narrowing
+/// through the authoring machine's code page — `?`s for what the page cannot
+/// hold, and bytes this crate would read as Windows-1252 even where they were
+/// Windows-1250 (`Čas` as `Èas`). A wide value that is itself the
+/// ANSI-widened form of UTF-8 bytes (a script's name, as in the golden) is
+/// folded back to the real name, and where the record held those UTF-8 bytes
+/// the page is kept so a rewrite stores the name the same way.
 pub(super) fn apply_pin_wide_text(pins: &mut [Pin], raw: &[u8]) {
     for_each_entry(raw, |idx, payload| {
         let Some(text) = decode_unicode_param_block(payload) else {
@@ -175,18 +175,16 @@ pub(super) fn apply_pin_wide_text(pins: &mut [Pin], raw: &[u8]) {
         let Some(pin) = pins.get_mut(idx) else {
             return;
         };
-        if !pin.name.is_ascii() {
-            // The record already yielded a real (or at least non-degenerate)
-            // name; the wide copy adds nothing.
+        if wide.is_empty() {
             return;
         }
-        // Fold a widened-bytes value back to the real name where some ANSI
-        // code page provably widened it (the authoring locale's — Windows-1250
-        // for the golden). A real Unicode value folds through none of them and
-        // is applied verbatim.
-        let resolved = crate::altium::fold_ansi_widened(wide).unwrap_or_else(|| wide.clone());
-        if !resolved.is_empty() && resolved != pin.name {
-            pin.name = resolved;
+        // A widened-bytes value folds back through the code page that widened
+        // it (the authoring locale's — Windows-1250 for the golden); a real
+        // Unicode value folds through none and is the name as it stands.
+        match crate::altium::fold_ansi_widened_page(wide) {
+            Some((real, page)) if real == pin.name => pin.name_code_page = Some(page),
+            Some((real, _)) => pin.name = real,
+            None => pin.name.clone_from(wide),
         }
     });
 }
@@ -395,19 +393,40 @@ mod tests {
     }
 
     #[test]
-    fn wide_text_never_overwrites_a_recovered_name() {
-        // The golden's case: the record carried raw UTF-8 bytes and already
-        // decoded to the real name; the wide copy (whatever its locale shape)
-        // must not replace it.
+    fn wide_text_is_the_name_the_record_narrowed() {
+        // A Windows-1250 machine narrows `Čas` to `C8 61 73`, which reads as
+        // `Èas` through Windows-1252: the wide value is the name.
         let mut authored = pin();
-        authored.name = "\u{7535}\u{963B}".to_string();
+        authored.name = "\u{10c}as".to_string();
         let raw = encode_pin_wide_text(std::slice::from_ref(&authored))
             .unwrap()
             .unwrap();
 
-        let mut pins = vec![authored.clone()];
+        let mut pins = vec![pin()];
+        pins[0].name = "\u{c8}as".to_string();
         apply_pin_wide_text(&mut pins, &raw);
-        assert_eq!(pins[0].name, authored.name);
+        assert_eq!(pins[0].name, "\u{10c}as");
+        assert_eq!(pins[0].name_code_page, None, "a real name, no widening");
+    }
+
+    #[test]
+    fn a_scripted_name_keeps_the_page_it_was_widened_through() {
+        // The golden's case: the record holds the name's UTF-8 bytes, which
+        // already decoded to the real name, and the wide entry those bytes
+        // read through Windows-1250. The page is kept, and the entry is
+        // written back exactly as read.
+        let widened = crate::altium::widen_through("R\u{e9}sistance", 1250);
+        assert_eq!(widened, "R\u{102}\u{a9}sistance", "RĂ©sistance");
+        let mut out = storage::start_stream("PinWideText", 1);
+        let payload = encode_unicode_param_block(&format!("|NAME={widened}"));
+        storage::write_entry(&mut out, "0", &payload).unwrap();
+
+        let mut pins = vec![pin()];
+        pins[0].name = "R\u{e9}sistance".to_string();
+        apply_pin_wide_text(&mut pins, &out);
+        assert_eq!(pins[0].name, "R\u{e9}sistance");
+        assert_eq!(pins[0].name_code_page, Some(1250));
+        assert_eq!(encode_pin_wide_text(&pins).unwrap(), Some(out));
     }
 
     #[test]

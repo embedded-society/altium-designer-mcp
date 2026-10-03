@@ -131,14 +131,14 @@ pub(crate) fn write_binary_pin(
     // UTF-8 String length — otherwise non-ASCII text is wrongly rejected even
     // though it fits in 255 encoded bytes.
     //
-    // The name is the exception: Altium stores a non-ASCII pin name as its
-    // UTF-8 bytes (every one of the golden's 52 such pins, `Résistance`
-    // included though Windows-1252 could hold it) with the `PinWideText`
-    // stream beside it, so the record and the stream agree on every reader.
-    let name = if pin.name.is_ascii() {
-        crate::altium::encode_windows1252(&pin.name)
-    } else {
+    // The name is stored in the code page, `?` for a character it cannot
+    // hold, with the `PinWideText` stream carrying it whole
+    // (`manual/i18n5.SchLib`); a name a script authored keeps the UTF-8 bytes
+    // Altium stored for it (`Pin::name_code_page`).
+    let name = if pin.name_code_page.is_some() {
         pin.name.as_bytes().to_vec()
+    } else {
+        crate::altium::encode_ansi(&pin.name, crate::altium::current_ansi_encoding())
     };
     let designator = crate::altium::encode_windows1252(&pin.designator);
     let description = crate::altium::encode_windows1252(&pin.description);
@@ -271,80 +271,140 @@ pub(crate) fn write_binary_pin(
 /// header read them — a UI-authored header omits them.
 const HEADER_CONSTANT_KEYS: &[&str] = &["LibraryPath", "SheetPartFileName"];
 
-/// Replays a read header segment by segment (see [`encode_component_header`]).
+/// Replays a read header field by field (see [`encode_component_header`] and
+/// [`replay_fields`]).
 ///
-/// A segment whose field was not edited goes back verbatim: its plain value
-/// still names the same text once decoded the way the reader decoded it, or
-/// its canonical rendering is unchanged. A `%UTF8%` twin follows its plain
-/// key's verdict. An edited field is emitted in canonical form, its stale
-/// twin dropped when the new value is ASCII.
+/// A key the canonical form lacks goes back as read — a key this crate does
+/// not model, or a description that was already empty — unless the
+/// description was edited away to the empty value the canonical form omits.
 fn replay_header(symbol: &Symbol, canonical: &[(String, String)]) -> Vec<String> {
-    let canonical_value = |key: &str| {
-        canonical
-            .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case(key))
-            .map(|(_, v)| v.as_str())
-    };
-    let is_text_key = |key: &str| {
-        ["LibReference", "ComponentDescription", "SourceLibraryName"]
-            .iter()
-            .any(|k| k.eq_ignore_ascii_case(key))
-    };
-    // The value the reader derived from a plain text key.
-    let read_text =
-        |raw: &str| crate::altium::from_wire_text(raw).unwrap_or_else(|| raw.to_string());
-    let current_text = |key: &str| -> Option<&str> {
-        if key.eq_ignore_ascii_case("LibReference") {
-            Some(symbol.name.as_str())
-        } else if key.eq_ignore_ascii_case("ComponentDescription") {
-            Some(symbol.description.as_str())
-        } else if key.eq_ignore_ascii_case("SourceLibraryName") {
-            Some(symbol.source_library_name.as_str())
-        } else {
-            None
-        }
-    };
-    let plain_unchanged = |key: &str| {
-        symbol
-            .header_params
-            .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case(key))
-            .is_some_and(|(_, raw)| current_text(key) == Some(read_text(raw).as_str()))
-    };
+    replay_fields(
+        &symbol.header_params,
+        canonical,
+        |_| false,
+        |name, read| {
+            !name.eq_ignore_ascii_case("ComponentDescription")
+                || read.unwrap_or_default() == symbol.description
+        },
+        |name, _| {
+            !HEADER_CONSTANT_KEYS
+                .iter()
+                .any(|k| k.eq_ignore_ascii_case(name))
+        },
+    )
+}
 
-    let mut placed: Vec<bool> = vec![false; canonical.len()];
-    let mut parts = Vec::with_capacity(symbol.header_params.len() + 4);
-    for (key, raw) in &symbol.header_params {
-        if key.is_empty() {
-            parts.push(String::new()); // an empty segment of `%UTF8%Key=…|||Key=…`
+/// A key without its `%UTF8%` prefix (matched case-insensitively).
+fn plain_key(key: &str) -> &str {
+    key.get(..6)
+        .filter(|prefix| prefix.eq_ignore_ascii_case("%UTF8%"))
+        .map_or(key, |_| &key[6..])
+}
+
+/// A record's segments grouped into fields, in order, each named by its plain
+/// key: a `%UTF8%` twin with its plain key and the empty segments between
+/// them is one field — the UI's `%UTF8%Key=…|||Key=…` and a script's
+/// `Key=…|%UTF8%Key=…` alike — and any other segment a field of its own, a
+/// stray empty one named "".
+fn fields(segments: &[(String, String)]) -> Vec<(&str, &[(String, String)])> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < segments.len() {
+        let key = segments[i].0.as_str();
+        let mut end = i;
+        if !key.is_empty() {
+            let mut next = i + 1;
+            while next < segments.len() && segments[next].0.is_empty() {
+                next += 1;
+            }
+            if let Some((other, _)) = segments.get(next) {
+                if !other.eq_ignore_ascii_case(key)
+                    && plain_key(other).eq_ignore_ascii_case(plain_key(key))
+                {
+                    end = next;
+                }
+            }
+        }
+        out.push((plain_key(key), &segments[i..=end]));
+        i = end + 1;
+    }
+    out
+}
+
+/// The text a field holds, by the reader's rule ([`reader::field_text`]).
+///
+/// [`reader::field_text`]: super::reader::field_text
+fn field_value(field: &[(String, String)]) -> Option<String> {
+    let segment = |twin: bool| {
+        field
+            .iter()
+            .find(|(key, _)| !key.is_empty() && (plain_key(key).len() < key.len()) == twin)
+            .map(|(_, value)| value.as_str())
+    };
+    super::reader::field_text(segment(false), segment(true))
+}
+
+/// A segment as it sits in a record: `key=value`, or nothing for an empty one.
+fn segment_text((key, value): &(String, String)) -> String {
+    if key.is_empty() {
+        String::new()
+    } else {
+        format!("{key}={value}")
+    }
+}
+
+/// Replays `read` — a record's segments as stored — over `canonical`, the
+/// canonical encoding of its current state, field by field (see [`fields`]).
+///
+/// In the read order, a field the canonical form carries goes back as read
+/// while it still holds the same value ([`field_value`]) — whichever `%UTF8%`
+/// layout and code page Altium wrote it in — and in canonical form once it is
+/// edited, or always when `positional` (an `IndexInSheet` the writer
+/// assigns). A read field the canonical form lacks goes back where
+/// `keep_missing` allows, given its name and value. The canonical fields the
+/// record lacked follow where `append` allows, given the name and plain value.
+fn replay_fields(
+    read: &[(String, String)],
+    canonical: &[(String, String)],
+    positional: impl Fn(&str) -> bool,
+    keep_missing: impl Fn(&str, Option<String>) -> bool,
+    append: impl Fn(&str, &str) -> bool,
+) -> Vec<String> {
+    let canonical = fields(canonical);
+    let mut placed = vec![false; canonical.len()];
+    let mut out: Vec<String> = Vec::with_capacity(read.len() + 4);
+    for (name, segments) in fields(read) {
+        if name.is_empty() {
+            out.extend(segments.iter().map(segment_text));
             continue;
         }
-        let plain_key = key.strip_prefix("%UTF8%").unwrap_or(key);
-        let index = canonical
+        let slot = canonical
             .iter()
-            .position(|(k, _)| k.eq_ignore_ascii_case(key));
-        if let Some(i) = index {
+            .enumerate()
+            .position(|(i, (other, _))| !placed[i] && other.eq_ignore_ascii_case(name));
+        if let Some(i) = slot {
             placed[i] = true;
-        }
-        let unchanged = if is_text_key(plain_key) {
-            plain_unchanged(plain_key)
-        } else {
-            index.is_none_or(|i| canonical[i].1 == *raw)
-        };
-        if unchanged {
-            parts.push(format!("{key}={raw}"));
-        } else if let Some(value) = canonical_value(key) {
-            parts.push(format!("{key}={value}"));
-        }
-        // An edited text key whose stale twin is in canonical no longer:
-        // dropped with the segment (`canonical_value` found nothing).
-    }
-    for (i, (key, value)) in canonical.iter().enumerate() {
-        if !placed[i] && !HEADER_CONSTANT_KEYS.contains(&key.as_str()) {
-            parts.push(format!("{key}={value}"));
+            let current = canonical[i].1;
+            let unchanged = !positional(name) && field_value(segments) == field_value(current);
+            out.extend(
+                (if unchanged { segments } else { current })
+                    .iter()
+                    .map(segment_text),
+            );
+        } else if keep_missing(name, field_value(segments)) {
+            out.extend(segments.iter().map(segment_text));
         }
     }
-    parts
+    for (i, (name, segments)) in canonical.iter().enumerate() {
+        let value = segments
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case(name))
+            .map_or("", |(_, value)| value.as_str());
+        if !placed[i] && !name.is_empty() && append(name, value) {
+            out.extend(segments.iter().map(segment_text));
+        }
+    }
+    out
 }
 
 /// Keys whose value is positional — assigned by the writer from the record's
@@ -467,90 +527,47 @@ fn is_modelled_record_key(key: &str) -> bool {
 }
 
 /// Replays a record read from a file over the canonical encoding of its
-/// current state (see `raw_params` on every record struct).
+/// current state (see `raw_params` on every record struct, and
+/// [`replay_fields`]).
 ///
-/// Segment by segment in the read order: a key the canonical form carries
-/// goes back verbatim when the two values decode to the same text (the UI
-/// stores a Latin-1 value as Windows-1252 where the canonical form uses
-/// UTF-8 bytes) and as the canonical value otherwise — an edit, or a
-/// positional key such as `IndexInSheet`. A key the canonical form lacks is
-/// dropped when an encoder could have emitted it (the field was edited to
-/// its omitted default — see [`MODELLED_RECORD_KEYS`]) and replayed verbatim
-/// otherwise, as an Altium key this crate does not model. Canonical keys the
-/// record lacked are appended, except an [`IMPLICIT_DEFAULTS`] value the
-/// file left implicit and a `UniqueID` the file never gave the record, which
-/// would be invented afresh on every save. A record without raw segments —
-/// built from scratch — is the canonical form.
+/// A read field the canonical form lacks is dropped when an encoder could
+/// have emitted it (it was edited to its omitted default — see
+/// [`MODELLED_RECORD_KEYS`]) and replayed verbatim otherwise, as an Altium key
+/// this crate does not model. Canonical fields the record lacked are appended,
+/// except an [`IMPLICIT_DEFAULTS`] value the file left implicit and a
+/// `UniqueID` the file never gave the record, which would be invented afresh
+/// on every save. A record without raw segments — built from scratch — is the
+/// canonical form.
 fn replay_record(canonical: &str, raw: &[(String, String)]) -> String {
     if raw.is_empty() {
         return canonical.to_string();
     }
-    let canonical_pairs: Vec<(&str, &str)> = canonical
+    let canonical: Vec<(String, String)> = canonical
         .split('|')
         .skip(1)
-        .map(|segment| segment.split_once('=').unwrap_or((segment, "")))
+        .map(|segment| {
+            segment.split_once('=').map_or_else(
+                || (segment.to_string(), String::new()),
+                |(key, value)| (key.to_string(), value.to_string()),
+            )
+        })
         .collect();
-    let canonical_value = |key: &str| {
-        canonical_pairs
-            .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case(key))
-            .map(|(_, v)| *v)
-    };
-    let decoded =
-        |value: &str| crate::altium::from_wire_text(value).unwrap_or_else(|| value.to_string());
-    let is_positional = |key: &str| POSITIONAL_KEYS.iter().any(|k| k.eq_ignore_ascii_case(key));
-
-    // A `%UTF8%` twin's bytes are a locale artefact of the writing machine
-    // (the golden's were widened through Windows-1250), so whether it goes
-    // back verbatim follows its plain key, not its own bytes.
-    let raw_value = |key: &str| {
-        raw.iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case(key))
-            .map(|(_, v)| v.as_str())
-    };
-    let plain_unchanged = |key: &str| {
-        let plain = key.strip_prefix("%UTF8%").unwrap_or(key);
-        match (raw_value(plain), canonical_value(plain)) {
-            (Some(read), Some(current)) => read == current || decoded(read) == decoded(current),
-            _ => false,
-        }
-    };
-
-    let mut placed: Vec<bool> = vec![false; canonical_pairs.len()];
-    let mut parts: Vec<String> = Vec::with_capacity(raw.len() + 2);
-    for (key, read) in raw {
-        if key.is_empty() {
-            parts.push(String::new());
-            continue;
-        }
-        if let Some(i) = canonical_pairs
-            .iter()
-            .position(|(k, _)| k.eq_ignore_ascii_case(key))
-        {
-            placed[i] = true;
-            let current = canonical_pairs[i].1;
-            let unchanged = !is_positional(key)
-                && (read == current
-                    || decoded(read) == decoded(current)
-                    || (key.starts_with("%UTF8%") && plain_unchanged(key)));
-            let value = if unchanged { read.as_str() } else { current };
-            parts.push(format!("{key}={value}"));
-        } else if !is_positional(key) && !is_modelled_record_key(key) {
-            parts.push(format!("{key}={read}"));
-        }
-    }
-    for (i, (key, value)) in canonical_pairs.iter().enumerate() {
-        let implicit = IMPLICIT_DEFAULTS
-            .iter()
-            .any(|(k, v)| k.eq_ignore_ascii_case(key) && v == value);
-        // An identity the file never gave the record (Altium stores a pie
-        // without one) is not invented on its behalf: the canonical UniqueID
-        // here would be freshly generated, different on every save.
-        let invented_identity = key.eq_ignore_ascii_case("UniqueID");
-        if !placed[i] && !implicit && !invented_identity {
-            parts.push(format!("{key}={value}"));
-        }
-    }
+    let parts = replay_fields(
+        raw,
+        &canonical,
+        |name| POSITIONAL_KEYS.iter().any(|k| k.eq_ignore_ascii_case(name)),
+        |name, _| !is_modelled_record_key(name),
+        |name, value| {
+            let implicit = IMPLICIT_DEFAULTS
+                .iter()
+                .any(|(k, v)| k.eq_ignore_ascii_case(name) && *v == value);
+            // An identity the file never gave the record (Altium stores a pie
+            // without one) is not invented on its behalf: the canonical
+            // UniqueID here would be freshly generated, different on every
+            // save.
+            !implicit && !name.eq_ignore_ascii_case("UniqueID")
+        },
+    );
     format!("|{}", parts.join("|"))
 }
 
@@ -565,33 +582,21 @@ fn is_system_parameter(param: &super::Parameter) -> bool {
 /// Encodes a component header record.
 ///
 /// A symbol read from a file replays its own header (`header_params`):
-/// every segment as read, verbatim, unless the field behind it was edited,
-/// in which case the canonical form of the new value takes its place. That
-/// keeps whichever `%UTF8%` layout Altium used (the UI's
-/// `%UTF8%Key=<UTF-8>|||Key=<Windows-1252>`, the scripted one's UTF-8 bytes
-/// in both keys), the keys it omitted and the ones this crate does not
-/// model. Modelled keys the record lacked are appended so a typed edit is
-/// never lost, except the constant ones it omitted on purpose. A symbol
-/// built from scratch emits the canonical header.
+/// every field as read, verbatim, unless it was edited, in which case the
+/// canonical form of the new value takes its place. That keeps whichever
+/// `%UTF8%` layout Altium used (the UI's `%UTF8%Key=<UTF-8>|||Key=<code
+/// page>`, a script's UTF-8 bytes in both keys), the keys it omitted and the
+/// ones this crate does not model. Modelled keys the record lacked are
+/// appended so a typed edit is never lost, except the constant ones it
+/// omitted on purpose. A symbol built from scratch emits the canonical header.
 fn encode_component_header(symbol: &Symbol) -> String {
     let from_file = !symbol.header_params.is_empty();
-    let text = |key: &str, value: &str| -> Vec<(String, String)> {
-        if value.is_ascii() {
-            vec![(key.to_string(), value.to_string())]
-        } else {
-            let bytes = crate::altium::encode_utf8_param_value(value);
-            vec![
-                (key.to_string(), bytes.clone()),
-                (format!("%UTF8%{key}"), bytes),
-            ]
-        }
-    };
     let part_id_locked = if symbol.part_id_locked { "T" } else { "F" };
     let mut canonical: Vec<(String, String)> = vec![("RECORD".to_string(), "1".to_string())];
-    canonical.extend(text("LibReference", &symbol.name));
+    canonical.extend(text_segments("LibReference", &symbol.name));
     // Altium omits an empty description (every UI- and API-authored header).
     if !symbol.description.is_empty() {
-        canonical.extend(text("ComponentDescription", &symbol.description));
+        canonical.extend(text_segments("ComponentDescription", &symbol.description));
     }
     canonical.extend([
         ("PartCount".to_string(), (symbol.part_count + 1).to_string()), // Altium uses part_count + 1
@@ -607,7 +612,10 @@ fn encode_component_header(symbol: &Symbol) -> String {
         ),
         ("LibraryPath".to_string(), "*".to_string()),
     ]);
-    canonical.extend(text("SourceLibraryName", &symbol.source_library_name));
+    canonical.extend(text_segments(
+        "SourceLibraryName",
+        &symbol.source_library_name,
+    ));
     canonical.extend([
         ("SheetPartFileName".to_string(), "*".to_string()),
         (
@@ -632,40 +640,43 @@ fn encode_component_header(symbol: &Symbol) -> String {
     let parts: Vec<String> = if from_file {
         replay_header(symbol, &canonical)
     } else {
-        canonical
-            .iter()
-            .map(|(key, value)| format!("{key}={value}"))
-            .collect()
+        canonical.iter().map(segment_text).collect()
     };
 
     // Leading pipe, NO trailing pipe (matches Altium's ParametersToString).
     format!("|{}", parts.join("|"))
 }
 
-/// Formats a text field as `<key>=<value>`, promoting it to `%UTF8%<key>` when
-/// the value carries characters Windows-1252 cannot represent.
+/// A text field's canonical segments: `<key>=<value>` for an ASCII value;
+/// otherwise Altium's twin, as the UI writes it (`manual/i18n5.SchLib`, and
+/// every UI-authored library in the corpus) — `%UTF8%<key>` with the value's
+/// UTF-8 bytes, two empty segments, then the plain `<key>` in the code page
+/// ([`crate::altium::plain_text_value`]).
 ///
-/// A pure-Windows-1252 value emits the plain `<key>=<value>` — byte-identical to
-/// the pre-UTF-8 output, so the common case (and everything in the golden library)
-/// is unchanged.
-///
-/// A non-ASCII value is written **twice**, as Altium does: the plain `<key>`
-/// carrying the value's raw UTF-8 bytes, and a `%UTF8%<key>` companion. Altium
-/// reads the plain key, so omitting it leaves the name `?`-mangled in Altium
-/// even though our own reader recovers it; the companion is what `AltiumSharp`
-/// and older readers look for. Both are the same bytes on the wire, since the
-/// record is encoded as Windows-1252.
-///
-/// The gate is ASCII, not Windows-1252-representability: the golden stores
-/// `Résistance` as its UTF-8 bytes with a twin, even though `é` has a
-/// perfectly good single-byte form — AD promotes any non-ASCII value.
-fn text_field(key: &str, value: &str) -> String {
+/// The gate is ASCII, not Windows-1252-representability: Altium writes a twin
+/// for `Résistance` too, although `é` has a single-byte form.
+fn text_segments(key: &str, value: &str) -> Vec<(String, String)> {
     if value.is_ascii() {
-        format!("{key}={value}")
-    } else {
-        let bytes = crate::altium::encode_utf8_param_value(value);
-        format!("{key}={bytes}|%UTF8%{key}={bytes}")
+        return vec![(key.to_string(), value.to_string())];
     }
+    vec![
+        (
+            format!("%UTF8%{key}"),
+            crate::altium::encode_utf8_param_value(value),
+        ),
+        (String::new(), String::new()),
+        (String::new(), String::new()),
+        (key.to_string(), crate::altium::plain_text_value(value)),
+    ]
+}
+
+/// A text field's canonical segments ([`text_segments`]), joined.
+fn text_field(key: &str, value: &str) -> String {
+    text_segments(key, value)
+        .iter()
+        .map(segment_text)
+        .collect::<Vec<_>>()
+        .join("|")
 }
 
 /// Returns `"|Key=value"` when `value` is non-zero, or an empty string when it
@@ -2043,29 +2054,44 @@ mod tests {
                 "pin.description",
             );
 
-            // The name is stored as UTF-8 bytes once it leaves ASCII, as
-            // Altium stores it, so its limit is the UTF-8 length: 127 micro
-            // signs are 254 bytes, 128 are 256.
+            // The name is stored in the code page too, so 255 micro signs
+            // fit; a name a script authored keeps its UTF-8 bytes, whose
+            // limit is theirs: 127 micro signs are 254 bytes, 128 are 256.
             let mut subject = pin();
+            subject.name = "\u{b5}".repeat(255);
+            write_binary_pin(&mut Vec::new(), &subject).expect("255 code-page bytes fit");
+            subject.name_code_page = Some(1250);
             subject.name = "\u{b5}".repeat(127);
             write_binary_pin(&mut Vec::new(), &subject).expect("254 UTF-8 bytes fit");
             subject.name = "\u{b5}".repeat(128);
             rejects(write_binary_pin(&mut Vec::new(), &subject), "pin.name");
         }
 
-        /// A non-ASCII pin name is stored as its UTF-8 bytes — every one of
-        /// the golden's 52 such pins, `Résistance` included — never the code
-        /// page; an ASCII name stays single-byte.
+        /// A pin name is stored in the code page, `?` for a character it
+        /// cannot hold, as the UI stores it (`manual/i18n5.SchLib`, with the
+        /// whole name in `PinWideText`); a name a script authored keeps the
+        /// UTF-8 bytes Altium stored for it (the golden's 52 such pins).
         #[test]
-        fn a_non_ascii_pin_name_is_stored_as_utf8_bytes() {
+        fn a_pin_name_is_stored_in_the_code_page_unless_a_script_wrote_it() {
+            let has = |data: &[u8], needle: &[u8]| data.windows(needle.len()).any(|w| w == needle);
             let mut subject = pin();
             subject.name = "R\u{e9}sistance".to_string();
             let mut data = Vec::new();
             write_binary_pin(&mut data, &subject).unwrap();
-            let needle = b"\x0bR\xc3\xa9sistance";
+            assert!(has(&data, b"\x0aR\xe9sistance"), "Windows-1252: {data:?}");
+
+            subject.name = "\u{420}\u{435}\u{437}".to_string(); // Рез
+            let mut data = Vec::new();
+            write_binary_pin(&mut data, &subject).unwrap();
+            assert!(has(&data, b"\x03???"), "a husk per character: {data:?}");
+
+            subject.name = "R\u{e9}sistance".to_string();
+            subject.name_code_page = Some(1250);
+            let mut data = Vec::new();
+            write_binary_pin(&mut data, &subject).unwrap();
             assert!(
-                data.windows(needle.len()).any(|w| w == needle),
-                "UTF-8 bytes with an 11-byte length prefix: {data:?}"
+                has(&data, b"\x0bR\xc3\xa9sistance"),
+                "UTF-8 bytes: {data:?}"
             );
         }
 
@@ -2393,13 +2419,14 @@ mod tests {
         // Unchanged: byte-identical, stale count and all.
         assert_eq!(encode_component_header(&symbol), record);
 
-        // An edit to the description replaces its two segments with the
-        // canonical form (ASCII here, so no twin) at the plain key's slot.
+        // An edit to the description replaces its whole field — twin, empty
+        // segments and plain key — with the canonical form (ASCII here, so
+        // no twin) in its own slot.
         symbol.description = "CAN transceiver".to_string();
         let edited = encode_component_header(&symbol);
         assert!(
             edited.contains(
-                "|LibReference=STM32G0C1KET6N|||ComponentDescription=CAN transceiver|PartCount=2|"
+                "|LibReference=STM32G0C1KET6N|ComponentDescription=CAN transceiver|PartCount=2|"
             ),
             "{edited}"
         );
@@ -2418,8 +2445,8 @@ mod tests {
     }
 
     /// From scratch the canonical header is unchanged: every constant key,
-    /// the pin count, the scripted `%UTF8%` form for a non-ASCII value, and
-    /// no description key while the description is empty.
+    /// the pin count, Altium's `%UTF8%` twin for a non-ASCII value, and no
+    /// description key while the description is empty.
     #[test]
     fn a_fresh_header_is_canonical() {
         let mut symbol = Symbol::new("R\u{e9}sistance");
@@ -2428,7 +2455,7 @@ mod tests {
         let bytes = crate::altium::encode_utf8_param_value("R\u{e9}sistance");
         assert!(
             header.starts_with(&format!(
-                "|RECORD=1|LibReference={bytes}|%UTF8%LibReference={bytes}|PartCount=2|"
+                "|RECORD=1|%UTF8%LibReference={bytes}|||LibReference=R\u{e9}sistance|PartCount=2|"
             )),
             "an empty description is omitted, as Altium omits it: {header}"
         );
@@ -2614,16 +2641,17 @@ mod tests {
         );
     }
 
-    /// A `%UTF8%` twin goes back with the bytes it was read with — a locale
-    /// artefact of the writing machine — for as long as its plain key is
-    /// unchanged, and in the canonical form once the text is edited.
+    /// A text field — its `%UTF8%` twin, the empty segments and its plain
+    /// key — goes back with the bytes it was read with (a script's twin widened
+    /// through Windows-1250 here) for as long as it holds the same text, and
+    /// whole in the canonical form once the text is edited.
     #[test]
-    fn a_utf8_twin_follows_its_plain_key() {
+    fn a_text_field_goes_back_whole_until_its_text_changes() {
         let raw: Vec<(String, String)> = [
             ("RECORD", "4"),
             ("OwnerPartId", "1"),
             ("FontID", "1"),
-            ("%UTF8%Text", "R\u{c4}\u{82}\u{c2}\u{a9}sistance"),
+            ("%UTF8%Text", "R\u{c4}\u{201a}\u{c2}\u{a9}sistance"),
             ("", ""),
             ("", ""),
             ("Text", "R\u{c3}\u{a9}sistance"),
@@ -2650,14 +2678,17 @@ mod tests {
         let replayed = replay_record(&encode_label(&label, 0), &label.raw_params);
         assert!(
             replayed.contains(
-                "|%UTF8%Text=R\u{c4}\u{82}\u{c2}\u{a9}sistance|||Text=R\u{c3}\u{a9}sistance|"
+                "|%UTF8%Text=R\u{c4}\u{201a}\u{c2}\u{a9}sistance|||Text=R\u{c3}\u{a9}sistance|"
             ),
             "{replayed}"
         );
 
         label.text = "R2".to_string();
         let edited = replay_record(&encode_label(&label, 0), &label.raw_params);
-        assert!(edited.contains("|||Text=R2|UniqueID=ADKXLEQV"), "{edited}");
+        assert!(
+            edited.contains("|FontID=1|Text=R2|UniqueID=ADKXLEQV"),
+            "{edited}"
+        );
         assert!(
             !edited.contains("%UTF8%"),
             "an ASCII edit drops the twin: {edited}"
@@ -3457,22 +3488,16 @@ mod tests {
 
     #[test]
     fn ascii_text_stays_plain_and_non_ascii_promotes() {
-        // The promotion gate is ASCII, not Windows-1252-representability. The
-        // golden's `Résistance_L1` record stores its LibReference and labels as
-        // raw UTF-8 bytes with a `%UTF8%` twin even though `é` has a
-        // single-byte Windows-1252 form, so `µ`/`é` values promote too; only a
-        // pure-ASCII value keeps the bare single key.
+        // The promotion gate is ASCII, not Windows-1252-representability: the
+        // UI writes a twin for a `µ` or an `é` too, with the plain key in the
+        // code page; only a pure-ASCII value keeps the bare single key.
         let mut p = Parameter::new("Value", "10\u{00B5}F"); // "10µF"
         p.unique_id = Some("ABCD1234".to_string());
         let s = encode_parameter(&p, 1);
-        let expected = crate::altium::encode_utf8_param_value("10\u{00B5}F");
+        let utf8 = crate::altium::encode_utf8_param_value("10\u{00B5}F");
         assert!(
-            s.contains(&format!("|Text={expected}|")),
-            "plain Text carries the UTF-8 bytes: {s}"
-        );
-        assert!(
-            s.contains(&format!("%UTF8%Text={expected}")),
-            "non-ASCII value gets the %UTF8% twin: {s}"
+            s.contains(&format!("|%UTF8%Text={utf8}|||Text=10\u{00B5}F|")),
+            "the twin, then the plain key in Windows-1252: {s}"
         );
 
         let mut label = Label {
@@ -3501,26 +3526,36 @@ mod tests {
     }
 
     #[test]
-    fn non_win1252_text_emits_both_keys_carrying_utf8_bytes() {
-        // Greek omega (U+03A9) is NOT in Windows-1252. Altium writes such a value
-        // twice — the plain key holding its raw UTF-8 bytes, plus a `%UTF8%`
-        // companion — and reads the plain one, so emitting only the companion
-        // leaves the value `?`-mangled in Altium.
+    fn text_outside_the_code_page_keeps_its_value_in_the_twin() {
+        // Greek omega (U+03A9) is not in Windows-1252. The UI writes such a
+        // value as its `%UTF8%` twin, then the plain key's narrowing — `?`
+        // for the omega — and AD24 reads the twin (`AltiumVerify.pas` on a
+        // library written this way reports `10kΩ`).
         let mut p = Parameter::new("Value", "10k\u{03A9}");
         p.unique_id = Some("ABCD1234".to_string());
         let s = encode_parameter(&p, 1);
+        let utf8 = crate::altium::encode_utf8_param_value("10k\u{03A9}");
+        assert!(
+            s.contains(&format!("|%UTF8%Text={utf8}|||Text=10k?|")),
+            "the twin holds the value, the plain key its narrowing: {s}"
+        );
+    }
 
-        // Both keys, carrying the same UTF-8 bytes mapped one char per byte.
-        let expected = crate::altium::encode_utf8_param_value("10k\u{03A9}");
-        assert!(
-            s.contains(&format!("|Text={expected}|")),
-            "plain Text must carry the UTF-8 bytes: {s}"
+    #[test]
+    fn a_plain_value_escapes_its_pipes_as_altium_does() {
+        // An escaped pipe (`¦`) is byte 0x8E in the plain value, and a
+        // literal 0x8E (`Ž` in Windows-1252) is doubled (`manual/pipe.SchLib`,
+        // and the golden's `Ž` through Windows-1250).
+        assert_eq!(
+            crate::altium::plain_text_value("A\u{a6}B=C"),
+            "A\u{17d}B=C",
+            "the pipe as byte 0x8E"
         );
-        assert!(
-            s.contains(&format!("|%UTF8%Text={expected}|")),
-            "%UTF8%Text companion: {s}"
+        assert_eq!(
+            crate::altium::plain_text_value("\u{17d}ica"),
+            "\u{17d}\u{17d}ica",
+            "a literal 0x8E doubled"
         );
-        assert!(!s.contains("10k?"), "no `?`-mangled value anywhere: {s}");
     }
 
     #[test]

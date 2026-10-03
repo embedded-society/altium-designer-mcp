@@ -103,14 +103,9 @@ impl SchLib {
         // is the authoritative map back). An Altium file authored on another
         // locale widens its storage names through a code page we cannot
         // reconstruct, which is why the declared name comes first.
-        let section_keys: std::collections::HashMap<String, String> =
-            crate::altium::read_stream_opt(&mut cfb, "/SectionKeys")
-                .map(|data| {
-                    crate::altium::parse_schlib_section_keys(&data)
-                        .into_iter()
-                        .collect()
-                })
-                .unwrap_or_default();
+        let section_keys = crate::altium::read_stream_opt(&mut cfb, "/SectionKeys")
+            .map(|data| section_keys_map(&data))
+            .unwrap_or_default();
         let order = order_by_header(&header.component_names, &read, &section_keys);
 
         let mut slots: Vec<Option<Symbol>> = read.into_iter().map(|(_, s)| Some(s)).collect();
@@ -140,8 +135,12 @@ impl SchLib {
                     if data.is_empty() {
                         image.image_data = None;
                     } else {
+                        // Kept only where this crate's compression would not
+                        // give the same bytes back (another writer's zlib).
+                        if storage::zlib_compress(&data).ok().as_ref() != Some(&compressed) {
+                            image.image_compressed = Some(compressed);
+                        }
                         image.image_data = Some(data);
-                        image.image_compressed = Some(compressed);
                     }
                 }
             }
@@ -152,8 +151,8 @@ impl SchLib {
         // build the same, Altium's own bytes are replayed.
         let symbols: Vec<&Symbol> = lib.symbols.values().collect();
         lib.file_header_list_basis = super::writer::component_list_segments(&symbols);
-        let (storage_names, ole_names) = Self::storage_plan(&symbols);
-        lib.section_keys_basis = Self::section_keys_stream(&storage_names, &ole_names);
+        let ole_names = Self::storage_plan(&symbols);
+        lib.section_keys_basis = Self::section_keys_stream(&symbols, &ole_names);
         lib.section_keys_read = crate::altium::read_stream_opt(&mut cfb, "/SectionKeys");
 
         Ok(lib)
@@ -200,7 +199,7 @@ fn order_by_header(
             .chain(by_storage.get(wire.as_str()).copied())
             .chain(
                 section_keys
-                    .get(&wire)
+                    .get(n)
                     .and_then(|sk| by_storage.get(sk.as_str()))
                     .copied(),
             )
@@ -212,6 +211,40 @@ fn order_by_header(
     }
     order.extend((0..read.len()).filter(|&i| !taken[i]));
     order
+}
+
+/// A `SectionKeys` stream as a map from each symbol's name to its storage.
+///
+/// A name is read by the record rule ([`super::reader::field_text`]); a
+/// storage name is its `%UTF8%` twin as written — the storage exactly, a
+/// script's widened name included — else the plain key.
+fn section_keys_map(data: &[u8]) -> HashMap<String, String> {
+    let Some((block, _)) = crate::altium::framing::read_block(data, 0) else {
+        return HashMap::new();
+    };
+    let text = crate::altium::decode_windows1252(block.strip_suffix(&[0x00]).unwrap_or(block));
+    let fields: HashMap<String, &str> = text
+        .split('|')
+        .filter_map(|segment| segment.split_once('='))
+        .map(|(key, value)| (key.to_ascii_lowercase(), value))
+        .collect();
+    let count = fields
+        .get("keycount")
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .unwrap_or(0);
+    (0..count)
+        .filter_map(|i| {
+            let get = |key: String| fields.get(&key).copied();
+            let name = super::reader::field_text(
+                get(format!("libref{i}")),
+                get(format!("%utf8%libref{i}")),
+            )?;
+            let storage = get(format!("%utf8%sectionkey{i}"))
+                .map(crate::altium::decode_utf8_param_value)
+                .or_else(|| get(format!("sectionkey{i}")).map(str::to_string))?;
+            Some((name, storage))
+        })
+        .collect()
 }
 
 fn apply_pin_aux_streams<R: Read + Seek>(
@@ -354,18 +387,6 @@ fn read_file_header<R: Read + Seek>(cfb: &mut CompoundFile<R>) -> AltiumResult<F
         .and_then(|s| s.trim().parse().ok())
         .unwrap_or(0);
 
-    let mut component_names = Vec::with_capacity(comp_count);
-    let mut component_descriptions = HashMap::new();
-
-    for i in 0..comp_count {
-        if let Some(name) = props.get(&format!("libref{i}")) {
-            component_names.push(name.clone());
-            if let Some(desc) = props.get(&format!("compdescr{i}")) {
-                component_descriptions.insert(name.clone(), desc.clone());
-            }
-        }
-    }
-
     let wire = crate::altium::decode_windows1252(&data[4..4 + length]);
     let wire = wire.trim_end_matches('\u{0}');
     let segments: Vec<String> = wire
@@ -374,6 +395,30 @@ fn read_file_header<R: Read + Seek>(cfb: &mut CompoundFile<R>) -> AltiumResult<F
         .split('|')
         .map(str::to_string)
         .collect();
+
+    // The list's names and descriptions by the record rule: a `%UTF8%` twin
+    // where there is one, the plain key holding only its code-page narrowing.
+    let fields: HashMap<String, &str> = segments
+        .iter()
+        .filter_map(|segment| segment.split_once('='))
+        .map(|(key, value)| (key.to_ascii_lowercase(), value))
+        .collect();
+    let text = |key: String| {
+        super::reader::field_text(
+            fields.get(&key).copied(),
+            fields.get(&format!("%utf8%{key}")).copied(),
+        )
+    };
+    let mut component_names = Vec::with_capacity(comp_count);
+    let mut component_descriptions = HashMap::new();
+    for i in 0..comp_count {
+        if let Some(name) = text(format!("libref{i}")) {
+            if let Some(desc) = text(format!("compdescr{i}")) {
+                component_descriptions.insert(name.clone(), desc);
+            }
+            component_names.push(name);
+        }
+    }
 
     Ok(FileHeader {
         component_names,

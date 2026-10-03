@@ -1467,6 +1467,7 @@ fn test_schlib_rename_component() {
         owner_part_display_mode: 0,
         symbol_line_width: 0,
         frac: None,
+        name_code_page: None,
     });
     lib.add(sym);
     lib.save(&file_path).expect("Failed to write");
@@ -1698,6 +1699,7 @@ fn test_schlib_copy_cross_library() {
         owner_part_display_mode: 0,
         symbol_line_width: 0,
         frac: None,
+        name_code_page: None,
     });
     source_lib.add(sym);
     source_lib
@@ -1851,6 +1853,7 @@ fn test_schlib_json_roundtrip() {
         owner_part_display_mode: 0,
         symbol_line_width: 0,
         frac: None,
+        name_code_page: None,
     });
     lib.add(sym);
     lib.save(&original_path).expect("Failed to write original");
@@ -2129,6 +2132,7 @@ fn test_schlib_merge_libraries() {
         owner_part_display_mode: 0,
         symbol_line_width: 0,
         frac: None,
+        name_code_page: None,
     });
     lib2.add(sym2);
     lib2.save(&source2_path).expect("Failed to write source2");
@@ -2449,6 +2453,7 @@ fn test_schlib_get_component() {
         owner_part_display_mode: 0,
         symbol_line_width: 0,
         frac: None,
+        name_code_page: None,
     });
     lib.add(sym1);
 

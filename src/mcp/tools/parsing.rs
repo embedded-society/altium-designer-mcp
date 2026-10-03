@@ -2760,6 +2760,12 @@ impl McpServer {
             .and_then(Value::as_u64)
             .and_then(|v| u8::try_from(v).ok())
             .unwrap_or(1);
+        // A script-authored name's code page, as read_schlib reported it.
+        let name_code_page = json
+            .get("name_code_page")
+            .and_then(Value::as_u64)
+            .and_then(|v| u32::try_from(v).ok())
+            .filter(|&page| crate::altium::ansi_encoding_for(page).is_some());
 
         Ok(Pin {
             name: name.to_string(),
@@ -2788,6 +2794,7 @@ impl McpServer {
             default_value,
             symbol_line_width,
             frac,
+            name_code_page,
         })
     }
 

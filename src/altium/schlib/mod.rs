@@ -2763,4 +2763,103 @@ mod tests {
         assert_eq!(entries[0].0, replaced, "the new pixels");
         assert_ne!(entries[0].1, altium, "compressed afresh");
     }
+
+    /// A symbol built here is stored under its real name, Unicode included,
+    /// as the UI stores it — AD24 finds a symbol's `PinWideText` under that
+    /// name and shows `????` for its pin names without it. Past the 31-unit
+    /// cap the storage is the name's ANSI form cut at 31 with every `?` as
+    /// `_` (AD24 looks for a long Cyrillic name under 31 underscores), mapped
+    /// by a `SectionKeys` entry in the twin form Altium reads.
+    #[test]
+    fn a_new_symbol_is_stored_under_the_name_altium_derives() {
+        let long = "\u{420}\u{435}\u{437}\u{438}\u{441}\u{442}\u{43e}\u{440}_".repeat(4); // 36 units
+        let mut lib = SchLib::new();
+        for name in [
+            "\u{420}\u{435}\u{437}\u{438}\u{441}\u{442}\u{43e}\u{440}",
+            "R/C",
+            long.as_str(),
+        ] {
+            let mut symbol = Symbol::new(name);
+            symbol.add_pin(Pin::new(
+                "\u{412}\u{445}",
+                "1",
+                0,
+                0,
+                10,
+                PinOrientation::Left,
+            ));
+            lib.add(symbol);
+        }
+        let mut out = Cursor::new(Vec::new());
+        lib.write(&mut out).expect("write");
+        let mut cfb = cfb::CompoundFile::open(Cursor::new(out.into_inner())).expect("open");
+        let storages: Vec<String> = cfb
+            .read_root_storage()
+            .filter(cfb::Entry::is_storage)
+            .map(|e| e.name().to_string())
+            .collect();
+        assert!(
+            storages
+                .contains(&"\u{420}\u{435}\u{437}\u{438}\u{441}\u{442}\u{43e}\u{440}".to_string()),
+            "{storages:?}"
+        );
+        assert!(storages.contains(&"R_C".to_string()), "{storages:?}");
+        assert!(storages.contains(&"_".repeat(31)), "{storages:?}");
+
+        let section_keys = crate::altium::read_stream_opt(&mut cfb, "/SectionKeys").expect("keys");
+        let text = crate::altium::decode_windows1252(&section_keys);
+        let utf8 = crate::altium::encode_utf8_param_value(&long);
+        assert!(
+            text.contains("|KeyCount=2|LibRef0=R/C|SectionKey0=R_C|"),
+            "{text}"
+        );
+        assert!(
+            text.contains(&format!(
+                "|%UTF8%LibRef1={utf8}|||LibRef1={}|SectionKey1={}",
+                "????????_".repeat(4),
+                "_".repeat(31)
+            )),
+            "{text}"
+        );
+
+        // And all three read back by name, their pins whole.
+        let read = SchLib::read(Cursor::new(cfb.into_inner().into_inner())).expect("read");
+        assert_eq!(
+            read.names(),
+            [
+                "\u{420}\u{435}\u{437}\u{438}\u{441}\u{442}\u{43e}\u{440}",
+                "R/C",
+                long.as_str()
+            ]
+        );
+        for symbol in read.iter() {
+            assert_eq!(symbol.pins[0].name, "\u{412}\u{445}", "{}", symbol.name);
+        }
+    }
+
+    /// The UI's header lists names as `%UTF8%` twins beside `?` husks, and
+    /// the library is ordered by the twins.
+    #[test]
+    fn a_library_keeps_its_order_through_a_header_of_husks() {
+        let names = [
+            "\u{96fb}\u{963b}",
+            "\u{420}\u{435}\u{437}",
+            "\u{391}\u{3bd}\u{3c4}",
+            "ZETA",
+            "ALPHA",
+        ];
+        let mut lib = SchLib::new();
+        for name in names {
+            lib.add(Symbol::new(name));
+        }
+        let mut out = Cursor::new(Vec::new());
+        lib.write(&mut out).expect("write");
+        let header = written_stream(&lib, "/FileHeader").expect("header");
+        assert!(
+            crate::altium::decode_windows1252(&header).contains("|LibRef0=??|"),
+            "the plain key is the husk"
+        );
+        let read = SchLib::read(Cursor::new(out.into_inner())).expect("read");
+        assert_eq!(read.names(), names);
+    }
 }

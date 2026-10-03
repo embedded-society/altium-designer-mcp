@@ -369,31 +369,35 @@ fn read_display_flags(props: &HashMap<String, String>) -> ShapeDisplayFlags {
     }
 }
 
-/// Reads a record's text value, preferring a `%UTF8%`-prefixed key when present.
-///
-/// Altium stores a text value that Windows-1252 cannot represent (Cyrillic, CJK,
-/// Greek `Ω`, …) under a `%UTF8%<Key>` key holding the raw UTF-8 bytes, instead
-/// of the lossy plain `<Key>`. When that key is present its value (mojibake from
-/// the Windows-1252 record decode) is re-decoded as UTF-8; otherwise the plain
-/// `<Key>` is read verbatim. `key` is the lower-cased field name (e.g. `"text"`),
-/// matching [`parse_properties`]'s lower-casing. Returns `None` when neither key
-/// is present so callers can distinguish an absent field from an empty one.
+/// Reads a record's text value (see [`field_text`]). `key` is the lower-cased
+/// field name (e.g. `"text"`), matching [`parse_properties`]'s lower-casing.
+/// Returns `None` when neither key is present so callers can distinguish an
+/// absent field from an empty one.
 fn read_utf8_text_field(props: &HashMap<String, String>, key: &str) -> Option<String> {
-    // The plain key comes first. Altium writes a value outside Windows-1252 as
-    // its raw UTF-8 bytes under the plain key, which the record decode surfaces
-    // as one char per byte, and that form is locale-independent. Its own
-    // `%UTF8%` companion is not: Altium builds it by widening those bytes
-    // through the authoring machine's ANSI code page, so decoding it elsewhere
-    // yields mojibake.
-    if let Some(plain) = props.get(key) {
-        if let Some(recovered) = recover_utf8_bytes(plain) {
-            return Some(recovered);
-        }
+    field_text(
+        props.get(key).map(String::as_str),
+        props.get(&format!("%utf8%{key}")).map(String::as_str),
+    )
+}
+
+/// The text a field holds, given its plain value and its `%UTF8%` twin as
+/// they sit in the Windows-1252-decoded record.
+///
+/// Altium writes a value outside ASCII twice: the twin with its UTF-8 bytes,
+/// and the plain key in the writing machine's code page — `?` for a character
+/// the page cannot hold, byte `0x8E` for an escaped pipe and `0x8E 0x8E` for a
+/// literal one. The twin is therefore the value. A script-authored library's
+/// twin holds the value's UTF-8 bytes widened through the authoring code page
+/// (Windows-1250 for the golden: Altium took the script's bytes for
+/// characters), which [`crate::altium::fold_ansi_widened`] undoes. Without a
+/// twin the plain key is the value — its raw UTF-8 bytes where they decode as
+/// such, else Windows-1252. `None` when the field has neither.
+pub(crate) fn field_text(plain: Option<&str>, twin: Option<&str>) -> Option<String> {
+    if let Some(twin) = twin {
+        let value = crate::altium::decode_utf8_param_value(twin);
+        return Some(crate::altium::fold_ansi_widened(&value).unwrap_or(value));
     }
-    if let Some(raw) = props.get(&format!("%utf8%{key}")) {
-        return Some(crate::altium::decode_utf8_param_value(raw));
-    }
-    props.get(key).cloned()
+    plain.map(|plain| recover_utf8_bytes(plain).unwrap_or_else(|| plain.to_string()))
 }
 
 /// Recovers a value stored as raw UTF-8 bytes inside a Windows-1252 record.
@@ -599,5 +603,39 @@ mod tests {
         let mut symbol = Symbol::new("NO_POLYLINE");
         parse_text_record_from_string(&mut symbol, "|RECORD=6|LocationCount=0");
         assert!(symbol.polylines.is_empty());
+    }
+
+    /// A field's text is its `%UTF8%` twin where there is one — the plain key
+    /// holds only the code page's narrowing, `?`s and Altium's `0x8E` escape
+    /// — with a script's widened twin folded back; without a twin, the plain
+    /// key, its UTF-8 bytes recovered where they decode.
+    #[test]
+    fn a_field_reads_its_twin_first() {
+        let utf8 = |s: &str| crate::altium::encode_utf8_param_value(s);
+        // The UI's form: the twin is the value, the plain key a husk.
+        assert_eq!(
+            field_text(Some("????"), Some(&utf8("\u{9b0}\u{9cb}\u{9a7}\u{995}"))).as_deref(),
+            Some("\u{9b0}\u{9cb}\u{9a7}\u{995}")
+        );
+        // An escaped pipe in the plain key (byte 0x8E, `Ž` once decoded);
+        // the twin holds the broken bar.
+        assert_eq!(
+            field_text(Some("A\u{17d}B"), Some(&utf8("A\u{a6}B"))).as_deref(),
+            Some("A\u{a6}B")
+        );
+        // A script's twin: the value's UTF-8 bytes widened through
+        // Windows-1250 (`RĂ©sistance`), folded back to the word.
+        let widened = crate::altium::widen_through("R\u{e9}sistance", 1250);
+        assert_eq!(
+            field_text(Some("x"), Some(&utf8(&widened))).as_deref(),
+            Some("R\u{e9}sistance")
+        );
+        // No twin: the plain key, raw UTF-8 bytes recovered.
+        assert_eq!(field_text(Some("ASCII"), None).as_deref(), Some("ASCII"));
+        assert_eq!(
+            field_text(Some(&utf8("\u{420}\u{435}\u{437}")), None).as_deref(),
+            Some("\u{420}\u{435}\u{437}")
+        );
+        assert_eq!(field_text(None, None), None);
     }
 }

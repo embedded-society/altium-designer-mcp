@@ -29,13 +29,8 @@
     `primitive_counts` (array aligned with the entry's own `components`, which
     it therefore requires; matched to Altium's view by component name, and
     every key given must equal what Altium resolved — omit keys to leave them
-    unasserted). An entry may also carry `fixture_inconsistent`: name suffixes
-    of components whose stored name is documented as damaged (the golden's
-    FIXTURE_INCONSISTENT set — see tests/golden_fidelity.rs), so Altium's
-    decode of the name differs from ours by design; those names are excused
-    from the set comparison and their counts matched by suffix instead. The
-    run fails if Altium's view differs, so a verify run can assert primitive
-    counts and specific properties, not just "opened".
+    unasserted). The run fails if Altium's view differs, so a verify run can
+    assert primitive counts and specific properties, not just "opened".
 
 .EXAMPLE
     .\Verify-Libraries.ps1 -Files C:\tmp\Verify.PcbLib, C:\tmp\Verify.SchLib
@@ -143,22 +138,11 @@ if ($Expect) {
         $gotNames = @(@($r.components) | ForEach-Object {
             if ($wantNames -contains $_) { $_ } else { ConvertFrom-WireName $_ }
         })
-        # A name ending in a documented-damaged suffix cannot be asserted:
-        # Altium's decode of the damaged bytes differs from ours by design.
-        $excusedSuffixes = @()
-        if ($e.PSObject.Properties.Name -contains 'fixture_inconsistent') {
-            $excusedSuffixes = @($e.fixture_inconsistent)
-        }
-        $excusedSuffix = {
-            param($n)
-            foreach ($s in $excusedSuffixes) { if ($n.EndsWith($s)) { return $s } }
-            return $null
-        }
         if ($e.PSObject.Properties.Name -contains 'components') {
             # A set comparison: Altium iterates a library in shortlex order
             # (name length, then alphabetical), not file order.
-            $missing = @($wantNames | Where-Object { $gotNames -notcontains $_ -and -not (& $excusedSuffix $_) })
-            $extra   = @($gotNames  | Where-Object { $wantNames -notcontains $_ -and -not (& $excusedSuffix $_) })
+            $missing = @($wantNames | Where-Object { $gotNames -notcontains $_ })
+            $extra   = @($gotNames  | Where-Object { $wantNames -notcontains $_ })
             if ($missing.Count -or $extra.Count) {
                 $mismatches.Add("${leaf}: components missing [$($missing -join ', ')] unexpected [$($extra -join ', ')]")
             }
@@ -169,19 +153,10 @@ if ($Expect) {
                 $mismatches.Add("${leaf}: $($want.Count) count entries for $($wantNames.Count) components - primitive_counts must align with the entry's components")
                 continue
             }
-            # Matched by name (the two sides iterate in different orders); a
-            # damaged name is matched by its excused suffix instead.
+            # Matched by name: the two sides iterate in different orders.
             for ($i = 0; $i -lt $want.Count; $i++) {
                 $name = $wantNames[$i]
                 $j = [Array]::IndexOf($gotNames, $name)
-                if ($j -lt 0) {
-                    $s = & $excusedSuffix $name
-                    if ($s) {
-                        for ($k = 0; $k -lt $gotNames.Count; $k++) {
-                            if ($gotNames[$k].EndsWith($s)) { $j = $k; break }
-                        }
-                    }
-                }
                 if ($j -lt 0) { continue }  # already reported as missing
                 foreach ($p in $want[$i].PSObject.Properties) {
                     $actual = $got[$j].PSObject.Properties[$p.Name]

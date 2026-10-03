@@ -20,20 +20,20 @@ the shape `scripts\Verify-Libraries.ps1 -Expect` consumes — so an on-site Alti
 assert it resolves exactly the same, not merely that the files open. It is generated,
 not hand-edited: `tests/golden_expectations.rs` fails when it drifts, and
 `UPDATE_GOLDEN_EXPECTATIONS=1 cargo test --test golden_expectations` refreshes it after
-a regeneration. Two Altium behaviours are baked in (evidence in
-[`../README.md`](../README.md) § library iterators): the five damaged i18n names are
-excused via `fixture_inconsistent` (Altium decodes those bytes differently by design),
-and the parameter counts predict Altium's iterator, which skips a hidden `Comment`.
+a regeneration. One Altium behaviour is baked in (evidence in
+[`../README.md`](../README.md) § library iterators): the parameter counts predict Altium's
+iterator, which skips a hidden `Comment`. Altium hands back a scripted non-Latin name in
+its widened form, which the harness decodes before comparing (`ConvertFrom-WireName.ps1`),
+so every name is asserted.
 
 ## NEVER open-and-save a committed golden in Altium
 
 An AD load+save cycle silently damages fixtures (measured 2026-08-16 by resaving
 `symbols.SchLib` through AD and diffing all 84 symbols with our reader):
 
-- the five known-damaged i18n symbols (`_JV`, `_BN`, `_CR`, `_IU`, `_SB`) degrade
-  *further* — AD's reader is the broken component, and each cycle compounds it;
-- `ꆈꌠ_YI` (Yi) is a sixth, slower victim: intact in the committed golden, but one
-  load+save turns its pin/label/parameter texts to mojibake;
+- the i18n symbols' texts do not survive it unchanged: `ꆈꌠ_YI` (Yi), intact in the
+  committed golden, comes back with its pin, label and parameter texts as mojibake after one
+  load+save;
 - `PARAMS` loses a parameter value outright: `100nF` comes back as `*` — not an
   encoding issue, AD's own parameter handling.
 
@@ -59,18 +59,17 @@ yet come back exactly.
 
 ### `manual/i18n5.SchLib`
 
-Five symbols, one per script whose *generated* fixture is internally inconsistent
-(`FIXTURE_INCONSISTENT` in `tests/golden_fidelity.rs`): Javanese `ꦗꦮ_JV`, Bengali
-`রোধক_BN`, Cherokee `ᏣᎳᎩ_CR`, Inuktitut `ᐃᓄᒃᑎᑐᑦ_IU` and beyond-BMP Han `𠮷野_SB`. Each
-carries its word in the component name, the description suffix, one pin's name, a text
-label and a `Value` parameter — the same shape as the generated i18n symbols.
+Five symbols, one per script whose UTF-8 bytes include `0x8E` or `0xA6` — the bytes
+Altium's plain-value escape rewrites: Javanese `ꦗꦮ_JV`, Bengali `রোধক_BN`, Cherokee
+`ᏣᎳᎩ_CR`, Inuktitut `ᐃᓄᒃᑎᑐᑦ_IU` and beyond-BMP Han `𠮷野_SB`. Each carries its word in
+the component name, the description suffix, one pin's name, a text label and a `Value`
+parameter — the same shape as the generated i18n symbols.
 
-Hand-authored in the AD24 UI (2026-08-16) because that is the only route that bypasses
-AD's broken decode of these byte sequences (four scripted attempts failed differently —
-see the `DOCUMENTED NEGATIVE` in `GenerateSamples.pas`). The file is also ground truth
-for the **UI-authoring convention**: plain record keys are ANSI `?` husks, the real names
-live in `%UTF8%` twins as raw UTF-8 bytes, the CFB storage names are real UTF-16
+Hand-authored in the AD24 UI (2026-08-16), the file is ground truth for the
+**UI-authoring convention**: plain record keys are ANSI `?` husks, the real names live in
+`%UTF8%` twins as raw UTF-8 bytes, the CFB storage names are the real names in UTF-16
 (surrogate pair included), and pin names travel only in `PinWideText`.
+`manual_schlibs_survive_a_round_trip` pins the byte-identical rewrite.
 
 **To rebuild it:** File → New → Library → Schematic Library; for each of the five,
 rename the component by pasting the name, paste the description, place one pin
@@ -200,8 +199,9 @@ its link to set the row above; save ONCE as `thermal_relief.PcbLib`.
 A symbol, `PIPESYM`, and a footprint, `PIPEFP`, given a `|` through Altium's scripting API
 in AD24 (2026-08-30): the symbol's description, a parameter's name and value, and a label,
 and the footprint's description. They show what Altium does with the
-record separator. The schematic editor stores every `|` as `¦` (U+00A6); the PCB editor
-writes it raw and reads the description back cut at it (`A|B=C` comes back as `A`).
+record separator. The schematic editor stores every `|` as `¦` (U+00A6) in a `%UTF8%`
+twin and as byte `0x8E` in the plain key beside it, doubling a literal `0x8E`; the PCB
+editor writes it raw and reads the description back cut at it (`A|B=C` comes back as `A`).
 `manual_pipe_fixture_shows_altium_stores_a_pipe_as_a_broken_bar` and
 `manual_pipe_fixture_shows_altium_cuts_pcb_text_at_the_pipe` pin both, and the writers
 refuse a `|` on that evidence.

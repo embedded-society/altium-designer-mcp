@@ -57,12 +57,7 @@ fn is_volatile_key(key: &str) -> bool {
 }
 
 /// Differences that are correct by design and will not change.
-const BY_DESIGN: &[(&str, &str)] = &[(
-    "/pinwidetext",
-    "the golden's entries hold each pin name's DelphiScript mojibake (its UTF-8 bytes \
-     widened through Windows-1250); the reader takes the real name from the binary \
-     record, and the writer stores that name as real UTF-16",
-)];
+const BY_DESIGN: &[(&str, &str)] = &[];
 
 /// Known defects: real fidelity losses this test found, each still open.
 ///
@@ -73,34 +68,12 @@ const BY_DESIGN: &[(&str, &str)] = &[(
 /// corrupted library.
 const KNOWN_DEFECTS: &[(&str, &str)] = &[];
 
-/// The five fixture symbols `DelphiScript` mangled before Altium saw them.
-///
-/// Each is internally inconsistent IN THE GOLDEN ITSELF: the CFB storage name
-/// folds to the correct word (Javanese, Bengali, Cherokee, Inuktitut,
-/// beyond-BMP Han) while the record inside stores a different, shifted string —
-/// so no self-consistent writer can reproduce both at once. Root cause is AD's
-/// own reader (four scripted repair attempts each failed differently; see the
-/// `DOCUMENTED NEGATIVE` in `GenerateSamples.pas`). These five scripts get
-/// their real, consistent coverage from the hand-authored
-/// `scripts/samples/manual/i18n5.SchLib` instead; the excusal here stays
-/// because the damaged copies remain in the generated golden.
-const FIXTURE_INCONSISTENT: &[&str] = &["_jv", "_bn", "_cr", "_iu", "_sb"];
-
-/// Whether a canonical path belongs to one of the five damaged fixtures.
-fn is_fixture_inconsistent(what: &str) -> bool {
-    let component = what.split('/').next().unwrap_or(what);
-    FIXTURE_INCONSISTENT
-        .iter()
-        .any(|suffix| component.ends_with(suffix))
-}
-
 fn is_known(what: &str) -> bool {
     let lower = what.to_lowercase();
-    is_fixture_inconsistent(&lower)
-        || BY_DESIGN
-            .iter()
-            .chain(KNOWN_DEFECTS)
-            .any(|(key, _)| lower.contains(&key.to_lowercase()))
+    BY_DESIGN
+        .iter()
+        .chain(KNOWN_DEFECTS)
+        .any(|(key, _)| lower.contains(&key.to_lowercase()))
 }
 
 /// Folds one path segment to a locale-independent form.
@@ -676,10 +649,8 @@ fn schlib_golden_survives_a_round_trip() {
         let (Some(g), Some(o)) = (stream_bytes(&src, g_path), stream_bytes(&out, o_path)) else {
             continue;
         };
-        // Excused by the divergence's own text or by the component, like the
-        // two checks below: a damaged fixture's storage now pairs with ours
-        // (its storage name is kept on rewrite), so its inconsistent record
-        // shows up here rather than as an unmatched storage.
+        // Excused by the divergence's own text or by the component
+        // (`is_known`), like the two checks below.
         failures.extend(
             block_divergences(&g, &o, name)
                 .into_iter()
@@ -946,38 +917,12 @@ fn manual_pcblibs_survive_a_round_trip() {
     );
 }
 
-/// Why a plain text value differs: beside a `%UTF8%` twin, Altium writes the
-/// plain key in the code page — `?` for a character it cannot hold, byte
-/// `0x8E` for an escaped pipe — where this crate writes the UTF-8 bytes.
-const PLAIN_VALUE: &str = "the plain value beside a %UTF8% twin is the code page in Altium's \
-                           file, the UTF-8 bytes in ours";
-
-/// Why a pin record differs as well: Altium narrows a binary pin record's
-/// name through the code page, `?` for a character it cannot hold, where
-/// this crate writes the UTF-8 bytes.
-const PIN_NAME_AND_PLAIN_VALUE: &str = "the binary pin name and the plain value beside a \
-                                        %UTF8% twin are the code page in Altium's file, \
-                                        the UTF-8 bytes in ours";
-
-/// Streams of the hand-authored `SchLib`s that do not come back byte for
-/// byte, as (file, canonical stream suffix, what differs). Debt like
-/// [`KNOWN_DEFECTS`]: an entry whose stream comes back identical fails the
-/// test until it is deleted.
-const MANUAL_SCHLIB_DEFECTS: &[(&str, &str, &str)] = &[
-    ("i18n5.SchLib", "_bn/data", PIN_NAME_AND_PLAIN_VALUE),
-    ("i18n5.SchLib", "_cr/data", PIN_NAME_AND_PLAIN_VALUE),
-    ("i18n5.SchLib", "_iu/data", PIN_NAME_AND_PLAIN_VALUE),
-    ("i18n5.SchLib", "_jv/data", PIN_NAME_AND_PLAIN_VALUE),
-    ("i18n5.SchLib", "_sb/data", PIN_NAME_AND_PLAIN_VALUE),
-    ("parameters.SchLib", "paramprops/data", PLAIN_VALUE),
-    ("pipe.SchLib", "pipesym/data", PLAIN_VALUE),
-];
-
 /// Every hand-authored `SchLib` under `scripts/samples/manual/` comes back
 /// byte-identical from a read -> write: the file header — Altium's font
 /// table, sheet settings and record-count `Weight` — `SectionKeys`, the
-/// image `Storage` and each symbol's streams, all but the
-/// [`MANUAL_SCHLIB_DEFECTS`]; no stream is dropped or added.
+/// image `Storage` and each symbol's streams, the plain values Altium wrote
+/// beside their `%UTF8%` twins and its pin names included; no stream is
+/// dropped or added.
 #[test]
 fn manual_schlibs_survive_a_round_trip() {
     let manual = sample("manual");
@@ -996,7 +941,6 @@ fn manual_schlibs_survive_a_round_trip() {
 
     let dir = tempfile::tempdir().expect("tempdir");
     let mut failures = Vec::new();
-    let mut matched = vec![false; MANUAL_SCHLIB_DEFECTS.len()];
     for src in &libraries {
         let file = src.file_name().unwrap().to_string_lossy().into_owned();
         let out = dir.path().join(&file);
@@ -1010,31 +954,13 @@ fn manual_schlibs_survive_a_round_trip() {
                 failures.push(format!("{file}: stream dropped: {canonical}"));
                 continue;
             };
-            let same = stream_bytes(src, g_path) == stream_bytes(&out, o_path);
-            let defect = MANUAL_SCHLIB_DEFECTS
-                .iter()
-                .position(|(f, suffix, _)| *f == file && canonical.ends_with(suffix));
-            if let Some(i) = defect {
-                matched[i] = true;
-            }
-            match (same, defect) {
-                (true, None) | (false, Some(_)) => {}
-                (false, None) => failures.push(format!("{file}: {canonical}: not byte-identical")),
-                (true, Some(_)) => failures.push(format!(
-                    "{file}: {canonical}: byte-identical now; delete its MANUAL_SCHLIB_DEFECTS entry"
-                )),
+            if stream_bytes(src, g_path) != stream_bytes(&out, o_path) {
+                failures.push(format!("{file}: {canonical}: not byte-identical"));
             }
         }
         for added in after.keys().filter(|k| !before.contains_key(*k)) {
             failures.push(format!("{file}: stream added: {added}"));
         }
-    }
-    for ((file, suffix, _), _) in MANUAL_SCHLIB_DEFECTS
-        .iter()
-        .zip(&matched)
-        .filter(|(_, matched)| !**matched)
-    {
-        failures.push(format!("{file}: no stream ends with {suffix}"));
     }
     assert!(
         failures.is_empty(),

@@ -100,15 +100,15 @@ distinction stays visible: this is not an authoring gap waiting on an Altium run
 | FootprintModel | ✅ the RECORD=44/45/46/48 chain (`IMPLCHAIN`: current link with a datafile — `DatafileCount=1`, `ModelDatafile0`, entity, kind, `IsCurrent=T` — a name-only link with none of them and no `Description`, and a described non-current one) | `IntegratedModel`/`DatabaseModel` ✅ read and replayed from an Altium-written link (`manual/intlib_link.SchLib`, a symbol taken from an integrated library) but not modelled as fields; neither a script nor the UI's Add Footprint writes them (`manual/footprint_link.SchLib`) |
 | IeeeSymbol | ✅ authored (`IEEESYM`: a dot, a mirrored rotated clock, a locked coloured active-low input at scale 20 — `Symbol`, `ScaleFactor`, `Orientation`, `Mirror`, `Color`, `GraphicallyLocked`, no `UniqueID`) | 🚫 Disabled/Dimmed (not persisted on library shapes) |
 
-> **Five i18n symbols of the generated golden are internally inconsistent** (`_JV`, `_BN`,
-> `_CR`, `_IU`, `_SB`): the script engine mis-decodes exactly those source sequences, and
-> every scripted repair is a verified negative (see `DOCUMENTED NEGATIVE` in
-> `GenerateSamples.pas`). The hand-authored `scripts/samples/manual/i18n5.SchLib` (AD24 UI)
-> carries all five consistently and is the ground truth for the UI-authoring convention
-> (plain keys are ANSI `?` husks; real names in raw-UTF-8 `%UTF8%` twins; pin names only in
-> `PinWideText`). The damaged copies stay in the generated golden, excused by suffix
-> (`FIXTURE_INCONSISTENT` in `tests/golden_fidelity.rs`); never open-and-save that golden in
-> AD (see `scripts/samples/README.md`).
+> **Every i18n symbol of the generated golden is scripted text:** each word reached Altium
+> as its UTF-8 bytes read through Windows-1250, and Altium stored that widened text —
+> `%UTF8%` twins and `PinWideText` hold it, plain keys the bytes, with `0x8E` and `0xA6`
+> escaped (`_JV`, `_BN`, `_CR`, `_IU` and `_SB` carry such bytes). The reader resolves all 52
+> to their real words, and they come back byte for byte. The hand-authored
+> `scripts/samples/manual/i18n5.SchLib` (AD24 UI) carries the same five scripts the UI's way
+> and is the ground truth for the UI-authoring convention (plain keys are ANSI `?` husks; real
+> names in raw-UTF-8 `%UTF8%` twins; pin names only in `PinWideText`); never open-and-save
+> the golden in AD (see `scripts/samples/README.md`).
 
 `manual/pipe.SchLib` + `manual/pipe.PcbLib` (AD24, scripted 2026-08-30 through the API) pin
 what Altium does with a `|` in text: the schematic editor stores it as `¦` (U+00A6); the PCB
