@@ -582,11 +582,13 @@ pub struct Image {
         skip_serializing_if = "Option::is_none"
     )]
     pub image_data: Option<Vec<u8>>,
-    /// The embedded image's `/Storage` entry exactly as read — Altium's zlib
-    /// compression of [`Self::image_data`] (base64 in JSON) — written back
-    /// while it still inflates to `image_data`, so a rewrite, copy or
-    /// export and import keeps Altium's bytes. `None` for an image added or
-    /// replaced here, which this crate compresses.
+    /// The embedded image's `/Storage` entry exactly as read (base64 in
+    /// JSON), where this crate's compression of [`Self::image_data`] would
+    /// not give those bytes back — a file another writer's zlib compressed;
+    /// Altium's own entries this crate reproduces. Written back while it
+    /// still inflates to `image_data`, so a rewrite, copy or export and
+    /// import keeps the file's bytes. `None` otherwise, and for an image
+    /// added or replaced here.
     #[serde(
         default,
         with = "crate::altium::base64_opt",

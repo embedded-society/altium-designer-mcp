@@ -52,36 +52,49 @@ instead of being repeated:
   below).
 - **`IndexInSheet`:** one shared sequential 0-based counter over all content records (see
   [IndexInSheet](#indexinsheet)).
-- **`%UTF8%` keys:** any **non-ASCII** text value is written twice: the plain `<Key>` carrying
-  the value's raw UTF-8 bytes, plus a `%UTF8%<Key>` companion. The gate is ASCII, not
-  Windows-1252-representability — the golden stores `Résistance` this way even though `é` has a
-  single-byte form. The companion's on-disk content in an Altium-authored file is the UTF-8 bytes
-  re-decoded through the authoring machine's ANSI code page (a locale artefact; Windows-1250 for
-  the golden); this crate writes the same bytes under both keys, which every reader resolves to
-  the same value. Applies to every text field: `LibReference`, `ComponentDescription`, `Text` on
-  Label/Parameter/Designator/TextFrame, and the FileHeader's `LibRef{N}`/`CompDescr{N}`.
+- **`%UTF8%` keys:** any **non-ASCII** text value is written twice, as the UI writes it: a
+  `%UTF8%<Key>` twin with the value's UTF-8 bytes, two empty segments, then the plain `<Key>` in
+  the writing machine's ANSI code page — `?` for a character the page cannot hold, an escaped pipe
+  (`¦`) as byte `0x8E`, and a literal `0x8E` doubled: `%UTF8%Text=<UTF-8>|||Text=<code page>`
+  (`manual/i18n5.SchLib`, `manual/pipe.SchLib`). The gate is ASCII, not
+  Windows-1252-representability: `Résistance` gets a twin too. AD24 reads the twin — a library
+  this crate wrote, its plain keys all `?`, shows every text as written (`AltiumVerify.pas`) —
+  so the twin is the value, and the reader takes it first. A script hands Altium its literals'
+  UTF-8 bytes as characters of the authoring code page, so a scripted library's twin holds that
+  widened text and its plain key the bytes themselves, escaped (the golden: Windows-1250); the
+  reader folds the widened twin back to the real value. A field read from a file goes back as
+  read while it holds the same value; a new or edited one takes the UI's form, in the server's
+  code page. Applies to every text field: `LibReference`, `ComponentDescription`, `Text` on
+  Label/Parameter/Designator/TextFrame, the FileHeader's `LibRef{N}`/`CompDescr{N}` and the
+  `SectionKeys` entries.
 - **`UniqueID`:** 8-character alphanumeric per-record id, emitted as the LAST key.
 - **Encoding:** records are Windows-1252, with a leading `|`, no trailing `|`, and a trailing
   `0x00` (the record length includes the null).
 
 ## SectionKeys Stream
 
-A root stream, present only when at least one component's name does not fit the CFB 31-UTF-16-unit
-storage cap. Storage names for such components are the name's wire bytes **plain-truncated at the
-cap** (the golden's Sinhala symbol is cut mid-codepoint, so the cut is bytewise); this stream maps
-each real `LibRef` to its truncated `SectionKey` (storage name):
+A symbol's storage is named after it: its name itself, real Unicode included
+(`manual/i18n5.SchLib`), within the CFB 31-UTF-16-unit cap — AD24 finds the symbol's
+`PinWideText` there, under that name, and shows a pin named outside the code page as `????`
+without it. Past the cap the storage is the name's ANSI form cut at 31, every `?` as `_`: AD24
+looks for a long Cyrillic name under 31 underscores (a `PcbLib` keeps the `?`s). A scripted
+library's storages are named after its widened names, so the golden's long names are cut there.
+`/ \ : ! *` become `_` too, the rule an AD21 `PcbLib` shows (issue #507), and a rewrite keeps an
+existing storage name as it is.
+
+This root stream maps a name to its storage for every symbol whose name reaches the cap — a
+UI-authored `Generic Non-polarised Capacitor`, 31 units exactly, has an entry — or whose storage is
+not its name, and is absent when there is none:
 
 ```text
-[u32 len]["|KeyCount=N|%UTF8%LibRef0=…|||LibRef0=…|%UTF8%SectionKey0=…|||SectionKey0=…" + 0x00]
+[u32 len]["|KeyCount=N|%UTF8%LibRef0=…|||LibRef0=…|SectionKey0=…" + 0x00]
 ```
 
-Values follow the `%UTF8%` twin convention above; the `|||` after each twin value is Altium's own
-separator, reproduced verbatim. The `FileHeader`'s `LibRef{N}` entries hold the **full untruncated
-name** — the golden stores a 33-byte Khmer name there against a 31-unit storage — so lookup for a
-long name goes `FileHeader` → `SectionKeys` → storage. A storage name also has `/ \ : ! *` replaced
-by `_`, the rule an AD21 `PcbLib` shows (issue #507), and a rewrite keeps an existing storage name
-as it is. A `PcbLib`'s stream of the same name is a
-binary count-and-string-blocks layout, not this text record (`PCBLIB_FORMAT.md` § SectionKeys Stream).
+Values follow the `%UTF8%` twin convention above. The `FileHeader`'s `LibRef{N}` entries hold the
+**full untruncated name** — the golden stores a 33-byte Khmer name there against a 31-unit
+storage — so lookup for a long name goes `FileHeader` → `SectionKeys` → storage. A `PcbLib`'s
+stream of the same name is a binary count-and-string-blocks layout, not this text record
+(`PCBLIB_FORMAT.md` § SectionKeys Stream).
 
 Altium's entries follow an order no rule reproduces: the golden's five sit at library positions
 19, 25, 21, 24 and 20, neither name order nor library order. So a library read from a file gets
@@ -90,19 +103,21 @@ order once a name changes.
 
 ## PinWideText Stream
 
-A non-ASCII pin **name** is stored in the binary pin record as its **UTF-8 bytes** (every one
-of the golden's 52 such pins, `Résistance` included although Windows-1252 could hold it), with
-this stream carrying the wide form beside it; the pin's other strings are Windows-1252.
+A pin **name** is stored in the binary pin record in the writing machine's code page, `?` for a
+character it cannot hold (`manual/i18n5.SchLib`), with this stream carrying the whole name beside
+it; the pin's other strings are Windows-1252.
 
 Per-component, alongside `PinFrac` / `PinSymbolLineWidth`, in the shared compressed-storage
 framing (see the `/Storage` section): one zlib entry per pin whose name leaves ASCII, keyed by pin
 ordinal, payload a Unicode parameter block `[u32 LE byte_len][UTF-16LE "|NAME=<text>"]`.
 
-This is the pin name's authoritative wide form — the binary pin record narrows the name through
-the writing machine's ANSI code page, so a name typed as real Unicode survives only here. In an
-Altium-authored file the value can itself be the ANSI-widened form of the name's UTF-8 bytes (the
-golden's 52 streams all are, courtesy of script authoring); a reader folds such a value back
-through the plausible code pages and applies it only when the binary record yielded a lossy husk.
+This is the pin name's authoritative form, and the reader takes the name from it wherever a pin
+has an entry: the binary record holds only the narrowing, read here through Windows-1252 (a
+Windows-1250 `Čas` would read as `Èas`). AD24 finds the stream in the storage named after the
+symbol (§ SectionKeys Stream). A scripted library holds the name's UTF-8 bytes in the binary record
+and those bytes widened through the authoring code page here (the golden's 52 entries, Windows-1250):
+the reader folds the entry back to the real name and keeps the page (`Pin::name_code_page`), so a
+rewrite stores the name the same way.
 
 ## FileHeader Stream
 
@@ -116,9 +131,10 @@ A library read from a file gets its header back as read — the font table every
 `FontID` indexes (an Altium library can carry a second font, `FontIdCount=2`), the sheet settings
 and any key this crate does not model — with only `Weight` recomputed. Its component list, from
 `CompCount` to the last `PartCount{i}`, goes back as read while the symbols still build it, and is
-rebuilt in place once a symbol is added, removed, renamed or re-described. A library built in
-memory gets these keys (matching the golden library; note the mixed-case key spellings — the
-reader is case-insensitive):
+rebuilt in place once a symbol is added, removed, renamed or re-described. The library is read in
+the list's order, each name by the `%UTF8%` twin convention (a UI-written list's plain keys are
+`?` husks). A library built in memory gets these keys (matching the golden library; note the
+mixed-case key spellings — the reader is case-insensitive):
 
 | Key | Value | Notes |
 |-----|-------|-------|
@@ -245,7 +261,7 @@ description length, the layout is:
 | 18+N | 2 | Location.X | Signed i16, LE (integer part) |
 | 20+N | 2 | Location.Y | Signed i16, LE (integer part) |
 | 22+N | 4 | Colour | BGR, u32 LE |
-| 26+N | 1+M | Name | Pascal short string |
+| 26+N | 1+M | Name | Pascal short string, in the code page — a scripted name's UTF-8 bytes (§ PinWideText Stream) |
 | after | 1+K | Designator | Pascal short string |
 | after | 1+P | SwapIdGroup | Pascal short string (empty by default) |
 | after | 1+Q | PartAndSequence | Pascal short string; default `\|&\|` (= `{SwapIdPart}\|&\|{SwapIdSequence}` with both empty) |
@@ -359,8 +375,8 @@ A symbol whose pins are all on-grid, default-width and ASCII-named emits **none*
 
 ## Compressed-Storage Framing
 
-Three stream families share one byte layout: `PinFrac`, `PinSymbolLineWidth` and the root
-`/Storage` stream:
+Four stream families share one byte layout: `PinFrac`, `PinSymbolLineWidth`, `PinWideText` and
+the root `/Storage` stream:
 
 ```text
 [u32 LE header_len][header_len header bytes]         # C-string param block
@@ -372,7 +388,10 @@ then, per entry:
 ```
 
 The header param block is `|HEADER=<name>` plus `|Weight=<count>` (Altium's mixed-case key) when
-at least one entry follows.
+at least one entry follows. Altium compresses each payload with stock zlib at the default level
+(6), and so does this crate — stock zlib reproduces every entry of the golden, its 52 `PinWideText`
+entries and its image, where another deflate implementation gives other bytes — so an entry comes
+back byte for byte.
 
 ### `/Storage` (embedded images)
 
@@ -387,10 +406,9 @@ The root `/Storage` stream carries the raw bytes of every embedded image (`RECOR
 - **Matching:** entry names are ignored on read — payloads are matched to `EmbedImage=T` images
   **in order across all symbols** (global stream order), exactly like AltiumSharp's
   `ParseStorageImageData`.
-- **Payload:** the raw image file bytes (BMP/PNG/JPG), zlib-compressed (RFC 1950). An image
-  read from a file keeps the compressed bytes it was read with (`Image::image_compressed`, base64
-  in JSON) while they still inflate to its bytes, since Altium's compression is not this crate's,
-  so an unchanged image goes back byte for byte; a new or replaced one is compressed afresh.
+- **Payload:** the raw image file bytes (BMP/PNG/JPG), zlib-compressed (RFC 1950). An entry
+  another writer compressed, which stock zlib would not reproduce, is kept as read
+  (`Image::image_compressed`, base64 in JSON) while it still inflates to the image.
 
 ## Coordinate System
 
@@ -525,7 +543,8 @@ The first record of each component's Data stream. Keys as written (in order):
 > field behind a segment was edited, so the two `%UTF8%` layouts Altium uses both survive.
 > A UI-typed Latin-1 description is stored as `%UTF8%ComponentDescription=<UTF-8 bytes>|||`
 > `ComponentDescription=<Windows-1252 bytes>` (twin first, two empty segments, code-page
-> plain key); a scripted one puts UTF-8 bytes in both keys.
+> plain key); a scripted one holds the value's UTF-8 bytes in the plain key and those bytes
+> widened through the authoring code page in the twin.
 
 A record the file stores without a `UniqueID` (Altium writes a pie and an IEEE symbol that way) is not given one:
 a save is deterministic, so a version-controlled library shows no phantom diff. The library's

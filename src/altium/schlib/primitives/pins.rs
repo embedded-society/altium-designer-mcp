@@ -119,6 +119,16 @@ pub struct Pin {
     /// golden), which writes no `PinFrac` entry → byte-identical.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub frac: Option<PinFrac>,
+
+    /// The ANSI code page a script widened this pin's name through, as Altium
+    /// stored it: the binary record holds the name's UTF-8 bytes and the
+    /// `PinWideText` entry those bytes read through this page (the golden's
+    /// pins, scripted on a Windows-1250 machine, store `Résistance` as
+    /// `RĂ©sistance` there). A rewrite stores the name that way again. `None`
+    /// — a pin authored in the UI or here — stores the name in the code page,
+    /// `?` for a character it cannot hold, with `PinWideText` holding it whole.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name_code_page: Option<u32>,
 }
 
 /// Fractional companion coordinates for a [`Pin`].
@@ -194,6 +204,7 @@ impl Pin {
             default_value: String::new(),
             symbol_line_width: 0,
             frac: None,
+            name_code_page: None,
         }
     }
 }

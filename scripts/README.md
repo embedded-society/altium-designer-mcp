@@ -41,7 +41,7 @@ through Altium's `RunScript` CLI. Because it needs the GUI application and a lic
 
 | Path | Role |
 |------|------|
-| [`altium/verify/`](altium/verify/) | `AltiumVerify.pas` — opens each library and reports PASS/FAIL plus the component names and per-component primitive counts Altium resolved (run by `Verify-Libraries.ps1`) |
+| [`altium/verify/`](altium/verify/) | `AltiumVerify.pas` — opens each library and reports PASS/FAIL plus the component names, per-component primitive counts and, for a `SchLib`, each component's description, pin names, labels and parameters as Altium resolved them (run by `Verify-Libraries.ps1`) |
 | [`altium/verify/`](altium/verify/) | `AltiumMaskCache.pas` — reports every pad's mask-expansion cache state and re-saves the library (run by `Verify-MaskCacheState.ps1`) |
 | [`altium/generate/`](altium/generate/) | `GenerateSamples.pas` — authors the sample libraries (run by `Generate-Samples.ps1`) |
 
@@ -156,8 +156,10 @@ So a name comparison must accept that form. Decoding it back requires the **syst
 code page** (`[System.Text.Encoding]::Default`), not 1252 — the widening happens through
 whatever ANSI page the machine runs, which on a non-Western install is not 1252.
 
-`ISch_Component.LibReference` does not share this; symbol names come back as the true
-string.
+`ISch_Component.LibReference` returns the name Altium holds: the true string for a symbol
+authored in the UI or written by this server, and the widened form for one a script authored
+(the golden's i18n symbols), with `|` where the file stores `¦` — so the same decode applies,
+`ConvertFrom-WireName.ps1` mapping the `|` back first.
 
 ### The library iterators impose Altium's own order and parameter set
 

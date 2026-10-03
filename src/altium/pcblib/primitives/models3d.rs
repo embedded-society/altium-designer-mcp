@@ -51,10 +51,10 @@ pub struct EmbeddedModel {
     #[serde(skip)]
     pub index_params: Vec<(String, String)>,
 
-    /// The model's stream exactly as read — Altium's zlib compression of
-    /// [`Self::data`] — written back while it still inflates to `data`, so a
-    /// rewrite keeps Altium's bytes rather than this crate's compression of
-    /// the same model. Empty for a model added here.
+    /// The model's stream exactly as read, written back while it still
+    /// inflates to [`Self::data`]: a model another writer's zlib compressed
+    /// keeps its bytes (Altium's own this crate reproduces anyway). Empty for
+    /// a model added here.
     #[serde(skip)]
     pub compressed: Vec<u8>,
 }

@@ -954,10 +954,12 @@ fn samples_schlib_parameter_type() {
 fn samples_schlib_writing_systems_decode() {
     let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
 
-    // Altium writes text outside Windows-1252 as its raw UTF-8 bytes inside a
-    // record that is otherwise Windows-1252. Decoding those as Windows-1252
-    // yields mojibake: the pin name of the Han symbol read back as `ç”µé˜»`
-    // rather than `电阻` until the binary string reader learned to prefer UTF-8.
+    // The script handed Altium each word as its UTF-8 bytes read through
+    // Windows-1250, and Altium stored that widened text faithfully: in each
+    // record's `%UTF8%` twin, in its plain key (the bytes again, `0x8E` and
+    // `0xA6` escaped), in the pin's binary record and in `PinWideText`. Every
+    // field resolves to the real word, the last five — whose bytes the escape
+    // rewrites — included.
     //
     // Expectations are spelled out here rather than derived from the file. A
     // check that compares the file against itself passes even when every field
@@ -976,6 +978,11 @@ fn samples_schlib_writing_systems_decode() {
         ("ตัวต้านทาน_TH", "ตัวต้านทาน"),     // Thai, no word spacing
         ("រេស៊ីស្ទ័រ_KM", "រេស៊ីស្ទ័រ"),           // Khmer, stacked consonants
         ("𞤀𞤣𞤤𞤢𞤥_AD", "𞤀𞤣𞤤𞤢𞤥"),           // Adlam, beyond the BMP
+        ("ꦗꦮ_JV", "ꦗꦮ"),                 // Javanese
+        ("রোধক_BN", "রোধক"),             // Bengali
+        ("ᏣᎳᎩ_CR", "ᏣᎳᎩ"),               // Cherokee
+        ("ᐃᓄᒃᑎᑐᑦ_IU", "ᐃᓄᒃᑎᑐᑦ"),         // Inuktitut syllabics
+        ("𠮷野_SB", "𠮷野"),             // Han beyond the BMP
     ];
 
     for (symbol, word) in cases {
@@ -1708,15 +1715,14 @@ fn samples_schlib_rmw_shapestyle_records_match_golden_ignoring_stream_order() {
 
 #[test]
 fn samples_schlib_unicode_symbol_name_and_description() {
-    // A symbol whose name is outside Windows-1252, authored by Altium itself.
+    // A symbol whose name is outside Windows-1252, authored by a script.
     //
-    // Altium writes such a value as its raw UTF-8 bytes under the plain key and
-    // widens the same bytes through the authoring machine's ANSI code page for
-    // the CFB storage name, so the header's LibRef entry and the storage name
-    // carry different bytes. Components are therefore located by walking the
-    // storages rather than trusting that list, and the name is recovered from
-    // the plain key's UTF-8 bytes — the `%UTF8%` companion Altium writes
-    // alongside is locale-dependent and decodes to mojibake off that machine.
+    // The script handed Altium the name's UTF-8 bytes as characters of the
+    // authoring machine's code page (Windows-1250), so Altium holds that
+    // widened text: the storage is named after it, the `%UTF8%` twin carries
+    // it and the plain key the bytes themselves. Components are located by
+    // walking the storages, and the name is the twin folded back through the
+    // page that widened it.
     let lib = SchLib::open(sample("symbols.SchLib")).expect("failed to open symbols.SchLib");
 
     let sym = lib
@@ -1839,20 +1845,9 @@ fn samples_schlib_section_keys_survive_a_read_modify_write() {
     let mut rewritten = Cursor::new(Vec::new());
     lib.write(&mut rewritten).expect("write the golden back");
 
-    // The Inuktitut fixture is one of the five DelphiScript-mangled symbols:
-    // its RECORD name (what any reader gets) is a 45-byte mangled string that
-    // needs truncating, while Altium's in-memory name was the real 9-unit word
-    // and needed no entry. Golden and rewrite legitimately disagree there, so
-    // the damaged fixtures are excluded and everything else must match.
-    let damaged = ["_JV", "_BN", "_CR", "_IU", "_SB"];
-    let clean = |set: std::collections::BTreeSet<(String, String)>| {
-        set.into_iter()
-            .filter(|(lr, _)| !damaged.iter().any(|d| lr.ends_with(d)))
-            .collect::<std::collections::BTreeSet<_>>()
-    };
     assert_eq!(
-        clean(pairs(rewritten.get_ref())),
-        clean(golden_pairs),
+        pairs(rewritten.get_ref()),
+        golden_pairs,
         "every LibRef -> SectionKey pair must come back; a changed pair breaks \
          Altium's name resolution for that component"
     );
@@ -1942,30 +1937,18 @@ fn samples_schlib_pin_wide_text_survives_a_read_modify_write() {
 
     assert_eq!(ours.len(), 52, "the rewrite emits a stream per i18n symbol");
 
-    // The five DelphiScript-damaged fixtures resolve differently on purpose
-    // (their storage names and record names disagree in the golden itself), so
-    // golden-side subset equality is asserted over the other 47: every clean
-    // golden component must come back with the same resolved pin names.
-    let damaged = ["_jv", "_bn", "_cr", "_iu", "_sb"];
-    let mut checked = 0;
     for (component, names) in &golden_names {
-        if damaged.iter().any(|d| component.ends_with(d)) {
-            continue;
-        }
         assert_eq!(
             ours.get(component),
             Some(names),
             "{component}: wide pin names must survive the rewrite"
         );
-        checked += 1;
     }
-    assert_eq!(checked, 47, "all clean components were compared");
 }
 
-/// The hand-authored `manual/i18n5.SchLib`: the five scripts whose generated
-/// fixtures are internally inconsistent (see `FIXTURE_INCONSISTENT` in
-/// `golden_fidelity.rs`), authored once in the AD24 UI on 2026-08-16 — the
-/// only route that bypasses AD's broken decode of these sequences.
+/// The hand-authored `manual/i18n5.SchLib`: the five scripts whose UTF-8
+/// bytes include `0x8E` or `0xA6` — the bytes Altium's plain-value escape
+/// rewrites — authored once in the AD24 UI on 2026-08-16.
 ///
 /// The file doubles as ground truth for the UI-authoring convention: the
 /// record's plain keys are ANSI `?` husks, the real names live in `%UTF8%`
@@ -1976,7 +1959,7 @@ fn samples_schlib_pin_wide_text_survives_a_read_modify_write() {
 fn samples_manual_i18n5_scripts_read_exactly() {
     let lib =
         SchLib::open(sample("manual/i18n5.SchLib")).expect("failed to open manual/i18n5.SchLib");
-    assert_eq!(lib.len(), 5, "five symbols, one per damaged script");
+    assert_eq!(lib.len(), 5, "five symbols, one per script");
 
     let cases: [(&str, &str, &str); 5] = [
         (

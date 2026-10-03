@@ -39,12 +39,7 @@ impl SchLib {
                 message: format!("symbol {i} has an empty name"),
             });
         }
-        // Storage names use the on-wire form — a name Windows-1252 cannot
-        // hold becomes its UTF-8 bytes one char per byte — which is the form
-        // the reader looks a header entry up by, so every symbol keeps its
-        // place in the library on a read-modify-write (an ASCII-keyed rule
-        // sent every Latin-1 name to the end of the list on the next read).
-        let (storage_names, ole_names) = Self::storage_plan(&symbols);
+        let ole_names = Self::storage_plan(&symbols);
 
         // FileHeader stream. The library keeps the UniqueID it was read
         // with; one built from scratch is given its first here.
@@ -78,18 +73,15 @@ impl SchLib {
         // Root SectionKeys stream: the LibRef -> storage-name map for every
         // symbol whose name reaches the storage cap — truncated or, as a
         // UI-authored `Generic Non-polarised Capacitor` (31 units exactly)
-        // shows, merely filling it — or whose storage Altium's rule rewrites
-        // (a forbidden character, or a `~NNN` suffix for a case-duplicate),
-        // so the real name stays recoverable by Altium and by our own
-        // reader's ordering pass. The decision is made on the key the entry
-        // would record: a storage carried from a file authored on another
-        // locale differs from the wire name yet records the wire bytes, so it
-        // is not listed (the golden lists five). With no such name the stream
-        // is not written, as in Altium.
+        // shows, merely filling it — or whose storage is not its name (a
+        // forbidden character, a `~NNN` suffix for a case-duplicate, a
+        // storage carried from a script's library), so the real name stays
+        // recoverable by Altium and by our own reader's ordering pass. With
+        // no such name the stream is not written, as in Altium.
         //
         // Altium's own stream goes back as read while the symbols still build
         // the stream they were read with (see `SchLib::section_keys_read`).
-        let built = Self::section_keys_stream(&storage_names, &ole_names);
+        let built = Self::section_keys_stream(&symbols, &ole_names);
         let section_keys = if built == self.section_keys_basis {
             self.section_keys_read.clone()
         } else {
@@ -136,44 +128,53 @@ impl SchLib {
         Ok(())
     }
 
-    /// Each symbol's on-wire name and the storage it is written under.
+    /// The storage each symbol is written under.
     ///
-    /// Storage names use the on-wire form — a name Windows-1252 cannot hold
-    /// becomes its UTF-8 bytes one char per byte — which is the form the
-    /// reader looks a header entry up by. Each symbol keeps the storage it was
-    /// read from; one built from scratch, renamed or copied gets a name
-    /// derived by Altium's rule.
-    pub(super) fn storage_plan(symbols: &[&Symbol]) -> (Vec<String>, Vec<String>) {
-        let storage_names: Vec<String> = symbols
-            .iter()
-            .map(|s| crate::altium::to_wire_text(&s.name))
-            .collect();
-        let ole_names = crate::altium::resolve_storage_names(
-            &storage_names
+    /// Each symbol keeps the storage it was read from. One built from scratch,
+    /// renamed or copied gets the storage Altium derives from its name: the
+    /// name itself, real Unicode included (`manual/i18n5.SchLib`), within the
+    /// 31-unit cap — Altium finds a symbol's `PinWideText` there, under that
+    /// name — and past the cap its ANSI form cut at 31 with every `?` as `_`,
+    /// mapped by `SectionKeys`: AD24 looks for a long Cyrillic name's storage
+    /// as 31 underscores, where a `PcbLib` keeps the `?`s.
+    pub(super) fn storage_plan(symbols: &[&Symbol]) -> Vec<String> {
+        let encoding = crate::altium::current_ansi_encoding();
+        crate::altium::resolve_storage_names(
+            &symbols
                 .iter()
-                .zip(symbols.iter())
-                .map(|(wire, s)| (wire.clone(), s.storage_name.clone()))
+                .map(|s| {
+                    let seed =
+                        if crate::altium::utf16_len(&s.name) <= crate::altium::MAX_OLE_NAME_LEN {
+                            s.name.clone()
+                        } else {
+                            crate::altium::ansi_cut_storage_name(
+                                &crate::altium::to_ansi_wire_text(&s.name, encoding),
+                                encoding,
+                            )
+                            .replace('?', "_")
+                        };
+                    (seed, s.storage_name.clone())
+                })
                 .collect::<Vec<_>>(),
-        );
-        (storage_names, ole_names)
+        )
     }
 
     /// The root `/SectionKeys` stream this crate builds, or `None` when no
     /// symbol needs an entry (see `write` for the rule).
     pub(super) fn section_keys_stream(
-        storage_names: &[String],
+        symbols: &[&Symbol],
         ole_names: &[String],
     ) -> Option<Vec<u8>> {
-        let truncated: Vec<(String, String)> = storage_names
+        let entries: Vec<(String, String)> = symbols
             .iter()
-            .zip(ole_names.iter())
-            .filter(|(wire, ole)| {
-                crate::altium::section_key_name(wire, ole) != wire.as_str()
-                    || wire.encode_utf16().count() >= crate::altium::MAX_OLE_NAME_LEN
+            .zip(ole_names)
+            .filter(|(s, ole)| {
+                crate::altium::utf16_len(&s.name) >= crate::altium::MAX_OLE_NAME_LEN
+                    || **ole != s.name
             })
-            .map(|(wire, ole)| (wire.clone(), crate::altium::section_key_name(wire, ole)))
+            .map(|(s, ole)| (s.name.clone(), ole.clone()))
             .collect();
-        crate::altium::encode_schlib_section_keys(&truncated)
+        crate::altium::encode_schlib_section_keys(&entries)
     }
 
     /// The root `/Storage` stream this crate builds (Altium's icon storage).

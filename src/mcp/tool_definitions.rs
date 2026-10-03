@@ -733,7 +733,8 @@ impl McpServer {
                             "symbol_line_width": { "type": "integer", "minimum": 0, "description": "Pin symbol line-width index. Non-zero writes a PinSymbolLineWidth auxiliary stream; 0 (default) writes none." },
                             "frac": { "type": "object", "description": "Fractional pin coordinates for off-grid pins, in 1/100000 schematic-unit steps. Non-zero writes a PinFrac auxiliary stream; omit for on-grid pins.", "properties": { "x": { "type": "integer" }, "y": { "type": "integer" }, "length": { "type": "integer", "minimum": 0 } } },
                             "is_not_accessible": { "type": "boolean", "description": "Whether the pin is marked not-accessible (the pin record's 0x20 bit). Default: false" },
-                            "formal_type": { "type": "integer", "minimum": 0, "maximum": 255, "description": "Pin formal-type byte; Altium writes 1 for a normal pin. Preserved on a read-modify-write. Default: 1" }
+                            "formal_type": { "type": "integer", "minimum": 0, "maximum": 255, "description": "Pin formal-type byte; Altium writes 1 for a normal pin. Preserved on a read-modify-write. Default: 1" },
+                            "name_code_page": { "type": "integer", "enum": [874, 1250, 1251, 1252, 1253, 1254, 1255, 1256, 1257, 1258], "minimum": 874, "maximum": 1258, "description": "Set by read_schlib on a pin a script authored: the ANSI code page its name was widened through, so a rewrite stores the name as Altium did. Pass back unchanged; omit when authoring." }
                         },
                         "required": ["designator", "name", "x", "y", "length", "orientation"]
                     }
@@ -969,7 +970,7 @@ impl McpServer {
                             "embed_image": { "type": "boolean", "description": "Whether the image bytes are embedded (vs a link to file_name). Default: false" },
                             "file_name": { "type": "string", "description": "Image file name / embedded key (Altium stores the full source file path for embedded images)" },
                             "image_data": { "type": "string", "description": "Base64-encoded raw image bytes; stored in the library /Storage stream when embed_image is true" },
-                            "image_compressed": { "type": "string", "description": "Base64 of the image's compressed /Storage entry exactly as read_schlib emitted it; reused while it still holds image_data, so a rewrite keeps Altium's bytes. Pass back unchanged; omit when authoring or replacing an image." },
+                            "image_compressed": { "type": "string", "description": "Set by read_schlib only for an image whose compressed /Storage entry this server would not reproduce (another writer's zlib): the entry exactly as read, reused while it still holds image_data. Pass back unchanged; omit when authoring or replacing an image." },
                             "is_not_accessible": { "type": "boolean", "description": "Whether the image is marked not-accessible (Altium tags every shape; default true)" },
                             "owner_part_id": { "type": "integer", "minimum": -1, "description": "Part number (1-based). Default: 1" },
                             "graphically_locked": { "type": "boolean", "description": "Whether the shape is graphically locked. Default: false" },

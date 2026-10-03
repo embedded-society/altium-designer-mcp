@@ -123,10 +123,12 @@ pub fn decode_windows1252(bytes: &[u8]) -> String {
 
 /// Decodes an Altium binary string, preferring UTF-8 when the bytes are UTF-8.
 ///
-/// Altium writes a name that Windows-1252 cannot hold — CJK, Cyrillic, Thai,
-/// any of them — as its raw UTF-8 bytes inside a record that is otherwise
-/// Windows-1252. Decoding such a pin name as Windows-1252 yields mojibake:
-/// `电阻` comes back as `ç”µé˜»`.
+/// A script-authored library holds a name that Windows-1252 cannot hold —
+/// CJK, Cyrillic, Thai, any of them — as its raw UTF-8 bytes inside a record
+/// that is otherwise Windows-1252 (the goldens' names and pins). Decoding such
+/// a name as Windows-1252 yields mojibake: `电阻` comes back as `ç”µé˜»`. A
+/// UI-authored one holds the code page's narrowing instead, beside a wide copy
+/// the reader prefers.
 ///
 /// Multi-byte UTF-8 is a narrow subset of arbitrary byte pairs, so treating
 /// valid non-ASCII UTF-8 as UTF-8 is safe in practice: a real Windows-1252
@@ -495,32 +497,47 @@ pub(crate) fn ansi_cut_storage_name(
 /// pattern), so a real value passed in is left for the caller to use verbatim.
 #[must_use]
 pub fn fold_ansi_widened(text: &str) -> Option<String> {
+    fold_ansi_widened_page(text).map(|(real, _)| real)
+}
+
+/// [`fold_ansi_widened`], with the code page that did the widening.
+#[must_use]
+pub fn fold_ansi_widened_page(text: &str) -> Option<(String, u32)> {
     if text.is_ascii() {
         return None;
     }
-    for enc in [
-        encoding_rs::WINDOWS_1252,
-        encoding_rs::WINDOWS_1250,
-        encoding_rs::WINDOWS_1251,
-        encoding_rs::WINDOWS_1253,
-        encoding_rs::WINDOWS_1254,
-        encoding_rs::WINDOWS_1255,
-        encoding_rs::WINDOWS_1256,
-        encoding_rs::WINDOWS_1257,
-        encoding_rs::WINDOWS_1258,
-        encoding_rs::WINDOWS_874,
-    ] {
+    for code_page in [1252, 1250, 1251, 1253, 1254, 1255, 1256, 1257, 1258, 874] {
+        let Some(enc) = ansi_encoding_for(code_page) else {
+            continue;
+        };
         let (bytes, _, had_errors) = enc.encode(text);
         if had_errors {
             continue;
         }
         if let Ok(real) = std::str::from_utf8(&bytes) {
             if !real.is_ascii() {
-                return Some(real.to_string());
+                return Some((real.to_string(), code_page));
             }
         }
     }
     None
+}
+
+/// Widens `text`'s UTF-8 bytes one-per-char through `code_page`.
+///
+/// That is what Altium stores for a value a script handed it on a machine
+/// with that page: the inverse of [`fold_ansi_widened_page`]. `text` comes
+/// back unchanged for a page this crate cannot encode.
+#[must_use]
+pub fn widen_through(text: &str, code_page: u32) -> String {
+    ansi_encoding_for(code_page).map_or_else(
+        || text.to_string(),
+        |enc| {
+            enc.decode_without_bom_handling(text.as_bytes())
+                .0
+                .into_owned()
+        },
+    )
 }
 
 /// Generates a safe OLE storage name for a component.
@@ -823,29 +840,51 @@ fn read_wire_string_block(data: &[u8], offset: usize) -> Option<(String, usize)>
     Some((decode_windows1252(text), next))
 }
 
-/// Encodes a `SchLib`'s root `/SectionKeys` stream: the map from a symbol's
-/// real `LibRef` back to its truncated storage name.
+/// The plain value Altium writes beside a `%UTF8%` twin in a `SchLib`.
 ///
-/// Altium writes one entry per symbol whose name does not survive the
-/// 31-unit storage cap. Layout, pinned by the golden `SchLib` (`KeyCount=5`,
-/// one entry per over-cap name); a `PcbLib` carries a binary stream instead
+/// In wire form (one char per byte): the value in the ANSI code page in
+/// force, `?` for a character the page cannot hold, an escaped pipe (`¦`) as
+/// byte `0x8E` and a literal `0x8E` doubled (`manual/pipe.SchLib`, and the
+/// golden's `Ž` after Windows-1250). Altium reads the twin; the plain key is
+/// the narrowing a reader without `%UTF8%` support falls back to.
+#[must_use]
+pub fn plain_text_value(value: &str) -> String {
+    let encoding = current_ansi_encoding();
+    let mut bytes = Vec::with_capacity(value.len());
+    let mut buffer = [0u8; 4];
+    for c in value.chars() {
+        if c == '\u{a6}' {
+            bytes.push(0x8E);
+            continue;
+        }
+        for byte in encode_ansi(c.encode_utf8(&mut buffer), encoding) {
+            if byte == 0x8E {
+                bytes.push(0x8E);
+            }
+            bytes.push(byte);
+        }
+    }
+    decode_windows1252(&bytes)
+}
+
+/// Encodes a `SchLib`'s root `/SectionKeys` stream: the map from a symbol's
+/// `LibRef` — its name — to the storage it lives in.
+///
+/// Layout, pinned by the golden `SchLib` (`KeyCount=5`, one entry per
+/// over-cap name); a `PcbLib` carries a binary stream instead
 /// ([`encode_pcblib_section_keys`]):
 ///
 /// ```text
-/// [u32 len]["|KeyCount=N|%UTF8%LibRef0=…|||LibRef0=…|%UTF8%SectionKey0=…|||SectionKey0=…" + 0x00]
+/// [u32 len]["|KeyCount=N|%UTF8%LibRef0=…|||LibRef0=…|SectionKey0=…" + 0x00]
 /// ```
 ///
-/// Values are wire strings (a non-Windows-1252 name is its raw UTF-8 bytes).
-/// A non-ASCII value gets a `%UTF8%` twin, written **before** the plain key and
-/// followed by two empty segments — the `|||` is Altium's own separator, kept
-/// so the stream matches theirs byte-for-byte given the same values. The twin
-/// carries the same bytes as the plain key: Altium builds its twin by decoding
-/// the UTF-8 bytes through the authoring machine's ANSI code page, which makes
-/// the golden's twin content a locale artefact (Windows-1250 there), not a
-/// format rule — identical bytes are correct on every machine and every reader
-/// recovers the same name from either key.
+/// A value outside ASCII is written as Altium writes text everywhere else:
+/// a `%UTF8%` twin with its UTF-8 bytes, two empty segments, then the plain
+/// key's code-page form ([`plain_text_value`]); Altium reads the twin. The
+/// golden's scripted stream holds the values' UTF-8 bytes in the plain keys
+/// instead, and goes back as read.
 ///
-/// Returns `None` when no name was truncated, so no stream is written — the
+/// Returns `None` when there is no entry, so no stream is written — the
 /// common case, and byte-identical to Altium's output for such a library.
 pub(crate) fn encode_schlib_section_keys(pairs: &[(String, String)]) -> Option<Vec<u8>> {
     use std::fmt::Write as _;
@@ -859,7 +898,12 @@ pub(crate) fn encode_schlib_section_keys(pairs: &[(String, String)]) -> Option<V
         if value.is_ascii() {
             let _ = write!(out, "|{key}={value}");
         } else {
-            let _ = write!(out, "|%UTF8%{key}={value}|||{key}={value}");
+            let _ = write!(
+                out,
+                "|%UTF8%{key}={}|||{key}={}",
+                encode_utf8_param_value(value),
+                plain_text_value(value)
+            );
         }
     };
     for (i, (lib_ref, section_key)) in pairs.iter().enumerate() {

@@ -258,6 +258,86 @@ begin
     Result := Result + ']';
 end;
 
+{ A JSON array under construction with one more string appended. }
+function WithText(const Arr, S : String) : String;
+begin
+    Result := Arr;
+    if Result <> '[' then Result := Result + ',';
+    Result := Result + '"' + JsonEscape(S) + '"';
+end;
+
+{ The text Altium resolved for each SchLib component, in the same component
+  order as ComponentNames: its description and every pin name, label and
+  parameter (as `name=value`). A file can store a text twice — a `%UTF8%`
+  twin beside the plain key's code-page narrowing, and a pin name beside its
+  `PinWideText` entry — so this is what decides which one Altium reads.
+  Returns [] for a PcbLib. }
+function SchTexts(const Kind : String) : String;
+var
+    SchLib  : ISch_Lib;
+    SchIter : ISch_Iterator;
+    SchComp : ISch_Component;
+    SIter   : ISch_Iterator;
+    Obj     : ISch_GraphicalObject;
+    Pin     : ISch_Pin;
+    Lbl     : ISch_Label;
+    Par     : ISch_Parameter;
+    Pins, Labels, Params : String;
+    First   : Boolean;
+begin
+    Result := '[';
+    First  := True;
+    try
+        if Kind = 'SCHLIB' then
+        begin
+            SchLib := SchServer.GetCurrentSchDocument;
+            if SchLib <> nil then
+            begin
+                SchIter := SchLib.SchLibIterator_Create;
+                SchIter.AddFilter_ObjectSet(MkSet(eSchComponent));
+                SchComp := SchIter.FirstSchObject;
+                while SchComp <> nil do
+                begin
+                    Pins := '['; Labels := '['; Params := '[';
+                    SIter := SchComp.SchIterator_Create;
+                    SIter.AddFilter_ObjectSet(MkSet(ePin, eLabel, eParameter));
+                    Obj := SIter.FirstSchObject;
+                    while Obj <> nil do
+                    begin
+                        if Obj.ObjectId = ePin then
+                        begin
+                            Pin := Obj;
+                            Pins := WithText(Pins, Pin.Name);
+                        end
+                        else if Obj.ObjectId = eLabel then
+                        begin
+                            Lbl := Obj;
+                            Labels := WithText(Labels, Lbl.Text);
+                        end
+                        else if Obj.ObjectId = eParameter then
+                        begin
+                            Par := Obj;
+                            Params := WithText(Params, Par.Name + '=' + Par.Text);
+                        end;
+                        Obj := SIter.NextSchObject;
+                    end;
+                    SchComp.SchIterator_Destroy(SIter);
+                    if not First then Result := Result + ',';
+                    First := False;
+                    Result := Result + '{"description":"' + JsonEscape(SchComp.ComponentDescription)
+                        + '","pins":' + Pins + ']'
+                        + ',"labels":' + Labels + ']'
+                        + ',"parameters":' + Params + ']}';
+                    SchComp := SchIter.NextSchObject;
+                end;
+                SchLib.SchIterator_Destroy(SchIter);
+            end;
+        end;
+    except
+    end;
+    Result := Result + ']';
+end;
+
 procedure Run;
 var
     RequestFile, ResponseFile : String;
@@ -334,7 +414,9 @@ begin
             Json := Json + ',"description_lengths":' + DescriptionLengths(Kind);
             // Per-component primitive counts, aligned with `components`: the
             // caller can assert what Altium resolved, not just that it opened.
-            Json := Json + ',"primitive_counts":' + PrimitiveCounts(Kind) + '}';
+            Json := Json + ',"primitive_counts":' + PrimitiveCounts(Kind);
+            // The text Altium resolved, aligned with `components`.
+            Json := Json + ',"texts":' + SchTexts(Kind) + '}';
             Inc(Emitted);
         end;
         Json := Json + ']';

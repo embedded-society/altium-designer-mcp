@@ -123,6 +123,7 @@ pub(super) fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
         // after the whole Data stream is parsed (they are keyed by pin ordinal).
         symbol_line_width: 0,
         frac: None,
+        name_code_page: None,
     })
 }
 

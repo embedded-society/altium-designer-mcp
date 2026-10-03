@@ -1124,9 +1124,9 @@ this crate starts from the template above.
 The record's position (0, 1, 2, ...) corresponds to the numbered model stream index. The
 numbered streams (`/Library/Models/0`, ...) are the raw model bytes with a standard **zlib**
 wrapper (RFC 1950: `78 9C` header + Adler-32; matches flate2 `ZlibEncoder` / .NET `ZLibStream`).
-A model read from a file goes back as the compressed bytes it was read with while they still
-inflate to its data, since Altium's compression is not this crate's; a new or changed model is
-compressed afresh.
+Altium compresses with stock zlib at the default level (6), as this crate does, so a model comes
+back byte for byte; one another writer compressed keeps its bytes while they still inflate to its
+data.
 
 **Checksum algorithm** (`PcbModel.ComputeChecksum` in AltiumSharp): a position-weighted byte sum
 over the **uncompressed** model bytes — weight 1 for byte 0, weight `i` for byte `i` — modulo

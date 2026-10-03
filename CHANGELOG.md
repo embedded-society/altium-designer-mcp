@@ -57,10 +57,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   entries.
 - **A `PcbLib`'s `SectionKeys` are listed alphabetically**, as Altium lists them in every
   library of the corpus that has one; the writer listed them in library order.
-- **Embedded images and 3D models keep Altium's compressed bytes.** A rewrite recompressed
-  every embedded image and model: the same content in different bytes, so a
-  version-controlled library showed each one as changed. Each now goes back as the bytes it
-  was read with while it still holds the same content. `read_schlib` reports an image's as
+- **Compressed streams come back as Altium wrote them.** Altium compresses with stock zlib,
+  and this crate's Rust compressor gave other bytes for the same content, so a rewrite
+  changed every embedded image and model and, in a script-authored library, every pin-name
+  entry: the same content, yet a version-controlled library showed each as changed.
+  Compression now runs on stock zlib, built from its source, which reproduces every
+  compressed entry of the goldens. An entry another writer compressed is kept as read while
+  it still holds the same content; `read_schlib` reports such an image's as
   `image_compressed`, which `write_schlib` takes back.
 - **A footprint's `PrimitiveGuids` keep Altium's record order.** Altium stores the records
   in an order of its own, which a rewrite sorted. The stream now goes back as read while
@@ -69,9 +72,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   replaced `/Library/PadViaLibrary`, `/Library/Textures` and `/Library/ModelsNoEmbed` with
   empty storages and `/FileVersionInfo` with a fixed copy, so a library using pad/via
   templates, textured bodies or linked models lost them. No library in the corpus uses
-  them, which kept the loss out of sight. Each now comes back as read. The round-trip tests
-  now hold every stream of the golden and hand-authored libraries to its bytes, listing
-  the few `SchLib` streams that are not yet reproduced.
+  them, which kept the loss out of sight. Each now comes back as read.
+- **Non-Latin pin names show in Altium.** A symbol written here was stored under its name's
+  UTF-8 bytes rather than its name, and AD24 looks for a symbol's `PinWideText` under its
+  name, so a pin named in Cyrillic, CJK or any script outside the code page showed as
+  `????`. A new symbol is stored under its name, as the UI stores it, and one past the
+  31-character cap under its code-page form with `_` for every `?`, where AD24 looks for it.
+- **Text is written as Altium writes it.** A value outside ASCII went out as its UTF-8 bytes
+  under both the plain key and its `%UTF8%` twin. The UI writes the twin first and the plain
+  key in the code page — `?` for a character it cannot hold, a pipe as byte `0x8E` — and so
+  does the writer now, a pin's binary name included; AD24 reads every text of such a library
+  as written. A library read from a file keeps each unchanged value as Altium wrote it, so a
+  UI-made library, `?` husks and escaped pipes included, comes back byte for byte.
+- **A pin's name comes from `PinWideText`.** The binary record was trusted where its name was
+  not ASCII, so a pin named on a Windows-1250 machine (`Čas`, stored as the code page's
+  bytes) read as `Èas`.
+- **Text a script authored reads correctly.** The reader took a value from its plain key,
+  where Altium escapes a broken bar as `0x8E` and doubles a literal `0x8E`, so text whose
+  UTF-8 bytes hold either read as mojibake or as other characters: five symbols of the
+  golden, taken for damaged fixtures, among them `ꦗꦮ` read as the Yi `ꎗꎮ`. The `%UTF8%`
+  twin is read first, a script's widened text folded back, and the file header's component
+  list the same way, which also keeps a UI-made library with non-Latin names in its own
+  order. A script's pin name keeps the bytes Altium stored for it (`name_code_page` in
+  `read_schlib`). Every Altium-authored library in the test fixtures and both reference
+  corpora now comes back byte for byte, but for the save's path, date and time in a
+  `PcbLib`'s `Library/Data`.
 
 ## [1.1.0] - 2026-09-25
 

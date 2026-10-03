@@ -53,14 +53,7 @@ fn build_expectations(root: &std::path::Path) -> String {
     out.push_str("    {\n        \"file\": \"symbols.SchLib\",\n        \"components\": [");
     let names: Vec<String> = sch.iter().map(|s| quoted(&s.name)).collect();
     out.push_str(&names.join(", "));
-    // The five documented-damaged i18n symbols (`FIXTURE_INCONSISTENT` in
-    // tests/golden_fidelity.rs): Altium's decode of the damaged name bytes
-    // differs from our raw read by design, so the harness excuses these names
-    // and matches their counts by suffix.
-    out.push_str(
-        "],\n        \"fixture_inconsistent\": [\"_JV\", \"_BN\", \"_CR\", \"_IU\", \"_SB\"],\n",
-    );
-    out.push_str("        \"primitive_counts\": [\n");
+    out.push_str("],\n        \"primitive_counts\": [\n");
     let counts: Vec<String> = sch
         .iter()
         .map(|s| {
