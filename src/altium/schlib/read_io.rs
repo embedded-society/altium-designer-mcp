@@ -409,6 +409,18 @@ fn read_file_header<R: Read + Seek>(cfb: &mut CompoundFile<R>) -> AltiumResult<F
             fields.get(&format!("%utf8%{key}")).copied(),
         )
     };
+    // Every listed component needs its own `LibRef{i}` field, so a count
+    // beyond the number of fields is malformed. Refusing it keeps a crafted
+    // count from sizing the vector below and aborting the process.
+    if comp_count > segments.len() {
+        return Err(AltiumError::parse_error(
+            4,
+            format!(
+                "FileHeader CompCount {comp_count} exceeds its {} fields",
+                segments.len()
+            ),
+        ));
+    }
     let mut component_names = Vec::with_capacity(comp_count);
     let mut component_descriptions = HashMap::new();
     for i in 0..comp_count {
@@ -528,6 +540,20 @@ mod tests {
 
         let err = SchLib::open(&path).expect_err("a truncated header must be refused");
         assert!(err.to_string().contains("truncated"), "{err}");
+    }
+
+    #[test]
+    fn a_comp_count_past_the_header_fields_is_refused() {
+        // CompCount is file-derived and sizes the name vector, so an unchecked
+        // huge count aborts the process on allocation failure. It has to be
+        // refused as a parse error instead.
+        let dir = temp_dir();
+        let path = dir.path().join("HugeCount.SchLib");
+        let header = header_block("|HEADER=Schematic Library|CompCount=500000000000000");
+        library_with(&path, &header, &[]);
+
+        let err = SchLib::open(&path).expect_err("a huge CompCount must be refused");
+        assert!(err.to_string().contains("CompCount"), "{err}");
     }
 
     #[test]

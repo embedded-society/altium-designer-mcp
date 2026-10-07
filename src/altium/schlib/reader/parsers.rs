@@ -4,6 +4,13 @@
 #[allow(clippy::wildcard_imports)] // tightly-coupled reader split
 use super::*;
 
+/// Upper bound on a polyline's or polygon's `LocationCount`. The count is
+/// file-derived and sizes the vertex vector, so an unchecked huge value makes
+/// the allocator abort the whole process. It can't be checked against the
+/// vertex keys present, because zero coordinates are omitted, so it is capped
+/// at a value far beyond any real symbol instead.
+const MAX_LOCATION_COUNT: usize = 1 << 20;
+
 /// Parses a binary pin record.
 pub(super) fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
     if data.len() < 20 {
@@ -318,6 +325,12 @@ pub(super) fn parse_polyline(props: &HashMap<String, String>) -> Option<Polyline
     if location_count < 2 {
         return None;
     }
+    if location_count > MAX_LOCATION_COUNT {
+        tracing::warn!(
+            "Polyline LocationCount {location_count} exceeds {MAX_LOCATION_COUNT}, record skipped"
+        );
+        return None;
+    }
 
     let mut points = Vec::with_capacity(location_count);
     for i in 1..=location_count {
@@ -387,6 +400,12 @@ pub(super) fn parse_polygon(props: &HashMap<String, String>) -> Option<Polygon> 
         .unwrap_or(0);
 
     if location_count < 3 {
+        return None;
+    }
+    if location_count > MAX_LOCATION_COUNT {
+        tracing::warn!(
+            "Polygon LocationCount {location_count} exceeds {MAX_LOCATION_COUNT}, record skipped"
+        );
         return None;
     }
 
