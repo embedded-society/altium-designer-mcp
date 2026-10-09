@@ -37,6 +37,7 @@ src/
 │   ├── bytes.rs                 # Bounds-checked little-endian scalar readers
 │   ├── base64_opt.rs            # Serde base64 codec for embedded image bytes
 │   ├── framing.rs               # Shared block / Pascal-string / C-string frames
+│   ├── inflate.rs               # Bounded zlib inflation: per-stream caps, per-read budget
 │   ├── text.rs                  # TextJustification (shared enum)
 │   ├── serde_round.rs           # 6-decimal f64 rounding on serialise
 │   ├── libpkg.rs                # .LibPkg project-file generator

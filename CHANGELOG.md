@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **A crafted library can no longer exhaust memory through its compressed data**
+  ([GHSA-9q2r-7gw3-4wvm](https://github.com/embedded-society/altium-designer-mcp/security/advisories/GHSA-9q2r-7gw3-4wvm)).
+  Each embedded 3D model, image and pin entry was inflated to a cap of its own, but nothing
+  limited them together, and zlib inflates about a thousand times: a footprint library of
+  about 25 MB could ask for about 25 GiB and abort the process. A library's compressed data
+  now inflates within a budget of 256 MiB plus 32 times its compressed size, far above what
+  any real library needs, and a library past it is refused. Found by the maintainers while
+  fixing GHSA-p2qw-h8m7-5x69.
+
 ## [1.2.1] - 2026-10-09
 
 A security release: a crafted library could crash the server or hang it. Update if the
