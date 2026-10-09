@@ -1188,6 +1188,7 @@ mod tests {
         .unwrap();
         assert_eq!(label.color, 0, "absent label Color must read as black");
     }
+
     /// A binary pin record shorter than its 20-byte fixed head is no pin.
     #[test]
     fn a_binary_pin_record_shorter_than_its_fixed_head_is_refused() {

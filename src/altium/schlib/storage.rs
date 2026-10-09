@@ -141,11 +141,12 @@ pub(super) fn for_each_entry<F: FnMut(&str, &[u8], &[u8])>(
     budget: &mut Budget,
     mut on_entry: F,
 ) -> AltiumResult<()> {
-    // Header block: [u32 LE len][len bytes]. Skip it.
+    // Header block: [u32 LE len][len bytes]. Skip it; an offset past the end of
+    // memory (saturating) is past the end of the stream, where the walk stops.
     let Some(header_len) = read_u32_le(raw, 0) else {
         return Ok(());
     };
-    let mut offset = 4 + header_len as usize;
+    let mut offset = (header_len as usize).saturating_add(4);
 
     // Each block is `[u32 size word][block]`; the walk ends at the first
     // offset without a whole size word.
@@ -172,7 +173,7 @@ pub(super) fn for_each_entry<F: FnMut(&str, &[u8], &[u8])>(
         // Compressed data: [u32 LE comp_len][comp bytes].
         if let Some(comp_len) = read_u32_le(block, after_key) {
             let comp_start = after_key + 4;
-            let comp_end = comp_start + comp_len as usize;
+            let comp_end = comp_start.saturating_add(comp_len as usize);
             if comp_end <= block.len() {
                 let compressed = &block[comp_start..comp_end];
                 if let Some(payload) = budget.inflate(compressed, max_decompressed)? {

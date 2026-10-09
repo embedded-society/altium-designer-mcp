@@ -82,8 +82,13 @@ pub const VIA_ENTRY_TEMPLATE: [u8; ENTRY_LEN] = [
 #[must_use]
 pub fn entry_count(record: &[u8], layout: &Layout) -> usize {
     let count = read_i32(record, layout.count_at).and_then(|n| usize::try_from(n).ok());
+    let fits = |n: usize| {
+        n.checked_mul(ENTRY_LEN)
+            .and_then(|bytes| bytes.checked_add(layout.entries_at))
+            .is_some_and(|end| record.len() >= end)
+    };
     match (count, read_i32(record, layout.size_at)) {
-        (Some(n), Some(30)) if n > 0 && record.len() >= layout.entries_at + n * ENTRY_LEN => n,
+        (Some(n), Some(30)) if n > 0 && fits(n) => n,
         _ => 0,
     }
 }
@@ -166,7 +171,20 @@ fn set_count(record: &mut [u8], layout: &Layout, count: i32) {
 
 #[cfg(test)]
 mod tests {
-    use super::{read, ENTRY_LEN, PAD, PAD_ENTRY_TEMPLATE};
+    use super::{entry_count, read, ENTRY_LEN, PAD, PAD_ENTRY_TEMPLATE};
+
+    /// A count holds only the entries the record has room for. The largest
+    /// count the field can state is no exception: the room is computed
+    /// without overflow.
+    #[test]
+    fn a_count_the_record_has_no_room_for_holds_no_entries() {
+        let mut record = vec![0u8; PAD.entries_at + ENTRY_LEN];
+        record[PAD.size_at..PAD.size_at + 4].copy_from_slice(&30_i32.to_le_bytes());
+        for (count, held) in [(1, 1), (2, 0), (i32::MAX, 0), (-1, 0)] {
+            record[PAD.count_at..PAD.count_at + 4].copy_from_slice(&count.to_le_bytes());
+            assert_eq!(entry_count(&record, &PAD), held, "count {count}");
+        }
+    }
 
     /// A counted entry whose present byte is clear is no override — the
     /// bytes still ride in the record as read, and a rewrite replays them.

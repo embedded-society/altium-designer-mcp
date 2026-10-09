@@ -662,7 +662,8 @@ pub fn parse_data_stream(
         return;
     };
 
-    let mut offset = 4 + name_block_len as usize;
+    // Saturating: a name block past the end of memory leaves no records.
+    let mut offset = (name_block_len as usize).saturating_add(4);
 
     // Parse primitives until end marker (0x00) or end of data
     while offset < data.len() {
