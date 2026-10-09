@@ -70,9 +70,13 @@ pub use primitives::*;
 /// Test-only re-export of [`pin_aux::apply_pin_wide_text`], so the golden
 /// fidelity test can resolve a `PinWideText` stream through the same fold the
 /// reader uses rather than reimplementing it.
+///
+/// # Errors
+///
+/// When the stream inflates past a library read's budget.
 #[doc(hidden)]
-pub fn apply_pin_wide_text_for_test(pins: &mut [Pin], raw: &[u8]) {
-    pin_aux::apply_pin_wide_text(pins, raw);
+pub fn apply_pin_wide_text_for_test(pins: &mut [Pin], raw: &[u8]) -> AltiumResult<()> {
+    pin_aux::apply_pin_wide_text(pins, raw, &mut crate::altium::inflate::Budget::default())
 }
 
 /// A schematic symbol library.
@@ -2757,8 +2761,11 @@ mod tests {
 
         let replaced = b"BM another bitmap".to_vec();
         lib.get_mut("LOGO").expect("symbol").images[0].image_data = Some(replaced.clone());
-        let entries =
-            storage::parse_icon_storage(&written_stream(&lib, "/Storage").expect("storage"));
+        let entries = storage::parse_icon_storage(
+            &written_stream(&lib, "/Storage").expect("storage"),
+            &mut crate::altium::inflate::Budget::default(),
+        )
+        .expect("within budget");
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].0, replaced, "the new pixels");
         assert_ne!(entries[0].1, altium, "compressed afresh");
@@ -2861,5 +2868,66 @@ mod tests {
         );
         let read = SchLib::read(Cursor::new(out.into_inner())).expect("read");
         assert_eq!(read.names(), names);
+    }
+
+    #[test]
+    fn images_past_the_reads_budget_refuse_the_library() {
+        // Every image within its own cap, but together inflating far past what
+        // their compressed bytes allow, as a crafted library's would: the read
+        // is refused rather than allocated on. The default budget reads the
+        // same library.
+        let mut symbol = Symbol::new("IMAGES");
+        for i in 0..3 {
+            let mut image = Image::new(0, 0, 10, 10, format!("zeros{i}.bmp"));
+            image.embed_image = true;
+            image.image_data = Some(vec![0; 64 * 1024]);
+            symbol.add_image(image);
+        }
+        let bytes = library_bytes(symbol);
+
+        let err = SchLib::read_with_budget(
+            std::io::Cursor::new(&bytes),
+            crate::altium::inflate::Budget::with_limits(100_000, 4),
+        )
+        .expect_err("past the budget");
+        assert!(err.to_string().contains("refused"), "{err}");
+
+        let read = SchLib::read(std::io::Cursor::new(&bytes)).expect("within the default budget");
+        let images = &read.get("IMAGES").expect("symbol").images;
+        assert!(images.iter().all(|image| image.image_data.is_some()));
+    }
+
+    #[test]
+    fn pin_entries_inflate_within_the_reads_budget() {
+        // A pin's auxiliary entries are inflated and dropped, so they cost
+        // time rather than memory, but they count towards the same budget.
+        let mut pin = Pin::new("A", "1", 0, 0, 10, PinOrientation::Right);
+        pin.frac = Some(PinFrac {
+            x: 50_000,
+            y: 0,
+            length: 0,
+        });
+        let mut symbol = Symbol::new("PINS");
+        symbol.add_pin(pin);
+        let bytes = library_bytes(symbol);
+
+        let err = SchLib::read_with_budget(
+            std::io::Cursor::new(&bytes),
+            crate::altium::inflate::Budget::with_limits(0, 0),
+        )
+        .expect_err("past the budget");
+        assert!(err.to_string().contains("refused"), "{err}");
+
+        let read = SchLib::read(std::io::Cursor::new(&bytes)).expect("within the default budget");
+        assert!(read.get("PINS").expect("symbol").pins[0].frac.is_some());
+    }
+
+    /// A one-symbol library, written to bytes.
+    fn library_bytes(symbol: Symbol) -> Vec<u8> {
+        let mut lib = SchLib::new();
+        lib.add(symbol);
+        let mut buffer = std::io::Cursor::new(Vec::new());
+        lib.write(&mut buffer).expect("write");
+        buffer.into_inner()
     }
 }

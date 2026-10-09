@@ -44,8 +44,8 @@ mod models;
 mod parsers;
 
 pub use models::{
-    decompress_model_data, parse_embedded_models, parse_model_data_stream,
-    parse_model_header_stream, parse_model_index_records,
+    parse_embedded_models, parse_model_data_stream, parse_model_header_stream,
+    parse_model_index_records,
 };
 pub use parsers::parse_mil_value;
 #[allow(clippy::wildcard_imports)] // tightly-coupled reader split
@@ -884,18 +884,33 @@ mod tests {
         index.insert("GUID-1".to_string(), (0, "part.step".to_string()));
 
         // Stream index 7 has no entry in the index.
-        let unmapped = parse_embedded_models(&index, &[(7, vec![1, 2, 3])]);
+        let unmapped = parse_embedded_models(
+            &index,
+            &[(7, vec![1, 2, 3])],
+            &mut crate::altium::inflate::Budget::default(),
+        )
+        .expect("within budget");
         assert!(unmapped.is_empty(), "{unmapped:?}");
 
         // Mapped, but the payload is not zlib.
-        let corrupt = parse_embedded_models(&index, &[(0, b"not zlib at all".to_vec())]);
+        let corrupt = parse_embedded_models(
+            &index,
+            &[(0, b"not zlib at all".to_vec())],
+            &mut crate::altium::inflate::Budget::default(),
+        )
+        .expect("within budget");
         assert!(corrupt.is_empty(), "{corrupt:?}");
 
         // Mapped and readable: kept, with its id and name from the index.
         let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
         std::io::Write::write_all(&mut encoder, b"ISO-10303-21;").unwrap();
         let compressed = encoder.finish().unwrap();
-        let models = parse_embedded_models(&index, &[(0, compressed)]);
+        let models = parse_embedded_models(
+            &index,
+            &[(0, compressed)],
+            &mut crate::altium::inflate::Budget::default(),
+        )
+        .expect("within budget");
         assert_eq!(models.len(), 1);
         assert_eq!(models[0].id, "GUID-1");
         assert_eq!(models[0].name, "part.step");
@@ -1366,75 +1381,6 @@ mod tests {
     }
 
     #[test]
-    fn test_decompress_model_data() {
-        // Compress some test data
-        use flate2::write::ZlibEncoder;
-        use flate2::Compression;
-        use std::io::Write;
-
-        let original = b"ISO-10303-21; HEADER; FILE_DESCRIPTION...";
-        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
-        encoder.write_all(original).unwrap();
-        let compressed = encoder.finish().unwrap();
-
-        // Decompress it
-        let decompressed = super::models::decompress_model_data(&compressed);
-
-        assert_eq!(decompressed, original);
-    }
-
-    #[test]
-    fn test_decompress_model_data_empty() {
-        let data = b"";
-        let result = super::models::decompress_model_data(data);
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn test_decompress_capped_rejects_bomb() {
-        use flate2::write::ZlibEncoder;
-        use flate2::Compression;
-        use std::io::Write;
-
-        // Highly compressible data that decompresses well past a small cap: a
-        // tiny compressed stream expanding to far more output (a bomb).
-        let max = 1024;
-        let huge = vec![0u8; max * 64];
-        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::best());
-        encoder.write_all(&huge).unwrap();
-        let compressed = encoder.finish().unwrap();
-        assert!(compressed.len() < huge.len(), "test data should be a bomb");
-
-        // Over the cap -> rejected (empty).
-        assert!(super::models::decompress_capped(&compressed, max).is_empty());
-    }
-
-    #[test]
-    fn test_decompress_capped_allows_within_limit() {
-        use flate2::write::ZlibEncoder;
-        use flate2::Compression;
-        use std::io::Write;
-
-        let original = vec![0xABu8; 500];
-        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
-        encoder.write_all(&original).unwrap();
-        let compressed = encoder.finish().unwrap();
-
-        // Exactly at/under the cap -> returned intact.
-        assert_eq!(
-            super::models::decompress_capped(&compressed, 1024),
-            original
-        );
-    }
-
-    #[test]
-    fn test_decompress_model_data_invalid() {
-        let data = b"not valid zlib data";
-        let result = super::models::decompress_model_data(data);
-        assert!(result.is_empty()); // Should return empty on error
-    }
-
-    #[test]
     fn test_parse_embedded_models() {
         use flate2::write::ZlibEncoder;
         use flate2::Compression;
@@ -1460,7 +1406,12 @@ mod tests {
         let model_data = vec![(0, compressed_a), (1, compressed_b)];
 
         // Parse models
-        let models = parse_embedded_models(&model_index, &model_data);
+        let models = parse_embedded_models(
+            &model_index,
+            &model_data,
+            &mut crate::altium::inflate::Budget::default(),
+        )
+        .expect("within budget");
 
         assert_eq!(models.len(), 2);
 

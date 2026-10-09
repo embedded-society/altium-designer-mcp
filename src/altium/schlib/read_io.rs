@@ -8,6 +8,7 @@ use std::io::{Read, Seek};
 use tracing::warn;
 
 use super::{pin_aux, reader, storage, AltiumError, AltiumResult, SchLib, Symbol};
+use crate::altium::inflate::Budget;
 
 impl SchLib {
     /// Reads a `SchLib` from any reader implementing `Read + Seek`.
@@ -16,6 +17,15 @@ impl SchLib {
     ///
     /// Returns an error if the file cannot be parsed.
     pub fn read<R: Read + Seek>(reader: R) -> AltiumResult<Self> {
+        Self::read_with_budget(reader, Budget::default())
+    }
+
+    /// [`Self::read`], inflating the library's compressed streams within
+    /// `budget`.
+    pub(crate) fn read_with_budget<R: Read + Seek>(
+        reader: R,
+        mut budget: Budget,
+    ) -> AltiumResult<Self> {
         let mut cfb = crate::altium::open_ole(reader)?;
 
         let mut lib = Self::new();
@@ -88,7 +98,7 @@ impl SchLib {
 
             reader::parse_data_stream(&mut symbol, &data);
 
-            apply_pin_aux_streams(&mut cfb, &comp_name, &mut symbol);
+            apply_pin_aux_streams(&mut cfb, &comp_name, &mut symbol, &mut budget)?;
             carry_extra_streams(&mut cfb, &comp_name, &mut symbol);
             read.push((comp_name, symbol));
         }
@@ -126,7 +136,7 @@ impl SchLib {
         // image) still consumes its ordinal slot but maps back to `None`, so a
         // bytes-less image round-trips without stealing the next payload.
         if let Some(raw) = crate::altium::read_stream_opt(&mut cfb, "/Storage") {
-            let mut payloads = storage::parse_icon_storage(&raw).into_iter();
+            let mut payloads = storage::parse_icon_storage(&raw, &mut budget)?.into_iter();
             'attach: for symbol in lib.symbols.values_mut() {
                 for image in symbol.images.iter_mut().filter(|i| i.embed_image) {
                     let Some((data, compressed)) = payloads.next() else {
@@ -159,10 +169,6 @@ impl SchLib {
     }
 }
 
-/// Applies the optional per-component pin auxiliary streams. They sit
-/// alongside `Data` in the same storage and are keyed by pin ordinal, so they
-/// must be applied AFTER the pins are parsed. Absent streams (the common case)
-/// leave the pins untouched.
 /// The order to place the symbols read from the storages in: header order
 /// first, matching each header name to a symbol by the name its Data
 /// stream declares (case-insensitively; a case-duplicate takes the next
@@ -250,24 +256,31 @@ fn section_keys_map(data: &[u8]) -> HashMap<String, String> {
         .collect()
 }
 
+/// Applies the optional per-component pin auxiliary streams. They sit
+/// alongside `Data` in the same storage and are keyed by pin ordinal, so they
+/// must be applied AFTER the pins are parsed. Absent streams (the common case)
+/// leave the pins untouched; an error once they inflate past the read's
+/// `budget`.
 fn apply_pin_aux_streams<R: Read + Seek>(
     cfb: &mut CompoundFile<R>,
     comp_name: &str,
     symbol: &mut Symbol,
-) {
+    budget: &mut Budget,
+) -> AltiumResult<()> {
     if let Some(frac) = crate::altium::read_stream_opt(&mut *cfb, format!("{comp_name}/PinFrac")) {
-        pin_aux::apply_pin_frac(&mut symbol.pins, &frac);
+        pin_aux::apply_pin_frac(&mut symbol.pins, &frac, budget)?;
     }
     if let Some(widths) =
         crate::altium::read_stream_opt(&mut *cfb, format!("{comp_name}/PinSymbolLineWidth"))
     {
-        pin_aux::apply_pin_symbol_line_widths(&mut symbol.pins, &widths);
+        pin_aux::apply_pin_symbol_line_widths(&mut symbol.pins, &widths, budget)?;
     }
     if let Some(wide) =
         crate::altium::read_stream_opt(&mut *cfb, format!("{comp_name}/PinWideText"))
     {
-        pin_aux::apply_pin_wide_text(&mut symbol.pins, &wide);
+        pin_aux::apply_pin_wide_text(&mut symbol.pins, &wide, budget)?;
     }
+    Ok(())
 }
 
 /// The streams of the component's storage this crate does not read — a

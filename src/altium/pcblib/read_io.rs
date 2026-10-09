@@ -6,6 +6,7 @@ use super::{
     reader, AltiumError, AltiumResult, EmbeddedModel, Footprint, LibraryMetadata, Model3D, PcbLib,
     INTERNAL_OLE_ENTRIES,
 };
+use crate::altium::inflate::Budget;
 
 impl PcbLib {
     /// Reads a `PcbLib` from any reader implementing `Read + Seek`.
@@ -14,6 +15,15 @@ impl PcbLib {
     ///
     /// Returns an error if the file cannot be parsed.
     pub fn read(reader: impl std::io::Read + std::io::Seek) -> AltiumResult<Self> {
+        Self::read_with_budget(reader, Budget::default())
+    }
+
+    /// [`Self::read`], inflating the library's embedded models within
+    /// `budget`.
+    pub(crate) fn read_with_budget(
+        reader: impl std::io::Read + std::io::Seek,
+        budget: Budget,
+    ) -> AltiumResult<Self> {
         let mut cfb = crate::altium::open_ole(reader)?;
         // The library's ANSI-only text is in the code page of the machine that
         // authored it; everything below reads through it.
@@ -21,7 +31,7 @@ impl PcbLib {
         let encoding = code_page
             .and_then(crate::altium::ansi_encoding_for)
             .unwrap_or_else(crate::altium::current_ansi_encoding);
-        crate::altium::with_ansi_encoding(encoding, || Self::read_scoped(cfb, code_page))
+        crate::altium::with_ansi_encoding(encoding, || Self::read_scoped(cfb, code_page, budget))
     }
 
     /// Detects the code page the library was authored in from every footprint
@@ -75,6 +85,7 @@ impl PcbLib {
     fn read_scoped<R: std::io::Read + std::io::Seek>(
         mut cfb: cfb::CompoundFile<R>,
         code_page: Option<u32>,
+        mut budget: Budget,
     ) -> AltiumResult<Self> {
         let mut library = Self::new();
 
@@ -90,7 +101,7 @@ impl PcbLib {
         Self::read_storage_stream(&mut cfb);
 
         // Read embedded 3D models if present
-        library.models = Self::read_models(&mut cfb);
+        library.models = Self::read_models(&mut cfb, &mut budget)?;
 
         // List all entries to find footprint storages
         let entries: Vec<_> = cfb.walk().map(|e| e.path().to_path_buf()).collect();
@@ -536,13 +547,16 @@ impl PcbLib {
     /// - `/Library/Models/Header` - Model count and metadata
     /// - `/Library/Models/Data` - GUID-to-index mapping
     /// - `/Library/Models/{N}` - zlib-compressed STEP files
+    ///
+    /// An error once the models inflate past the read's `budget`.
     fn read_models<F: std::io::Read + std::io::Seek>(
         cfb: &mut cfb::CompoundFile<F>,
-    ) -> Vec<EmbeddedModel> {
+        budget: &mut Budget,
+    ) -> AltiumResult<Vec<EmbeddedModel>> {
         // Check if Models storage exists
         let models_storage = std::path::Path::new("/Library/Models");
         if !cfb.is_storage(models_storage) {
-            return Vec::new();
+            return Ok(Vec::new());
         }
 
         // Read Header to get model count
@@ -558,7 +572,7 @@ impl PcbLib {
 
         if model_index.is_empty() {
             tracing::debug!("No model index found in /Library/Models/Data");
-            return Vec::new();
+            return Ok(Vec::new());
         }
 
         // Read compressed model streams
@@ -596,12 +610,12 @@ impl PcbLib {
             // Don't break early - indices might not be sequential
         }
 
-        let mut models = reader::parse_embedded_models(&model_index, &model_data);
+        let mut models = reader::parse_embedded_models(&model_index, &model_data, budget)?;
         for model in &mut models {
             model.index_params = index_records.remove(&model.id).unwrap_or_default();
         }
         tracing::debug!(count = models.len(), "Parsed embedded 3D models");
-        models
+        Ok(models)
     }
 
     /// Reads a single footprint from the OLE document, returning it with its
@@ -1653,5 +1667,36 @@ mod tests {
         assert_eq!(fp.name, real);
         assert_eq!(fp.description, "\u{E9}");
         assert!(!fp.additional_parameters.is_empty());
+    }
+
+    #[test]
+    fn models_past_the_reads_budget_refuse_the_library() {
+        // Every model within its own cap, but together inflating far past
+        // what their compressed bytes allow, as a crafted library's would: the
+        // read is refused rather than allocated on. The default budget reads
+        // the same library.
+        use crate::altium::inflate::Budget;
+        use crate::altium::pcblib::{ComponentBody, EmbeddedModel, Footprint, Pad};
+        use std::io::Cursor;
+
+        let mut lib = PcbLib::new();
+        for i in 0..3 {
+            let id = format!("{{0000000{i}-0000-0000-0000-000000000000}}");
+            let mut fp = Footprint::new(format!("FP{i}"));
+            fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+            fp.add_component_body(ComponentBody::new(&id, "zeros.step"));
+            lib.add(fp);
+            lib.add_model(EmbeddedModel::new(id, "zeros.step", vec![0; 64 * 1024]));
+        }
+        let mut buffer = Cursor::new(Vec::new());
+        lib.write(&mut buffer).expect("write");
+        let bytes = buffer.into_inner();
+
+        let err = PcbLib::read_with_budget(Cursor::new(&bytes), Budget::with_limits(100_000, 4))
+            .expect_err("past the budget");
+        assert!(err.to_string().contains("refused"), "{err}");
+
+        let read = PcbLib::read(Cursor::new(&bytes)).expect("within the default budget");
+        assert_eq!(read.models().count(), 3);
     }
 }
