@@ -43,7 +43,8 @@ pub fn parse_model_data_stream(data: &[u8]) -> ModelIndex {
         ]) as usize;
         offset += 4;
 
-        if record_len == 0 || offset + record_len > data.len() {
+        // `offset` is within `data`: the four bytes before it were just read.
+        if record_len == 0 || record_len > data.len() - offset {
             tracing::debug!(
                 offset,
                 record_len,

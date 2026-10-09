@@ -66,11 +66,12 @@ pub fn write_string_block(data: &mut Vec<u8>, bytes: &[u8]) {
 #[must_use]
 pub fn read_block(data: &[u8], offset: usize) -> Option<(&[u8], usize)> {
     let len = crate::altium::bytes::read_u32_le(data, offset)? as usize;
-    let end = offset + 4 + len;
+    let start = offset + 4;
+    let end = start.checked_add(len)?;
     if end > data.len() {
         return None;
     }
-    Some((&data[offset + 4..end], end))
+    Some((&data[start..end], end))
 }
 
 /// Reads a Pascal short string written by [`write_pascal_string`]:
@@ -121,5 +122,21 @@ mod tests {
         let mut out = Vec::new();
         write_pascal_string(&mut out, b"R1");
         assert_eq!(out, vec![0x02, b'R', b'1']);
+    }
+
+    #[test]
+    fn a_block_reads_back_and_one_longer_than_its_data_is_none() {
+        let mut data = vec![0xEE];
+        write_block(&mut data, b"abc");
+        assert_eq!(read_block(&data, 1), Some((&b"abc"[..], 8)));
+        // A length past the data, up to the largest a prefix can state, is no
+        // block, wherever it sits: the end is computed without overflow.
+        for len in [4_u32, u32::MAX] {
+            let mut data = vec![0xEE];
+            data.extend_from_slice(&len.to_le_bytes());
+            data.extend_from_slice(b"abc");
+            assert_eq!(read_block(&data, 1), None, "length {len}");
+        }
+        assert_eq!(read_block(&data, 6), None, "no whole length prefix");
     }
 }

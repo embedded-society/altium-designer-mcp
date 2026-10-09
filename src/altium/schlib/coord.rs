@@ -10,15 +10,11 @@
 //! truncates toward zero and lets the fraction carry the coordinate's sign,
 //! keeping `frac` in `(-FRAC_SCALE, FRAC_SCALE)`.
 //!
-//! Historically this crate wrote the *floor* form instead (`div_euclid` /
-//! `rem_euclid`, non-negative fraction: `-5.45` → int `-6`, frac `55000`).
 //! [`read`] parses the fraction as a **signed** integer and adds it to the
-//! integer part, so both encodings decode to the same value
-//! (`-6 + 55000/100000 = -5 + -45000/100000 = -5.45`); files written by older
-//! versions of this crate remain readable. Before this fix the reader parsed the
-//! fraction as `u32`, so Altium's negative `_Frac` values failed to parse and
-//! were silently truncated to zero — every real off-grid negative coordinate
-//! lost its fractional part.
+//! integer part, so the *floor* form (`div_euclid` / `rem_euclid`, a
+//! non-negative fraction: `-5.45` as int `-6`, frac `55000`), which libraries
+//! from early versions of this crate hold, decodes to the same value
+//! (`-6 + 55000/100000 = -5 + -45000/100000 = -5.45`).
 
 use std::collections::HashMap;
 
@@ -41,9 +37,8 @@ pub fn split(value: f64) -> (i64, i64) {
 }
 
 /// Reconstructs a coordinate value from its integer and (signed) fractional
-/// parts. Decodes both AD24's toward-zero/signed form and this crate's
-/// historical floor/non-negative form, since `int + frac / FRAC_SCALE` is exact
-/// for either.
+/// parts. Decodes the toward-zero form AD24 writes and the floor form alike,
+/// since `int + frac / FRAC_SCALE` is exact for either.
 #[allow(clippy::cast_precision_loss)]
 pub fn combine(int: i64, frac: i64) -> f64 {
     int as f64 + frac as f64 / FRAC_SCALE as f64

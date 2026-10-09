@@ -1135,30 +1135,6 @@ pub(super) fn find_ascii_in_block(block: &[u8], pattern: &str) -> Option<usize> 
         .find(|&i| &block[i..i + pattern_bytes.len()] == pattern_bytes)
 }
 
-/// Parses a Region primitive (filled polygon).
-/// Returns the parsed `Region` and the new offset on success.
-///
-/// # Region Block Format (from `AltiumSharp` analysis)
-///
-/// Region has 2 blocks:
-/// - Block 0: Properties (common header + metadata)
-/// - Block 1: Vertices (count + coordinate pairs)
-///
-/// Block 0:
-/// ```text
-/// [layer:1][flags:12]      // 13-byte common header
-/// [unknown:4 u32]          // Unknown data
-/// [unknown:1]              // Unknown byte
-/// ...                      // Additional properties
-/// ```
-///
-/// Block 1 (vertices):
-/// ```text
-/// [count:4 u32]            // Number of vertices
-/// [x:8 f64][y:8 f64]       // Vertex 1 (doubles in internal units)
-/// [x:8 f64][y:8 f64]       // Vertex 2
-/// ...
-/// ```
 /// Reads one count-prefixed vertex contour (`[u32 count][count x 16-byte (x, y)
 /// doubles]`) from `props_block` starting at `at`. Returns the vertices and the
 /// offset just past the contour. `label` names the contour in error messages and
@@ -1174,7 +1150,9 @@ fn read_region_contour(
         AltiumError::parse_error(offset + at, format!("failed to read {label} count"))
     })? as usize;
     let data_offset = at + 4;
-    let end = data_offset + count * 16;
+    // Saturating: a contour past the end of memory is past the end of the
+    // block, which the read below reports.
+    let end = data_offset.saturating_add(count.saturating_mul(16));
     // The data-driven length check IS the read: taking the whole contour as one
     // slice reports a truncated block exactly as before, and leaves the
     // per-vertex reads below infallible instead of guarded by arms no input
@@ -1204,17 +1182,22 @@ fn read_region_contour(
     Ok((contour, end))
 }
 
+/// Parses a Region primitive (a filled polygon), returning it and the offset
+/// just past its block.
+///
+/// A region is a single block:
+///
+/// ```text
+/// [layer:1][flags:2][net:2][polygon:2][component:2][reserved:4]  // common header
+/// [reserved:1][hole_count:2 u16][reserved:2]
+/// [param_len:4 u32][KEY=VALUE|... + NUL]                         // parameters
+/// [count:4 u32][count × (x:8 f64, y:8 f64)]                      // outline
+/// hole_count × [count:4 u32][count × (x:8 f64, y:8 f64)]         // holes
+/// ```
+///
+/// Coordinates are doubles in internal units.
 #[allow(clippy::cast_possible_truncation)] // Altium coords fit in i32
 pub(super) fn parse_region(data: &[u8], offset: usize) -> ParseResult<Region> {
-    // Region format (observed from Altium files): a single block containing:
-    //   - Common header (13 bytes): layer, flags, padding
-    //   - Unknown data (5 bytes)
-    //   - Parameter string length (4 bytes)
-    //   - Parameter string (ASCII key=value pairs)
-    //   - Vertex count (4 bytes)
-    //   - Vertices (count * 16 bytes, each as 2 doubles)
-    // A region is a single block: common header, parameter string, and the
-    // vertex outline embedded within it.
     let (props_block, current) = read_block(data, offset).ok_or_else(|| {
         AltiumError::parse_error(offset, "failed to read Region properties block")
     })?;
@@ -1237,11 +1220,12 @@ pub(super) fn parse_region(data: &[u8], offset: usize) -> ParseResult<Region> {
         AltiumError::parse_error(offset + 18, "failed to read Region parameter string length")
     })? as usize;
 
-    // Parse the nested C-string parameter block (offsets 22..22+param_len). It carries
+    // The nested C-string parameter block (offsets 22..22+param_len) carries
     // KIND, NAME, ARCRESOLUTION, CAVITYHEIGHT, etc. in the canonical `KEY=VALUE|...`
-    // form (no leading pipe, Windows-1252, null-terminated). Historically skipped by
-    // length; now decoded into the region's typed fields.
-    let param_end = 22 + param_len;
+    // form (no leading pipe, in the library's code page, null-terminated), decoded
+    // into the region's typed fields. Saturating: a block past the end of memory
+    // is past the end of this one, which the check below reports.
+    let param_end = param_len.saturating_add(22);
     if props_block.len() < param_end {
         return Err(AltiumError::parse_error(
             offset + 22,
@@ -1831,11 +1815,12 @@ pub(super) fn parse_component_body_outline(block0: &[u8]) -> Vec<(f64, f64)> {
     const HEADER_LEN: usize = 18;
 
     // Skip the header + the C-string parameter block (its u32 prefix already
-    // counts the bytes-plus-NUL that follow it).
+    // counts the bytes-plus-NUL that follow it). Saturating: an offset past the
+    // end of memory is past the end of the block, where no count can be read.
     let Some(param_len) = read_u32(block0, HEADER_LEN) else {
         return Vec::new();
     };
-    let mut off = HEADER_LEN + 4 + param_len as usize;
+    let mut off = (param_len as usize).saturating_add(HEADER_LEN + 4);
 
     let Some(count) = read_u32(block0, off) else {
         return Vec::new();

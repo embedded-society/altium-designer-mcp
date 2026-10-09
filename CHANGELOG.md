@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `./Lib.PcbLib` was accepted. For an existing one named that way, `list_backups` and
   `restore_backup` failed and its old backups were never pruned. A bare name now resolves to
   the working directory throughout.
+- **A 32-bit build reads a crafted length safely.** Lengths read from a library were added to
+  offsets in plain arithmetic, which on a 32-bit build (none ships; a source build can be one)
+  could wrap and read the wrong bytes or panic. Every such sum now saturates or is checked.
 
 ## [1.2.2] - 2026-10-09
 
