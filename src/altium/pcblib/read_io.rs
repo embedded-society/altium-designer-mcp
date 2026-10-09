@@ -332,6 +332,7 @@ impl PcbLib {
         // Fall back to pipe-delimited key=value format (legacy).
         // Altium stores these as Windows-1252, not UTF-8 (#68).
         let text = crate::altium::decode_windows1252(&data);
+        let field_count = text.split('|').count();
 
         for pair in text.split('|') {
             if let Some((key, value)) = pair.split_once('=') {
@@ -346,6 +347,7 @@ impl PcbLib {
                     _ => {
                         if let Some(idx_str) = key_upper.strip_prefix("LIBREF") {
                             if let Ok(idx) = idx_str.parse::<usize>() {
+                                check_header_index(idx, field_count, "LIBREF")?;
                                 while metadata.component_names.len() <= idx {
                                     metadata.component_names.push(String::new());
                                 }
@@ -353,6 +355,7 @@ impl PcbLib {
                             }
                         } else if let Some(idx_str) = key_upper.strip_prefix("COMPDESCR") {
                             if let Ok(idx) = idx_str.parse::<usize>() {
+                                check_header_index(idx, field_count, "COMPDESCR")?;
                                 while metadata.component_descriptions.len() <= idx {
                                     metadata.component_descriptions.push(String::new());
                                 }
@@ -755,6 +758,21 @@ impl PcbLib {
     }
 }
 
+/// Refuses a legacy `FileHeader` `LIBREF{n}`/`COMPDESCR{n}` index at or past
+/// the header's field count. Each name or description needs its own field, so
+/// such an index is malformed, and bounding it keeps a crafted index from
+/// growing the metadata vectors until the process aborts.
+fn check_header_index(idx: usize, field_count: usize, key: &str) -> AltiumResult<()> {
+    if idx < field_count {
+        Ok(())
+    } else {
+        Err(AltiumError::parse_error(
+            0,
+            format!("FileHeader {key} index exceeds its {field_count} fields"),
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::PcbLib;
@@ -835,6 +853,24 @@ mod tests {
         // The gap is filled rather than shifting the later entry down.
         assert_eq!(library.metadata.component_names[1], "");
         assert_eq!(library.metadata.component_names[2], "THIRD");
+    }
+
+    #[test]
+    fn a_header_index_past_its_fields_is_refused() {
+        // The index is file-derived and grows the name and description
+        // vectors up to it, so an unchecked huge index aborts the process on
+        // allocation failure. It has to be refused as a parse error instead.
+        let dir = temp_dir();
+        for key in ["LIBREF", "COMPDESCR"] {
+            let path = dir.path().join(format!("{key}.PcbLib"));
+            library_with_header(
+                &path,
+                format!("|HEADER=Protel for Windows - PCB Library|{key}4000000000=X|").as_bytes(),
+            );
+
+            let err = PcbLib::open(&path).expect_err("a huge index must be refused");
+            assert!(err.to_string().contains("exceeds"), "{key}: {err}");
+        }
     }
 
     #[test]
