@@ -141,6 +141,20 @@ pub fn sanitise_file_name(name: &str) -> Option<String> {
     }
 }
 
+/// The directory a file path lives in: its parent, or the current directory
+/// for a bare file name, whose parent is empty. `None` only for a root or an
+/// empty path.
+#[must_use]
+pub fn parent_dir(path: &std::path::Path) -> Option<&std::path::Path> {
+    path.parent().map(|parent| {
+        if parent.as_os_str().is_empty() {
+            std::path::Path::new(".")
+        } else {
+            parent
+        }
+    })
+}
+
 /// Generates an 8-character uppercase A–Z identifier for Altium `UniqueID`
 /// fields (library `FileHeader`, schematic records, etc.).
 ///
@@ -176,6 +190,19 @@ pub fn generate_unique_id() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_bare_file_name_lives_in_the_current_directory() {
+        use std::path::Path;
+        assert_eq!(parent_dir(Path::new("Lib.PcbLib")), Some(Path::new(".")));
+        assert_eq!(parent_dir(Path::new("./Lib.PcbLib")), Some(Path::new(".")));
+        assert_eq!(
+            parent_dir(Path::new("libs/Lib.PcbLib")),
+            Some(Path::new("libs"))
+        );
+        assert_eq!(parent_dir(Path::new("/")), None);
+        assert_eq!(parent_dir(Path::new("")), None);
+    }
 
     #[test]
     fn generate_unique_id_is_eight_uppercase_letters() {

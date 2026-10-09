@@ -696,8 +696,9 @@ impl McpServer {
             path.canonicalize()
                 .map_err(|_| format!("Failed to resolve path '{name}'"))?
         } else {
-            // For new files, check the parent directory
-            let parent = path.parent().ok_or_else(|| {
+            // For new files, check the parent directory (the current one for
+            // a bare file name, as the save resolves it).
+            let parent = crate::util::parent_dir(path).ok_or_else(|| {
                 format!("Invalid path '{name}': cannot create a file at the filesystem root")
             })?;
             let filename = path
@@ -801,7 +802,7 @@ impl McpServer {
         use std::path::Path;
 
         let path = Path::new(filepath);
-        let Some(parent) = path.parent() else {
+        let Some(parent) = crate::util::parent_dir(path) else {
             return;
         };
         let Some(filename) = path.file_name().and_then(|n| n.to_str()) else {
@@ -1424,6 +1425,18 @@ mod tests {
         let server = create_test_server(dir.path());
         let inside = dir.path().join("new.PcbLib");
         assert!(server.validate_path(&inside.to_string_lossy()).is_ok());
+    }
+
+    #[test]
+    fn validate_path_accepts_a_new_file_named_bare() {
+        // A bare file name lives in the current directory, as the save
+        // resolves it: its empty parent is that directory, not a missing one.
+        // The test runs in the package root, which the server is granted.
+        let server = McpServer::new(vec![std::path::PathBuf::from(".")]);
+        let bare = "validate_path_bare_name_never_written.PcbLib";
+        assert!(!std::path::Path::new(bare).exists());
+        assert_eq!(server.validate_path(bare), Ok(()));
+        assert_eq!(server.validate_path(&format!("./{bare}")), Ok(()));
     }
 
     #[test]
