@@ -16,7 +16,7 @@ only after a human has looked at the artefacts**.
 | Job | What it does | Can it publish? |
 |-----|--------------|-----------------|
 | `validate` | Tag format, `Cargo.toml` version match, tagged commit is on `main`, CHANGELOG entry exists, no release already exists | no |
-| `build` | Builds and tests on Linux / macOS / Windows, packages each archive, **unpacks it again and runs the packaged binary** | no |
+| `build` | Builds and tests on Linux / macOS / Windows, packages each archive, **unpacks it again and runs the packaged binary**. Linux builds on a pinned Ubuntu 24.04, and its binary is held to the glibc 2.34 floor the READMEs promise | no |
 | `bundle` | Assembles the Claude Desktop extension (`altium-designer-mcp.mcpb` + its identical `.dxt` twin) from the three binaries, packs it with the official MCPB CLI (which validates the manifest), **unpacks it again and speaks MCP to the bundled binary** | no |
 | `release` | Verifies all five artefacts arrived, generates and re-checks `SHA256SUMS.txt`, attests SLSA build provenance, creates a **draft** release | draft only |
 
@@ -115,7 +115,8 @@ Two notes on dry runs:
 8. **Review the draft.** The review script downloads the six assets and checks
    them hard: every line of `SHA256SUMS.txt`, a provenance attestation for each
    of the six files, identical `.mcpb` and `.dxt`, the bundle manifest's version
-   and its three binaries, the archives' contents, this platform's binary
+   and its three binaries, the archives' contents, the glibc the Linux binary
+   needs against its 2.34 floor, this platform's binary
    (`--version`, then an MCP `initialize` + `tools/list` handshake with the tool
    count of the tagged source) and the release notes against the CHANGELOG
    section. It ends with `REVIEW PASS` and leaves the marker the publish script

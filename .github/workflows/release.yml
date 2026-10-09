@@ -213,7 +213,11 @@ jobs:
             fail-fast: false
             matrix:
                 include:
-                    - os: ubuntu-latest
+                    # Pinned rather than ubuntu-latest: the glibc a Linux
+                    # binary needs follows the system it is built on, so the
+                    # image moves only when we choose (the floor is checked
+                    # on the packaged binary below).
+                    - os: ubuntu-24.04
                       target: x86_64-unknown-linux-gnu
                       artifact: altium-designer-mcp-linux-x86_64
                       binary: altium-designer-mcp
@@ -301,6 +305,25 @@ jobs:
                 # does not, so compare against the base version.
                 if [[ "$OUT" != *"${EXPECTED_VERSION%%-*}"* ]]; then
                     echo "Error: expected version ${EXPECTED_VERSION%%-*} in --version output"
+                    exit 1
+                fi
+
+            # The glibc the packaged binary needs, against the floor the READMEs
+            # promise: a newer build image must not quietly drop older
+            # distributions.
+            - name: Check the glibc floor (Linux)
+              if: runner.os == 'Linux'
+              shell: bash
+              run: |
+                floor=2.34
+                needed="$(grep -aoE 'GLIBC_[0-9]+(\.[0-9]+)+' "verify/${{ matrix.binary }}" | sed 's/^GLIBC_//' | sort -uV | tail -1)"
+                if [[ -z "$needed" ]]; then
+                    echo "Error: the Linux binary names no glibc version"
+                    exit 1
+                fi
+                echo "The Linux binary needs glibc $needed; the floor is $floor."
+                if [[ "$(printf '%s\n' "$floor" "$needed" | sort -V | tail -1)" != "$floor" ]]; then
+                    echo "Error: the Linux binary needs glibc $needed, past the $floor floor"
                     exit 1
                 fi
 

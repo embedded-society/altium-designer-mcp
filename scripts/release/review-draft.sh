@@ -83,6 +83,15 @@ mkdir -p win && (cd win && unzip -q ../altium-designer-mcp-windows-x86_64.zip) |
 [ -s win/altium-designer-mcp.exe ] || fail "windows archive lacks the binary"
 echo "archives carry the binary and docs"
 
+# The glibc the Linux binary needs, against the floor the READMEs promise.
+mkdir -p linux && tar -xzf altium-designer-mcp-linux-x86_64.tar.gz -C linux altium-designer-mcp \
+    || fail "linux archive does not unpack"
+glibc="$(grep -aoE 'GLIBC_[0-9]+(\.[0-9]+)+' linux/altium-designer-mcp | sed 's/^GLIBC_//' | sort -uV | tail -1)"
+[ -n "$glibc" ] || fail "the Linux binary names no glibc version"
+[ "$(printf '%s\n' 2.34 "$glibc" | sort -V | tail -1)" = "2.34" ] \
+    || fail "the Linux binary needs glibc $glibc, past the 2.34 floor"
+echo "the Linux binary needs glibc $glibc, within the 2.34 floor"
+
 # This platform's binary: version, then a real MCP handshake.
 case "$(uname -s)" in
     Linux) mkdir -p run && tar -xzf altium-designer-mcp-linux-x86_64.tar.gz -C run && BIN=run/altium-designer-mcp ;;

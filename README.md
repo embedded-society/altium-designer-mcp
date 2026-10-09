@@ -281,7 +281,8 @@ case (`TopOverlay`, `Mechanical13`), in any case; every tool accepts the same sp
 **Prebuilt binaries** for Linux (x86_64), macOS (aarch64) and Windows (x86_64) are on the
 [Releases page](https://github.com/embedded-society/altium-designer-mcp/releases) — each
 archive bundles a setup README plus [`docs/CLIENT_SETUP.md`](docs/CLIENT_SETUP.md), which
-wires the server into every MCP client we know of.
+wires the server into every MCP client we know of. The Linux binary needs glibc 2.34 or newer:
+Ubuntu 22.04, Debian 12, RHEL 9 and later.
 
 **Claude Desktop users** need no archive at all: install the one-click extension
 `altium-designer-mcp.mcpb` from the same page (older builds: the identical
