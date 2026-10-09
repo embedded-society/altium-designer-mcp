@@ -393,7 +393,7 @@ impl McpServer {
         }
 
         let path = Path::new(filepath);
-        let Some(parent) = path.parent() else {
+        let Some(parent) = crate::util::parent_dir(path) else {
             return ToolCallResult::error("Cannot determine parent directory");
         };
         let Some(filename) = path.file_name().and_then(|n| n.to_str()) else {
@@ -486,7 +486,7 @@ impl McpServer {
         } else {
             // Find the most recent backup
             let path = Path::new(filepath);
-            let Some(parent) = path.parent() else {
+            let Some(parent) = crate::util::parent_dir(path) else {
                 return ToolCallResult::error("Cannot determine parent directory");
             };
             let Some(filename) = path.file_name().and_then(|n| n.to_str()) else {
@@ -2799,6 +2799,20 @@ mod tests {
                 "got: {}",
                 get_result_text(&result)
             );
+        }
+
+        #[test]
+        fn list_backups_finds_the_directory_of_a_bare_file_name() {
+            // A bare file name lives in the current directory: its empty parent
+            // is that directory, so the scan runs there and finds no backups
+            // rather than failing to read a directory named "". The test runs
+            // in the package root, which the server is granted.
+            let server = crate::mcp::server::McpServer::new(vec![std::path::PathBuf::from(".")]);
+            let bare = "list_backups_bare_name_never_written.PcbLib";
+            assert!(!std::path::Path::new(bare).exists());
+
+            let result = server.call_list_backups(&json!({ "filepath": bare }));
+            assert!(!result.is_error, "got: {}", get_result_text(&result));
         }
 
         // -------------------- repair_library --------------------

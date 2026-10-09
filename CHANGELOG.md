@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ubuntu-latest` is, and both the release workflow and the draft review check the binary
   against the floor, so a newer build image can't quietly drop older distributions.
 
+### Fixed
+
+- **A library named by its bare file name works like any other.** A new `Lib.PcbLib` in the
+  server's working directory was refused with "Parent directory … does not exist", although
+  `./Lib.PcbLib` was accepted. For an existing one named that way, `list_backups` and
+  `restore_backup` failed and its old backups were never pruned. A bare name now resolves to
+  the working directory throughout.
+
 ## [1.2.2] - 2026-10-09
 
 A security release: a crafted library could exhaust the server's memory through its compressed
