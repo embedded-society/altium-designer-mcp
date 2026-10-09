@@ -650,7 +650,7 @@ id as stored, so a value this table does not name round-trips unchanged.
 | `LineShapeSize` | int | Size of endpoint shapes; omit at 0 |
 | `Color` | int | Line colour (BGR; omit at 0) |
 | `Transparent` | bool | Emit only when `T`, before `LocationCount` |
-| `LocationCount` | int | Vertex count (minimum 2) |
+| `LocationCount` | int | Vertex count, at least 2; a count past the record's keys plus 16 is skipped on read, as only a vertex off the origin is sure to carry a key |
 | `X{n}` / `Y{n}` | coord | Vertices, 1-indexed (zero halves omitted) |
 | `LineStyleExt` | int | Style companion after the vertices, same value as `LineStyle`; omit at 0 |
 
@@ -677,7 +677,7 @@ id as stored, so a value this table does not name round-trips unchanged.
 | `LineStyle` | int | 0=Solid, 1=Dashed, 2=Dotted; omit at 0 |
 | `IsSolid` | bool | Whether **filled**; emit only when `T` (absent = unfilled) |
 | `Transparent` | bool | Emit only when `T`, before `LocationCount` (SHAPESTYLE golden) |
-| `LocationCount` | int | Vertex count (minimum 3) |
+| `LocationCount` | int | Vertex count, at least 3; a count past the record's keys plus 16 is skipped on read, as only a vertex off the origin is sure to carry a key |
 | `X{n}` / `Y{n}` | coord | Vertices, 1-indexed (zero halves omitted) |
 
 > **Note:** `IsSolid` is the **fill** flag, not a border style.

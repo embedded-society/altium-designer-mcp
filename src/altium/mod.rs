@@ -927,10 +927,13 @@ pub(crate) fn parse_schlib_section_keys(data: &[u8]) -> Vec<(String, String)> {
     let text = decode_windows1252(block.strip_suffix(&[0x00]).unwrap_or(block));
     let params = parse_pipe_params_raw(&text);
 
+    // An entry takes fields of its own, so there are no more entries than
+    // fields: a crafted `KeyCount` must not spin the walk past them.
     let count = params
         .get("KeyCount")
         .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(0);
+        .unwrap_or(0)
+        .min(params.len());
     (0..count)
         .filter_map(|i| {
             let lib_ref = params.get(&format!("LibRef{i}"))?;
@@ -1461,6 +1464,21 @@ mod tests {
         // reading past its end.
         assert!(parse_schlib_section_keys(&[]).is_empty());
         assert!(parse_schlib_section_keys(&[1, 2, 3]).is_empty());
+    }
+
+    #[test]
+    fn a_key_count_past_its_fields_walks_only_the_fields() {
+        // KeyCount is file-derived and drives the walk, which at u64::MAX
+        // would never end; the stream's own fields bound it. A PcbLib stream
+        // in this layout reaches the same walk.
+        let mut data = Vec::new();
+        framing::write_cstring_param_block(
+            &mut data,
+            b"|KeyCount=18446744073709551615|LibRef0=A|SectionKey0=B",
+        );
+        let pairs = vec![("A".to_string(), "B".to_string())];
+        assert_eq!(parse_schlib_section_keys(&data), pairs);
+        assert_eq!(parse_pcblib_section_keys(&data), pairs);
     }
 
     /// The `PcbLib` stream is Altium's binary layout — a count, then a

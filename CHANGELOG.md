@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **A crafted library can no longer crash or hang the server**
+  ([GHSA-p2qw-h8m7-5x69](https://github.com/embedded-society/altium-designer-mcp/security/advisories/GHSA-p2qw-h8m7-5x69)).
+  Counts read from the file sized lists and drove loops unchecked: a polyline's or polygon's
+  vertex count, a symbol library header's component count, a legacy footprint library
+  header's component index, and a `SectionKeys` stream's entry count. A large enough count
+  aborted the process while allocating, or kept a read spinning for ever; under `--http`,
+  either one stopped every session. Each count is now held to what the file's own fields
+  can describe: a header past them is refused as malformed, a shape past them is skipped,
+  and the `SectionKeys` walk stops at its fields. Reported, with the first fix, by
+  @kasparovabi.
+
 ## [1.2.0] - 2026-10-03
 
 A fidelity release: a library Altium wrote now comes back from a rewrite byte for byte.

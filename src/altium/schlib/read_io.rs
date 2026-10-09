@@ -228,10 +228,13 @@ fn section_keys_map(data: &[u8]) -> HashMap<String, String> {
         .filter_map(|segment| segment.split_once('='))
         .map(|(key, value)| (key.to_ascii_lowercase(), value))
         .collect();
+    // An entry takes fields of its own, so there are no more entries than
+    // fields: a crafted `KeyCount` must not spin the walk past them.
     let count = fields
         .get("keycount")
         .and_then(|v| v.trim().parse::<usize>().ok())
-        .unwrap_or(0);
+        .unwrap_or(0)
+        .min(fields.len());
     (0..count)
         .filter_map(|i| {
             let get = |key: String| fields.get(&key).copied();
@@ -409,6 +412,18 @@ fn read_file_header<R: Read + Seek>(cfb: &mut CompoundFile<R>) -> AltiumResult<F
             fields.get(&format!("%utf8%{key}")).copied(),
         )
     };
+    // Every listed component needs its own `LibRef{i}` field, so a count
+    // beyond the number of fields is malformed. Refusing it keeps a crafted
+    // count from sizing the vector below and aborting the process.
+    if comp_count > segments.len() {
+        return Err(AltiumError::parse_error(
+            4,
+            format!(
+                "FileHeader CompCount {comp_count} exceeds its {} fields",
+                segments.len()
+            ),
+        ));
+    }
     let mut component_names = Vec::with_capacity(comp_count);
     let mut component_descriptions = HashMap::new();
     for i in 0..comp_count {
@@ -528,6 +543,32 @@ mod tests {
 
         let err = SchLib::open(&path).expect_err("a truncated header must be refused");
         assert!(err.to_string().contains("truncated"), "{err}");
+    }
+
+    #[test]
+    fn a_comp_count_past_the_header_fields_is_refused() {
+        // CompCount is file-derived and sizes the name vector, so an unchecked
+        // huge count aborts the process on allocation failure. It has to be
+        // refused as a parse error instead.
+        let dir = temp_dir();
+        let path = dir.path().join("HugeCount.SchLib");
+        let header = header_block("|HEADER=Schematic Library|CompCount=500000000000000");
+        library_with(&path, &header, &[]);
+
+        let err = SchLib::open(&path).expect_err("a huge CompCount must be refused");
+        assert!(err.to_string().contains("CompCount"), "{err}");
+    }
+
+    #[test]
+    fn a_key_count_past_its_fields_walks_only_the_fields() {
+        // KeyCount is file-derived and drives the walk, which at u64::MAX
+        // would never end; the stream's own fields bound it. `SectionKeys`
+        // frames its text as the header does.
+        let data = header_block("|KeyCount=18446744073709551615|LibRef0=A|SectionKey0=B");
+        assert_eq!(
+            super::section_keys_map(&data),
+            std::collections::HashMap::from([("A".to_string(), "B".to_string())])
+        );
     }
 
     #[test]

@@ -307,26 +307,54 @@ pub(super) fn parse_parameter(props: &HashMap<String, String>) -> Option<Paramet
     })
 }
 
-/// Parses a polyline from properties.
-pub(super) fn parse_polyline(props: &HashMap<String, String>) -> Option<Polyline> {
-    // Polylines have LocationCount and X{n}/Y{n} vertex properties
+/// The vertices at the origin a polyline or polygon may hold beyond its keys.
+/// Altium writes no `X{n}`/`Y{n}` key for a zero coordinate, so only a vertex
+/// off the origin is sure to carry one, and a real outline passes through the
+/// origin a few times at most.
+const ORIGIN_VERTICES: usize = 16;
+
+/// Reads a polyline's or polygon's `LocationCount` vertices, each from its
+/// `X{n}`/`Y{n}` keys with an absent one at zero.
+///
+/// `None` for fewer than `min`, and for more than the record can describe:
+/// one per key, plus [`ORIGIN_VERTICES`]. The count is file-derived and sizes
+/// the list, so a count past that would claim memory out of all proportion to
+/// the file — record after record, enough to abort the process — and the
+/// record is skipped instead.
+fn read_vertices(
+    props: &HashMap<String, String>,
+    min: usize,
+    shape: &str,
+) -> Option<Vec<(f64, f64)>> {
     let location_count: usize = props
         .get("locationcount")
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
-
-    if location_count < 2 {
+    if location_count < min {
         return None;
     }
-
-    let mut points = Vec::with_capacity(location_count);
-    for i in 1..=location_count {
-        let x_key = format!("x{i}");
-        let y_key = format!("y{i}");
-        let x = crate::altium::schlib::coord::read(props, &x_key);
-        let y = crate::altium::schlib::coord::read(props, &y_key);
-        points.push((x, y));
+    let most = props.len() + ORIGIN_VERTICES;
+    if location_count > most {
+        tracing::warn!(
+            "{shape} LocationCount {location_count} exceeds the {most} vertices its record can describe, record skipped"
+        );
+        return None;
     }
+    Some(
+        (1..=location_count)
+            .map(|i| {
+                (
+                    crate::altium::schlib::coord::read(props, &format!("x{i}")),
+                    crate::altium::schlib::coord::read(props, &format!("y{i}")),
+                )
+            })
+            .collect(),
+    )
+}
+
+/// Parses a polyline from properties.
+pub(super) fn parse_polyline(props: &HashMap<String, String>) -> Option<Polyline> {
+    let points = read_vertices(props, 2, "Polyline")?;
 
     let line_width = props
         .get("linewidth")
@@ -380,24 +408,7 @@ pub(super) fn parse_polyline(props: &HashMap<String, String>) -> Option<Polyline
 
 /// Parses a polygon from properties.
 pub(super) fn parse_polygon(props: &HashMap<String, String>) -> Option<Polygon> {
-    // Polygons have LocationCount and X{n}/Y{n} properties
-    let location_count: usize = props
-        .get("locationcount")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
-
-    if location_count < 3 {
-        return None;
-    }
-
-    let mut points = Vec::with_capacity(location_count);
-    for i in 1..=location_count {
-        let x_key = format!("x{i}");
-        let y_key = format!("y{i}");
-        let x = crate::altium::schlib::coord::read(props, &x_key);
-        let y = crate::altium::schlib::coord::read(props, &y_key);
-        points.push((x, y));
-    }
+    let points = read_vertices(props, 3, "Polygon")?;
 
     let line_width = props
         .get("linewidth")
@@ -1194,6 +1205,30 @@ mod tests {
             ("y2".to_string(), "5".to_string()),
         ]);
         assert!(parse_polygon(&props).is_none());
+    }
+
+    /// A vertex at the origin carries no keys, so `LocationCount` may run past
+    /// the record's keys, by [`ORIGIN_VERTICES`] and no further. A fixed
+    /// ceiling would not do: every record of a crafted file could claim it.
+    #[test]
+    fn a_location_count_is_held_to_what_its_record_can_describe() {
+        let polyline = parse_polyline(&parse_properties(
+            "|RECORD=6|LocationCount=3|X1=10|Y1=10|X2=20",
+        ))
+        .expect("a vertex at the origin needs no keys");
+        assert_eq!(polyline.points, [(10.0, 10.0), (20.0, 0.0), (0.0, 0.0)]);
+
+        // Two keys, RECORD and LocationCount: two vertices, plus those at the
+        // origin.
+        let most = 2 + ORIGIN_VERTICES;
+        let record =
+            |id: u8, count: usize| parse_properties(&format!("|RECORD={id}|LocationCount={count}"));
+        let polyline = parse_polyline(&record(6, most)).expect("within the bound");
+        assert_eq!(polyline.points.len(), most);
+        assert!(parse_polyline(&record(6, most + 1)).is_none());
+        let polygon = parse_polygon(&record(7, most)).expect("within the bound");
+        assert_eq!(polygon.points.len(), most);
+        assert!(parse_polygon(&record(7, most + 1)).is_none());
     }
 
     /// An ellipse without `SecondaryRadius` is a circle: the secondary radius

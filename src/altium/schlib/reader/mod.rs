@@ -605,6 +605,18 @@ mod tests {
         assert!(symbol.polylines.is_empty());
     }
 
+    #[test]
+    fn a_huge_location_count_is_dropped_rather_than_allocated() {
+        // LocationCount is file-derived and sizes the vertex vector, so an
+        // unchecked huge count aborts the process on allocation failure. The
+        // record has to be skipped instead, the same as one with too few.
+        let mut symbol = Symbol::new("HUGE");
+        parse_text_record_from_string(&mut symbol, "|RECORD=6|LocationCount=500000000000000");
+        parse_text_record_from_string(&mut symbol, "|RECORD=7|LocationCount=500000000000000");
+        assert!(symbol.polylines.is_empty());
+        assert!(symbol.polygons.is_empty());
+    }
+
     /// A field's text is its `%UTF8%` twin where there is one — the plain key
     /// holds only the code page's narrowing, `?`s and Altium's `0x8E` escape
     /// — with a script's widened twin folded back; without a twin, the plain
