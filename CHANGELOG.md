@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-10-09
+
+A security release: a crafted library could exhaust the server's memory through its compressed
+data. Update if the server reads libraries you did not make yourself. Nothing else changes.
+
 ### Security
 
 - **A crafted library can no longer exhaust memory through its compressed data**
