@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/embedded-society/altium-designer-mcp/actions/workflows/ci_main.yml/badge.svg)](https://github.com/embedded-society/altium-designer-mcp/actions/workflows/ci_main.yml)
 [![codecov](https://codecov.io/gh/embedded-society/altium-designer-mcp/branch/main/graph/badge.svg)](https://app.codecov.io/gh/embedded-society/altium-designer-mcp)
+[![altium-designer-mcp MCP server – quality and maintenance score on Glama](https://glama.ai/mcp/servers/embedded-society/altium-designer-mcp/badges/score.svg)](https://glama.ai/mcp/servers/embedded-society/altium-designer-mcp)
 
 **Let an AI build your Altium libraries — it does the engineering, this tool writes the files.**
 
