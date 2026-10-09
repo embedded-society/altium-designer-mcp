@@ -1883,7 +1883,8 @@ fn samples_schlib_pin_wide_text_survives_a_read_modify_write() {
             let mut pins: Vec<Pin> = (0..64)
                 .map(|i| Pin::new("?", i.to_string(), 0, 0, 10, PinOrientation::Right))
                 .collect();
-            altium_designer_mcp::altium::schlib::apply_pin_wide_text_for_test(&mut pins, &raw);
+            altium_designer_mcp::altium::schlib::apply_pin_wide_text_for_test(&mut pins, &raw)
+                .expect("within budget");
             let names: Vec<String> = pins
                 .into_iter()
                 .map(|p| p.name)

@@ -39,6 +39,7 @@
 use crate::altium::bytes::read_u32_le;
 use crate::altium::error::{AltiumError, AltiumResult};
 use crate::altium::framing::write_cstring_param_block;
+use crate::altium::inflate::{inflate_capped, Budget};
 
 /// The storage-entry tag byte Altium writes before each compressed entry.
 const ENTRY_TAG: u8 = 0xD0;
@@ -67,23 +68,6 @@ pub(super) fn zlib_compress(payload: &[u8]) -> AltiumResult<Vec<u8>> {
     })
 }
 
-/// Decompresses a zlib entry, rejecting output larger than `max_decompressed`.
-/// Returns `None` on any error (a corrupt entry is skipped rather than failing
-/// the whole read).
-pub(super) fn zlib_decompress(data: &[u8], max_decompressed: usize) -> Option<Vec<u8>> {
-    use flate2::read::ZlibDecoder;
-    use std::io::Read as _;
-
-    let limit = max_decompressed.saturating_add(1) as u64;
-    let mut decoder = ZlibDecoder::new(data).take(limit);
-    let mut out = Vec::new();
-    decoder.read_to_end(&mut out).ok()?;
-    if out.len() > max_decompressed {
-        return None;
-    }
-    Some(out)
-}
-
 /// Appends one compressed-storage entry (`0xD0` tag + Pascal-string key +
 /// zlib-compressed payload) named `name` (encoded Windows-1252).
 pub(super) fn write_entry(out: &mut Vec<u8>, name: &str, payload: &[u8]) -> AltiumResult<()> {
@@ -100,7 +84,7 @@ pub(super) fn write_entry_with(
     compressed: Option<&[u8]>,
 ) -> AltiumResult<()> {
     let compressed = match compressed {
-        Some(read) if zlib_decompress(read, payload.len()).as_deref() == Some(payload) => {
+        Some(read) if inflate_capped(read, payload.len()).as_deref() == Some(payload) => {
             read.to_vec()
         }
         _ => zlib_compress(payload)?,
@@ -147,14 +131,19 @@ pub(super) fn write_entry_with(
 /// until the stream is exhausted or a malformed entry is hit (which stops the
 /// walk with a debug log, matching `AltiumSharp`'s `break`). Entries whose
 /// payload fails to inflate or exceeds `max_decompressed` are skipped.
+///
+/// # Errors
+///
+/// When the entries inflate past what the read's `budget` allows.
 pub(super) fn for_each_entry<F: FnMut(&str, &[u8], &[u8])>(
     raw: &[u8],
     max_decompressed: usize,
+    budget: &mut Budget,
     mut on_entry: F,
-) {
+) -> AltiumResult<()> {
     // Header block: [u32 LE len][len bytes]. Skip it.
     let Some(header_len) = read_u32_le(raw, 0) else {
-        return;
+        return Ok(());
     };
     let mut offset = 4 + header_len as usize;
 
@@ -186,7 +175,7 @@ pub(super) fn for_each_entry<F: FnMut(&str, &[u8], &[u8])>(
             let comp_end = comp_start + comp_len as usize;
             if comp_end <= block.len() {
                 let compressed = &block[comp_start..comp_end];
-                if let Some(payload) = zlib_decompress(compressed, max_decompressed) {
+                if let Some(payload) = budget.inflate(compressed, max_decompressed)? {
                     on_entry(&key, &payload, compressed);
                 } else {
                     tracing::debug!(entry = %key, "skipping storage entry that failed to inflate");
@@ -196,6 +185,7 @@ pub(super) fn for_each_entry<F: FnMut(&str, &[u8], &[u8])>(
 
         offset = block_end;
     }
+    Ok(())
 }
 
 /// Encodes the shared header block (`|HEADER=<name>|Weight=<count>`), matching
@@ -239,13 +229,25 @@ pub(super) fn encode_icon_storage(entries: &[IconEntry<'_>]) -> AltiumResult<Vec
 /// Parses the root `/Storage` stream, returning each entry's decompressed
 /// image bytes in stream order. Entry names are ignored — `AltiumSharp`'s
 /// reader matches payloads to `EmbedImage=T` images purely by order — and
-/// malformed entries stop the walk (tolerant, never an error).
-pub(super) fn parse_icon_storage(raw: &[u8]) -> Vec<(Vec<u8>, Vec<u8>)> {
+/// malformed entries stop the walk.
+///
+/// # Errors
+///
+/// When the images inflate past what the read's `budget` allows.
+pub(super) fn parse_icon_storage(
+    raw: &[u8],
+    budget: &mut Budget,
+) -> AltiumResult<Vec<(Vec<u8>, Vec<u8>)>> {
     let mut payloads = Vec::new();
-    for_each_entry(raw, MAX_IMAGE_DECOMPRESSED, |_name, payload, compressed| {
-        payloads.push((payload.to_vec(), compressed.to_vec()));
-    });
-    payloads
+    for_each_entry(
+        raw,
+        MAX_IMAGE_DECOMPRESSED,
+        budget,
+        |_name, payload, compressed| {
+            payloads.push((payload.to_vec(), compressed.to_vec()));
+        },
+    )?;
+    Ok(payloads)
 }
 
 #[cfg(test)]
@@ -270,9 +272,15 @@ mod tests {
     /// Collects the entries a walk yields.
     fn walk(raw: &[u8]) -> Vec<(String, Vec<u8>)> {
         let mut seen = Vec::new();
-        for_each_entry(raw, MAX_IMAGE_DECOMPRESSED, |name, payload, _| {
-            seen.push((name.to_string(), payload.to_vec()));
-        });
+        for_each_entry(
+            raw,
+            MAX_IMAGE_DECOMPRESSED,
+            &mut Budget::default(),
+            |name, payload, _| {
+                seen.push((name.to_string(), payload.to_vec()));
+            },
+        )
+        .expect("within budget");
         seen
     }
 
@@ -367,17 +375,36 @@ mod tests {
     }
 
     #[test]
-    fn decompression_is_capped_so_a_zip_bomb_cannot_exhaust_memory() {
+    fn an_entry_past_its_cap_is_skipped() {
         // A small entry can inflate to an arbitrary size; the cap is what stops
-        // a malicious library allocating until the process dies.
-        let payload = vec![0_u8; 4096];
-        let compressed = zlib_compress(&payload).expect("compress");
-        assert!(zlib_decompress(&compressed, 4096).is_some(), "at the cap");
-        assert!(
-            zlib_decompress(&compressed, 4095).is_none(),
-            "one byte over the cap must be refused"
-        );
-        assert!(zlib_decompress(b"not zlib", 4096).is_none());
+        // one entry allocating without bound.
+        let mut entries = Vec::new();
+        write_entry(&mut entries, "big.bmp", &[0_u8; 4096]).expect("entry should write");
+        let stream = storage_stream(&entries);
+        let count = |cap| {
+            let mut seen = 0;
+            for_each_entry(&stream, cap, &mut Budget::default(), |_, _, _| seen += 1)
+                .expect("within budget");
+            seen
+        };
+        assert_eq!(count(4096), 1, "at the cap");
+        assert_eq!(count(4095), 0, "one byte over the cap is skipped");
+    }
+
+    #[test]
+    fn images_past_the_reads_budget_refuse_the_library() {
+        // Each image within its own cap, but together past what their
+        // compressed bytes allow: the walk fails rather than allocating on.
+        let mut entries = Vec::new();
+        for _ in 0..4 {
+            write_entry(&mut entries, "bomb.bmp", &[0_u8; 4096]).expect("entry should write");
+        }
+        let err = parse_icon_storage(
+            &storage_stream(&entries),
+            &mut Budget::with_limits(10_000, 1),
+        )
+        .expect_err("past the budget");
+        assert!(err.to_string().contains("refused"), "{err}");
     }
 
     #[test]
@@ -417,7 +444,7 @@ mod tests {
             "non-empty header carries the mixed-case Weight count: {text}"
         );
 
-        let payloads = parse_icon_storage(&stream);
+        let payloads = parse_icon_storage(&stream, &mut Budget::default()).expect("within budget");
         assert_eq!(payloads.len(), 2, "both entries parse back");
         assert_eq!(payloads[0].0, a, "first payload survives in order");
         assert_eq!(payloads[1].0, b, "second payload survives in order");
@@ -430,9 +457,15 @@ mod tests {
         let stream = encode_icon_storage(&[(r"C:\img\logo.bmp", b"BM".as_slice(), None)])
             .expect("encode storage");
         let mut names = Vec::new();
-        for_each_entry(&stream, MAX_IMAGE_DECOMPRESSED, |name, _, _| {
-            names.push(name.to_string());
-        });
+        for_each_entry(
+            &stream,
+            MAX_IMAGE_DECOMPRESSED,
+            &mut Budget::default(),
+            |name, _, _| {
+                names.push(name.to_string());
+            },
+        )
+        .expect("within budget");
         assert_eq!(names, vec![r"C:\img\logo.bmp".to_string()]);
     }
 
@@ -450,15 +483,21 @@ mod tests {
     #[test]
     fn corrupt_icon_storage_is_tolerated() {
         // Truncated / garbage streams must neither panic nor error.
-        assert!(parse_icon_storage(&[]).is_empty());
-        assert!(parse_icon_storage(&[0x00, 0x00]).is_empty());
-        assert!(parse_icon_storage(&[0xFF; 16]).is_empty());
+        assert!(parse_icon_storage(&[], &mut Budget::default())
+            .expect("within budget")
+            .is_empty());
+        assert!(parse_icon_storage(&[0x00, 0x00], &mut Budget::default())
+            .expect("within budget")
+            .is_empty());
+        assert!(parse_icon_storage(&[0xFF; 16], &mut Budget::default())
+            .expect("within budget")
+            .is_empty());
 
         // A valid first entry followed by garbage keeps the first entry.
         let mut stream =
             encode_icon_storage(&[("a.bmp", b"payload".as_slice(), None)]).expect("encode storage");
         stream.extend_from_slice(&[0xAB; 7]);
-        let payloads = parse_icon_storage(&stream);
+        let payloads = parse_icon_storage(&stream, &mut Budget::default()).expect("within budget");
         assert_eq!(payloads.len(), 1, "walk stops at the malformed tail");
         assert_eq!(payloads[0].0, b"payload");
     }

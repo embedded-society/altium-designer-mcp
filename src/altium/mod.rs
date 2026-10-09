@@ -65,6 +65,7 @@ macro_rules! primitive_kinds {
 
 pub mod error;
 pub(crate) mod framing;
+pub(crate) mod inflate;
 pub mod libpkg;
 pub mod pcblib;
 pub mod schlib;

@@ -38,21 +38,28 @@
 use super::primitives::{Pin, PinFrac};
 use super::storage;
 use crate::altium::bytes::{read_i32_le, read_u32_le};
+use crate::altium::error::AltiumResult;
+use crate::altium::inflate::Budget;
 
 /// Upper bound on a single decompressed entry, guarding against a hostile or
-/// corrupt stream. Both payload kinds are tiny (12 bytes / a short param block),
-/// so 64 KiB is generous.
+/// corrupt stream. The payloads are tiny (12 bytes, or a short parameter
+/// block), so 64 KiB is generous.
 const MAX_ENTRY_DECOMPRESSED: usize = 64 * 1024;
 
 /// Walks the compressed-storage entries after the header block, invoking
 /// `on_entry(pin_index, decompressed_payload)` for each well-formed entry
-/// whose Pascal-string key parses as a pin ordinal.
-fn for_each_entry<F: FnMut(usize, &[u8])>(raw: &[u8], mut on_entry: F) {
-    storage::for_each_entry(raw, MAX_ENTRY_DECOMPRESSED, |key, payload, _| {
+/// whose Pascal-string key parses as a pin ordinal; an error once the entries
+/// inflate past what the read's `budget` allows.
+fn for_each_entry<F: FnMut(usize, &[u8])>(
+    raw: &[u8],
+    budget: &mut Budget,
+    mut on_entry: F,
+) -> AltiumResult<()> {
+    storage::for_each_entry(raw, MAX_ENTRY_DECOMPRESSED, budget, |key, payload, _| {
         if let Ok(idx) = key.parse::<usize>() {
             on_entry(idx, payload);
         }
-    });
+    })
 }
 
 /// Encodes the `PinFrac` stream for `pins`, or `None` when every pin is on-grid
@@ -163,8 +170,16 @@ pub(super) fn encode_pin_wide_text(
 /// ANSI-widened form of UTF-8 bytes (a script's name, as in the golden) is
 /// folded back to the real name, and where the record held those UTF-8 bytes
 /// the page is kept so a rewrite stores the name the same way.
-pub(super) fn apply_pin_wide_text(pins: &mut [Pin], raw: &[u8]) {
-    for_each_entry(raw, |idx, payload| {
+///
+/// # Errors
+///
+/// When the entries inflate past what the read's `budget` allows.
+pub(super) fn apply_pin_wide_text(
+    pins: &mut [Pin],
+    raw: &[u8],
+    budget: &mut Budget,
+) -> AltiumResult<()> {
+    for_each_entry(raw, budget, |idx, payload| {
         let Some(text) = decode_unicode_param_block(payload) else {
             return;
         };
@@ -186,7 +201,7 @@ pub(super) fn apply_pin_wide_text(pins: &mut [Pin], raw: &[u8]) {
             Some((real, _)) => pin.name = real,
             None => pin.name.clone_from(wide),
         }
-    });
+    })
 }
 
 /// Encodes a Unicode (UTF-16LE) parameter block: `[u32 LE byte_len][utf16le]`.
@@ -202,8 +217,16 @@ fn encode_unicode_param_block(text: &str) -> Vec<u8> {
 }
 
 /// Applies a parsed `PinFrac` stream onto `pins`, keyed by pin ordinal.
-pub(super) fn apply_pin_frac(pins: &mut [Pin], raw: &[u8]) {
-    for_each_entry(raw, |idx, payload| {
+///
+/// # Errors
+///
+/// When the entries inflate past what the read's `budget` allows.
+pub(super) fn apply_pin_frac(
+    pins: &mut [Pin],
+    raw: &[u8],
+    budget: &mut Budget,
+) -> AltiumResult<()> {
+    for_each_entry(raw, budget, |idx, payload| {
         if payload.len() < 12 {
             return;
         }
@@ -218,12 +241,20 @@ pub(super) fn apply_pin_frac(pins: &mut [Pin], raw: &[u8]) {
             let frac = PinFrac { x, y, length };
             pin.frac = if frac.is_zero() { None } else { Some(frac) };
         }
-    });
+    })
 }
 
 /// Applies a parsed `PinSymbolLineWidth` stream onto `pins`, keyed by pin ordinal.
-pub(super) fn apply_pin_symbol_line_widths(pins: &mut [Pin], raw: &[u8]) {
-    for_each_entry(raw, |idx, payload| {
+///
+/// # Errors
+///
+/// When the entries inflate past what the read's `budget` allows.
+pub(super) fn apply_pin_symbol_line_widths(
+    pins: &mut [Pin],
+    raw: &[u8],
+    budget: &mut Budget,
+) -> AltiumResult<()> {
+    for_each_entry(raw, budget, |idx, payload| {
         let Some(text) = decode_unicode_param_block(payload) else {
             return;
         };
@@ -236,7 +267,7 @@ pub(super) fn apply_pin_symbol_line_widths(pins: &mut [Pin], raw: &[u8]) {
                 pin.symbol_line_width = width;
             }
         }
-    });
+    })
 }
 
 /// Decodes a Unicode parameter block written by [`encode_unicode_param_block`].
@@ -287,7 +318,12 @@ mod tests {
         // A partial entry would otherwise read whichever bytes followed it as
         // a coordinate, nudging the pin off-grid by an arbitrary amount.
         let mut pins = vec![pin()];
-        apply_pin_frac(&mut pins, &aux_stream(&[(0, vec![0_u8; 11])]));
+        apply_pin_frac(
+            &mut pins,
+            &aux_stream(&[(0, vec![0_u8; 11])]),
+            &mut Budget::default(),
+        )
+        .expect("within budget");
         assert!(pins[0].frac.is_none(), "a short entry must not apply");
 
         // An entry naming a pin the symbol does not have.
@@ -295,7 +331,12 @@ mod tests {
         let mut payload = 5_i32.to_le_bytes().to_vec();
         payload.extend_from_slice(&5_i32.to_le_bytes());
         payload.extend_from_slice(&5_i32.to_le_bytes());
-        apply_pin_frac(&mut pins, &aux_stream(&[(9, payload.clone())]));
+        apply_pin_frac(
+            &mut pins,
+            &aux_stream(&[(9, payload.clone())]),
+            &mut Budget::default(),
+        )
+        .expect("within budget");
         assert!(
             pins[0].frac.is_none(),
             "an out-of-range ordinal must not apply"
@@ -304,11 +345,21 @@ mod tests {
         // A well-formed entry does apply, and an all-zero one reads as "no
         // fractional part" rather than as a zero offset.
         let mut pins = vec![pin()];
-        apply_pin_frac(&mut pins, &aux_stream(&[(0, payload)]));
+        apply_pin_frac(
+            &mut pins,
+            &aux_stream(&[(0, payload)]),
+            &mut Budget::default(),
+        )
+        .expect("within budget");
         assert!(pins[0].frac.is_some());
 
         let mut pins = vec![pin()];
-        apply_pin_frac(&mut pins, &aux_stream(&[(0, vec![0_u8; 12])]));
+        apply_pin_frac(
+            &mut pins,
+            &aux_stream(&[(0, vec![0_u8; 12])]),
+            &mut Budget::default(),
+        )
+        .expect("within budget");
         assert!(pins[0].frac.is_none(), "an all-zero frac is no frac");
     }
 
@@ -329,12 +380,22 @@ mod tests {
 
         for block in bad_blocks {
             let mut pins = vec![pin()];
-            apply_pin_wide_text(&mut pins, &aux_stream(&[(0, block.clone())]));
+            apply_pin_wide_text(
+                &mut pins,
+                &aux_stream(&[(0, block.clone())]),
+                &mut Budget::default(),
+            )
+            .expect("within budget");
             assert_eq!(pins[0].name, "A", "wide text applied a malformed block");
 
             let mut pins = vec![pin()];
             let before = pins[0].symbol_line_width;
-            apply_pin_symbol_line_widths(&mut pins, &aux_stream(&[(0, block)]));
+            apply_pin_symbol_line_widths(
+                &mut pins,
+                &aux_stream(&[(0, block)]),
+                &mut Budget::default(),
+            )
+            .expect("within budget");
             assert_eq!(pins[0].symbol_line_width, before);
         }
     }
@@ -346,12 +407,22 @@ mod tests {
         let named = |text: &str| encode_unicode_param_block(text);
 
         let mut pins = vec![pin()];
-        apply_pin_wide_text(&mut pins, &aux_stream(&[(0, named("|nothing=useful"))]));
+        apply_pin_wide_text(
+            &mut pins,
+            &aux_stream(&[(0, named("|nothing=useful"))]),
+            &mut Budget::default(),
+        )
+        .expect("within budget");
         assert_eq!(pins[0].name, "A");
 
         let mut pins = vec![pin()];
         let before = pins[0].symbol_line_width;
-        apply_pin_symbol_line_widths(&mut pins, &aux_stream(&[(0, named("|nothing=useful"))]));
+        apply_pin_symbol_line_widths(
+            &mut pins,
+            &aux_stream(&[(0, named("|nothing=useful"))]),
+            &mut Budget::default(),
+        )
+        .expect("within budget");
         assert_eq!(pins[0].symbol_line_width, before);
 
         // A non-numeric width is not a width.
@@ -359,12 +430,19 @@ mod tests {
         apply_pin_symbol_line_widths(
             &mut pins,
             &aux_stream(&[(0, named("|SYMBOL_LINEWIDTH=wide"))]),
-        );
+            &mut Budget::default(),
+        )
+        .expect("within budget");
         assert_eq!(pins[0].symbol_line_width, before);
 
         // And an ordinal past the end of the pin list.
         let mut pins = vec![pin()];
-        apply_pin_symbol_line_widths(&mut pins, &aux_stream(&[(9, named("|SYMBOL_LINEWIDTH=2"))]));
+        apply_pin_symbol_line_widths(
+            &mut pins,
+            &aux_stream(&[(9, named("|SYMBOL_LINEWIDTH=2"))]),
+            &mut Budget::default(),
+        )
+        .expect("within budget");
         assert_eq!(pins[0].symbol_line_width, before);
     }
 
@@ -387,7 +465,7 @@ mod tests {
 
         let mut read_back = vec![pin(), pin()];
         read_back[1].name = "??".to_string(); // the record's ANSI husk
-        apply_pin_wide_text(&mut read_back, &raw);
+        apply_pin_wide_text(&mut read_back, &raw, &mut Budget::default()).expect("within budget");
         assert_eq!(read_back[1].name, "\u{7535}\u{963B}");
         assert_eq!(read_back[0].name, "A", "pin without an entry is untouched");
     }
@@ -404,7 +482,7 @@ mod tests {
 
         let mut pins = vec![pin()];
         pins[0].name = "\u{c8}as".to_string();
-        apply_pin_wide_text(&mut pins, &raw);
+        apply_pin_wide_text(&mut pins, &raw, &mut Budget::default()).expect("within budget");
         assert_eq!(pins[0].name, "\u{10c}as");
         assert_eq!(pins[0].name_code_page, None, "a real name, no widening");
     }
@@ -423,7 +501,7 @@ mod tests {
 
         let mut pins = vec![pin()];
         pins[0].name = "R\u{e9}sistance".to_string();
-        apply_pin_wide_text(&mut pins, &out);
+        apply_pin_wide_text(&mut pins, &out, &mut Budget::default()).expect("within budget");
         assert_eq!(pins[0].name, "R\u{e9}sistance");
         assert_eq!(pins[0].name_code_page, Some(1250));
         assert_eq!(encode_pin_wide_text(&pins).unwrap(), Some(out));
@@ -441,7 +519,7 @@ mod tests {
 
         let mut pins = vec![pin()];
         pins[0].name = "??".to_string();
-        apply_pin_wide_text(&mut pins, &out);
+        apply_pin_wide_text(&mut pins, &out, &mut Budget::default()).expect("within budget");
         assert_eq!(pins[0].name, "\u{7535}\u{963B}");
     }
 
@@ -467,7 +545,7 @@ mod tests {
             .expect("a fractional pin must emit a PinFrac stream");
 
         let mut read_back = vec![pin(), pin(), pin()];
-        apply_pin_frac(&mut read_back, &stream);
+        apply_pin_frac(&mut read_back, &stream, &mut Budget::default()).expect("within budget");
         assert_eq!(read_back[0].frac, None, "on-grid pin 0 stays None");
         assert_eq!(
             read_back[1].frac,
@@ -490,7 +568,8 @@ mod tests {
             .expect("a non-default width must emit a PinSymbolLineWidth stream");
 
         let mut read_back = vec![pin(), pin()];
-        apply_pin_symbol_line_widths(&mut read_back, &stream);
+        apply_pin_symbol_line_widths(&mut read_back, &stream, &mut Budget::default())
+            .expect("within budget");
         assert_eq!(
             read_back[0].symbol_line_width, 3,
             "width survives round-trip"
@@ -522,8 +601,9 @@ mod tests {
     fn corrupt_stream_is_ignored_not_panicked() {
         // A truncated / garbage stream must not panic; unknown entries are skipped.
         let mut pins = vec![pin()];
-        apply_pin_frac(&mut pins, &[0x00, 0x00]); // too short for even a header
-        apply_pin_symbol_line_widths(&mut pins, &[0xFF; 8]);
+        apply_pin_frac(&mut pins, &[0x00, 0x00], &mut Budget::default()).expect("within budget"); // too short for even a header
+        apply_pin_symbol_line_widths(&mut pins, &[0xFF; 8], &mut Budget::default())
+            .expect("within budget");
         assert_eq!(pins[0].frac, None);
         assert_eq!(pins[0].symbol_line_width, 0);
     }
@@ -533,7 +613,7 @@ mod tests {
     fn a_wide_text_entry_with_an_out_of_range_index_is_ignored() {
         let mut pins = vec![pin()];
         let raw = aux_stream(&[(7, encode_unicode_param_block("|NAME=GHOST"))]);
-        apply_pin_wide_text(&mut pins, &raw);
+        apply_pin_wide_text(&mut pins, &raw, &mut Budget::default()).expect("within budget");
         assert_eq!(pins[0].name, "A", "the one real pin stays untouched");
     }
 }

@@ -2633,9 +2633,11 @@ pub fn prepare_models_for_writing(
         .iter()
         .enumerate()
         .map(|(idx, model)| {
-            // Altium's own compressed bytes while they still hold the model.
+            // Altium's own compressed bytes while they still hold the model,
+            // inflated no further than the model they must match.
             if !model.compressed.is_empty()
-                && super::reader::decompress_model_data(&model.compressed) == model.data
+                && crate::altium::inflate::inflate_capped(&model.compressed, model.data.len())
+                    .is_some_and(|data| data == model.data)
             {
                 return Ok((idx, model.compressed.clone()));
             }
