@@ -228,10 +228,13 @@ fn section_keys_map(data: &[u8]) -> HashMap<String, String> {
         .filter_map(|segment| segment.split_once('='))
         .map(|(key, value)| (key.to_ascii_lowercase(), value))
         .collect();
+    // An entry takes fields of its own, so there are no more entries than
+    // fields: a crafted `KeyCount` must not spin the walk past them.
     let count = fields
         .get("keycount")
         .and_then(|v| v.trim().parse::<usize>().ok())
-        .unwrap_or(0);
+        .unwrap_or(0)
+        .min(fields.len());
     (0..count)
         .filter_map(|i| {
             let get = |key: String| fields.get(&key).copied();
@@ -554,6 +557,18 @@ mod tests {
 
         let err = SchLib::open(&path).expect_err("a huge CompCount must be refused");
         assert!(err.to_string().contains("CompCount"), "{err}");
+    }
+
+    #[test]
+    fn a_key_count_past_its_fields_walks_only_the_fields() {
+        // KeyCount is file-derived and drives the walk, which at u64::MAX
+        // would never end; the stream's own fields bound it. `SectionKeys`
+        // frames its text as the header does.
+        let data = header_block("|KeyCount=18446744073709551615|LibRef0=A|SectionKey0=B");
+        assert_eq!(
+            super::section_keys_map(&data),
+            std::collections::HashMap::from([("A".to_string(), "B".to_string())])
+        );
     }
 
     #[test]
