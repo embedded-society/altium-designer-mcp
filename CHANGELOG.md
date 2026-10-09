@@ -12,10 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **The Linux binary's glibc floor is promised and kept.** It needs glibc 2.34 or newer
-  (Ubuntu 22.04, Debian 12, RHEL 9 and later), as the READMEs now say. A release builds it on
-  a pinned Ubuntu 24.04 rather than whatever `ubuntu-latest` is, and both the release
-  workflow and the draft review check the binary against the floor, so a newer build image
-  can't quietly drop older distributions.
+  (Ubuntu 22.04, Debian 12, RHEL 9 with AlmaLinux and Rocky Linux 9, and later), as the
+  READMEs now say. A release builds it on a pinned Ubuntu 24.04 rather than whatever
+  `ubuntu-latest` is, and both the release workflow and the draft review check the binary
+  against the floor, so a newer build image can't quietly drop older distributions.
 
 ## [1.2.2] - 2026-10-09
 

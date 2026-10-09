@@ -45,8 +45,8 @@ Copy-Item altium-designer-mcp.exe "$env:LOCALAPPDATA\Programs\altium-designer-mc
 sudo install -m 755 altium-designer-mcp /usr/local/bin/altium-designer-mcp
 ```
 
-On Linux the binary needs glibc 2.34 or newer: Ubuntu 22.04, Debian 12, RHEL 9 and later
-(`ldd --version` shows yours).
+On Linux the binary needs glibc 2.34 or newer: Ubuntu 22.04, Debian 12, RHEL 9 (and its free
+rebuilds, AlmaLinux and Rocky Linux 9) and later (`ldd --version` shows yours).
 
 On macOS the binary is not code-signed, so Gatekeeper blocks the first run: right-click it in Finder
 and choose **Open** once, or run `xattr -d com.apple.quarantine altium-designer-mcp`.
