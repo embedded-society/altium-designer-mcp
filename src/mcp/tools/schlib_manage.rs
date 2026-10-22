@@ -419,11 +419,12 @@ impl McpServer {
                 };
 
                 let mut result = if operation == "add" {
-                    // Check if footprint already exists
+                    // Check if footprint already exists (a simulation or 3D
+                    // model of the same name is another kind of link)
                     if symbol
                         .footprints
                         .iter()
-                        .any(|f| f.name.eq_ignore_ascii_case(footprint_name))
+                        .any(|f| f.is_footprint() && f.name.eq_ignore_ascii_case(footprint_name))
                     {
                         return ToolCallResult::error(format!(
                             "Footprint '{footprint_name}' already linked to symbol '{component_name}'"
@@ -455,11 +456,12 @@ impl McpServer {
                         "footprint": footprint_name,
                     })
                 } else {
-                    // Remove footprint
+                    // Remove the footprint, leaving any other kind of model
+                    // link of the same name
                     let original_len = symbol.footprints.len();
-                    symbol
-                        .footprints
-                        .retain(|f| !f.name.eq_ignore_ascii_case(footprint_name));
+                    symbol.footprints.retain(|f| {
+                        !(f.is_footprint() && f.name.eq_ignore_ascii_case(footprint_name))
+                    });
 
                     if symbol.footprints.len() == original_len {
                         return ToolCallResult::error(format!(

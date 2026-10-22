@@ -23,6 +23,13 @@ pub struct FootprintModel {
     /// (positional), so this is read-preserved only until multi-model authoring lands.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub is_current: bool,
+    /// The link's `ModelType` when it is not a footprint (`PCBLIB`): a
+    /// simulation model (`SIM`), a signal-integrity model (`SI`), a 3D model
+    /// (`PCB3DLib`), as Altium stored it. Altium keeps one current model per
+    /// type, so a symbol can hold a current footprint and a current
+    /// simulation model at once. `None` for a footprint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_type: Option<String>,
     /// The record's `UniqueID`, preserved on read so a read-modify-write
     /// re-emits the same id; a from-scratch model generates a fresh one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -59,7 +66,17 @@ impl FootprintModel {
             description: String::new(),
             library_path: None,
             is_current: false,
+            model_type: None,
             unique_id: None,
         }
+    }
+
+    /// Whether the link is a footprint (`ModelType=PCBLIB`) rather than
+    /// another kind of model (see [`Self::model_type`]).
+    #[must_use]
+    pub fn is_footprint(&self) -> bool {
+        self.model_type
+            .as_deref()
+            .is_none_or(|kind| kind.eq_ignore_ascii_case("PCBLIB"))
     }
 }

@@ -222,115 +222,153 @@ impl Pin {
 
 /// Pin symbol decoration (visual indicators on pin graphics).
 ///
-/// These decorations appear at different positions on the pin to indicate
-/// electrical characteristics or signal flow.
+/// A pin's four decoration slots store Altium's `TIeeeSymbol` id, the same
+/// enumeration as an IEEE symbol record (`RECORD=3`; table in
+/// `docs/SCHLIB_FORMAT.md`). The pin dialog offers a subset of it — its ids
+/// run with gaps (Postponed Output 8, Active Low Output 17, Open Collector
+/// Pull Up 22, Left-Right Signal Flow 33) — but a slot can hold any glyph,
+/// and an id past the table is kept as [`Self::Other`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PinSymbol {
-    /// No decoration.
+    /// No decoration (0).
     #[default]
     None,
-    /// Inversion dot (bubble).
+    /// Inversion dot, a bubble (1).
     Dot,
-    /// Right-to-left signal flow arrow.
+    /// Right-to-left signal flow arrow (2).
     RightLeftSignalFlow,
-    /// Clock input indicator.
+    /// Clock input indicator (3).
     Clock,
-    /// Active low input bar.
+    /// Active low input bar (4).
     ActiveLowInput,
-    /// Analog signal input.
+    /// Analog signal input (5).
     AnalogSignalIn,
-    /// Not a logic connection.
+    /// Not a logic connection (6).
     NotLogicConnection,
-    /// Postponed output.
+    /// Shift right (7).
+    ShiftRight,
+    /// Postponed output (8).
     PostponedOutput,
-    /// Open collector output.
+    /// Open collector output (9).
     OpenCollector,
-    /// High impedance.
+    /// High impedance (10).
     HiZ,
-    /// High current.
+    /// High current (11).
     HighCurrent,
-    /// Pulse.
+    /// Pulse (12).
     Pulse,
-    /// Schmitt trigger input.
+    /// Schmitt trigger input (13).
     Schmitt,
-    /// Active low output bar.
+    /// Delay (14).
+    Delay,
+    /// Group line (15).
+    GroupLine,
+    /// Group binary (16).
+    GroupBinary,
+    /// Active low output bar (17).
     ActiveLowOutput,
-    /// Open collector with pull-up.
+    /// Pi (18).
+    Pi,
+    /// Greater than or equal (19).
+    GreaterEqual,
+    /// Less than or equal (20).
+    LessEqual,
+    /// Sigma (21).
+    Sigma,
+    /// Open collector with pull-up (22).
     OpenCollectorPullUp,
-    /// Open emitter output.
+    /// Open emitter output (23).
     OpenEmitter,
-    /// Open emitter with pull-up.
+    /// Open emitter with pull-up (24).
     OpenEmitterPullUp,
-    /// Digital signal input.
+    /// Digital signal input (25).
     DigitalSignalIn,
-    /// Shift left.
+    /// And (26).
+    And,
+    /// Invertor (27).
+    Invertor,
+    /// Or (28).
+    Or,
+    /// Exclusive or (29).
+    Xor,
+    /// Shift left (30).
     ShiftLeft,
-    /// Open output.
+    /// Input/output (31).
+    InputOutput,
+    /// Open circuit output (32).
     OpenOutput,
-    /// Left-to-right signal flow arrow.
+    /// Left-to-right signal flow arrow (33).
     LeftRightSignalFlow,
-    /// Bidirectional signal flow.
+    /// Bidirectional signal flow (34).
     BidirectionalSignalFlow,
+    /// An id past the table, kept as stored; written in JSON as the bare
+    /// number.
+    #[serde(untagged)]
+    Other(u8),
 }
 
 impl PinSymbol {
+    /// Every named decoration, in id order (`None` is 0).
+    const NAMED: [Self; 35] = [
+        Self::None,
+        Self::Dot,
+        Self::RightLeftSignalFlow,
+        Self::Clock,
+        Self::ActiveLowInput,
+        Self::AnalogSignalIn,
+        Self::NotLogicConnection,
+        Self::ShiftRight,
+        Self::PostponedOutput,
+        Self::OpenCollector,
+        Self::HiZ,
+        Self::HighCurrent,
+        Self::Pulse,
+        Self::Schmitt,
+        Self::Delay,
+        Self::GroupLine,
+        Self::GroupBinary,
+        Self::ActiveLowOutput,
+        Self::Pi,
+        Self::GreaterEqual,
+        Self::LessEqual,
+        Self::Sigma,
+        Self::OpenCollectorPullUp,
+        Self::OpenEmitter,
+        Self::OpenEmitterPullUp,
+        Self::DigitalSignalIn,
+        Self::And,
+        Self::Invertor,
+        Self::Or,
+        Self::Xor,
+        Self::ShiftLeft,
+        Self::InputOutput,
+        Self::OpenOutput,
+        Self::LeftRightSignalFlow,
+        Self::BidirectionalSignalFlow,
+    ];
+
     /// Creates from Altium symbol ID.
     #[must_use]
     pub const fn from_id(id: u8) -> Self {
-        match id {
-            1 => Self::Dot,
-            2 => Self::RightLeftSignalFlow,
-            3 => Self::Clock,
-            4 => Self::ActiveLowInput,
-            5 => Self::AnalogSignalIn,
-            6 => Self::NotLogicConnection,
-            7 => Self::PostponedOutput,
-            8 => Self::OpenCollector,
-            9 => Self::HiZ,
-            10 => Self::HighCurrent,
-            11 => Self::Pulse,
-            12 => Self::Schmitt,
-            13 => Self::ActiveLowOutput,
-            14 => Self::OpenCollectorPullUp,
-            15 => Self::OpenEmitter,
-            16 => Self::OpenEmitterPullUp,
-            17 => Self::DigitalSignalIn,
-            18 => Self::ShiftLeft,
-            19 => Self::OpenOutput,
-            20 => Self::LeftRightSignalFlow,
-            21 => Self::BidirectionalSignalFlow,
-            _ => Self::None,
+        if (id as usize) < Self::NAMED.len() {
+            Self::NAMED[id as usize]
+        } else {
+            Self::Other(id)
         }
     }
 
     /// Returns the Altium symbol ID.
     #[must_use]
-    pub const fn to_id(self) -> u8 {
-        match self {
-            Self::None => 0,
-            Self::Dot => 1,
-            Self::RightLeftSignalFlow => 2,
-            Self::Clock => 3,
-            Self::ActiveLowInput => 4,
-            Self::AnalogSignalIn => 5,
-            Self::NotLogicConnection => 6,
-            Self::PostponedOutput => 7,
-            Self::OpenCollector => 8,
-            Self::HiZ => 9,
-            Self::HighCurrent => 10,
-            Self::Pulse => 11,
-            Self::Schmitt => 12,
-            Self::ActiveLowOutput => 13,
-            Self::OpenCollectorPullUp => 14,
-            Self::OpenEmitter => 15,
-            Self::OpenEmitterPullUp => 16,
-            Self::DigitalSignalIn => 17,
-            Self::ShiftLeft => 18,
-            Self::OpenOutput => 19,
-            Self::LeftRightSignalFlow => 20,
-            Self::BidirectionalSignalFlow => 21,
+    pub fn to_id(self) -> u8 {
+        if let Self::Other(id) = self {
+            return id;
         }
+        Self::NAMED
+            .iter()
+            .position(|named| *named == self)
+            .and_then(|i| u8::try_from(i).ok())
+            .unwrap_or(0)
     }
 }
 
@@ -472,16 +510,20 @@ mod tests {
 
     #[test]
     fn pin_symbol_round_trips_all_ids() {
-        for id in 0..=21 {
+        for id in 0..=u8::MAX {
             assert_eq!(
                 PinSymbol::from_id(id).to_id(),
                 id,
                 "id {id} did not round-trip"
             );
         }
-        // Out-of-range ids fall back to the undecorated symbol (id 0).
-        assert_eq!(PinSymbol::from_id(99), PinSymbol::None);
-        assert_eq!(PinSymbol::from_id(255), PinSymbol::None);
+        // The ids are Altium's TIeeeSymbol, gaps and all.
+        assert_eq!(PinSymbol::from_id(8), PinSymbol::PostponedOutput);
+        assert_eq!(PinSymbol::from_id(17), PinSymbol::ActiveLowOutput);
+        assert_eq!(PinSymbol::from_id(22), PinSymbol::OpenCollectorPullUp);
+        assert_eq!(PinSymbol::from_id(34), PinSymbol::BidirectionalSignalFlow);
+        // An id past the table is kept, not reset to no decoration.
+        assert_eq!(PinSymbol::from_id(35), PinSymbol::Other(35));
         assert_eq!(PinSymbol::None.to_id(), 0);
     }
 }

@@ -286,14 +286,14 @@ fn parse_text_record_from_string(symbol: &mut Symbol, text: &str) {
             // `%UTF8%Text` convention as any other text field). Its position
             // and UniqueID are preserved so a read-modify-write re-emits the
             // record byte-identically (absent coordinate keys decode to 0,
-            // which is the authored value — Altium omits zero keys).
-            if let Some(designator) = read_utf8_text_field(&props, "text") {
-                symbol.designator = designator;
-                symbol.designator_x = crate::altium::schlib::coord::read(&props, "location.x");
-                symbol.designator_y = crate::altium::schlib::coord::read(&props, "location.y");
-                symbol.designator_unique_id = props.get("uniqueid").cloned();
-                symbol.designator_params = record_segments(text);
-            }
+            // which is the authored value — Altium omits zero keys). A
+            // designator left empty has no `Text` key at all; its record is
+            // kept the same way.
+            symbol.designator = read_utf8_text_field(&props, "text").unwrap_or_default();
+            symbol.designator_x = crate::altium::schlib::coord::read(&props, "location.x");
+            symbol.designator_y = crate::altium::schlib::coord::read(&props, "location.y");
+            symbol.designator_unique_id = props.get("uniqueid").cloned();
+            symbol.designator_params = record_segments(text);
         }
         41 => {
             // Parameter
@@ -307,9 +307,15 @@ fn parse_text_record_from_string(symbol: &mut Symbol, text: &str) {
             if let Some(name) = props.get("modelname") {
                 let mut fp = FootprintModel::new(name);
                 fp.raw_params = record_segments(text);
-                if let Some(desc) = props.get("description") {
-                    fp.description.clone_from(desc);
+                // The description by its %UTF8% twin where Altium wrote one.
+                if let Some(desc) = read_utf8_text_field(&props, "description") {
+                    fp.description = desc;
                 }
+                // A simulation, signal-integrity or 3D model link keeps its type.
+                fp.model_type = props
+                    .get("modeltype")
+                    .filter(|kind| !kind.eq_ignore_ascii_case("PCBLIB"))
+                    .cloned();
                 // Preserve the PcbLib path (ModelDatafile0) so it round-trips.
                 if let Some(path) = props.get("modeldatafile0") {
                     if !path.is_empty() {
