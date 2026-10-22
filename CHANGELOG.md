@@ -103,6 +103,32 @@ rename and back but for its save path, date and time.
   are skipped with a warning, and a carried stream nested in a sub-storage, or beside a
   storage the writer already made, no longer fails the save.
 
+Found rewriting a desktop-authored production `SchLib` (#584): a write to any symbol rewrote
+the same 37 others, losing what follows.
+
+- **A model link keeps its kind.** Every `RECORD=45` was written as a footprint
+  (`ModelType=PCBLIB`, `ModelDatafileKind0=PCBLib`), so a simulation model (`SIM`), a
+  signal-integrity model (`SI`) or a 3D model (`PCB3DLib`) became a footprint named after it,
+  and a symbol with a current footprint and a current simulation model ended with two current
+  footprints. The type is kept (`model_type` on the link) and so is the datafile group as read,
+  including a second datafile. `manage_schlib_footprints` adds and removes footprints only.
+- **A model link's description outside ASCII keeps its `%UTF8%Description` twin**, which was
+  dropped, leaving only the code-page bytes.
+- **A designator left empty is kept.** Its record has no `Text` key, and it was dropped with
+  its position and identity.
+- **A parameter with no name is kept.** Altium stores a nameless text (a hidden `*`) as a
+  `RECORD=41` without `Name`; it was dropped. It reads under the empty name.
+- **Pin decorations use Altium's ids.** A pin's four decoration slots store Altium's
+  `TIeeeSymbol` id, which runs with gaps, but the names were numbered 0 to 21 in a row:
+  `open_collector` wrote Postponed Output (8), `active_low_output` wrote Schmitt (13), and
+  any id past 21 (Left-Right Signal Flow is 33) read as no decoration and was written back
+  as 0. Every id from 0 to 34 now has its Altium name, an id past that is kept as the bare
+  number, and a slot also takes the number in `write_schlib` and `update_component`. A pin a
+  previous version wrote with one of the misnumbered names reads back under the name Altium
+  shows for it.
+- **An arc ending at 0° gains no `EndAngle`.** Altium omits the key for an end angle of 0;
+  a rewrite appended `EndAngle=360.000` (the same point) to every such arc.
+
 ## [1.2.2] - 2026-10-09
 
 A security release: a crafted library could exhaust the server's memory through its compressed

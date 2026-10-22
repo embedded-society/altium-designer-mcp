@@ -222,8 +222,11 @@ pub(super) fn parse_line(props: &HashMap<String, String>) -> Option<Line> {
 }
 
 /// Parses a parameter from properties.
+#[allow(clippy::unnecessary_wraps)] // infallible (a nameless text is kept); Option kept for uniform parser dispatch
 pub(super) fn parse_parameter(props: &HashMap<String, String>) -> Option<Parameter> {
-    let name = read_utf8_text_field(props, "name")?;
+    // Altium keeps a text with no name too (a hidden `*`): its record has no
+    // `Name` key, and it is kept under the empty name.
+    let name = read_utf8_text_field(props, "name").unwrap_or_default();
     let value = read_utf8_text_field(props, "text").unwrap_or_default();
 
     let x = crate::altium::schlib::coord::read(props, "location.x");
