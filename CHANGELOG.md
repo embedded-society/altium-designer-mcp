@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A backup no longer overwrites another (#585).** Backups were named to the second, and two
+  writes within one second, such as two `update_component` calls in a row, wrote the second
+  backup over the first, losing the original file. A backup is now created exclusively, and a
+  later one in the same second takes a `_001`, `_002`, … suffix; `list_backups` and
+  `restore_backup` read both forms.
 - **A library named by its bare file name works like any other.** A new `Lib.PcbLib` in the
   server's working directory was refused with "Parent directory … does not exist", although
   `./Lib.PcbLib` was accepted. For an existing one named that way, `list_backups` and

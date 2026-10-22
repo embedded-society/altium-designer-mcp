@@ -751,11 +751,28 @@ impl McpServer {
         Ok(())
     }
 
+    /// Whether `stamp`, the part of a backup's name between the file name and
+    /// `.bak`, is a backup stamp: `YYYYMMDD_HHMMSS`, then `_NNN` for the
+    /// second and later backups taken within the same second. Stamps sort
+    /// oldest to newest as plain strings.
+    pub(crate) fn is_backup_stamp(stamp: &str) -> bool {
+        let b = stamp.as_bytes();
+        let digits = |range: std::ops::Range<usize>| b[range].iter().all(u8::is_ascii_digit);
+        let seconds = |b: &[u8]| b.len() >= 15 && b[8] == b'_' && digits(0..8) && digits(9..15);
+        match b.len() {
+            15 => seconds(b),
+            19 => seconds(b) && b[15] == b'_' && digits(16..19),
+            _ => false,
+        }
+    }
+
     /// Creates a timestamped backup of an existing file before modification.
     ///
     /// Copies `filepath` to `filepath.YYYYMMDD_HHMMSS.bak`, keeping up to
     /// `MAX_BACKUPS` recent backups per file. Older backups are automatically
-    /// cleaned up to prevent unbounded disk usage.
+    /// cleaned up to prevent unbounded disk usage. A backup never replaces
+    /// another: a later one within the same second becomes
+    /// `filepath.YYYYMMDD_HHMMSS_001.bak`, then `_002`, and so on.
     ///
     /// If the source file does not exist (new file creation), this is a no-op.
     ///
@@ -773,17 +790,48 @@ impl McpServer {
             return Ok(None);
         }
 
-        // Generate timestamped backup filename
-        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-        let backup_path = format!("{filepath}.{timestamp}.bak");
-
-        std::fs::copy(path, &backup_path).map_err(|e| {
+        let failed = |e: &dyn std::fmt::Display| {
             format!(
                 "Failed to create backup of '{}': {e}",
                 path.file_name()
                     .map_or_else(|| "file".to_string(), |n| n.to_string_lossy().into_owned())
             )
-        })?;
+        };
+
+        // The first free name for this second, claimed with an exclusive
+        // create so that no backup can ever overwrite another.
+        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
+        let mut claimed = None;
+        for n in 0..1000 {
+            let candidate = if n == 0 {
+                format!("{filepath}.{timestamp}.bak")
+            } else {
+                format!("{filepath}.{timestamp}_{n:03}.bak")
+            };
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&candidate)
+            {
+                Ok(file) => {
+                    claimed = Some((candidate, file));
+                    break;
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(e) => return Err(failed(&e)),
+            }
+        }
+        let (backup_path, mut backup) =
+            claimed.ok_or_else(|| failed(&"a thousand backups were taken within one second"))?;
+
+        let copied = std::fs::File::open(path)
+            .and_then(|mut source| std::io::copy(&mut source, &mut backup))
+            .and_then(|_| backup.sync_all());
+        if let Err(e) = copied {
+            drop(backup);
+            let _ = std::fs::remove_file(&backup_path);
+            return Err(failed(&e));
+        }
 
         tracing::debug!(
             source = %filepath,
@@ -809,7 +857,7 @@ impl McpServer {
             return;
         };
 
-        // Pattern: filename.YYYYMMDD_HHMMSS.bak
+        // Pattern: filename.<stamp>.bak (see `is_backup_stamp`)
         let prefix = format!("{filename}.");
         let suffix = ".bak";
 
@@ -823,10 +871,8 @@ impl McpServer {
                         && name.ends_with(suffix)
                         && name != format!("{filename}.bak")
                     {
-                        // Extract timestamp part for sorting
-                        let timestamp_part = &name[prefix.len()..name.len() - suffix.len()];
-                        // Validate it looks like a timestamp (YYYYMMDD_HHMMSS = 15 chars)
-                        if timestamp_part.len() == 15 {
+                        let stamp = &name[prefix.len()..name.len() - suffix.len()];
+                        if Self::is_backup_stamp(stamp) {
                             return Some((entry.path(), name));
                         }
                     }
@@ -4144,6 +4190,53 @@ mod tests {
                 .expect("an existing file should back up");
             let made = made.expect("a backup path should be reported");
             assert!(std::path::Path::new(&made).exists(), "{made}");
+        }
+
+        #[test]
+        fn backups_taken_within_one_second_never_overwrite_each_other() {
+            // Writes in quick succession each back up the file as it then
+            // stood; the first backup is the original and must survive.
+            let dir = test_temp_dir();
+            let lib = dir.path().join("Quick.SchLib");
+            let lib = lib.to_string_lossy();
+            let mut made = Vec::new();
+            for content in [&b"original"[..], b"after one", b"after two"] {
+                std::fs::write(&*lib, content).unwrap();
+                made.push(McpServer::create_backup(&lib).unwrap().expect("backed up"));
+            }
+            let contents: Vec<Vec<u8>> = made.iter().map(|p| std::fs::read(p).unwrap()).collect();
+            assert_eq!(
+                contents,
+                [
+                    b"original".to_vec(),
+                    b"after one".to_vec(),
+                    b"after two".to_vec()
+                ]
+            );
+            let mut sorted = made.clone();
+            sorted.sort();
+            assert_eq!(sorted, made, "names sort oldest to newest");
+        }
+
+        #[test]
+        fn a_backup_stamp_is_the_second_and_an_optional_counter() {
+            for stamp in [
+                "20261021_152855",
+                "20261021_152855_001",
+                "20261021_152855_999",
+            ] {
+                assert!(McpServer::is_backup_stamp(stamp), "{stamp}");
+            }
+            for stamp in [
+                "",
+                "bak",
+                "20261021152855",
+                "20261021_15285x",
+                "20261021_152855_1",
+                "20261021_152855-001",
+            ] {
+                assert!(!McpServer::is_backup_stamp(stamp), "{stamp}");
+            }
         }
     }
 
