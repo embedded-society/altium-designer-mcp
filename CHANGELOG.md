@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-22
+
+A fidelity release: a rewrite keeps what libraries from Altium 365 and production desktop
+libraries carry, which it used to drop or change in the symbols and footprints it was not
+asked to touch. Records a symbol owns, aliases, simulation and 3D model
+links, empty designators and nameless parameters were lost or changed on every save, and a
+footprint library lost the streams beside each footprint, gained a phantom footprint and had its
+pads, 3D bodies and summary table rebuilt. Pin decorations now carry Altium's ids: a pin an
+earlier version wrote as `open_collector`, say, reads back as the decoration Altium shows for
+it. `diff_libraries` compares the stored bytes too, so a change the model does not show is
+reported, and two writes within one second no longer overwrite the first one's backup.
+
 ### Changed
 
 - **The Linux binary's glibc floor is promised and kept.** It needs glibc 2.34 or newer
@@ -21,34 +33,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **A backup no longer overwrites another (#585).** Backups were named to the second, and two
-  writes within one second, such as two `update_component` calls in a row, wrote the second
-  backup over the first, losing the original file. A backup is now created exclusively, and a
-  later one in the same second takes a `_001`, `_002`, … suffix; `list_backups` and
-  `restore_backup` read both forms. Pruning also keeps the first backup the server made of a
-  file since it started, beside the five newest, so a long run of changes can no longer prune
-  away the file as it was before them.
-- **A library named by its bare file name works like any other.** A new `Lib.PcbLib` in the
-  server's working directory was refused with "Parent directory … does not exist", although
-  `./Lib.PcbLib` was accepted. For an existing one named that way, `list_backups` and
-  `restore_backup` failed and its old backups were never pruned. A bare name now resolves to
-  the working directory throughout.
-- **A 32-bit build reads a crafted length safely.** Lengths read from a library were added to
-  offsets in plain arithmetic, which on a 32-bit build (none ships; a source build can be one)
-  could wrap and read the wrong bytes or panic. Every such sum now saturates or is checked.
-- **`diff_libraries` sees a change the model does not show (#586).** It compared what the
-  reader models (descriptions, designators, primitive counts), which is the same on both
-  sides of a rewrite that lost something the reader does not model, so a lossy rewrite
-  reported nothing modified. Each component in both libraries is now also compared by the
-  bytes of every stream of its storage: a modified one lists its `stored` stream changes, one
-  whose compared fields are equal but whose bytes are not is listed under `stored_only`, and
-  `library_streams` lists the library's own streams that differ.
-
 Found rewriting an Altium 365-exported library pair (a 143-symbol `SchLib`, an 81-footprint
 `PcbLib`): before these fixes a rewrite that changed nothing changed every symbol's `Data`
 stream and 93 streams of the footprint library. The symbol library now comes back byte for
 byte from `update_component` with every symbol as read, and the footprint library from a
-rename and back but for its save path, date and time.
+rename and back but for its save path, date and time. Reported and fixed by
+@GabrielGoldsteinAnidea (#580, #581, #582).
 
 - **Records a symbol owns go back under their owner.** A pin's parameter (`Name=Order`), a
   footprint link's pin-map definer (`RECORD=47`) and its implementation parameter (Altium
@@ -111,7 +101,7 @@ rename and back but for its save path, date and time.
   storage the writer already made, no longer fails the save.
 
 Found rewriting a desktop-authored production `SchLib` (#584): a write to any symbol rewrote
-the same 37 others, losing what follows.
+the same 37 others, losing what follows. Reported by @RSO-KME.
 
 - **A model link keeps its kind.** Every `RECORD=45` was written as a footprint
   (`ModelType=PCBLIB`, `ModelDatafileKind0=PCBLib`), so a simulation model (`SIM`), a
@@ -135,6 +125,31 @@ the same 37 others, losing what follows.
   shows for it.
 - **An arc ending at 0° gains no `EndAngle`.** Altium omits the key for an end angle of 0;
   a rewrite appended `EndAngle=360.000` (the same point) to every such arc.
+
+Elsewhere:
+
+- **`diff_libraries` sees a change the model does not show (#586).** It compared what the
+  reader models (descriptions, designators, primitive counts), which is the same on both
+  sides of a rewrite that lost something the reader does not model, so a lossy rewrite
+  reported nothing modified. Each component in both libraries is now also compared by the
+  bytes of every stream of its storage: a modified one lists its `stored` stream changes, one
+  whose compared fields are equal but whose bytes are not is listed under `stored_only`, and
+  `library_streams` lists the library's own streams that differ. Reported by @RSO-KME.
+- **A backup no longer overwrites another (#585).** Backups were named to the second, and two
+  writes within one second, such as two `update_component` calls in a row, wrote the second
+  backup over the first, losing the original file. A backup is now created exclusively, and a
+  later one in the same second takes a `_001`, `_002`, … suffix; `list_backups` and
+  `restore_backup` read both forms. Pruning also keeps the first backup the server made of a
+  file since it started, beside the five newest, so a long run of changes can no longer prune
+  away the file as it was before them. Reported by @RSO-KME.
+- **A library named by its bare file name works like any other.** A new `Lib.PcbLib` in the
+  server's working directory was refused with "Parent directory … does not exist", although
+  `./Lib.PcbLib` was accepted. For an existing one named that way, `list_backups` and
+  `restore_backup` failed and its old backups were never pruned. A bare name now resolves to
+  the working directory throughout.
+- **A 32-bit build reads a crafted length safely.** Lengths read from a library were added to
+  offsets in plain arithmetic, which on a 32-bit build (none ships; a source build can be one)
+  could wrap and read the wrong bytes or panic. Every such sum now saturates or is checked.
 
 ## [1.2.2] - 2026-10-09
 
