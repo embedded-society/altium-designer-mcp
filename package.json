@@ -13,7 +13,7 @@
     "overrides": {
         "js-yaml": ">=5.2.1",
         "katex": ">=0.18.2",
-        "markdown-it": ">=15.0.2",
+        "markdown-it": ">=15.0.3",
         "smol-toml": ">=1.9.0"
     }
 }
