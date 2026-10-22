@@ -725,8 +725,22 @@ impl McpServer {
         Err("Access denied: path is outside the configured allowed directories".to_string())
     }
 
-    /// Maximum number of timestamped backups to retain per file.
+    /// Maximum number of timestamped backups to retain per file, besides the
+    /// run's first (see [`Self::first_backups`]).
     const MAX_BACKUPS: usize = 5;
+
+    /// The first backup this server run made of each file, keyed by the
+    /// file, both canonical: the file as it stood before the run first
+    /// changed it. Pruning keeps it beside the newest [`Self::MAX_BACKUPS`],
+    /// so a long session of edits never prunes away the original.
+    fn first_backups(
+    ) -> &'static std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, std::path::PathBuf>>
+    {
+        static FIRST: std::sync::OnceLock<
+            std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, std::path::PathBuf>>,
+        > = std::sync::OnceLock::new();
+        FIRST.get_or_init(Default::default)
+    }
 
     /// Refuses text the library's records cannot hold, backs up `filepath`,
     /// then persists the library.
@@ -839,13 +853,24 @@ impl McpServer {
             "Created timestamped backup before destructive operation"
         );
 
-        // Clean up old backups, keeping only the most recent MAX_BACKUPS
+        if let (Ok(source), Ok(made)) = (
+            path.canonicalize(),
+            std::path::Path::new(&backup_path).canonicalize(),
+        ) {
+            if let Ok(mut first) = Self::first_backups().lock() {
+                first.entry(source).or_insert(made);
+            }
+        }
+
+        // Clean up old backups, keeping the most recent MAX_BACKUPS and the
+        // run's first
         Self::cleanup_old_backups(filepath);
 
         Ok(Some(backup_path))
     }
 
-    /// Removes old backup files, keeping only the most recent `MAX_BACKUPS`.
+    /// Removes old backup files, keeping the most recent `MAX_BACKUPS` and the
+    /// first this run made of the file.
     pub(crate) fn cleanup_old_backups(filepath: &str) {
         use std::path::Path;
 
@@ -885,8 +910,20 @@ impl McpServer {
         // Sort by filename (timestamp) descending (newest first)
         backups.sort_by(|a, b| b.1.cmp(&a.1));
 
-        // Remove backups beyond MAX_BACKUPS
+        // Remove backups beyond MAX_BACKUPS, but never the run's first
+        let first = path.canonicalize().ok().and_then(|source| {
+            Self::first_backups()
+                .lock()
+                .ok()
+                .and_then(|first| first.get(&source).cloned())
+        });
         for (backup_path, _) in backups.into_iter().skip(Self::MAX_BACKUPS) {
+            if first
+                .as_ref()
+                .is_some_and(|first| backup_path.canonicalize().is_ok_and(|b| &b == first))
+            {
+                continue;
+            }
             if let Err(e) = std::fs::remove_file(&backup_path) {
                 tracing::warn!(
                     path = %backup_path.display(),
@@ -4216,6 +4253,39 @@ mod tests {
             let mut sorted = made.clone();
             sorted.sort();
             assert_eq!(sorted, made, "names sort oldest to newest");
+        }
+
+        #[test]
+        fn a_long_run_of_writes_keeps_the_newest_backups_and_the_original() {
+            // Seven writes: pruning keeps the five newest and the run's first
+            // backup, which holds the file as it was before any of them.
+            let dir = test_temp_dir();
+            let lib = dir.path().join("Long.PcbLib");
+            let lib = lib.to_string_lossy();
+            for n in 0..7 {
+                std::fs::write(&*lib, format!("state {n}")).unwrap();
+                McpServer::create_backup(&lib).unwrap().expect("backed up");
+            }
+            let mut kept: Vec<String> = std::fs::read_dir(dir.path())
+                .unwrap()
+                .filter_map(Result::ok)
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|n| {
+                    std::path::Path::new(n)
+                        .extension()
+                        .is_some_and(|e| e.eq_ignore_ascii_case("bak"))
+                })
+                .collect();
+            kept.sort();
+            let contents: Vec<String> = kept
+                .iter()
+                .map(|n| std::fs::read_to_string(dir.path().join(n)).unwrap())
+                .collect();
+            assert_eq!(
+                contents,
+                ["state 0", "state 2", "state 3", "state 4", "state 5", "state 6"],
+                "{kept:?}"
+            );
         }
 
         #[test]
