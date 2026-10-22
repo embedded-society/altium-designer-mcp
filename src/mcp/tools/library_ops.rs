@@ -2884,14 +2884,22 @@ mod tests {
             std::fs::write(path, b"not an OLE compound document").expect("write corrupt file");
         }
 
-        /// Occupies the timestamped backup names `create_backup` is about to
-        /// try, so the copy fails. Covers this second and the next two, which
-        /// the call under test cannot outrun.
+        /// Occupies every backup name `create_backup` can try (the plain stamp
+        /// and each counter, `McpServer::BACKUPS_PER_SECOND` in all), so the
+        /// backup is refused. Covers this second and the next two, which the
+        /// call under test cannot outrun.
         fn block_backup_paths(path: &Path) {
             let now = chrono::Local::now();
             for offset in 0..3_i64 {
                 let stamp = (now + chrono::Duration::seconds(offset)).format("%Y%m%d_%H%M%S");
-                let _ = std::fs::create_dir(format!("{}.{stamp}.bak", path.display()));
+                for n in 0..McpServer::BACKUPS_PER_SECOND {
+                    let name = if n == 0 {
+                        format!("{}.{stamp}.bak", path.display())
+                    } else {
+                        format!("{}.{stamp}_{n:03}.bak", path.display())
+                    };
+                    let _ = std::fs::create_dir(name);
+                }
             }
         }
 

@@ -729,6 +729,11 @@ impl McpServer {
     /// run's first (see [`Self::first_backups`]).
     const MAX_BACKUPS: usize = 5;
 
+    /// How many backups of one file a single second can hold: the plain
+    /// stamp, then `_001` onward. A unit-test build holds few, so a test can
+    /// take every name and see a backup refused.
+    pub(crate) const BACKUPS_PER_SECOND: u32 = if cfg!(test) { 8 } else { 1000 };
+
     /// The first backup this server run made of each file, keyed by the
     /// file, both canonical: the file as it stood before the run first
     /// changed it. Pruning keeps it beside the newest [`Self::MAX_BACKUPS`],
@@ -816,7 +821,7 @@ impl McpServer {
         // create so that no backup can ever overwrite another.
         let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
         let mut claimed = None;
-        for n in 0..1000 {
+        for n in 0..Self::BACKUPS_PER_SECOND {
             let candidate = if n == 0 {
                 format!("{filepath}.{timestamp}.bak")
             } else {
@@ -831,12 +836,21 @@ impl McpServer {
                     claimed = Some((candidate, file));
                     break;
                 }
-                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+                // A name something already holds is taken, whatever the
+                // platform calls it: a directory there is `AlreadyExists` on
+                // Unix but `PermissionDenied` on Windows.
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::AlreadyExists
+                        || Path::new(&candidate).symlink_metadata().is_ok() => {}
                 Err(e) => return Err(failed(&e)),
             }
         }
-        let (backup_path, mut backup) =
-            claimed.ok_or_else(|| failed(&"a thousand backups were taken within one second"))?;
+        let (backup_path, mut backup) = claimed.ok_or_else(|| {
+            failed(&format!(
+                "all {} backup names for this second are taken",
+                Self::BACKUPS_PER_SECOND
+            ))
+        })?;
 
         let copied = std::fs::File::open(path)
             .and_then(|mut source| std::io::copy(&mut source, &mut backup))
@@ -4227,6 +4241,32 @@ mod tests {
                 .expect("an existing file should back up");
             let made = made.expect("a backup path should be reported");
             assert!(std::path::Path::new(&made).exists(), "{made}");
+        }
+
+        #[test]
+        fn a_directory_on_a_backup_name_is_passed_over_on_every_platform() {
+            // Unix reports the taken name as AlreadyExists, Windows as
+            // PermissionDenied; either way the backup takes the next name.
+            let dir = test_temp_dir();
+            let lib = dir.path().join("Held.PcbLib");
+            std::fs::write(&lib, b"library").unwrap();
+            let now = chrono::Local::now();
+            for offset in 0..3_i64 {
+                let stamp = (now + chrono::Duration::seconds(offset)).format("%Y%m%d_%H%M%S");
+                std::fs::create_dir(format!("{}.{stamp}.bak", lib.display())).unwrap();
+            }
+            let made = McpServer::create_backup(&lib.to_string_lossy())
+                .unwrap()
+                .expect("backed up");
+            assert!(
+                std::path::Path::new(&made)
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .ends_with("_001.bak"),
+                "{made}"
+            );
+            assert_eq!(std::fs::read(&made).unwrap(), b"library");
         }
 
         #[test]
