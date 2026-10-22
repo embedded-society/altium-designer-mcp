@@ -291,6 +291,19 @@ pub struct ComponentBody {
     /// the output stays byte-identical to the canonical form.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub additional_parameters: Vec<(String, String)>,
+
+    /// The body's common-header flags: Altium stores a locked body with
+    /// `FlagUnlocked` clear (`0x0008`) where an ordinary one is `0x000C`.
+    #[serde(default, skip_serializing_if = "PcbFlags::is_empty")]
+    pub flags: PcbFlags,
+
+    /// `MODEL.MODELTYPE` as read: 0 extruded, 1 a model file, 2 a cylinder,
+    /// 3 a sphere. `None` (built from scratch) takes 0 for a body with no
+    /// model file and 1 otherwise. A cylinder or sphere keeps its own type
+    /// and dimensions (`MODEL.CYLINDER.*`, carried in
+    /// [`Self::additional_parameters`]) rather than becoming an extrusion.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_type: Option<u8>,
     /// The keys of the parameter block in the order they were read, canonical
     /// and unmodelled alike, so the writer emits them in Altium's order — a
     /// UI-authored body stores `BODYOVERRIDECOLOR=TRUE` right after
@@ -377,6 +390,8 @@ impl ComponentBody {
             polygon_index: default_polygon_index(),
             component_index: default_component_index(),
             additional_parameters: Vec::new(),
+            flags: PcbFlags::empty(),
+            model_type: None,
             param_key_order: Vec::new(),
         }
     }

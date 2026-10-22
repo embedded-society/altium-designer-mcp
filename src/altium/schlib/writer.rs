@@ -575,8 +575,48 @@ fn replay_record(canonical: &str, raw: &[(String, String)]) -> String {
 /// the designator with the `IndexInSheet=-1` sentinel, outside the counter.
 /// `OwnerPartId=-1` alone does not make one: the UI stores every user
 /// parameter that way too, as a content record with its own slot.
+///
+/// A `Comment` read as one keeps that place whatever its `OwnerPartId`:
+/// Altium 365 stores a component's system Comment with `OwnerPartId=1` and
+/// `IndexInSheet=-1` after the designator, and moving it before the
+/// designator onto a counter slot changed the record and every later index.
 fn is_system_parameter(param: &super::Parameter) -> bool {
-    param.owner_part_id == -1 && param.name.eq_ignore_ascii_case("Comment")
+    param.name.eq_ignore_ascii_case("Comment")
+        && (param.owner_part_id == -1
+            || param
+                .raw_params
+                .iter()
+                .any(|(key, value)| key.eq_ignore_ascii_case("IndexInSheet") && value == "-1"))
+}
+
+/// An owned record (a pin's parameter, a footprint link's pin-map definer or
+/// implementation parameter) as read, with `OwnerIndex` set to its owner's
+/// new stream-index. Everything else goes back verbatim: this crate does not
+/// model these records, and Altium reads them by owner.
+fn encode_owned_record(segments: &[(String, String)], owner_index: usize) -> String {
+    let parts: Vec<String> = segments
+        .iter()
+        .map(|segment| {
+            if segment.0.eq_ignore_ascii_case("OwnerIndex") {
+                format!("{}={owner_index}", segment.0)
+            } else {
+                segment_text(segment)
+            }
+        })
+        .collect();
+    format!("|{}", parts.join("|"))
+}
+
+/// Writes the records `owner_index`'s record owns, each after the last.
+fn write_owned_records(
+    data: &mut Vec<u8>,
+    records: &[Vec<(String, String)>],
+    owner_index: usize,
+) -> crate::altium::error::AltiumResult<()> {
+    for record in records {
+        write_text_record(data, &encode_owned_record(record, owner_index))?;
+    }
+    Ok(())
 }
 
 /// Encodes a component header record.
@@ -1017,8 +1057,14 @@ fn encode_parameter(param: &Parameter, index: usize) -> String {
 /// zero key omitted per AD24's coordinate rule) and the read `UniqueID` is
 /// reused so a read-modify-write is deterministic (a fresh one is generated
 /// only when absent).
+///
+/// A designator read from a file replays its record (`designator_params`):
+/// the text, position and `UniqueID` are the typed fields, and every other
+/// key goes back with its read value — its own `FontID`, `ReadOnlyState`,
+/// `OwnerPartId`, `Color` (or none) and any key this crate does not model,
+/// such as a `Justification`.
 fn encode_designator(symbol: &Symbol) -> String {
-    format!(
+    let canonical = format!(
         "|RECORD=34|IndexInSheet=-1|OwnerPartId=-1{}{}|Color=8388608|FontID=1|{}|Name=Designator|ReadOnlyState=1|UniqueID={}",
         coord_param("Location.X", symbol.designator_x),
         coord_param("Location.Y", symbol.designator_y),
@@ -1027,7 +1073,42 @@ fn encode_designator(symbol: &Symbol) -> String {
             .designator_unique_id
             .clone()
             .unwrap_or_else(generate_unique_id)
-    )
+    );
+    if symbol.designator_params.is_empty() {
+        return canonical;
+    }
+    let typed = |key: &str| {
+        [
+            "Text",
+            "%UTF8%Text",
+            "Location.X",
+            "Location.X_Frac",
+            "Location.Y",
+            "Location.Y_Frac",
+            "UniqueID",
+            "IndexInSheet",
+        ]
+        .iter()
+        .any(|k| k.eq_ignore_ascii_case(key))
+    };
+    // The record's own keys at their read values, then the typed ones in
+    // their current form: replayed over the read segments, an untouched
+    // designator comes back byte for byte and an edited one takes the edit.
+    let carried = symbol
+        .designator_params
+        .iter()
+        .filter(|(key, _)| !key.is_empty() && !typed(key))
+        .map(segment_text);
+    let current = canonical
+        .split('|')
+        .skip(1)
+        .filter(|segment| {
+            let key = segment.split_once('=').map_or(*segment, |(key, _)| key);
+            !key.is_empty() && typed(key)
+        })
+        .map(str::to_string);
+    let merged: Vec<String> = carried.chain(current).collect();
+    replay_record(&format!("|{}", merged.join("|")), &symbol.designator_params)
 }
 
 /// Encodes a polyline record.
@@ -1173,14 +1254,25 @@ fn encode_bezier(bezier: &Bezier, index: usize) -> String {
     } else {
         ""
     };
+    let extra =
+        bezier
+            .extra_points
+            .iter()
+            .enumerate()
+            .fold(String::new(), |mut out, (i, &(x, y))| {
+                out.push_str(&coord_param(&format!("X{}", i + 5), x));
+                out.push_str(&coord_param(&format!("Y{}", i + 5), y));
+                out
+            });
     format!(
-        "|RECORD=5{}{}|OwnerPartId={}{}|LineWidth={}{}|LocationCount=4{}{}{}{}{}{}{}{}|UniqueID={}",
+        "|RECORD=5{}{}|OwnerPartId={}{}|LineWidth={}{}|LocationCount={}{}{}{}{}{}{}{}{}{extra}|UniqueID={}",
         not_accessible,
         index_in_sheet(index),
         bezier.owner_part_id,
         write_display_flags(bezier.display_flags),
         bezier.line_width,
         nonzero("Color", bezier.color),
+        4 + bezier.extra_points.len(),
         coord_param("X1", bezier.x1),
         coord_param("Y1", bezier.y1),
         coord_param("X2", bezier.x2),
@@ -1664,7 +1756,10 @@ pub fn encode_data_stream(symbol: &Symbol) -> crate::altium::error::AltiumResult
                 // Altium-authored libraries, where a symbol with parameters
                 // 0..2, two pins, then a rectangle stores IndexInSheet=5 on the
                 // rectangle.
+                let pin_index = count_records(&data);
                 write_binary_pin(&mut data, &symbol.pins[index])?;
+                // The pin's own records follow it, outside the counter.
+                write_owned_records(&mut data, &symbol.pins[index].owned_records, pin_index)?;
                 index_counter += 1;
                 continue;
             }
@@ -1785,8 +1880,16 @@ pub fn encode_data_stream(symbol: &Symbol) -> crate::altium::error::AltiumResult
                 &model.raw_params,
             ),
         )?;
+        let link_index = count_records(&data);
         write_text_record(&mut data, &encode_model_datafile_link(model_index))?;
+        write_owned_records(&mut data, &model.datafile_link_records, link_index)?;
+        let implementation_index = count_records(&data);
         write_text_record(&mut data, &encode_implementation(model_index))?;
+        write_owned_records(
+            &mut data,
+            &model.implementation_records,
+            implementation_index,
+        )?;
     }
 
     // No end-of-stream sentinel: Altium reads records until the stream is
@@ -1820,6 +1923,13 @@ pub(crate) fn component_list_segments(symbols: &[&Symbol]) -> Vec<String> {
             );
         }
         segments.push(format!("PartCount{}={}", i, symbol.part_count + 1));
+        // Altium lists a component's aliases after its part count.
+        if !symbol.aliases.is_empty() {
+            segments.push(format!("AliasCount{i}={}", symbol.aliases.len()));
+            for (j, alias) in symbol.aliases.iter().enumerate() {
+                segments.push(format!("Comp{i}Alias{j}={alias}"));
+            }
+        }
     }
     segments
 }
@@ -1835,12 +1945,30 @@ fn is_component_list_field(segment: &str) -> bool {
     if key.eq_ignore_ascii_case("CompCount") {
         return true;
     }
-    ["LibRef", "CompDescr", "PartCount"].iter().any(|stem| {
-        key.get(..stem.len())
-            .is_some_and(|k| k.eq_ignore_ascii_case(stem))
-            && key.len() > stem.len()
-            && key[stem.len()..].bytes().all(|b| b.is_ascii_digit())
-    })
+    // `Comp{i}Alias{j}`: an alias of component i.
+    if let Some(rest) = key
+        .get(..4)
+        .filter(|p| p.eq_ignore_ascii_case("Comp"))
+        .map(|_| &key[4..])
+    {
+        let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+        let tail = &rest[digits..];
+        if digits > 0
+            && tail.len() > 5
+            && tail[..5].eq_ignore_ascii_case("Alias")
+            && tail[5..].bytes().all(|b| b.is_ascii_digit())
+        {
+            return true;
+        }
+    }
+    ["LibRef", "CompDescr", "PartCount", "AliasCount"]
+        .iter()
+        .any(|stem| {
+            key.get(..stem.len())
+                .is_some_and(|k| k.eq_ignore_ascii_case(stem))
+                && key.len() > stem.len()
+                && key[stem.len()..].bytes().all(|b| b.is_ascii_digit())
+        })
 }
 
 /// Encodes the `FileHeader` stream content.
@@ -1944,6 +2072,155 @@ fn file_header_template(unique_id: &str, weight: usize) -> Vec<String> {
 mod tests {
     use super::super::primitives::PinOrientation;
     use super::*;
+
+    // ============ owned records, system records and long Beziers ============
+    //
+    // What an Altium 365-exported symbol carries beyond a UI-authored one: a
+    // designator with its own font, lock state and owner and no colour; a
+    // system Comment with `OwnerPartId=1`; a pin parameter owned by its pin; a
+    // pin-map definer owned by a footprint link's 46 and an implementation
+    // parameter owned by its 48; a five-point Bezier. Each must come back from
+    // a rewrite byte for byte. The layout follows the records of an Altium 365
+    // export; the values are synthetic.
+    mod owned_and_system_records {
+        use super::*;
+
+        fn stream() -> Vec<u8> {
+            let mut data = Vec::new();
+            let text = |data: &mut Vec<u8>, record: &str| {
+                write_text_record(data, record).expect("text record");
+            };
+            text(
+                &mut data,
+                "|RECORD=1|LibReference=SYN|ComponentDescription=Synthetic|PartCount=2|DisplayModeCount=1|IndexInSheet=-1|OwnerPartId=-1|CurrentPartId=1|SourceLibraryName=*|TargetFileName=*|AllPinCount=1|AreaColor=11599871|Color=128|PartIDLocked=F",
+            );
+            text(
+                &mut data,
+                "|RECORD=14|IsNotAccesible=T|OwnerPartId=1|Location.X=-10|Location.Y=-10|Corner.X=10|Corner.Y=10|LineWidth=1|Color=128|AreaColor=11599871|IsSolid=T|UniqueID=AAAAAAAA",
+            );
+            write_binary_pin(
+                &mut data,
+                &Pin::new("A", "1", -20, 0, 10, PinOrientation::Left),
+            )
+            .expect("pin record");
+            text(
+                &mut data,
+                "|RECORD=41|OwnerIndex=2|OwnerPartId=1|Color=8388608|FontID=1|IsHidden=T|Text=0|Name=Order|UniqueID=BBBBBBBB|NotAutoPosition=T",
+            );
+            text(
+                &mut data,
+                "|RECORD=5|IsNotAccesible=T|IndexInSheet=2|OwnerPartId=1|LineWidth=1|Color=10066329|LocationCount=5|X1=6|Y1=-6|X2=9|Y2=-7|X3=10|Y3=-11|X4=10|Y4=-13|X5=10|Y5=-13|UniqueID=CCCCCCCC",
+            );
+            text(
+                &mut data,
+                "|RECORD=34|IndexInSheet=-1|OwnerPartId=1|Location.X=-5|Location.Y=5|FontID=3|Text=U?|Name=Designator|ReadOnlyState=3|UniqueID=DDDDDDDD",
+            );
+            text(
+                &mut data,
+                "|RECORD=41|IndexInSheet=-1|OwnerPartId=1|Location.X=2|Location.Y=-13|Color=8388608|FontID=1|Text=SYN|Name=Comment|UniqueID=EEEEEEEE",
+            );
+            text(&mut data, "|RECORD=44");
+            text(
+                &mut data,
+                "|RECORD=45|OwnerIndex=7|IndexInSheet=-1|Description=Synthetic|ModelName=FP|ModelType=PCBLIB|DatafileCount=1|ModelDatafileEntity0=FP|ModelDatafileKind0=PCBLib|IsCurrent=T|UniqueID=FFFFFFFF",
+            );
+            text(&mut data, "|RECORD=46|OwnerIndex=8");
+            text(
+                &mut data,
+                "|RECORD=47|OwnerIndex=9|DesImpCount=1|DesImp0=null",
+            );
+            text(&mut data, "|RECORD=48|OwnerIndex=8");
+            text(
+                &mut data,
+                "|RECORD=41|OwnerIndex=11|IndexInSheet=-1|OwnerPartId=-1|Color=8388608|FontID=3|IsHidden=T|Text=2D|Name=Available Preview Images|UniqueID=GGGGGGGG",
+            );
+            data
+        }
+
+        fn read(data: &[u8]) -> Symbol {
+            let mut symbol = Symbol::new("SYN");
+            crate::altium::schlib::reader::parse_data_stream(&mut symbol, data);
+            symbol
+        }
+
+        #[test]
+        fn owned_records_stay_with_their_owners() {
+            let symbol = read(&stream());
+            let names: Vec<&str> = symbol.parameters.iter().map(|p| p.name.as_str()).collect();
+            assert_eq!(
+                names,
+                ["Comment"],
+                "owned parameters are not component parameters"
+            );
+            assert_eq!(symbol.pins[0].owned_records.len(), 1);
+            assert_eq!(symbol.footprints[0].datafile_link_records.len(), 1);
+            assert_eq!(symbol.footprints[0].implementation_records.len(), 1);
+            assert_eq!(symbol.beziers[0].extra_points, [(10.0, -13.0)]);
+        }
+
+        #[test]
+        fn a_rewrite_is_byte_identical() {
+            let data = stream();
+            let written = encode_data_stream(&read(&data)).expect("encode");
+            assert_eq!(
+                String::from_utf8_lossy(&written),
+                String::from_utf8_lossy(&data),
+                "every record comes back as read"
+            );
+            assert_eq!(written, data);
+        }
+
+        #[test]
+        fn an_owned_record_follows_its_owner_to_a_new_index() {
+            let mut symbol = read(&stream());
+            // A second rectangle ahead of the pin moves every later record on.
+            symbol.add_rectangle(Rectangle::new(-1, -1, 1, 1));
+            symbol
+                .primitive_order
+                .insert(0, SchPrimitiveKind::Rectangle);
+            let written = encode_data_stream(&symbol).expect("encode");
+            let reread = read(&written);
+            assert_eq!(reread.pins[0].owned_records.len(), 1, "still the pin's");
+            let owner = reread.pins[0].owned_records[0]
+                .iter()
+                .find(|(k, _)| k == "OwnerIndex")
+                .map(|(_, v)| v.clone());
+            assert_eq!(owner.as_deref(), Some("3"), "the pin is now record 3");
+            assert_eq!(reread.footprints[0].implementation_records.len(), 1);
+        }
+
+        #[test]
+        fn an_edited_designator_keeps_its_own_font_and_lock() {
+            let mut symbol = read(&stream());
+            symbol.designator = "J?".to_string();
+            let written = encode_data_stream(&symbol).expect("encode");
+            let text = String::from_utf8_lossy(&written);
+            assert!(
+                text.contains("|RECORD=34|IndexInSheet=-1|OwnerPartId=1|Location.X=-5|Location.Y=5|FontID=3|Text=J?|Name=Designator|ReadOnlyState=3|UniqueID=DDDDDDDD"),
+                "{text}"
+            );
+        }
+
+        #[test]
+        fn a_copied_symbol_renews_owned_identities() {
+            let mut symbol = read(&stream());
+            symbol.reset_identities();
+            let uid = |records: &[Vec<(String, String)>]| {
+                records[0]
+                    .iter()
+                    .find(|(k, _)| k == "UniqueID")
+                    .map(|(_, v)| v.clone())
+            };
+            assert_ne!(
+                uid(&symbol.pins[0].owned_records).as_deref(),
+                Some("BBBBBBBB")
+            );
+            assert_ne!(
+                uid(&symbol.footprints[0].implementation_records).as_deref(),
+                Some("GGGGGGGG")
+            );
+        }
+    }
 
     // ==================== encoder rejections and flag arms ==================
     //

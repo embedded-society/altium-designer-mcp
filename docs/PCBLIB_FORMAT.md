@@ -299,6 +299,19 @@ gets its stream back as read while it holds exactly the records the primitives c
 is added, removed or given a new identity, the stream is written in primitive order, the
 footprint's own record first.
 
+### Other per-component streams
+
+Altium keeps more beside a footprint's `Data` than this crate models. In an Altium 365-exported
+library: `PrimitiveParameters` (the footprint's own parameters — `PRIMITIVEID=NoObject#0`,
+then `|NAME=Pin Count|VALUE=…`, `Pitch`, `Mount`, `Thermal Pad`), an
+`ExtendedPrimitiveInformation` storage with `Header` and `Data` (per-primitive extras such as a
+region's `PASTEMASKEXPANSION_MANUAL`, keyed by `PRIMITIVEINDEX`), `CornerRadiusChamfer`,
+`CustomMaskShapes` and `SharedUnion`. Note that the `ExtendedPrimitiveInformation` storage holds
+a `Data` stream of its own: only storages of the root are footprints. These streams are carried
+verbatim (`carried_streams`, with the primitive sequence they were read against) and written
+back while the footprint keeps that sequence; most name a primitive by position, so a footprint
+whose primitives changed drops them.
+
 ## Data Stream Format
 
 Each component's Data stream contains the footprint primitives:

@@ -129,6 +129,16 @@ pub struct Pin {
     /// `?` for a character it cannot hold, with `PinWideText` holding it whole.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name_code_page: Option<u32>,
+
+    /// The text records Altium stores as this pin's children — a pin
+    /// parameter (`RECORD=41`, `Name=Order`, say) whose `OwnerIndex` is the
+    /// pin's stream-index — each as its `(key, value)` segments in stored
+    /// order. They follow the pin in the stream, take no `IndexInSheet`
+    /// slot, and go back verbatim after it with `OwnerIndex` set to the
+    /// pin's new stream-index. They belong to the pin, never to the
+    /// symbol's own parameters.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub owned_records: Vec<Vec<(String, String)>>,
 }
 
 /// Fractional companion coordinates for a [`Pin`].
@@ -205,6 +215,7 @@ impl Pin {
             symbol_line_width: 0,
             frac: None,
             name_code_page: None,
+            owned_records: Vec::new(),
         }
     }
 }

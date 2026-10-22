@@ -215,6 +215,30 @@ pub struct Footprint {
     /// `None` for a footprint built from scratch or without the stream.
     #[serde(skip)]
     pub primitive_guids_as_read: Option<Vec<u8>>,
+
+    /// The streams of the footprint's storage this crate does not read, by
+    /// path within it (`PrimitiveParameters`,
+    /// `ExtendedPrimitiveInformation/Data`, `CornerRadiusChamfer`,
+    /// `CustomMaskShapes`, `SharedUnion`, …), carried verbatim. Altium keeps a
+    /// footprint's own parameters (Pin Count, Pitch, Mount), a region's
+    /// paste-mask expansion, a pad's corner chamfers, custom mask shapes and
+    /// pad-region unions there. Most of them name a primitive by its
+    /// position, so they go back only while the footprint still holds the
+    /// primitive sequence they were read with
+    /// ([`Self::carried_streams_sequence`]); a footprint whose primitives
+    /// were added, removed or reordered drops them, with a warning, rather
+    /// than attach them to the wrong primitive.
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        with = "crate::altium::base64_opt::named"
+    )]
+    pub carried_streams: Vec<(String, Vec<u8>)>,
+
+    /// The primitive kinds, in stream order, the footprint held when
+    /// [`Self::carried_streams`] were read.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub carried_streams_sequence: Vec<PrimitiveKind>,
 }
 
 /// How many primitives of each kind [`Footprint::move_layer`] moved.
@@ -453,7 +477,18 @@ impl Footprint {
             param_key_order: Vec::new(),
             primitive_order: Vec::new(),
             primitive_guids_as_read: None,
+            carried_streams: Vec::new(),
+            carried_streams_sequence: Vec::new(),
         }
+    }
+
+    /// The primitive kinds in the order the writer emits them.
+    #[must_use]
+    pub fn kind_sequence(&self) -> Vec<PrimitiveKind> {
+        self.write_sequence()
+            .into_iter()
+            .map(|(kind, _)| kind)
+            .collect()
     }
 
     /// Adds a pad to the footprint.
@@ -3173,6 +3208,8 @@ mod tests {
             polygon_index: 0xFFFF,
             component_index: -1,
             additional_parameters: Vec::new(),
+            flags: PcbFlags::empty(),
+            model_type: None,
             param_key_order: Vec::new(),
         };
         original.add_component_body(body);
@@ -3255,6 +3292,8 @@ mod tests {
                 polygon_index: 0xFFFF,
                 component_index: -1,
                 additional_parameters: Vec::new(),
+                flags: PcbFlags::empty(),
+                model_type: None,
                 param_key_order: Vec::new(),
             });
         }

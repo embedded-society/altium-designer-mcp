@@ -9,9 +9,10 @@
 //!   so a pin sitting between grid points keeps its sub-unit remainder here.
 //! - **`PinSymbolLineWidth`** — a `SYMBOL_LINEWIDTH=N` parameter per pin whose
 //!   symbol line width is non-default.
-//! - **`PinWideText`** — a `|NAME=<text>` Unicode parameter block per pin
-//!   whose name leaves ASCII: the name's authoritative wide form, since the
-//!   binary record narrows it through the writing machine's ANSI code page.
+//! - **`PinWideText`** — a Unicode parameter block per pin whose name or
+//!   description leaves ASCII (`|NAME=<text>`, `|DESC=<text>`): the text's
+//!   authoritative wide form, since the binary record narrows it through the
+//!   writing machine's ANSI code page.
 //!
 //! Both use Altium's *compressed-storage* framing (shared with the embedded
 //! icon-image `/Storage` stream — see [`super::storage`] for the byte layout);
@@ -131,22 +132,34 @@ pub(super) fn encode_pin_symbol_line_widths(
 /// stream's whole purpose. A name a script authored goes back widened through
 /// its code page, as Altium stored it (`Pin::name_code_page`).
 ///
-/// Only `NAME` is emitted: it is the only key the golden's 52 streams carry,
-/// and inventing sibling keys (a designator, say) without evidence would write
-/// fiction into every i18n library.
+/// `NAME` is the only key the golden's 52 streams carry. `DESC` is the pin's
+/// description, the same way: Altium 365-exported symbols store a
+/// `|DESC=<text>` entry for a pin whose description leaves ASCII (`I²C`,
+/// `1-µF`), and the name alone otherwise. A pin needing both writes `NAME`
+/// first — no Altium-authored entry carrying both has been seen, so that
+/// order is this crate's choice. No other key is invented.
 pub(super) fn encode_pin_wide_text(
     pins: &[Pin],
 ) -> crate::altium::error::AltiumResult<Option<Vec<u8>>> {
     let entries: Vec<(usize, String)> = pins
         .iter()
         .enumerate()
-        .filter(|(_, p)| !p.name.is_ascii())
+        .filter(|(_, p)| !p.name.is_ascii() || !p.description.is_ascii())
         .map(|(i, p)| {
-            let name = p.name_code_page.map_or_else(
-                || p.name.clone(),
-                |page| crate::altium::widen_through(&p.name, page),
-            );
-            (i, name)
+            let mut block = String::new();
+            if !p.name.is_ascii() {
+                let name = p.name_code_page.map_or_else(
+                    || p.name.clone(),
+                    |page| crate::altium::widen_through(&p.name, page),
+                );
+                block.push_str("|NAME=");
+                block.push_str(&name);
+            }
+            if !p.description.is_ascii() {
+                block.push_str("|DESC=");
+                block.push_str(&p.description);
+            }
+            (i, block)
         })
         .collect();
     if entries.is_empty() {
@@ -154,8 +167,8 @@ pub(super) fn encode_pin_wide_text(
     }
 
     let mut out = storage::start_stream("PinWideText", entries.len());
-    for (index, name) in entries {
-        let payload = encode_unicode_param_block(&format!("|NAME={name}"));
+    for (index, block) in entries {
+        let payload = encode_unicode_param_block(&block);
         storage::write_entry(&mut out, &index.to_string(), &payload)?;
     }
     Ok(Some(out))
@@ -184,10 +197,14 @@ pub(super) fn apply_pin_wide_text(
             return;
         };
         let params = crate::altium::parse_pipe_params(&text);
-        let Some(wide) = params.get("name") else {
+        let Some(pin) = pins.get_mut(idx) else {
             return;
         };
-        let Some(pin) = pins.get_mut(idx) else {
+        // The description's wide form, where the binary record narrowed it.
+        if let Some(desc) = params.get("desc").filter(|d| !d.is_empty()) {
+            pin.description.clone_from(desc);
+        }
+        let Some(wide) = params.get("name") else {
             return;
         };
         if wide.is_empty() {
@@ -293,6 +310,24 @@ mod tests {
 
     fn pin() -> Pin {
         Pin::new("A", "1", 0, 0, 10, PinOrientation::Right)
+    }
+
+    #[test]
+    fn a_description_outside_ascii_rides_in_pin_wide_text() {
+        // Altium 365 stores `|DESC=` for a pin whose description leaves ASCII.
+        let mut wide = pin();
+        wide.description = "I\u{b2}C clock, 1-\u{b5}F".to_string();
+        let stream = encode_pin_wide_text(std::slice::from_ref(&wide))
+            .expect("encode")
+            .expect("a DESC entry");
+        let mut narrowed = pin();
+        narrowed.description = "I?C clock, 1-?F".to_string();
+        let mut pins = [narrowed];
+        apply_pin_wide_text(&mut pins, &stream, &mut Budget::default()).expect("apply");
+        assert_eq!(pins[0].description, wide.description);
+        assert_eq!(pins[0].name, "A", "an ASCII name has no entry to take");
+        // An all-ASCII pin needs no stream at all.
+        assert!(encode_pin_wide_text(&[pin()]).expect("encode").is_none());
     }
 
     // ==================== aux-stream skip paths ==============================

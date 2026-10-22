@@ -289,6 +289,22 @@ pub struct Pad {
         with = "crate::altium::base64_opt"
     )]
     pub raw_tail: Option<Vec<u8>>,
+    /// The size/shape block (Block 5) of a simple pad exactly as read, and
+    /// [`Self::raw_size_shape_basis`], the fingerprint of the block the
+    /// writer would build for the pad as read. While the pad still builds
+    /// that block — nothing it is made from was edited — the block goes back
+    /// as read: Altium writes a five-entry per-layer tail (top signal and the
+    /// paste and mask layers) the writer's one-entry form drops, and table
+    /// bytes it cannot derive. An edited pad writes the block it builds.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::altium::base64_opt"
+    )]
+    pub raw_size_shape_block: Option<Vec<u8>>,
+    /// See [`Self::raw_size_shape_block`]: 16 hex digits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_size_shape_basis: Option<String>,
 
     /// Per-pad identity GUID — extended-tail bytes @126-141 ("GUID-A"), read
     /// back verbatim as a braced uppercase GUID string (Windows little-endian
@@ -414,6 +430,8 @@ impl Pad {
             unique_id: None,
             guid: None,
             raw_tail: None,
+            raw_size_shape_block: None,
+            raw_size_shape_basis: None,
             identity_guid: None,
             identity_guid_b: None,
         }
@@ -472,6 +490,8 @@ impl Pad {
             unique_id: None,
             guid: None,
             raw_tail: None,
+            raw_size_shape_block: None,
+            raw_size_shape_basis: None,
             identity_guid: None,
             identity_guid_b: None,
         }

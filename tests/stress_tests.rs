@@ -903,6 +903,8 @@ fn test_component_body_roundtrip() {
         polygon_index: 0xFFFF,
         component_index: -1,
         additional_parameters: Vec::new(),
+        flags: altium_designer_mcp::altium::pcblib::PcbFlags::empty(),
+        model_type: None,
         param_key_order: Vec::new(),
     };
     fp.component_bodies.push(body);
@@ -975,6 +977,8 @@ fn test_component_body_with_rotation() {
         polygon_index: 0xFFFF,
         component_index: -1,
         additional_parameters: Vec::new(),
+        flags: altium_designer_mcp::altium::pcblib::PcbFlags::empty(),
+        model_type: None,
         param_key_order: Vec::new(),
     };
     fp.component_bodies.push(body);
@@ -1468,6 +1472,7 @@ fn test_schlib_rename_component() {
         symbol_line_width: 0,
         frac: None,
         name_code_page: None,
+        owned_records: Vec::new(),
     });
     lib.add(sym);
     lib.save(&file_path).expect("Failed to write");
@@ -1700,6 +1705,7 @@ fn test_schlib_copy_cross_library() {
         symbol_line_width: 0,
         frac: None,
         name_code_page: None,
+        owned_records: Vec::new(),
     });
     source_lib.add(sym);
     source_lib
@@ -1854,6 +1860,7 @@ fn test_schlib_json_roundtrip() {
         symbol_line_width: 0,
         frac: None,
         name_code_page: None,
+        owned_records: Vec::new(),
     });
     lib.add(sym);
     lib.save(&original_path).expect("Failed to write original");
@@ -2133,6 +2140,7 @@ fn test_schlib_merge_libraries() {
         symbol_line_width: 0,
         frac: None,
         name_code_page: None,
+        owned_records: Vec::new(),
     });
     lib2.add(sym2);
     lib2.save(&source2_path).expect("Failed to write source2");
@@ -2454,6 +2462,7 @@ fn test_schlib_get_component() {
         symbol_line_width: 0,
         frac: None,
         name_code_page: None,
+        owned_records: Vec::new(),
     });
     lib.add(sym1);
 
@@ -2830,6 +2839,8 @@ fn test_component_body_external_model_reference() {
         polygon_index: 0xFFFF,
         component_index: -1,
         additional_parameters: Vec::new(),
+        flags: altium_designer_mcp::altium::pcblib::PcbFlags::empty(),
+        model_type: None,
         param_key_order: Vec::new(),
     };
     fp.component_bodies.push(body);

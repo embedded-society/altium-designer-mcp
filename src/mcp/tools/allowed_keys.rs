@@ -289,6 +289,7 @@ graphic_keys!(
         "y3",
         "x4",
         "y4",
+        "extra_points",
         "line_width",
         "color",
         "is_not_accessible",

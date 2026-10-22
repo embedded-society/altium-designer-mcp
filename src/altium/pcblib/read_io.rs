@@ -8,6 +8,19 @@ use super::{
 };
 use crate::altium::inflate::Budget;
 
+/// The streams of a footprint's storage this crate reads or rebuilds; every
+/// other one is carried (see `Footprint::carried_streams`).
+const READ_FOOTPRINT_STREAMS: &[&str] = &[
+    "Header",
+    "Parameters",
+    "Data",
+    "WideStrings",
+    "PrimitiveGuids/Header",
+    "PrimitiveGuids/Data",
+    "UniqueIDPrimitiveInformation/Header",
+    "UniqueIDPrimitiveInformation/Data",
+];
+
 impl PcbLib {
     /// Reads a `PcbLib` from any reader implementing `Read + Seek`.
     ///
@@ -82,6 +95,7 @@ impl PcbLib {
     }
 
     /// The body of [`Self::read`], run under the library's ANSI encoding.
+    #[allow(clippy::too_many_lines)] // one straight pass over the document's storages
     fn read_scoped<R: std::io::Read + std::io::Seek>(
         mut cfb: cfb::CompoundFile<R>,
         code_page: Option<u32>,
@@ -117,6 +131,14 @@ impl PcbLib {
             // Skip non-storage entries and root
             let path_str = entry_path.to_string_lossy();
             if path_str == "/" || path_str.is_empty() {
+                continue;
+            }
+
+            // A footprint is a storage of the root. A footprint's own
+            // sub-storages can hold a `Data` stream too (Altium's
+            // `<footprint>/ExtendedPrimitiveInformation`), and reading those
+            // as footprints invented a phantom one.
+            if entry_path.parent() != Some(std::path::Path::new("/")) {
                 continue;
             }
 
@@ -680,6 +702,20 @@ impl PcbLib {
         if let Some(uid_data) = crate::altium::read_stream_opt(cfb, &unique_id_path) {
             let unique_ids = reader::parse_unique_id_stream(&uid_data);
             reader::apply_unique_ids(&mut footprint, &unique_ids);
+        }
+
+        // Every other stream of the storage, carried verbatim.
+        let root = storage_path.to_string_lossy().replace('\\', "/");
+        let prefix = format!("{}/", root.trim_end_matches('/'));
+        footprint.carried_streams = Self::storage_streams(cfb, &root)
+            .into_iter()
+            .filter_map(|(path, bytes)| {
+                let relative = path.strip_prefix(&prefix)?.to_string();
+                (!READ_FOOTPRINT_STREAMS.contains(&relative.as_str())).then_some((relative, bytes))
+            })
+            .collect();
+        if !footprint.carried_streams.is_empty() {
+            footprint.carried_streams_sequence = footprint.kind_sequence();
         }
 
         Ok((footprint, pattern))

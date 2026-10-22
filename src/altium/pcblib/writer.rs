@@ -595,8 +595,17 @@ fn encode_pad(data: &mut Vec<u8>, pad: &Pad) -> crate::altium::error::AltiumResu
         || pad.corner_radius_percent.is_some()
         || pad.shape == PadShape::RoundedRectangle;
 
+    // A simple pad's block as read, while the pad still builds the block it
+    // was read with.
+    let replay = (pad.stack_mode == PadStackMode::Simple)
+        .then_some(())
+        .and(pad.raw_size_shape_block.as_ref())
+        .filter(|_| pad.raw_size_shape_basis.as_deref() == Some(size_shape_basis(pad).as_str()));
+
     if needs_per_layer_data {
         write_block(data, &encode_pad_per_layer_data(pad));
+    } else if let Some(block) = replay {
+        write_block(data, block);
     } else if needs_size_shape {
         write_block(data, &encode_pad_size_shape_block(pad));
     } else {
@@ -604,6 +613,19 @@ fn encode_pad(data: &mut Vec<u8>, pad: &Pad) -> crate::altium::error::AltiumResu
     }
 
     Ok(())
+}
+
+/// The fingerprint of the size/shape block the writer builds for `pad` (see
+/// `Pad::raw_size_shape_block`): FNV-1a over the block's bytes, as 16 hex
+/// digits.
+#[must_use]
+pub fn size_shape_basis(pad: &Pad) -> String {
+    let hash = encode_pad_size_shape_block(pad)
+        .iter()
+        .fold(0xcbf2_9ce4_8422_2325_u64, |hash, &byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+        });
+    format!("{hash:016x}")
 }
 
 /// Converts our `HoleShape` enum to the Altium hole-type id.
@@ -688,7 +710,11 @@ fn encode_pad_size_shape_block(pad: &Pad) -> Vec<u8> {
     b.push(full_shape_id); // 640: flag4 = full pad shape id (9 for rounded-rect)
     write_i32(&mut b, w); // 641-644: entry size X
     write_i32(&mut b, h); // 645-648: entry size Y
-    b.push(50); // 649: corner radius % (fixed 50 across all goldens)
+
+    // 649: the entry's corner radius %: the pad's own radius, or 50 when it
+    // has none — the goldens' 0 and 50 pads both store 50, and every one of
+    // 216 rounded pads in an Altium 365-exported library stores its radius.
+    b.push(if radius > 0 { radius } else { 50 });
     b.push(0); // 650: trailing
     debug_assert_eq!(b.len(), 651);
     b
@@ -1557,7 +1583,7 @@ pub(super) fn v7_layer_token(layer: Layer) -> String {
 /// trimmed (e.g. `0mil`, `0.5mil`, `19.685mil`). Mirrors `AltiumSharp`
 /// `FormatMilCoord` (`ToMils().ToString("0.######") + "mil"`). A `0.0` input
 /// yields exactly `0mil`, keeping the from-scratch region byte-identical.
-fn format_mil_coord(mm: f64) -> String {
+pub(super) fn format_mil_coord(mm: f64) -> String {
     let mils = mm_to_mil(mm);
     // Round to 6 decimals and strip trailing zeros / a lone trailing dot.
     let mut s = format!("{mils:.6}");
@@ -1860,9 +1886,9 @@ fn encode_component_body_block(body: &ComponentBody, outline: &[(f64, f64)]) -> 
     // byte Altium stores for its new layer.
     block.push(layer_byte(body.raw_layer_id, body.layer));
 
-    // Record type marker (2 bytes): 0x0C 0x00
-    block.push(0x0C);
-    block.push(0x00);
+    // Common-header flag word @1-2: 0x000C for an ordinary body, 0x0008 for a
+    // locked one (`FlagUnlocked` clear) — not a constant record-type marker.
+    block.extend_from_slice(&encode_altium_flags(body.flags).to_le_bytes());
 
     // 0xFF padding (10 bytes) @3-12: net/polygon/component indices + reserved.
     block.extend_from_slice(&[0xFF; 10]);
@@ -2074,20 +2100,7 @@ fn build_component_body_params(body: &ComponentBody) -> String {
         params.push(format!("MODEL.3D.ROTY={:.3}", body.rotation_y));
         params.push(format!("MODEL.3D.ROTZ={:.3}", body.rotation_z));
         params.push(format!("MODEL.3D.DZ={}", format_mil_coord(body.z_offset)));
-        if extruded {
-            params.push("MODEL.MODELTYPE=0".to_string());
-            params.push(format!(
-                "MODEL.EXTRUDED.MINZ={}",
-                format_mil_coord(body.standoff_height)
-            ));
-            params.push(format!(
-                "MODEL.EXTRUDED.MAXZ={}",
-                format_mil_coord(body.overall_height)
-            ));
-        } else {
-            params.push("MODEL.MODELTYPE=1".to_string());
-            params.push("MODEL.MODELSOURCE=Undefined".to_string());
-        }
+        push_model_type(&mut params, body, extruded);
     }
 
     // Re-emit any unmodelled keys captured on read, verbatim and in read order, so
@@ -2111,6 +2124,29 @@ fn build_component_body_params(body: &ComponentBody) -> String {
         .collect();
 
     replay_body_key_order(&params, &additional, &body.param_key_order)
+}
+
+/// A body's `MODEL.MODELTYPE` and what goes with it: the type as read, or,
+/// from scratch, extruded for a body with no model file. Only an extrusion
+/// carries the Z range and only a model file the source; a cylinder or
+/// sphere carries its own dimensions, kept with the unmodelled keys.
+fn push_model_type(params: &mut Vec<String>, body: &ComponentBody, extruded: bool) {
+    let model_type = body.model_type.unwrap_or_else(|| u8::from(!extruded));
+    params.push(format!("MODEL.MODELTYPE={model_type}"));
+    match model_type {
+        0 => {
+            params.push(format!(
+                "MODEL.EXTRUDED.MINZ={}",
+                format_mil_coord(body.standoff_height)
+            ));
+            params.push(format!(
+                "MODEL.EXTRUDED.MAXZ={}",
+                format_mil_coord(body.overall_height)
+            ));
+        }
+        1 => params.push("MODEL.MODELSOURCE=Undefined".to_string()),
+        _ => {}
+    }
 }
 
 /// Emits a body's canonical `KEY=VALUE` tokens and the unmodelled ones it
@@ -2952,6 +2988,94 @@ fn count_unique_ids(footprint: &Footprint) -> usize {
 mod tests {
     use super::*;
 
+    // ================= what an Altium 365 export carries ====================
+
+    /// The bytes of the last length-prefixed block `encode_pad` wrote.
+    fn last_block(data: &[u8], len: usize) -> &[u8] {
+        let start = data.len() - len;
+        assert_eq!(
+            &data[start - 4..start],
+            &u32::try_from(len).unwrap().to_le_bytes()
+        );
+        &data[start..]
+    }
+
+    #[test]
+    fn a_pads_size_shape_block_goes_back_as_read_until_the_pad_is_edited() {
+        let mut pad = Pad::smd("1", 0.0, 0.0, 1.0, 0.6);
+        pad.shape = PadShape::RoundedRectangle;
+        pad.corner_radius_percent = Some(25);
+        // Altium's form: five per-layer entries (top signal, then the paste
+        // and mask layers) where the writer builds one.
+        let mut read = encode_pad_size_shape_block(&pad);
+        read[628..632].copy_from_slice(&5i32.to_le_bytes());
+        for code in [10u8, 11, 8, 9] {
+            let mut entry = vec![code, 0, 3, 1, 0];
+            entry.extend_from_slice(&[0u8; 10]);
+            read.extend_from_slice(&entry);
+        }
+        assert_eq!(read.len(), 711);
+        pad.raw_size_shape_basis = Some(size_shape_basis(&pad));
+        pad.raw_size_shape_block = Some(read.clone());
+
+        let mut data = Vec::new();
+        encode_pad(&mut data, &pad).expect("encode");
+        assert_eq!(last_block(&data, 711), read.as_slice(), "unedited: as read");
+
+        pad.width = 1.2;
+        let mut data = Vec::new();
+        encode_pad(&mut data, &pad).expect("encode");
+        assert_eq!(
+            last_block(&data, 651).len(),
+            651,
+            "edited: the block it builds"
+        );
+    }
+
+    #[test]
+    fn a_fully_rounded_rectangle_reads_back_as_one() {
+        // Altium marks a 100% rounded rectangle in the size/shape block
+        // (@531 = 1, 9 in the table @532); its radius alone reads as round.
+        let mut pad = Pad::smd("1", 0.0, 0.0, 1.0, 0.6);
+        pad.shape = PadShape::RoundedRectangle;
+        pad.corner_radius_percent = Some(100);
+        let mut data = Vec::new();
+        encode_pad(&mut data, &pad).expect("encode");
+        let (back, _) = super::super::reader::parse_pad_for_test(&data).expect("parse");
+        assert_eq!(back.shape, PadShape::RoundedRectangle);
+        assert_eq!(back.corner_radius_percent, Some(100));
+    }
+
+    #[test]
+    fn a_locked_cylinder_body_keeps_its_lock_and_its_type() {
+        let mut body = ComponentBody::new("{3E46A707-D152-4B5F-898C-AA113F1A7F2F}", "");
+        body.embedded = false;
+        body.flags = PcbFlags::LOCKED;
+        body.model_type = Some(2);
+        body.additional_parameters = vec![
+            ("MODEL.CYLINDER.RADIUS".to_string(), "5.9055mil".to_string()),
+            ("MODEL.CYLINDER.HEIGHT".to_string(), "0.7874mil".to_string()),
+        ];
+        let params = build_component_body_params(&body);
+        assert!(params.contains("MODEL.MODELTYPE=2"), "{params}");
+        assert!(
+            !params.contains("EXTRUDED"),
+            "a cylinder is no extrusion: {params}"
+        );
+        assert!(!params.contains("MODELSOURCE"), "{params}");
+        assert!(
+            params.contains("MODEL.CYLINDER.RADIUS=5.9055mil"),
+            "{params}"
+        );
+        let block = encode_component_body_block(&body, &[]);
+        assert_eq!(&block[1..3], &[0x08, 0x00], "locked: FlagUnlocked clear");
+        body.flags = PcbFlags::empty();
+        assert_eq!(
+            &encode_component_body_block(&body, &[])[1..3],
+            &[0x0C, 0x00]
+        );
+    }
+
     #[test]
     fn size_shape_block_carries_fullstack_tail() {
         // A non-Simple pad's size/shape block must be 651 bytes (596 body + the
@@ -2966,7 +3090,11 @@ mod tests {
         );
         assert_eq!(&b[628..632], &1i32.to_le_bytes(), "tail entry count = 1");
         assert_eq!(&b[632..636], &15i32.to_le_bytes(), "tail entry stride = 15");
-        assert_eq!(b[649], 50, "tail entry corner is a fixed 50");
+        assert_eq!(b[649], 25, "tail entry corner is the pad's own radius");
+        // With no radius it is 50, as every golden stores.
+        pad.corner_radius_percent = None;
+        pad.hole_shape = HoleShape::Square;
+        assert_eq!(encode_pad_size_shape_block(&pad)[649], 50);
     }
 
     #[test]

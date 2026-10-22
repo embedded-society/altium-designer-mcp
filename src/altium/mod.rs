@@ -1089,9 +1089,10 @@ pub(crate) fn parse_pipe_params_raw(text: &str) -> std::collections::HashMap<Str
 /// their native UPPERCASE form and values are trimmed of trailing NUL padding then
 /// surrounding whitespace, matching [`parse_pipe_params_raw`].
 ///
-/// Used to capture the unmodelled Region / `ComponentBody` parameters into an
-/// order-preserving `additional_parameters` catch-all so a read-modify-write does
-/// not silently drop keys the typed model does not recognise.
+/// Used for the stored key order of a Region / `ComponentBody` parameter block
+/// (`param_key_order`) and for the embedded-model records. The unmodelled values
+/// themselves are captured untrimmed instead (`capture_additional_params`), as
+/// Altium stores some with a leading space.
 pub(crate) fn parse_pipe_params_ordered(text: &str) -> Vec<(String, String)> {
     // Truncate at the NUL terminator so trailing binary (outline) bytes are ignored.
     let text = text.split('\0').next().unwrap_or(text);

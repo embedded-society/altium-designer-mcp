@@ -229,11 +229,16 @@ Every record type this crate models:
 | 44 | ImplementationList | Container for a component's implementations |
 | 45 | Implementation | One implementation (footprint model link) |
 | 46 | MapDefinerList | Container for the implementation's map definers |
-| 47 | MapDefiner | Pin-to-pad mapping (structure known; skipped on read) |
+| 47 | MapDefiner | Pin-to-pad mapping (carried verbatim under its 46) |
 | 48 | ImplementationParameters | Per-implementation parameters |
 
-Records 44/46/47/48 carry structural links only; this crate writes 44, 46 and 48 (46/48 as empty
-`OwnerIndex`-bearing children of each RECORD=45) and skips all four on read. Record IDs that only
+Records 44/46/48 carry structural links only; this crate writes 44, 46 and 48 (46/48 as empty
+`OwnerIndex`-bearing children of each RECORD=45). A record whose `OwnerIndex` names a pin, a 46 or
+a 48 — a pin parameter (`Name=Order`), a RECORD=47, an implementation parameter such as Altium
+365's hidden `Available Preview Images` — follows its owner in the stream, takes no
+`IndexInSheet` slot, and is carried verbatim with it (a pin's `owned_records`, a footprint link's
+`datafile_link_records` / `implementation_records`), written back after the owner with
+`OwnerIndex` set to the owner's new stream-index. Record IDs that only
 occur in schematic *documents* (Wire, Port, PowerObject, Note, ...) never occur in a `.SchLib` and
 are out of scope.
 
@@ -887,7 +892,7 @@ A parameter-record variant selected by `Name=Designator`. As written by this cra
 - **RECORD=46 (MapDefinerList)** and **RECORD=48 (ImplementationParameters)** — written as empty
   children of each RECORD=45 (`|RECORD=46|OwnerIndex={45's index}` / `|RECORD=48|OwnerIndex=...`).
 - **RECORD=47 (MapDefiner)** — pin-to-pad mapping (`DESINTF`, `DESIMPCOUNT`, `DESIMP{i}`,
-  `ISTRIVIAL`); structure known from AltiumSharp but currently skipped on read and never written.
+  `ISTRIVIAL`), owned by a RECORD=46; carried verbatim and written back after it.
 
 > **Note:** `DatafileCount=1` plus the `ModelDatafileEntity0` link is what lets Altium *resolve*
 > the model to an actual footprint in a `PcbLib`; a name-only record with `DatafileCount=0` shows

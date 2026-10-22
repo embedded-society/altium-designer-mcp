@@ -310,12 +310,18 @@ pub(super) fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
 
     // Adjust shape based on corner radius: if shape is Round but corner_radius is set,
     // it's actually RoundedRectangle (both use shape ID 1 in Altium's binary format)
-    let adjusted_shape =
-        if shape == PadShape::Round && corner_radius_percent.is_some_and(|r| r > 0 && r < 100) {
-            PadShape::RoundedRectangle
-        } else {
-            shape
-        };
+    // A size/shape block's has-rounded-rect byte @531 says so outright: Altium
+    // sets it, with 9 in the shape table @532, on a 100% rounded rectangle,
+    // whose radius alone reads as round.
+    let flagged_rounded = stack_mode == PadStackMode::Simple
+        && per_layer_data.is_some_and(|d| d.len() >= 596 && d[531] == 1 && d[532] == 9);
+    let adjusted_shape = if shape == PadShape::Round
+        && (corner_radius_percent.is_some_and(|r| r > 0 && r < 100) || flagged_rounded)
+    {
+        PadShape::RoundedRectangle
+    } else {
+        shape
+    };
 
     let pad = Pad {
         designator,
@@ -363,9 +369,20 @@ pub(super) fn parse_pad(data: &[u8], offset: usize) -> ParseResult<Pad> {
         // unmodelled tail bytes (and the AD-version-specific tail LENGTH —
         // AD24 writes 133 where the template is 141) survive a rewrite.
         raw_tail: (geometry.len() > 61).then(|| geometry[61..].to_vec()),
+        raw_size_shape_block: None,
+        raw_size_shape_basis: None,
         identity_guid,
         identity_guid_b,
     };
+    // A simple pad's size/shape block as read, with the fingerprint of the
+    // one the writer builds for the pad as read (see `Pad::raw_size_shape_block`).
+    let mut pad = pad;
+    if let Some(block) = per_layer_data.filter(|d| d.len() >= 596) {
+        if pad.stack_mode == PadStackMode::Simple {
+            pad.raw_size_shape_basis = Some(crate::altium::pcblib::writer::size_shape_basis(&pad));
+            pad.raw_size_shape_block = Some(block.to_vec());
+        }
+    }
 
     Ok((pad, current))
 }
@@ -1371,9 +1388,13 @@ const REGION_MODELLED_PARAM_KEYS: &[&str] = &[
 /// occurrence. Shared by the Region and `ComponentBody` parsers to build their
 /// `additional_parameters` catch-all.
 fn capture_additional_params(params_str: &str, modelled: &[&str]) -> Vec<(String, String)> {
-    crate::altium::parse_pipe_params_ordered(params_str)
-        .into_iter()
-        .filter(|(key, _)| !modelled.contains(&key.as_str()))
+    // Values exactly as stored: Altium writes some with a leading space
+    // (`SA0= 1.80000000000000E+0002`), which a trim would drop on rewrite.
+    let text = params_str.split('\0').next().unwrap_or(params_str);
+    text.split('|')
+        .filter_map(|part| part.split_once('='))
+        .filter(|(key, _)| !modelled.contains(key))
+        .map(|(key, value)| (key.to_string(), value.to_string()))
         .collect()
 }
 
@@ -1749,6 +1770,10 @@ pub(super) fn parse_component_body(data: &[u8], offset: usize) -> ParseResult<Co
         component_index,
         additional_parameters,
         param_key_order,
+        flags: read_flags(block0),
+        model_type: params
+            .get("MODEL.MODELTYPE")
+            .and_then(|v| v.trim().parse::<u8>().ok()),
     };
 
     Ok((body, current))
@@ -1909,6 +1934,20 @@ pub type ModelIndex = HashMap<String, (usize, String)>;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_unmodelled_body_value_keeps_its_leading_space() {
+        // Altium writes some body values with a leading space; a trimmed
+        // capture wrote them back without it.
+        let captured = capture_additional_params(
+            "V7_LAYER=MECHANICAL1|SA0= 1.80000000000000E+0002|NAME=x\0tail",
+            &["V7_LAYER", "NAME"],
+        );
+        assert_eq!(
+            captured,
+            [("SA0".to_string(), " 1.80000000000000E+0002".to_string())]
+        );
+    }
 
     /// Millimetre comparison tolerance — coordinates are quantised to 1 nm.
     const EPS: f64 = 1e-9;

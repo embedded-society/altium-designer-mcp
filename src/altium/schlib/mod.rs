@@ -132,6 +132,27 @@ pub struct SchLib {
     /// `None` when they need no entry. Both are `None` for a library built
     /// in memory, which writes the stream it builds.
     section_keys_basis: Option<Vec<u8>>,
+    /// The library's storages that hold no symbol, carried verbatim — an
+    /// alias, chiefly: a storage named for an old or alternative library
+    /// reference whose `Redirection` stream names the storage of the symbol
+    /// it stands for (`|SectionName=<storage>`). Altium 365 leaves one behind
+    /// for a renamed component, so a design that still names the old
+    /// reference finds the symbol. Empty for a library built in memory.
+    aliases: Vec<Alias>,
+}
+
+/// A storage of a `SchLib` that holds no symbol (see `SchLib::aliases`).
+#[derive(Debug, Clone)]
+struct Alias {
+    /// The storage's name.
+    storage: String,
+    /// The `SectionName` its `Redirection` stream named, as read.
+    section_name: Option<String>,
+    /// The symbol that section held when read, by name — followed through
+    /// renames, so the alias keeps pointing at it.
+    target: Option<String>,
+    /// Every stream of the storage, by name, as read.
+    streams: Vec<(String, Vec<u8>)>,
 }
 
 impl SchLib {
@@ -241,11 +262,13 @@ impl SchLib {
         let renamed = self
             .get(name)
             .is_some_and(|old| old.name != replacement.name);
+        let alias_targets = self.alias_targets();
         let old = self
             .get_mut(name)
             .map(|old| std::mem::replace(old, replacement));
         if renamed {
             self.rekey();
+            self.retarget_aliases(&alias_targets);
         }
         old
     }
@@ -262,6 +285,7 @@ impl SchLib {
     /// chain such as `A -> B, B -> C` renames both rather than renaming the
     /// new `B` twice. Returns the old names that resolved to nothing.
     pub fn rename_all(&mut self, renames: &[(String, String)]) -> Vec<String> {
+        let alias_targets = self.alias_targets();
         let mut missing = Vec::new();
         let mut resolved: Vec<(usize, &str)> = Vec::with_capacity(renames.len());
         for (old, new) in renames {
@@ -278,7 +302,26 @@ impl SchLib {
             }
         }
         self.rekey();
+        self.retarget_aliases(&alias_targets);
         missing
+    }
+
+    /// The position of the symbol each alias points at, if it still exists.
+    fn alias_targets(&self) -> Vec<Option<usize>> {
+        self.aliases
+            .iter()
+            .map(|alias| alias.target.as_deref().and_then(|t| self.index_of(t)))
+            .collect()
+    }
+
+    /// Points each alias at the name its symbol now has (see
+    /// [`Self::alias_targets`], taken before the rename).
+    fn retarget_aliases(&mut self, targets: &[Option<usize>]) {
+        for (alias, target) in self.aliases.iter_mut().zip(targets) {
+            if let Some((name, _)) = target.and_then(|i| self.symbols.get_index(i)) {
+                alias.target = Some(name.clone());
+            }
+        }
     }
 
     /// Re-derives every key from its symbol's name, in order, after names
@@ -379,6 +422,23 @@ pub struct Symbol {
     /// from-scratch symbol generates a fresh one on write.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub designator_unique_id: Option<String>,
+    /// The designator record (`RECORD=34`) exactly as read: every segment as a
+    /// `(key, value)` pair in stored order. The text, position and `UniqueID`
+    /// are the typed fields above; every other key the record carried goes
+    /// back with its read value — Altium-authored libraries give the
+    /// designator its own `FontID` (a font of the library's table, not
+    /// always 1), `ReadOnlyState` (3 as well as 1), `OwnerPartId` (1 as well
+    /// as -1), a `Justification`, or no `Color` at all, none of which a
+    /// rewrite may reset. Empty for a symbol built from scratch, which emits
+    /// the canonical record.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub designator_params: Vec<(String, String)>,
+    /// The symbol's aliases — other library references it answers to —
+    /// as the `FileHeader` lists them (`AliasCount{i}`, `Comp{i}Alias{j}`),
+    /// verbatim: Altium quotes a name holding a space (`"CAPACITOR
+    /// NON-POL"`). Kept through every rebuild of the component list.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
     /// Number of parts (for multi-part symbols).
     #[serde(default = "default_part_count")]
     pub part_count: u32,
@@ -667,6 +727,22 @@ impl Symbol {
             parameters,
             footprints,
         );
+        // Owned records go back verbatim, so their identities are renewed
+        // here rather than on write.
+        let renew = |records: &mut Vec<Vec<(String, String)>>| {
+            for (key, value) in records.iter_mut().flatten() {
+                if key.eq_ignore_ascii_case("UniqueID") {
+                    *value = crate::util::generate_unique_id();
+                }
+            }
+        };
+        for pin in &mut self.pins {
+            renew(&mut pin.owned_records);
+        }
+        for model in &mut self.footprints {
+            renew(&mut model.datafile_link_records);
+            renew(&mut model.implementation_records);
+        }
     }
 
     pub fn add_pin(&mut self, pin: Pin) {
@@ -2532,6 +2608,35 @@ mod tests {
         );
         let back: Symbol = serde_json::from_value(json).expect("from json");
         assert_eq!(back.extra_streams.len(), 2);
+    }
+
+    #[test]
+    fn a_carried_stream_never_replaces_a_built_one() {
+        // `extra_streams` arrive from a client too: one naming a stream the
+        // writer builds, or a path rather than a name, is skipped.
+        let mut symbol = Symbol::new("U1");
+        symbol.add_pin(Pin::new("1", "A", -10, 0, 10, PinOrientation::Right));
+        symbol.extra_streams = vec![
+            ("Data".to_string(), b"not a Data stream".to_vec()),
+            ("../FileHeader".to_string(), b"outside".to_vec()),
+            (String::new(), b"nameless".to_vec()),
+        ];
+        let mut lib = SchLib::new();
+        lib.add(symbol);
+        let mut buffer = Cursor::new(Vec::new());
+        lib.write(&mut buffer).expect("write");
+
+        let mut cfb = cfb::CompoundFile::open(Cursor::new(buffer.get_ref().clone())).expect("cfb");
+        for path in ["/U1/Data", "/FileHeader"] {
+            let mut data = Vec::new();
+            std::io::Read::read_to_end(&mut cfb.open_stream(path).expect(path), &mut data)
+                .expect("read");
+            assert!(data.windows(7).all(|w| w != b"outside"), "{path}");
+            assert!(data.windows(6).all(|w| w != b"not a "), "{path}");
+        }
+        buffer.set_position(0);
+        let back = SchLib::read(buffer).expect("the library still reads");
+        assert_eq!(back.get("U1").expect("U1").pins.len(), 1);
     }
 
     #[test]

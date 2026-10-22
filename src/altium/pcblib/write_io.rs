@@ -279,6 +279,8 @@ impl PcbLib {
                 polygon_index: 0xFFFF,
                 component_index: -1,
                 additional_parameters: Vec::new(),
+                flags: crate::altium::pcblib::PcbFlags::empty(),
+                model_type: None,
                 param_key_order: Vec::new(),
             });
 
@@ -539,11 +541,16 @@ impl PcbLib {
 
         let mut toc = String::new();
         for fp in &self.footprints {
+            // Height as the footprint's HEIGHT parameter states it, without
+            // the unit: an Altium-written TOC lists `Height=35.4331` for a
+            // footprint of `HEIGHT=35.4331mil` (`Height=0` at zero).
+            let height = writer::format_mil_coord(fp.height);
             let _ = write!(
                 toc,
-                "Name={}|Pad Count={}|Height=0|Description={}\r\n",
+                "Name={}|Pad Count={}|Height={}|Description={}\r\n",
                 fp.name,
                 fp.pads.len(),
+                height.strip_suffix("mil").unwrap_or(&height),
                 fp.description
             );
         }
@@ -845,6 +852,44 @@ impl PcbLib {
             );
         }
 
+        // The streams this crate does not read, back as read while the
+        // primitives they name are where they were.
+        if !footprint.carried_streams.is_empty() {
+            if footprint.kind_sequence() == footprint.carried_streams_sequence {
+                for (path, bytes) in &footprint.carried_streams {
+                    // A path of plain names below the footprint, naming no
+                    // stream already written: a carried stream never stands
+                    // in for one this crate builds.
+                    let segments: Vec<&str> = path.split('/').collect();
+                    let full = format!("{storage_path}/{path}");
+                    if segments
+                        .iter()
+                        .any(|s| s.is_empty() || *s == "." || *s == "..")
+                        || cfb.exists(&full)
+                    {
+                        tracing::warn!(footprint = %footprint.name, stream = %path, "carried stream skipped");
+                        continue;
+                    }
+                    // Its storages, each made unless the writer or an earlier
+                    // carried stream already made it.
+                    let mut parent = storage_path.clone();
+                    for segment in &segments[..segments.len() - 1] {
+                        parent = format!("{parent}/{segment}");
+                        if !cfb.is_storage(&parent) {
+                            crate::altium::create_storage(cfb, &parent)?;
+                        }
+                    }
+                    crate::altium::write_stream(cfb, &full, bytes)?;
+                }
+            } else {
+                tracing::warn!(
+                    footprint = %footprint.name,
+                    streams = footprint.carried_streams.len(),
+                    "primitives added, removed or reordered: the streams that name them by position are dropped"
+                );
+            }
+        }
+
         Ok(())
     }
 
@@ -863,6 +908,140 @@ impl PcbLib {
 #[cfg(test)]
 mod tests {
     use crate::altium::pcblib::{writer, Footprint, Pad, PcbLib};
+
+    fn read_stream(path: &std::path::Path, stream: &str) -> Option<Vec<u8>> {
+        use std::io::Read as _;
+        let mut cfb = cfb::open(path).ok()?;
+        let mut data = Vec::new();
+        cfb.open_stream(stream).ok()?.read_to_end(&mut data).ok()?;
+        Some(data)
+    }
+
+    /// What Altium keeps beside a footprint's Data: its own parameters, and
+    /// a sub-storage that holds a Data stream of its own.
+    fn library_with_unread_streams(path: &std::path::Path) {
+        use std::io::Write as _;
+        let mut lib = PcbLib::new();
+        let mut fp = Footprint::new("FP");
+        fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+        lib.add(fp);
+        lib.save(path).expect("save");
+        let mut cfb = cfb::open_rw(path).expect("open");
+        cfb.create_stream("/FP/PrimitiveParameters")
+            .expect("stream")
+            .write_all(b"\x19\0\0\0|NAME=Pitch|VALUE=0.5mm\0")
+            .expect("write");
+        cfb.create_storage("/FP/ExtendedPrimitiveInformation")
+            .expect("storage");
+        cfb.create_stream("/FP/ExtendedPrimitiveInformation/Header")
+            .expect("stream")
+            .write_all(&1u32.to_le_bytes())
+            .expect("write");
+        cfb.create_stream("/FP/ExtendedPrimitiveInformation/Data")
+            .expect("stream")
+            .write_all(b"\x2e\0\0\0|PRIMITIVEINDEX=0|PASTEMASKEXPANSION_MANUAL=-11.811mil\0")
+            .expect("write");
+        cfb.flush().expect("flush");
+    }
+
+    #[test]
+    fn a_footprints_sub_storage_is_not_a_footprint_and_its_streams_go_back() {
+        let dir = temp_dir();
+        let source = dir.path().join("Source.PcbLib");
+        library_with_unread_streams(&source);
+        let mut lib = PcbLib::open(&source).expect("read");
+        assert_eq!(
+            lib.names(),
+            ["FP"],
+            "no phantom ExtendedPrimitiveInformation footprint"
+        );
+        assert_eq!(lib.get("FP").expect("FP").carried_streams.len(), 3);
+
+        let rewritten = dir.path().join("Rewritten.PcbLib");
+        lib.save(&rewritten).expect("save");
+        for stream in [
+            "/FP/PrimitiveParameters",
+            "/FP/ExtendedPrimitiveInformation/Header",
+            "/FP/ExtendedPrimitiveInformation/Data",
+        ] {
+            assert_eq!(
+                read_stream(&rewritten, stream),
+                read_stream(&source, stream),
+                "{stream}"
+            );
+        }
+        assert_eq!(PcbLib::open(&rewritten).expect("reread").names(), ["FP"]);
+    }
+
+    #[test]
+    fn carried_streams_make_their_storages_and_never_replace_a_built_stream() {
+        let dir = temp_dir();
+        let mut fp = Footprint::new("FP");
+        fp.add_pad(Pad::smd("1", 0.0, 0.0, 1.0, 1.0));
+        fp.carried_streams = vec![
+            ("A/B/Deep".to_string(), b"deep".to_vec()),
+            ("A/Beside".to_string(), b"beside".to_vec()),
+            ("Data".to_string(), b"not a Data stream".to_vec()),
+            ("../Escape".to_string(), b"outside".to_vec()),
+            ("A//Empty".to_string(), b"empty segment".to_vec()),
+        ];
+        fp.carried_streams_sequence = fp.kind_sequence();
+        let mut lib = PcbLib::new();
+        lib.add(fp);
+        let carried = dir.path().join("Carried.PcbLib");
+        lib.save(&carried)
+            .expect("a nested or shared storage is made once");
+
+        assert_eq!(
+            read_stream(&carried, "/FP/A/B/Deep").as_deref(),
+            Some(&b"deep"[..])
+        );
+        assert_eq!(
+            read_stream(&carried, "/FP/A/Beside").as_deref(),
+            Some(&b"beside"[..])
+        );
+        assert_ne!(
+            read_stream(&carried, "/FP/Data").as_deref(),
+            Some(&b"not a Data stream"[..]),
+            "the built Data stream stands"
+        );
+        assert!(read_stream(&carried, "/Escape").is_none());
+        assert!(read_stream(&carried, "/FP/Escape").is_none());
+        let back = PcbLib::open(&carried).expect("reread");
+        assert_eq!(back.names(), ["FP"]);
+        assert_eq!(back.get("FP").expect("FP").pads.len(), 1);
+    }
+
+    #[test]
+    fn carried_streams_are_dropped_once_the_primitives_they_name_move() {
+        let dir = temp_dir();
+        let source = dir.path().join("Source.PcbLib");
+        library_with_unread_streams(&source);
+        let mut lib = PcbLib::open(&source).expect("read");
+        lib.get_mut("FP")
+            .expect("FP")
+            .add_pad(Pad::smd("2", 2.0, 0.0, 1.0, 1.0));
+        let rewritten = dir.path().join("Rewritten.PcbLib");
+        lib.save(&rewritten).expect("save");
+        assert!(
+            read_stream(&rewritten, "/FP/ExtendedPrimitiveInformation/Data").is_none(),
+            "a stream naming primitive 0 must not be attached to a changed sequence"
+        );
+    }
+
+    #[test]
+    fn the_toc_lists_each_footprints_height() {
+        // Altium's TOC states the HEIGHT parameter without its unit.
+        let mut lib = PcbLib::new();
+        let mut fp = Footprint::new("TALL");
+        fp.height = 35.4331 * 0.0254;
+        lib.add(fp);
+        let toc = String::from_utf8_lossy(&lib.component_params_toc_stream()).into_owned();
+        assert!(
+            toc.contains("Name=TALL|Pad Count=0|Height=35.4331|"),
+            "{toc}"
+        );
+    }
 
     fn temp_dir() -> tempfile::TempDir {
         std::fs::create_dir_all(".tmp").expect("create .tmp");

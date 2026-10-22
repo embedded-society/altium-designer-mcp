@@ -44,6 +44,8 @@ pub fn parse_data_stream(symbol: &mut Symbol, data: &[u8]) {
     }
 
     let mut offset = 0;
+    // What each record so far became, by stream-index (see [`Slot`]).
+    let mut slots: Vec<Slot> = Vec::new();
 
     // Parse records until end marker or end of data
     while offset + 4 <= data.len() {
@@ -66,28 +68,98 @@ pub fn parse_data_stream(symbol: &mut Symbol, data: &[u8]) {
 
         let record_data = &data[offset + 4..offset + 4 + record_length];
 
-        match record_type {
+        let slot = match record_type {
             0 => {
                 // Text record (pipe-delimited key=value)
-                parse_text_record(symbol, record_data);
+                let text = decode_text_record(record_data);
+                parse_owned_or_text_record(symbol, &slots, &text)
             }
             1 => {
                 // Binary pin record
-                if let Some(pin) = parse_binary_pin(record_data) {
+                parse_binary_pin(record_data).map_or(Slot::Other, |pin| {
                     symbol.add_pin(pin);
-                }
+                    Slot::Pin(symbol.pins.len() - 1)
+                })
             }
             _ => {
                 tracing::debug!("Unknown record type {record_type:#x} at offset {offset:#x}");
+                Slot::Other
             }
-        }
+        };
+        slots.push(slot);
 
         offset += 4 + record_length;
     }
 }
 
-/// Parses a text record (pipe-delimited key=value pairs).
+/// What a record of the stream became, by its stream-index — what a later
+/// record's `OwnerIndex` names.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Slot {
+    /// The pin at this index of `Symbol::pins`.
+    Pin(usize),
+    /// The `RECORD=45` of the footprint link at this index of
+    /// `Symbol::footprints`.
+    Model(usize),
+    /// That link's `RECORD=46` datafile link.
+    DatafileLink(usize),
+    /// That link's `RECORD=48` implementation.
+    Implementation(usize),
+    /// Anything else.
+    Other,
+}
+
+/// Parses a text record, routing one owned by a pin or by a footprint link's
+/// 46 or 48 to its owner as raw segments (Altium's pin parameters, pin-map
+/// definers and implementation parameters), and returns what the record
+/// became. `slots` holds what every earlier record became.
+fn parse_owned_or_text_record(symbol: &mut Symbol, slots: &[Slot], text: &str) -> Slot {
+    let props = parse_properties(text);
+    let record = props.get("record").map(String::as_str);
+    let owner = props
+        .get("ownerindex")
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .and_then(|i| slots.get(i).copied());
+    match (record, owner) {
+        // The footprint link's own structure: 46 and 48 hang off their 45.
+        (Some("46"), Some(Slot::Model(f))) => return Slot::DatafileLink(f),
+        (Some("48"), Some(Slot::Model(f))) => return Slot::Implementation(f),
+        (Some("45" | "46" | "48"), _) | (_, None | Some(Slot::Other | Slot::Model(_))) => {}
+        (_, Some(Slot::Pin(p))) => {
+            symbol.pins[p].owned_records.push(record_segments(text));
+            return Slot::Other;
+        }
+        (_, Some(Slot::DatafileLink(f))) => {
+            symbol.footprints[f]
+                .datafile_link_records
+                .push(record_segments(text));
+            return Slot::Other;
+        }
+        (_, Some(Slot::Implementation(f))) => {
+            symbol.footprints[f]
+                .implementation_records
+                .push(record_segments(text));
+            return Slot::Other;
+        }
+    }
+    let models = symbol.footprints.len();
+    parse_text_record_from_string(symbol, text);
+    if record == Some("45") && symbol.footprints.len() > models {
+        Slot::Model(models)
+    } else {
+        Slot::Other
+    }
+}
+
+/// Parses a text record (pipe-delimited key=value pairs) on its own, outside
+/// a stream: no owner can be resolved.
+#[cfg(test)]
 fn parse_text_record(symbol: &mut Symbol, data: &[u8]) {
+    parse_text_record_from_string(symbol, &decode_text_record(data));
+}
+
+/// Decodes a text record's bytes (pipe-delimited key=value pairs).
+fn decode_text_record(data: &[u8]) -> String {
     // Remove null terminator if present
     let data = data.split(|&b| b == 0).next().unwrap_or(data);
 
@@ -97,7 +169,7 @@ fn parse_text_record(symbol: &mut Symbol, data: &[u8]) {
     // one-char-per-byte "mojibake"; the field parser then re-decodes it as UTF-8
     // (see `decode_utf8_param_value`). Without the `%UTF8%` marker the record is
     // decoded exactly as before: UTF-8 when valid, else Windows-1252.
-    let text = if contains_utf8_marker(data) {
+    if contains_utf8_marker(data) {
         crate::altium::decode_windows1252(data)
     } else {
         std::str::from_utf8(data).map_or_else(
@@ -108,9 +180,7 @@ fn parse_text_record(symbol: &mut Symbol, data: &[u8]) {
             },
             str::to_string,
         )
-    };
-
-    parse_text_record_from_string(symbol, &text);
+    }
 }
 
 /// Returns `true` when the raw record bytes contain a `%UTF8%` key prefix
@@ -217,11 +287,12 @@ fn parse_text_record_from_string(symbol: &mut Symbol, text: &str) {
             // and UniqueID are preserved so a read-modify-write re-emits the
             // record byte-identically (absent coordinate keys decode to 0,
             // which is the authored value — Altium omits zero keys).
-            if let Some(text) = read_utf8_text_field(&props, "text") {
-                symbol.designator = text;
+            if let Some(designator) = read_utf8_text_field(&props, "text") {
+                symbol.designator = designator;
                 symbol.designator_x = crate::altium::schlib::coord::read(&props, "location.x");
                 symbol.designator_y = crate::altium::schlib::coord::read(&props, "location.y");
                 symbol.designator_unique_id = props.get("uniqueid").cloned();
+                symbol.designator_params = record_segments(text);
             }
         }
         41 => {

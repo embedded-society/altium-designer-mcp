@@ -118,9 +118,17 @@ impl SchLib {
             .unwrap_or_default();
         let order = order_by_header(&header.component_names, &read, &section_keys);
 
+        lib.aliases = read_aliases(&mut cfb, &read);
+
         let mut slots: Vec<Option<Symbol>> = read.into_iter().map(|(_, s)| Some(s)).collect();
         for i in order {
-            if let Some(symbol) = slots[i].take() {
+            if let Some(mut symbol) = slots[i].take() {
+                if let Some(aliases) = header
+                    .component_aliases
+                    .get(&crate::altium::folded_name(&symbol.name))
+                {
+                    symbol.aliases.clone_from(aliases);
+                }
                 // Keyed by the symbol's actual name (from LibReference), which
                 // handles long names truncated in the OLE storage path.
                 lib.symbols.insert(symbol.name.clone(), symbol);
@@ -167,6 +175,68 @@ impl SchLib {
 
         Ok(lib)
     }
+}
+
+/// Every root storage holding no `Data` stream, carried verbatim with the
+/// symbol its `Redirection` names (see `SchLib::aliases`).
+fn read_aliases<R: Read + Seek>(
+    cfb: &mut CompoundFile<R>,
+    read: &[(String, Symbol)],
+) -> Vec<super::Alias> {
+    let storages: Vec<String> = cfb
+        .read_root_storage()
+        .filter(cfb::Entry::is_storage)
+        .map(|entry| entry.name().to_string())
+        .filter(|name| !name.is_empty())
+        .collect();
+    let mut aliases = Vec::new();
+    for storage in storages {
+        if cfb.is_stream(format!("/{storage}/Data")) {
+            continue;
+        }
+        let names: Vec<String> = cfb
+            .read_storage(format!("/{storage}"))
+            .map(|entries| {
+                entries
+                    .filter(cfb::Entry::is_stream)
+                    .map(|entry| entry.name().to_string())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let streams: Vec<(String, Vec<u8>)> = names
+            .into_iter()
+            .filter_map(|name| {
+                crate::altium::read_stream_opt(&mut *cfb, format!("{storage}/{name}"))
+                    .map(|bytes| (name, bytes))
+            })
+            .collect();
+        let section_name = streams
+            .iter()
+            .find(|(name, _)| name == "Redirection")
+            .and_then(|(_, bytes)| redirection_section(bytes));
+        let target = section_name.as_ref().and_then(|section| {
+            read.iter()
+                .find(|(stored, _)| stored == section)
+                .map(|(_, symbol)| symbol.name.clone())
+        });
+        aliases.push(super::Alias {
+            storage,
+            section_name,
+            target,
+            streams,
+        });
+    }
+    aliases
+}
+
+/// The `SectionName` a `Redirection` stream names.
+fn redirection_section(bytes: &[u8]) -> Option<String> {
+    let (block, _) = crate::altium::framing::read_block(bytes, 0)?;
+    let text = crate::altium::decode_windows1252(block.strip_suffix(&[0x00]).unwrap_or(block));
+    crate::altium::parse_pipe_params(&text)
+        .get("sectionname")
+        .filter(|name| !name.is_empty())
+        .cloned()
 }
 
 /// The order to place the symbols read from the storages in: header order
@@ -317,6 +387,9 @@ fn carry_extra_streams<R: Read + Seek>(
 struct FileHeader {
     component_names: Vec<String>,
     component_descriptions: HashMap<String, String>,
+    /// Each listed component's aliases (`AliasCount{i}`, `Comp{i}Alias{j}`),
+    /// as stored, by folded name.
+    component_aliases: HashMap<String, Vec<String>>,
     unique_id: Option<String>,
     /// Every `|`-separated field as read, in wire form (see
     /// `SchLib::file_header`).
@@ -439,10 +512,27 @@ fn read_file_header<R: Read + Seek>(cfb: &mut CompoundFile<R>) -> AltiumResult<F
     }
     let mut component_names = Vec::with_capacity(comp_count);
     let mut component_descriptions = HashMap::new();
+    let mut component_aliases = HashMap::new();
     for i in 0..comp_count {
         if let Some(name) = text(format!("libref{i}")) {
             if let Some(desc) = text(format!("compdescr{i}")) {
                 component_descriptions.insert(name.clone(), desc);
+            }
+            // The component's aliases, as stored. Each takes a field of its
+            // own, so the count is held to the fields there are.
+            let aliases: Vec<String> = (0..fields
+                .get(&format!("aliascount{i}"))
+                .and_then(|v| v.trim().parse::<usize>().ok())
+                .unwrap_or(0)
+                .min(fields.len()))
+                .filter_map(|j| {
+                    fields
+                        .get(&format!("comp{i}alias{j}"))
+                        .map(|v| (*v).to_string())
+                })
+                .collect();
+            if !aliases.is_empty() {
+                component_aliases.insert(crate::altium::folded_name(&name), aliases);
             }
             component_names.push(name);
         }
@@ -451,6 +541,7 @@ fn read_file_header<R: Read + Seek>(cfb: &mut CompoundFile<R>) -> AltiumResult<F
     Ok(FileHeader {
         component_names,
         component_descriptions,
+        component_aliases,
         unique_id: props.get("uniqueid").cloned(),
         segments,
     })
@@ -460,6 +551,86 @@ fn read_file_header<R: Read + Seek>(cfb: &mut CompoundFile<R>) -> AltiumResult<F
 mod tests {
     use super::SchLib;
     use std::io::Write as _;
+
+    /// A library holding `REAL` with one alias, plus the storage Altium keeps
+    /// for that alias: a `Redirection` stream naming `REAL`'s storage.
+    fn library_with_alias() -> Vec<u8> {
+        use std::io::Cursor;
+        let mut symbol = crate::altium::schlib::Symbol::new("REAL");
+        symbol.designator = "U?".to_string();
+        symbol.aliases = vec!["\"OLD NAME\"".to_string()];
+        let mut lib = SchLib::new();
+        lib.add(symbol);
+        let mut buf = Cursor::new(Vec::new());
+        lib.write(&mut buf).expect("write");
+        let mut cfb = cfb::CompoundFile::open(Cursor::new(buf.into_inner())).expect("reopen");
+        cfb.create_storage("/OLD_NAME").expect("alias storage");
+        let mut redirection = Vec::new();
+        crate::altium::framing::write_cstring_param_block(&mut redirection, b"|SectionName=REAL");
+        cfb.create_stream("/OLD_NAME/Redirection")
+            .expect("redirection")
+            .write_all(&redirection)
+            .expect("write redirection");
+        cfb.flush().expect("flush");
+        cfb.into_inner().into_inner()
+    }
+
+    fn stream(bytes: &[u8], path: &str) -> Option<String> {
+        use std::io::Read as _;
+        let mut cfb = cfb::CompoundFile::open(std::io::Cursor::new(bytes)).ok()?;
+        let mut data = Vec::new();
+        cfb.open_stream(path).ok()?.read_to_end(&mut data).ok()?;
+        Some(String::from_utf8_lossy(&data).into_owned())
+    }
+
+    #[test]
+    fn an_alias_follows_its_symbol_through_a_rename() {
+        let mut lib = SchLib::read(std::io::Cursor::new(library_with_alias())).expect("read");
+        assert_eq!(lib.names(), ["REAL"], "an alias storage is not a symbol");
+        assert_eq!(lib.get("REAL").expect("REAL").aliases, ["\"OLD NAME\""]);
+        assert!(lib.rename("REAL", "RENAMED"));
+        let mut out = std::io::Cursor::new(Vec::new());
+        lib.write(&mut out).expect("write");
+        let bytes = out.into_inner();
+        let redirection = stream(&bytes, "/OLD_NAME/Redirection").expect("the alias stays");
+        assert!(
+            redirection.contains("|SectionName=RENAMED"),
+            "{redirection}"
+        );
+        let header = stream(&bytes, "/FileHeader").expect("header");
+        assert!(
+            header.contains("|AliasCount0=1|Comp0Alias0=\"OLD NAME\""),
+            "{header}"
+        );
+    }
+
+    #[test]
+    fn an_unchanged_alias_goes_back_byte_for_byte() {
+        let source = library_with_alias();
+        let lib = SchLib::read(std::io::Cursor::new(source.clone())).expect("read");
+        let mut out = std::io::Cursor::new(Vec::new());
+        lib.write(&mut out).expect("write");
+        let bytes = out.into_inner();
+        assert_eq!(
+            stream(&bytes, "/OLD_NAME/Redirection"),
+            stream(&source, "/OLD_NAME/Redirection")
+        );
+    }
+
+    #[test]
+    fn an_alias_of_a_removed_symbol_is_dropped() {
+        let mut lib = SchLib::read(std::io::Cursor::new(library_with_alias())).expect("read");
+        let mut other = crate::altium::schlib::Symbol::new("OTHER");
+        other.designator = "R?".to_string();
+        lib.add(other);
+        assert!(lib.remove("REAL").is_some());
+        let mut out = std::io::Cursor::new(Vec::new());
+        lib.write(&mut out).expect("write");
+        assert!(
+            stream(&out.into_inner(), "/OLD_NAME/Redirection").is_none(),
+            "an alias pointing at nothing is not written"
+        );
+    }
 
     /// Builds a compound document with the given `/FileHeader` bytes and,
     /// optionally, one component storage. Enough to drive every header path

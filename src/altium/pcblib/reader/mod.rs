@@ -450,6 +450,14 @@ fn read_flags(data: &[u8]) -> PcbFlags {
     flags
 }
 
+/// Parses one pad record at the start of `data`, for the writer's tests.
+#[cfg(test)]
+pub fn parse_pad_for_test(
+    data: &[u8],
+) -> crate::altium::error::AltiumResult<(crate::altium::pcblib::Pad, usize)> {
+    parsers::parse_pad(data, 0)
+}
+
 /// [`read_flags`] on a bare flag word, for the writer's round-trip test.
 #[cfg(test)]
 pub fn read_flags_for_test(word: u16) -> PcbFlags {

@@ -621,6 +621,8 @@ impl McpServer {
                     polygon_index: 0xFFFF,
                     component_index: -1,
                     additional_parameters: Vec::new(),
+                    flags: crate::altium::pcblib::PcbFlags::empty(),
+                    model_type: None,
                     param_key_order: Vec::new(),
                 });
                 true
@@ -1518,6 +1520,8 @@ mod tests {
             polygon_index: 0xFFFF,
             component_index: -1,
             additional_parameters: Vec::new(),
+            flags: crate::altium::pcblib::PcbFlags::empty(),
+            model_type: None,
             param_key_order: Vec::new(),
         };
 

@@ -30,6 +30,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   offsets in plain arithmetic, which on a 32-bit build (none ships; a source build can be one)
   could wrap and read the wrong bytes or panic. Every such sum now saturates or is checked.
 
+Found rewriting an Altium 365-exported library pair (a 143-symbol `SchLib`, an 81-footprint
+`PcbLib`): before these fixes a rewrite that changed nothing changed every symbol's `Data`
+stream and 93 streams of the footprint library. The symbol library now comes back byte for
+byte from `update_component` with every symbol as read, and the footprint library from a
+rename and back but for its save path, date and time.
+
+- **Records a symbol owns go back under their owner.** A pin's parameter (`Name=Order`), a
+  footprint link's pin-map definer (`RECORD=47`) and its implementation parameter (Altium
+  365's hidden `Available Preview Images`) name their owner by `OwnerIndex`; read as component
+  parameters, or skipped, they became component parameters or vanished. They are carried as
+  `owned_records` on the pin and `datafile_link_records` / `implementation_records` on the
+  footprint link, and written after their owner with `OwnerIndex` pointing at it.
+- **A designator keeps its own font, lock state and owner.** The writer wrote every
+  designator as `FontID=1|ReadOnlyState=1|OwnerPartId=-1|Color=8388608`; Altium-authored
+  ones carry other fonts of the library's table, `ReadOnlyState=3`, `OwnerPartId=1`, a
+  `Justification` or no colour. The record is replayed (`designator_params`); its text,
+  position and identity stay editable.
+- **Altium 365's system `Comment` stays the system Comment.** Stored with `OwnerPartId=1` and
+  `IndexInSheet=-1` after the designator, it was taken for a user parameter and moved onto a
+  counter slot before the designator.
+- **A symbol's aliases survive.** The `FileHeader` lists them per component (`AliasCount{i}`,
+  `Comp{i}Alias{j}`), now `aliases` on the symbol, kept through every rebuild of the list; and
+  the alias storages Altium keeps beside the symbols — a `Redirection` stream naming the
+  symbol's storage — are carried, retargeted when the symbol is renamed, and dropped when it
+  is removed. Both were lost on every rewrite.
+- **A Bezier keeps every point.** Altium stores five-point curves (the fifth repeating the
+  fourth); the writer cut them to four. Points past the fourth are `extra_points`.
+- **A pin description outside ASCII keeps its wide form.** `PinWideText` carries `|DESC=`
+  entries as well as `|NAME=`; the writer dropped them.
+- **`ReadOnlyState` up to 3 passes the argument check.** Altium sets it from the separate Name
+  and Value lock options and stores 3; `read_schlib` reported it and `update_component`
+  refused it, so such a symbol could not be written back.
+- **A footprint's sub-storage is no longer read as a footprint.** Altium keeps an
+  `ExtendedPrimitiveInformation` storage with a `Data` stream inside a footprint's storage;
+  read as a footprint it became a phantom one, written to the library root on every save.
+- **A footprint's other streams go back.** `PrimitiveParameters` (the footprint's Pin Count,
+  Pitch, Mount and Thermal Pad parameters), `ExtendedPrimitiveInformation` (region paste-mask
+  expansions), `CornerRadiusChamfer`, `CustomMaskShapes` and `SharedUnion` were dropped on
+  every save. They are carried (`carried_streams`) and written back while the footprint keeps
+  the primitive sequence they were read with, since most name a primitive by position; a
+  footprint whose primitives were added, removed or reordered drops them with a warning.
+- **A pad's size/shape block goes back as read until the pad is edited.** Altium writes a
+  five-entry per-layer tail and table bytes the writer cannot derive; the block is carried
+  (`raw_size_shape_block`, with the fingerprint of the block the pad built when read) and
+  replayed while the pad builds the same. The built block's entry radius is now the pad's own
+  radius (50 when it has none, as every golden stores), and a 100% rounded rectangle — flagged
+  by the block, its radius alone reading as round — reads back as one.
+- **A locked 3D body stays locked, a cylinder stays a cylinder.** The body's flag word was
+  written as a constant `0x000C`; it is the common-header flags (`0x0008` locked). A body of
+  `MODEL.MODELTYPE=2` was rewritten as an extrusion with an invented Z range; the type is kept
+  (`model_type`). An unmodelled body value keeps its leading space (`SA0= 1.8…`).
+- **`ComponentParamsTOC` lists each footprint's height** as its `HEIGHT` parameter states it,
+  where it wrote `Height=0`.
+- **`update_component` and `write_pcblib` take Altium's own pads**: an empty designator (a
+  fiducial, a paste aperture, an unplated mounting hole) and a hole-only pad of size 0 x 0. A
+  blank (whitespace) designator and a zero-size pad with no hole are still refused.
+- **`validate_library` no longer calls Altium's own footprints and symbols invalid.** Pads
+  sharing a designator (a split thermal pad) and a pad with no designator are warnings; a
+  hole-only pad is valid; a pin drawn again in an alternate display mode is not a duplicate,
+  and a designator used in two parts of a multi-part symbol (a power pin in every part) is a
+  warning rather than an error.
+- **A carried stream never replaces one the writer builds.** A footprint's `carried_streams`
+  and a symbol's `extra_streams` that name a built stream (`Data`, say) or a malformed path
+  are skipped with a warning, and a carried stream nested in a sub-storage, or beside a
+  storage the writer already made, no longer fails the save.
+
 ## [1.2.2] - 2026-10-09
 
 A security release: a crafted library could exhaust the server's memory through its compressed

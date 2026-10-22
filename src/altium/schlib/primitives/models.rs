@@ -32,6 +32,19 @@ pub struct FootprintModel {
     /// omits an empty `Description`, all of which come back as stored.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub raw_params: Vec<(String, String)>,
+    /// Text records owned by this link's `RECORD=46` (its datafile link) —
+    /// a `RECORD=47` pin-map definer, say — each as its `(key, value)`
+    /// segments in stored order, written back after the 46 with `OwnerIndex`
+    /// set to its new stream-index.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub datafile_link_records: Vec<Vec<(String, String)>>,
+    /// Text records owned by this link's `RECORD=48` (its implementation) —
+    /// an implementation parameter such as Altium 365's hidden
+    /// `Available Preview Images`, say — each as its `(key, value)` segments
+    /// in stored order, written back after the 48 with `OwnerIndex` set to
+    /// its new stream-index.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub implementation_records: Vec<Vec<(String, String)>>,
 }
 
 impl FootprintModel {
@@ -40,6 +53,8 @@ impl FootprintModel {
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             raw_params: Vec::new(),
+            datafile_link_records: Vec::new(),
+            implementation_records: Vec::new(),
             name: name.into(),
             description: String::new(),
             library_path: None,

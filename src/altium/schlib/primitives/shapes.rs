@@ -688,6 +688,16 @@ pub struct Bezier {
     /// End point Y.
     #[serde(serialize_with = "crate::altium::serde_round::serialize")]
     pub y4: f64,
+    /// Points past the fourth, in order (`X5`/`Y5` onward): Altium stores a
+    /// Bezier's `LocationCount` points whatever their number, and
+    /// Altium-authored symbols carry five-point curves (the fifth repeating
+    /// the fourth). Empty for a plain cubic.
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        with = "crate::altium::serde_round::xy_points"
+    )]
+    pub extra_points: Vec<(f64, f64)>,
     /// Line width.
     #[serde(default = "default_line_width")]
     pub line_width: u8,
@@ -742,6 +752,7 @@ impl Bezier {
             y3: y3.into(),
             x4: x4.into(),
             y4: y4.into(),
+            extra_points: Vec::new(),
             line_width: 1,
             color: 0x00_00_80, // Dark red (BGR)
             is_not_accessible: true,

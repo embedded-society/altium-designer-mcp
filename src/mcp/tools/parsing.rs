@@ -180,6 +180,18 @@ fn json_raw_params(json: &Value) -> Vec<(String, String)> {
         .unwrap_or_default()
 }
 
+/// Reads a list of owned text records (`key`) — each a record's `(key,
+/// value)` segments, as `read_schlib` emits a pin's `owned_records` or a
+/// footprint link's `datafile_link_records` / `implementation_records` — so
+/// a read-modify-write puts them back under their owner. Anything else is
+/// no records, like every other carrier this parser reads leniently.
+fn json_owned_records(json: &Value, key: &str) -> Vec<Vec<(String, String)>> {
+    json.get(key)
+        .cloned()
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default()
+}
+
 /// Reads an Altium identity GUID (`key`) from a record's JSON: absent is
 /// `Ok(None)`; the braced form `read_pcblib` emits, or any spelling of the
 /// same 32 hex digits, is kept verbatim; anything else is refused by name,
@@ -724,6 +736,15 @@ impl McpServer {
         if let Some(uid) = sym_json.get("designator_unique_id").and_then(Value::as_str) {
             symbol.designator_unique_id = Some(uid.to_string());
         }
+        // The designator record as read, so its own font, lock state and
+        // owner go back unchanged.
+        if let Some(params) = sym_json.get("designator_params") {
+            symbol.designator_params = serde_json::from_value(params.clone()).unwrap_or_default();
+        }
+        // Other library references the symbol answers to, as listed.
+        if let Some(aliases) = sym_json.get("aliases") {
+            symbol.aliases = serde_json::from_value(aliases.clone()).unwrap_or_default();
+        }
 
         // Parse part_count for multi-part symbols (e.g., dual op-amp)
         if let Some(part_count) = sym_json.get("part_count").and_then(Value::as_u64) {
@@ -1062,6 +1083,9 @@ impl McpServer {
                         .and_then(Value::as_str)
                         .map(str::to_string);
                     fp.raw_params = json_raw_params(fp_json);
+                    fp.datafile_link_records = json_owned_records(fp_json, "datafile_link_records");
+                    fp.implementation_records =
+                        json_owned_records(fp_json, "implementation_records");
                     symbol.add_footprint(fp);
                 }
             }
@@ -1393,6 +1417,8 @@ impl McpServer {
                         polygon_index: 0xFFFF,
                         component_index: -1,
                         additional_parameters: Vec::new(),
+                        flags: crate::altium::pcblib::PcbFlags::empty(),
+                        model_type: None,
                         param_key_order: Vec::new(),
                     });
                 }
@@ -1479,6 +1505,24 @@ impl McpServer {
             Ok(guid) => guid,
             Err(e) => return Err(ToolCallResult::error(e)),
         };
+        // The streams this crate does not read, carried verbatim with the
+        // primitive sequence they name primitives in.
+        {
+            #[derive(serde::Deserialize)]
+            struct Streams(
+                #[serde(with = "crate::altium::base64_opt::named")] Vec<(String, Vec<u8>)>,
+            );
+            footprint.carried_streams = fp_json
+                .get("carried_streams")
+                .cloned()
+                .and_then(|v| serde_json::from_value::<Streams>(v).ok())
+                .map_or_else(Vec::new, |streams| streams.0);
+            footprint.carried_streams_sequence = fp_json
+                .get("carried_streams_sequence")
+                .cloned()
+                .and_then(|v| serde_json::from_value(v).ok())
+                .unwrap_or_default();
+        }
         // The storage the footprint was read from, so a read-modify-write
         // through JSON keeps it where Altium looks for it (#507).
         footprint.storage_name = fp_json
@@ -1540,9 +1584,12 @@ impl McpServer {
             .and_then(Value::as_str)
             .ok_or("Pad missing required field 'designator'")?;
 
-        // Validate designator is not empty
-        if designator.trim().is_empty() {
-            return Err("Pad designator cannot be empty".to_string());
+        // An empty designator is Altium's own for a fiducial, a paste
+        // aperture or an unplated mounting hole (validate_library warns), but
+        // whitespace is not a designator: the pad would land unnameable and
+        // unmatched by any schematic pin.
+        if !designator.is_empty() && designator.trim().is_empty() {
+            return Err("Pad designator cannot be blank (use an empty designator for a fiducial or mounting hole)".to_string());
         }
 
         let x = json
@@ -1562,15 +1609,20 @@ impl McpServer {
             .and_then(Value::as_f64)
             .ok_or("Pad missing required field 'height'")?;
 
-        // Validate pad dimensions are positive
-        if width <= 0.0 {
+        // Pad dimensions: positive, or zero on a hole-only pad (an unplated
+        // mounting hole has no copper — Altium stores it 0 x 0).
+        let has_hole = json
+            .get("hole_size")
+            .and_then(Value::as_f64)
+            .is_some_and(|h| h > 0.0);
+        if width < 0.0 || (width == 0.0 && !has_hole) {
             return Err(format!(
-                "Pad '{designator}' has invalid width {width}. Width must be greater than 0."
+                "Pad '{designator}' has invalid width {width}. Width must be greater than 0 (or 0 on a pad with a hole)."
             ));
         }
-        if height <= 0.0 {
+        if height < 0.0 || (height == 0.0 && !has_hole) {
             return Err(format!(
-                "Pad '{designator}' has invalid height {height}. Height must be greater than 0."
+                "Pad '{designator}' has invalid height {height}. Height must be greater than 0 (or 0 on a pad with a hole)."
             ));
         }
 
@@ -1838,6 +1890,11 @@ impl McpServer {
             unique_id: json_unique_id(json),
             guid: guid_field(json, "guid", &pad_field("guid"))?,
             raw_tail: json_base64(json, "raw_tail"),
+            raw_size_shape_block: json_base64(json, "raw_size_shape_block"),
+            raw_size_shape_basis: json
+                .get("raw_size_shape_basis")
+                .and_then(Value::as_str)
+                .map(str::to_string),
             identity_guid,
             identity_guid_b,
         })
@@ -2375,6 +2432,11 @@ impl McpServer {
                 .and_then(|v| i32::try_from(v).ok())
                 .unwrap_or(-1),
             additional_parameters: Self::parse_additional_parameters(body_json),
+            flags: json_flags(body_json),
+            model_type: body_json
+                .get("model_type")
+                .and_then(Value::as_u64)
+                .and_then(|v| u8::try_from(v).ok()),
             param_key_order: Self::parse_key_order(body_json),
         })
     }
@@ -2795,6 +2857,7 @@ impl McpServer {
             symbol_line_width,
             frac,
             name_code_page,
+            owned_records: json_owned_records(json, "owned_records"),
         })
     }
 
@@ -3434,6 +3497,18 @@ impl McpServer {
             .and_then(Value::as_bool)
             .unwrap_or(true);
         let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
+        // Points past the fourth, in any spelling the tools accept.
+        let extra_points: Vec<(f64, f64)> = json
+            .get("extra_points")
+            .and_then(Value::as_array)
+            .map(|points| {
+                points
+                    .iter()
+                    .filter_map(crate::altium::serde_round::pair_from_json)
+                    .filter(|(x, y)| x.is_finite() && y.is_finite())
+                    .collect()
+            })
+            .unwrap_or_default();
 
         Some(Bezier {
             x1,
@@ -3444,6 +3519,7 @@ impl McpServer {
             y3,
             x4,
             y4,
+            extra_points,
             line_width,
             color,
             is_not_accessible,
@@ -4704,12 +4780,39 @@ mod tests {
         }
 
         #[test]
-        fn parse_pad_rejects_an_empty_designator() {
+        fn parse_pad_rejects_a_blank_designator() {
             // Whitespace is not a designator: the pad would land in the library
             // unnameable and unmatched by any schematic pin.
             let mut json = pad_json();
             json["designator"] = json!("   ");
-            rejects(McpServer::parse_pad(&json), "cannot be empty");
+            rejects(McpServer::parse_pad(&json), "cannot be blank");
+        }
+
+        #[test]
+        fn parse_pad_takes_altiums_empty_designator_and_hole_only_pads() {
+            // Altium-authored footprints carry both: a fiducial or paste
+            // aperture with no designator, and an unplated mounting hole with
+            // no copper (0 x 0). A read-modify-write must not refuse them.
+            let mut fiducial = pad_json();
+            fiducial["designator"] = json!("");
+            assert_eq!(
+                McpServer::parse_pad(&fiducial)
+                    .expect("fiducial")
+                    .designator,
+                ""
+            );
+            let mut hole = pad_json();
+            hole["designator"] = json!("MNT1");
+            hole["width"] = json!(0.0);
+            hole["height"] = json!(0.0);
+            hole["hole_size"] = json!(0.99);
+            assert!(
+                McpServer::parse_pad(&hole)
+                    .expect("hole-only pad")
+                    .width
+                    .abs()
+                    < f64::EPSILON
+            );
         }
 
         #[test]

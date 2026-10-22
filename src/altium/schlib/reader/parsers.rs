@@ -124,6 +124,7 @@ pub(super) fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
         symbol_line_width: 0,
         frac: None,
         name_code_page: None,
+        owned_records: Vec::new(),
     })
 }
 
@@ -747,6 +748,32 @@ pub(super) fn parse_bezier(props: &HashMap<String, String>) -> Option<Bezier> {
     let y3 = crate::altium::schlib::coord::read(props, "y3");
     let x4 = crate::altium::schlib::coord::read(props, "x4");
     let y4 = crate::altium::schlib::coord::read(props, "y4");
+    // Any point past the fourth the record counts. A point at the origin has
+    // no keys (Altium omits a zero coordinate), so the count is held to what
+    // the record's fields can describe, as `read_vertices` holds a polygon's,
+    // rather than to the keys present: a crafted LocationCount cannot size
+    // the list, and a curve past the bound keeps its four control points.
+    let count = props
+        .get("locationcount")
+        .and_then(|s| s.trim().parse::<usize>().ok())
+        .unwrap_or(4);
+    let most = props.len() + ORIGIN_VERTICES;
+    let count = if count > most {
+        tracing::warn!(
+            "Bezier LocationCount {count} exceeds the {most} points its record can describe, points past the fourth skipped"
+        );
+        4
+    } else {
+        count
+    };
+    let extra_points: Vec<(f64, f64)> = (5..=count)
+        .map(|i| {
+            (
+                crate::altium::schlib::coord::read(props, &format!("x{i}")),
+                crate::altium::schlib::coord::read(props, &format!("y{i}")),
+            )
+        })
+        .collect();
 
     let line_width = props
         .get("linewidth")
@@ -771,6 +798,7 @@ pub(super) fn parse_bezier(props: &HashMap<String, String>) -> Option<Bezier> {
         y3,
         x4,
         y4,
+        extra_points,
         line_width,
         color,
         is_not_accessible,
@@ -1206,6 +1234,26 @@ mod tests {
             ("y2".to_string(), "5".to_string()),
         ]);
         assert!(parse_polygon(&props).is_none());
+    }
+
+    /// A Bezier point past the fourth at the origin carries no keys, like a
+    /// polyline vertex there, and the points after it still count.
+    #[test]
+    fn a_bezier_keeps_its_points_past_one_at_the_origin() {
+        let bezier = parse_bezier(&parse_properties(
+            "|RECORD=5|LocationCount=6|X1=10|X2=20|X3=30|X4=40|X6=60|Y6=-10",
+        ))
+        .expect("bezier");
+        assert_eq!(bezier.extra_points, [(0.0, 0.0), (60.0, -10.0)]);
+
+        // A count past what the record can describe keeps the cubic only.
+        let bezier = parse_bezier(&parse_properties(&format!(
+            "|RECORD=5|LocationCount={}|X1=10",
+            usize::MAX
+        )))
+        .expect("bezier");
+        assert!(bezier.extra_points.is_empty());
+        assert!((bezier.x1 - 10.0).abs() < f64::EPSILON);
     }
 
     /// A vertex at the origin carries no keys, so `LocationCount` may run past

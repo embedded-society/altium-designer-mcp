@@ -969,7 +969,7 @@ manage_schlib_footprints for footprint links, which are models rather than param
 | `operation` | enum | yes | Operation to perform: list (all parameters), get (single parameter), set (update value), add (new parameter), delete (remove parameter) (one of: list, get, set, add, delete) |
 | `param_type` | integer | no | Parameter type (0=String, 1=Boolean, 2=Integer, 3=Float) (optional for set, add). Default: 0 (range: 0-3) |
 | `parameter_name` | string | no | Name of the parameter (required for get, set, add, delete); matched without regard to case, as Altium treats parameter names |
-| `read_only_state` | integer | no | Read-only state (0=editable, 1=read-only) (optional for set, add). Default: 0 (range: 0-1) |
+| `read_only_state` | integer | no | Altium's lock state for the parameter (ReadOnlyState): 0=editable; Altium sets it from the Name and Value Lock options of Parameter Properties, and Altium-authored libraries store 1 and 3 (optional for set, add). Default: 0 (range: 0-3) |
 | `unique_id` | string | no | 8-char Altium unique ID (optional for set, add). Default: auto-generated |
 | `value` | string | no | Parameter value (required for set, add) |
 | `x` | integer | no | X position in schematic units (optional for set, add) |
