@@ -463,8 +463,12 @@ creates a timestamped backup of the target file. Backups use the format:
 MyLibrary.PcbLib.20260125_143022.bak
 ```
 
-**Backup retention:** Only the 5 most recent backups per file are kept. Older backups are
-automatically removed to prevent unbounded disk usage.
+A backup never replaces another: a second one within the same second is
+`MyLibrary.PcbLib.20260125_143022_001.bak`, then `_002`, and so on.
+
+**Backup retention:** The 5 most recent backups per file are kept, and so is the first one
+the server made of the file since it started, which holds the file as it was before the
+session's changes. Older backups are automatically removed to prevent unbounded disk usage.
 
 **Operations that create backups:**
 

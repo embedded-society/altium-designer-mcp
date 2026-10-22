@@ -91,8 +91,11 @@ intermediate failure messages likewise surface only the sanitised file name.
 
 Before a destructive operation — including `restore_backup`, which snapshots the
 current file before the chosen backup replaces it — `create_backup` (`src/mcp/server.rs`)
-copies the existing file to a timestamped `filepath.YYYYMMDD_HHMMSS.bak`. New-file
-creation is a no-op. Retention is bounded: `MAX_BACKUPS = 5` (`src/mcp/server.rs`) and
+copies the existing file to a timestamped `filepath.YYYYMMDD_HHMMSS.bak`, created exclusively
+so that it never replaces another backup (a later one in the same second takes a `_001`,
+`_002`, … suffix). New-file
+creation is a no-op. Retention is bounded: `MAX_BACKUPS = 5` (`src/mcp/server.rs`), plus the first backup the
+server run made of the file (`first_backups`), and
 `cleanup_old_backups` (`src/mcp/server.rs`) prunes the oldest backups so the safety
 net cannot itself become an unbounded-disk-usage DoS.
 

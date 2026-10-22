@@ -428,8 +428,7 @@ impl McpServer {
                     continue;
                 };
 
-                // Validate timestamp format (YYYYMMDD_HHMMSS)
-                if middle.len() == 15 && middle.chars().nth(8) == Some('_') {
+                if Self::is_backup_stamp(middle) {
                     let metadata = entry.metadata().ok();
                     let size = metadata.as_ref().map_or(0, std::fs::Metadata::len);
                     let modified = metadata.and_then(|m| m.modified().ok()).and_then(|t| {
@@ -517,7 +516,7 @@ impl McpServer {
                     let Some(middle) = name.get(backup_pattern.len()..name.len() - 4) else {
                         continue;
                     };
-                    if middle.len() == 15 && middle.chars().nth(8) == Some('_') {
+                    if Self::is_backup_stamp(middle) {
                         let entry_path = entry.path().to_string_lossy().into_owned();
                         if most_recent
                             .as_ref()
@@ -1511,6 +1510,33 @@ mod tests {
         assert_eq!(parsed["backups"][0]["timestamp"], "20260301_120000");
         assert_eq!(parsed["backups"][1]["timestamp"], "20260101_090000");
         assert!(parsed["backups"][0]["size_bytes"].as_u64().unwrap() > 0);
+    }
+
+    #[test]
+    fn a_second_backup_within_the_same_second_is_listed_and_restored_as_newer() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        let path = dir.path().join("Same.PcbLib");
+        create_test_pcblib(&path);
+        std::fs::copy(&path, dir.path().join("Same.PcbLib.20260301_120000.bak")).unwrap();
+        std::fs::copy(
+            &path,
+            dir.path().join("Same.PcbLib.20260301_120000_001.bak"),
+        )
+        .unwrap();
+
+        let result = server.call_list_backups(&json!({ "filepath": path.to_string_lossy() }));
+        let parsed = parse_result_json(&result);
+        assert_eq!(parsed["backup_count"], 2);
+        assert_eq!(parsed["backups"][0]["timestamp"], "20260301_120000_001");
+
+        let result = server.call_restore_backup(&json!({ "filepath": path.to_string_lossy() }));
+        assert!(!result.is_error, "{}", get_result_text(&result));
+        assert!(
+            get_result_text(&result).contains("20260301_120000_001"),
+            "{}",
+            get_result_text(&result)
+        );
     }
 
     #[test]

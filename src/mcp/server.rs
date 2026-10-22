@@ -725,8 +725,27 @@ impl McpServer {
         Err("Access denied: path is outside the configured allowed directories".to_string())
     }
 
-    /// Maximum number of timestamped backups to retain per file.
+    /// Maximum number of timestamped backups to retain per file, besides the
+    /// run's first (see [`Self::first_backups`]).
     const MAX_BACKUPS: usize = 5;
+
+    /// How many backups of one file a single second can hold: the plain
+    /// stamp, then `_001` onward. A unit-test build holds few, so a test can
+    /// take every name and see a backup refused.
+    pub(crate) const BACKUPS_PER_SECOND: u32 = if cfg!(test) { 8 } else { 1000 };
+
+    /// The first backup this server run made of each file, keyed by the
+    /// file, both canonical: the file as it stood before the run first
+    /// changed it. Pruning keeps it beside the newest [`Self::MAX_BACKUPS`],
+    /// so a long session of edits never prunes away the original.
+    fn first_backups(
+    ) -> &'static std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, std::path::PathBuf>>
+    {
+        static FIRST: std::sync::OnceLock<
+            std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, std::path::PathBuf>>,
+        > = std::sync::OnceLock::new();
+        FIRST.get_or_init(Default::default)
+    }
 
     /// Refuses text the library's records cannot hold, backs up `filepath`,
     /// then persists the library.
@@ -751,11 +770,28 @@ impl McpServer {
         Ok(())
     }
 
+    /// Whether `stamp`, the part of a backup's name between the file name and
+    /// `.bak`, is a backup stamp: `YYYYMMDD_HHMMSS`, then `_NNN` for the
+    /// second and later backups taken within the same second. Stamps sort
+    /// oldest to newest as plain strings.
+    pub(crate) fn is_backup_stamp(stamp: &str) -> bool {
+        let b = stamp.as_bytes();
+        let digits = |range: std::ops::Range<usize>| b[range].iter().all(u8::is_ascii_digit);
+        let seconds = |b: &[u8]| b.len() >= 15 && b[8] == b'_' && digits(0..8) && digits(9..15);
+        match b.len() {
+            15 => seconds(b),
+            19 => seconds(b) && b[15] == b'_' && digits(16..19),
+            _ => false,
+        }
+    }
+
     /// Creates a timestamped backup of an existing file before modification.
     ///
     /// Copies `filepath` to `filepath.YYYYMMDD_HHMMSS.bak`, keeping up to
     /// `MAX_BACKUPS` recent backups per file. Older backups are automatically
-    /// cleaned up to prevent unbounded disk usage.
+    /// cleaned up to prevent unbounded disk usage. A backup never replaces
+    /// another: a later one within the same second becomes
+    /// `filepath.YYYYMMDD_HHMMSS_001.bak`, then `_002`, and so on.
     ///
     /// If the source file does not exist (new file creation), this is a no-op.
     ///
@@ -773,17 +809,57 @@ impl McpServer {
             return Ok(None);
         }
 
-        // Generate timestamped backup filename
-        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-        let backup_path = format!("{filepath}.{timestamp}.bak");
-
-        std::fs::copy(path, &backup_path).map_err(|e| {
+        let failed = |e: &dyn std::fmt::Display| {
             format!(
                 "Failed to create backup of '{}': {e}",
                 path.file_name()
                     .map_or_else(|| "file".to_string(), |n| n.to_string_lossy().into_owned())
             )
+        };
+
+        // The first free name for this second, claimed with an exclusive
+        // create so that no backup can ever overwrite another.
+        let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
+        let mut claimed = None;
+        for n in 0..Self::BACKUPS_PER_SECOND {
+            let candidate = if n == 0 {
+                format!("{filepath}.{timestamp}.bak")
+            } else {
+                format!("{filepath}.{timestamp}_{n:03}.bak")
+            };
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&candidate)
+            {
+                Ok(file) => {
+                    claimed = Some((candidate, file));
+                    break;
+                }
+                // A name something already holds is taken, whatever the
+                // platform calls it: a directory there is `AlreadyExists` on
+                // Unix but `PermissionDenied` on Windows.
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::AlreadyExists
+                        || Path::new(&candidate).symlink_metadata().is_ok() => {}
+                Err(e) => return Err(failed(&e)),
+            }
+        }
+        let (backup_path, mut backup) = claimed.ok_or_else(|| {
+            failed(&format!(
+                "all {} backup names for this second are taken",
+                Self::BACKUPS_PER_SECOND
+            ))
         })?;
+
+        let copied = std::fs::File::open(path)
+            .and_then(|mut source| std::io::copy(&mut source, &mut backup))
+            .and_then(|_| backup.sync_all());
+        if let Err(e) = copied {
+            drop(backup);
+            let _ = std::fs::remove_file(&backup_path);
+            return Err(failed(&e));
+        }
 
         tracing::debug!(
             source = %filepath,
@@ -791,13 +867,24 @@ impl McpServer {
             "Created timestamped backup before destructive operation"
         );
 
-        // Clean up old backups, keeping only the most recent MAX_BACKUPS
+        if let (Ok(source), Ok(made)) = (
+            path.canonicalize(),
+            std::path::Path::new(&backup_path).canonicalize(),
+        ) {
+            if let Ok(mut first) = Self::first_backups().lock() {
+                first.entry(source).or_insert(made);
+            }
+        }
+
+        // Clean up old backups, keeping the most recent MAX_BACKUPS and the
+        // run's first
         Self::cleanup_old_backups(filepath);
 
         Ok(Some(backup_path))
     }
 
-    /// Removes old backup files, keeping only the most recent `MAX_BACKUPS`.
+    /// Removes old backup files, keeping the most recent `MAX_BACKUPS` and the
+    /// first this run made of the file.
     pub(crate) fn cleanup_old_backups(filepath: &str) {
         use std::path::Path;
 
@@ -809,7 +896,7 @@ impl McpServer {
             return;
         };
 
-        // Pattern: filename.YYYYMMDD_HHMMSS.bak
+        // Pattern: filename.<stamp>.bak (see `is_backup_stamp`)
         let prefix = format!("{filename}.");
         let suffix = ".bak";
 
@@ -823,10 +910,8 @@ impl McpServer {
                         && name.ends_with(suffix)
                         && name != format!("{filename}.bak")
                     {
-                        // Extract timestamp part for sorting
-                        let timestamp_part = &name[prefix.len()..name.len() - suffix.len()];
-                        // Validate it looks like a timestamp (YYYYMMDD_HHMMSS = 15 chars)
-                        if timestamp_part.len() == 15 {
+                        let stamp = &name[prefix.len()..name.len() - suffix.len()];
+                        if Self::is_backup_stamp(stamp) {
                             return Some((entry.path(), name));
                         }
                     }
@@ -839,8 +924,20 @@ impl McpServer {
         // Sort by filename (timestamp) descending (newest first)
         backups.sort_by(|a, b| b.1.cmp(&a.1));
 
-        // Remove backups beyond MAX_BACKUPS
+        // Remove backups beyond MAX_BACKUPS, but never the run's first
+        let first = path.canonicalize().ok().and_then(|source| {
+            Self::first_backups()
+                .lock()
+                .ok()
+                .and_then(|first| first.get(&source).cloned())
+        });
         for (backup_path, _) in backups.into_iter().skip(Self::MAX_BACKUPS) {
+            if first
+                .as_ref()
+                .is_some_and(|first| backup_path.canonicalize().is_ok_and(|b| &b == first))
+            {
+                continue;
+            }
             if let Err(e) = std::fs::remove_file(&backup_path) {
                 tracing::warn!(
                     path = %backup_path.display(),
@@ -4144,6 +4241,112 @@ mod tests {
                 .expect("an existing file should back up");
             let made = made.expect("a backup path should be reported");
             assert!(std::path::Path::new(&made).exists(), "{made}");
+        }
+
+        #[test]
+        fn a_directory_on_a_backup_name_is_passed_over_on_every_platform() {
+            // Unix reports the taken name as AlreadyExists, Windows as
+            // PermissionDenied; either way the backup takes the next name.
+            let dir = test_temp_dir();
+            let lib = dir.path().join("Held.PcbLib");
+            std::fs::write(&lib, b"library").unwrap();
+            let now = chrono::Local::now();
+            for offset in 0..3_i64 {
+                let stamp = (now + chrono::Duration::seconds(offset)).format("%Y%m%d_%H%M%S");
+                std::fs::create_dir(format!("{}.{stamp}.bak", lib.display())).unwrap();
+            }
+            let made = McpServer::create_backup(&lib.to_string_lossy())
+                .unwrap()
+                .expect("backed up");
+            assert!(
+                std::path::Path::new(&made)
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .ends_with("_001.bak"),
+                "{made}"
+            );
+            assert_eq!(std::fs::read(&made).unwrap(), b"library");
+        }
+
+        #[test]
+        fn backups_taken_within_one_second_never_overwrite_each_other() {
+            // Writes in quick succession each back up the file as it then
+            // stood; the first backup is the original and must survive.
+            let dir = test_temp_dir();
+            let lib = dir.path().join("Quick.SchLib");
+            let lib = lib.to_string_lossy();
+            let mut made = Vec::new();
+            for content in [&b"original"[..], b"after one", b"after two"] {
+                std::fs::write(&*lib, content).unwrap();
+                made.push(McpServer::create_backup(&lib).unwrap().expect("backed up"));
+            }
+            let contents: Vec<Vec<u8>> = made.iter().map(|p| std::fs::read(p).unwrap()).collect();
+            assert_eq!(
+                contents,
+                [
+                    b"original".to_vec(),
+                    b"after one".to_vec(),
+                    b"after two".to_vec()
+                ]
+            );
+            let mut sorted = made.clone();
+            sorted.sort();
+            assert_eq!(sorted, made, "names sort oldest to newest");
+        }
+
+        #[test]
+        fn a_long_run_of_writes_keeps_the_newest_backups_and_the_original() {
+            // Seven writes: pruning keeps the five newest and the run's first
+            // backup, which holds the file as it was before any of them.
+            let dir = test_temp_dir();
+            let lib = dir.path().join("Long.PcbLib");
+            let lib = lib.to_string_lossy();
+            for n in 0..7 {
+                std::fs::write(&*lib, format!("state {n}")).unwrap();
+                McpServer::create_backup(&lib).unwrap().expect("backed up");
+            }
+            let mut kept: Vec<String> = std::fs::read_dir(dir.path())
+                .unwrap()
+                .filter_map(Result::ok)
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|n| {
+                    std::path::Path::new(n)
+                        .extension()
+                        .is_some_and(|e| e.eq_ignore_ascii_case("bak"))
+                })
+                .collect();
+            kept.sort();
+            let contents: Vec<String> = kept
+                .iter()
+                .map(|n| std::fs::read_to_string(dir.path().join(n)).unwrap())
+                .collect();
+            assert_eq!(
+                contents,
+                ["state 0", "state 2", "state 3", "state 4", "state 5", "state 6"],
+                "{kept:?}"
+            );
+        }
+
+        #[test]
+        fn a_backup_stamp_is_the_second_and_an_optional_counter() {
+            for stamp in [
+                "20261021_152855",
+                "20261021_152855_001",
+                "20261021_152855_999",
+            ] {
+                assert!(McpServer::is_backup_stamp(stamp), "{stamp}");
+            }
+            for stamp in [
+                "",
+                "bak",
+                "20261021152855",
+                "20261021_15285x",
+                "20261021_152855_1",
+                "20261021_152855-001",
+            ] {
+                assert!(!McpServer::is_backup_stamp(stamp), "{stamp}");
+            }
         }
     }
 

@@ -940,9 +940,9 @@ Use get_component or read_schlib for exact coordinates and properties, and rende
 
 Manage the parameters of one symbol in a .SchLib (Value, Manufacturer, Part Number and the like): list them, get one, set an existing one, add a new one, or delete one.
 Names match without regard to case, as Altium treats them; set refuses a name the symbol lacks (use add) and add refuses one it already has (use set). Every change backs
-the library up to a timestamped .bak beside it (the five newest are kept) before saving, and the reply carries the parameter as stored; list returns every parameter with
-a count. Use get_component or read_schlib to see parameters together with the symbol's pins and graphics, update_component to rewrite a symbol wholesale, and
-manage_schlib_footprints for footprint links, which are models rather than parameters.
+the library up to a timestamped .bak beside it (the five newest are kept, and the first since the server started) before saving, and the reply carries the parameter as
+stored; list returns every parameter with a count. Use get_component or read_schlib to see parameters together with the symbol's pins and graphics, update_component to
+rewrite a symbol wholesale, and manage_schlib_footprints for footprint links, which are models rather than parameters.
 
 **Example**
 
@@ -981,9 +981,9 @@ manage_schlib_footprints for footprint links, which are models rather than param
 
 Manage the footprint links (PCB models) of one symbol in a .SchLib: list them, add one, or remove one. A link names a .PcbLib footprint; add refuses a name already linked
 and remove refuses one that is not (names match without regard to case), and neither touches the .PcbLib itself. Give library_path on add when Altium should resolve and
-preview the footprint from a specific library; omit it to link by name only. Every change backs the library up to a timestamped .bak beside it (the five newest are kept)
-before saving. Use manage_schlib_parameters for parameters such as Value, get_component or read_schlib to see the links together with the rest of the symbol, and
-update_component to rewrite a symbol wholesale.
+preview the footprint from a specific library; omit it to link by name only. Every change backs the library up to a timestamped .bak beside it (the five newest are kept,
+and the first since the server started) before saving. Use manage_schlib_parameters for parameters such as Value, get_component or read_schlib to see the links together
+with the rest of the symbol, and update_component to rewrite a symbol wholesale.
 
 **Example**
 

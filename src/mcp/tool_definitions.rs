@@ -2120,7 +2120,8 @@ impl McpServer {
                      regard to case, as Altium treats them; set refuses a name the symbol \
                      lacks (use add) and add refuses one it already has (use set). Every \
                      change backs the library up to a timestamped .bak beside it (the five \
-                     newest are kept) before saving, and the reply carries the parameter \
+                     newest are kept, and the first since the server started) before \
+                     saving, and the reply carries the parameter \
                      as stored; list returns every parameter with a count. Use \
                      get_component or read_schlib to see parameters together with the \
                      symbol's pins and graphics, update_component to rewrite a symbol \
@@ -2198,7 +2199,8 @@ impl McpServer {
                      itself. Give library_path on add when Altium should resolve and \
                      preview the footprint from a specific library; omit it to link by \
                      name only. Every change backs the library up to a timestamped .bak \
-                     beside it (the five newest are kept) before saving. Use \
+                     beside it (the five newest are kept, and the first since the server \
+                     started) before saving. Use \
                      manage_schlib_parameters for parameters such as Value, get_component \
                      or read_schlib to see the links together with the rest of the symbol, \
                      and update_component to rewrite a symbol wholesale."
