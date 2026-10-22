@@ -1,8 +1,152 @@
 //! Library diff tools, split from `server.rs`.
 
+use std::collections::BTreeMap;
+
 use serde_json::{json, Value};
 
 use crate::mcp::server::{McpServer, ToolCallResult};
+
+/// Every stream of a compound file by its full `/`-separated path, as its
+/// length and a digest of its bytes. `None` when the file cannot be opened
+/// as one (the library reader would have refused it first).
+fn stream_digests(path: &str) -> Option<BTreeMap<String, (usize, u64)>> {
+    use std::hash::{Hash as _, Hasher as _};
+    let mut cfb = cfb::open(path).ok()?;
+    let paths: Vec<String> = cfb
+        .walk()
+        .filter(cfb::Entry::is_stream)
+        .map(|entry| entry.path().to_string_lossy().replace('\\', "/"))
+        .collect();
+    let mut digests = BTreeMap::new();
+    for stream in paths {
+        let bytes = crate::altium::read_stream_opt(&mut cfb, &stream)?;
+        let mut hasher = std::hash::DefaultHasher::new();
+        bytes.hash(&mut hasher);
+        digests.insert(stream, (bytes.len(), hasher.finish()));
+    }
+    Some(digests)
+}
+
+/// The streams under `storage` (a component's storage, without slashes), by
+/// their path within it.
+fn component_streams<'a>(
+    digests: &'a BTreeMap<String, (usize, u64)>,
+    storage: &str,
+) -> BTreeMap<&'a str, (usize, u64)> {
+    let prefix = format!("/{storage}/");
+    digests
+        .iter()
+        .filter_map(|(path, digest)| path.strip_prefix(&prefix).map(|rest| (rest, *digest)))
+        .collect()
+}
+
+/// Which streams differ between two sets: changed, only in B, only in A.
+fn stream_changes<'a>(
+    a: &BTreeMap<&'a str, (usize, u64)>,
+    b: &BTreeMap<&'a str, (usize, u64)>,
+) -> (Vec<&'a str>, Vec<&'a str>, Vec<&'a str>) {
+    let changed = a
+        .iter()
+        .filter(|(path, digest)| b.get(*path).is_some_and(|other| other != *digest))
+        .map(|(path, _)| *path)
+        .collect();
+    let added = b
+        .keys()
+        .filter(|path| !a.contains_key(*path))
+        .copied()
+        .collect();
+    let removed = a
+        .keys()
+        .filter(|path| !b.contains_key(*path))
+        .copied()
+        .collect();
+    (changed, added, removed)
+}
+
+/// What the stored bytes say beside the modelled comparison: per component
+/// in both libraries, the streams of its storage that differ, and the
+/// library's own streams (those of no component). The model compares what
+/// the reader understands on both sides alike, so a loss in what it does not
+/// model shows only here.
+struct StoredDiff {
+    a: BTreeMap<String, (usize, u64)>,
+    b: BTreeMap<String, (usize, u64)>,
+}
+
+impl StoredDiff {
+    fn open(filepath_a: &str, filepath_b: &str) -> Option<Self> {
+        Some(Self {
+            a: stream_digests(filepath_a)?,
+            b: stream_digests(filepath_b)?,
+        })
+    }
+
+    /// The streams of one component that differ, as a JSON object, or
+    /// `None` when its storages hold the same bytes.
+    fn component(&self, storage_a: &str, storage_b: &str) -> Option<Value> {
+        let a = component_streams(&self.a, storage_a);
+        let b = component_streams(&self.b, storage_b);
+        let (changed, added, removed) = stream_changes(&a, &b);
+        (!changed.is_empty() || !added.is_empty() || !removed.is_empty()).then(|| {
+            json!({
+                "streams_changed": changed,
+                "streams_added": added,
+                "streams_removed": removed,
+            })
+        })
+    }
+
+    /// The library's own streams — those under no component's storage in
+    /// `storages_a` / `storages_b` — that differ.
+    fn library(&self, storages_a: &[String], storages_b: &[String]) -> Value {
+        fn own<'a>(
+            digests: &'a BTreeMap<String, (usize, u64)>,
+            storages: &[String],
+        ) -> BTreeMap<&'a str, (usize, u64)> {
+            digests
+                .iter()
+                .filter(|(path, _)| {
+                    !storages
+                        .iter()
+                        .any(|storage| path.starts_with(&format!("/{storage}/")))
+                })
+                .map(|(path, digest)| (path.as_str(), *digest))
+                .collect()
+        }
+        let (a, b) = (own(&self.a, storages_a), own(&self.b, storages_b));
+        let (changed, added, removed) = stream_changes(&a, &b);
+        json!({
+            "streams_changed": changed,
+            "streams_added": added,
+            "streams_removed": removed,
+        })
+    }
+}
+
+/// Files one component in both libraries: under `modified` when its
+/// modelled fields differ (with its stored stream changes beside them), under
+/// `stored_only` when only its stored bytes do — a change the model does not
+/// show, which between a library and its own rewrite is a loss — and nowhere
+/// when it is the same in both.
+fn file_component(
+    modified: &mut Vec<Value>,
+    stored_only: &mut Vec<Value>,
+    name: &str,
+    changes: &[String],
+    stored: Option<Value>,
+) {
+    if changes.is_empty() {
+        if let Some(stored) = stored {
+            stored_only.push(json!({ "name": name, "stored": stored }));
+        }
+        return;
+    }
+    let mut entry = json!({ "name": name, "changes": changes });
+    if let Some(stored) = stored {
+        entry["stored"] = stored;
+    }
+    modified.push(entry);
+}
 
 impl McpServer {
     // ==================== Library Diff Tools ====================
@@ -91,6 +235,9 @@ impl McpServer {
             }
         };
 
+        // The stored bytes, compared beside the model (see `StoredDiff`).
+        let stored = StoredDiff::open(filepath_a, filepath_b);
+
         // Get component names from both libraries
         let names_a: HashSet<String> = lib_a.iter().map(|f| f.name.clone()).collect();
         let names_b: HashSet<String> = lib_b.iter().map(|f| f.name.clone()).collect();
@@ -102,6 +249,7 @@ impl McpServer {
 
         // Check for modifications in common components
         let mut modified: Vec<Value> = Vec::new();
+        let mut stored_only: Vec<Value> = Vec::new();
 
         for name in &common {
             let fp_a = lib_a.get(name).unwrap();
@@ -137,13 +285,29 @@ impl McpServer {
                 ));
             }
 
-            if !changes.is_empty() {
-                modified.push(json!({
-                    "name": name,
-                    "changes": changes,
-                }));
-            }
+            let stored_changes = stored.as_ref().and_then(|stored| {
+                stored.component(
+                    fp_a.storage_name.as_deref().unwrap_or(&fp_a.name),
+                    fp_b.storage_name.as_deref().unwrap_or(&fp_b.name),
+                )
+            });
+            file_component(
+                &mut modified,
+                &mut stored_only,
+                name,
+                &changes,
+                stored_changes,
+            );
         }
+
+        let storages = |lib: &PcbLib| -> Vec<String> {
+            lib.iter()
+                .map(|fp| fp.storage_name.clone().unwrap_or_else(|| fp.name.clone()))
+                .collect()
+        };
+        let library_streams = stored
+            .as_ref()
+            .map(|stored| stored.library(&storages(&lib_a), &storages(&lib_b)));
 
         let result = json!({
             "status": "success",
@@ -156,11 +320,14 @@ impl McpServer {
                 "added_count": added.len(),
                 "removed_count": removed.len(),
                 "modified_count": modified.len(),
-                "unchanged_count": common.len() - modified.len(),
+                "stored_only_count": stored_only.len(),
+                "unchanged_count": common.len() - modified.len() - stored_only.len(),
             },
             "added": added,
             "removed": removed,
             "modified": modified,
+            "stored_only": stored_only,
+            "library_streams": library_streams,
         });
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
@@ -195,6 +362,9 @@ impl McpServer {
             }
         };
 
+        // The stored bytes, compared beside the model (see `StoredDiff`).
+        let stored = StoredDiff::open(filepath_a, filepath_b);
+
         // Get component names from both libraries
         let names_a: HashSet<String> = lib_a.iter().map(|s| s.name.clone()).collect();
         let names_b: HashSet<String> = lib_b.iter().map(|s| s.name.clone()).collect();
@@ -206,6 +376,7 @@ impl McpServer {
 
         // Check for modifications in common components
         let mut modified: Vec<Value> = Vec::new();
+        let mut stored_only: Vec<Value> = Vec::new();
 
         for name in &common {
             let sym_a = lib_a.get(name).unwrap();
@@ -245,13 +416,29 @@ impl McpServer {
                 ));
             }
 
-            if !changes.is_empty() {
-                modified.push(json!({
-                    "name": name,
-                    "changes": changes,
-                }));
-            }
+            let stored_changes = stored.as_ref().and_then(|stored| {
+                stored.component(
+                    sym_a.storage_name.as_deref().unwrap_or(&sym_a.name),
+                    sym_b.storage_name.as_deref().unwrap_or(&sym_b.name),
+                )
+            });
+            file_component(
+                &mut modified,
+                &mut stored_only,
+                name,
+                &changes,
+                stored_changes,
+            );
         }
+
+        let storages = |lib: &SchLib| -> Vec<String> {
+            lib.iter()
+                .map(|sym| sym.storage_name.clone().unwrap_or_else(|| sym.name.clone()))
+                .collect()
+        };
+        let library_streams = stored
+            .as_ref()
+            .map(|stored| stored.library(&storages(&lib_a), &storages(&lib_b)));
 
         let result = json!({
             "status": "success",
@@ -264,11 +451,14 @@ impl McpServer {
                 "added_count": added.len(),
                 "removed_count": removed.len(),
                 "modified_count": modified.len(),
-                "unchanged_count": common.len() - modified.len(),
+                "stored_only_count": stored_only.len(),
+                "unchanged_count": common.len() - modified.len() - stored_only.len(),
             },
             "added": added,
             "removed": removed,
             "modified": modified,
+            "stored_only": stored_only,
+            "library_streams": library_streams,
         });
 
         ToolCallResult::text(serde_json::to_string_pretty(&result).unwrap())
@@ -563,11 +753,96 @@ mod tests {
         }));
         assert!(!result.is_error);
 
+        // Built apart, the two hold the same model; each save gives its
+        // records fresh identities, so the stored bytes may differ.
         let parsed = parse_result_json(&result);
         assert_eq!(parsed["summary"]["added_count"], 0);
         assert_eq!(parsed["summary"]["removed_count"], 0);
         assert_eq!(parsed["summary"]["modified_count"], 0);
-        assert_eq!(parsed["summary"]["unchanged_count"], 2);
+        assert_eq!(
+            parsed["summary"]["unchanged_count"].as_u64().unwrap()
+                + parsed["summary"]["stored_only_count"].as_u64().unwrap(),
+            2
+        );
+    }
+
+    #[test]
+    fn a_copy_is_unchanged_down_to_its_bytes() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+        for (a, b) in [("A.PcbLib", "B.PcbLib"), ("A.SchLib", "B.SchLib")] {
+            let (path_a, path_b) = (dir.path().join(a), dir.path().join(b));
+            if a.ends_with("PcbLib") {
+                create_test_pcblib(&path_a);
+            } else {
+                create_test_schlib(&path_a);
+            }
+            std::fs::copy(&path_a, &path_b).unwrap();
+            let parsed = parse_result_json(&server.call_diff_libraries(&json!({
+                "filepath_a": path_a.to_string_lossy(),
+                "filepath_b": path_b.to_string_lossy(),
+            })));
+            assert_eq!(parsed["summary"]["unchanged_count"], 2, "{parsed}");
+            assert_eq!(parsed["summary"]["stored_only_count"], 0, "{parsed}");
+            for list in ["streams_changed", "streams_added", "streams_removed"] {
+                assert_eq!(parsed["library_streams"][list], json!([]), "{parsed}");
+            }
+        }
+    }
+
+    /// A loss in what the reader does not model shows on both sides alike;
+    /// the stored bytes are where it can be seen (#586).
+    #[test]
+    fn a_change_the_model_does_not_show_is_reported_from_the_stored_bytes() {
+        let dir = test_temp_dir();
+        let server = create_test_server(dir.path());
+
+        let path_a = dir.path().join("A.SchLib");
+        create_test_schlib(&path_a);
+        let mut lib = SchLib::open(&path_a).unwrap();
+        let name = lib.names()[0].clone();
+        lib.get_mut(&name)
+            .unwrap()
+            .extra_streams
+            .push(("Future".to_string(), b"unmodelled".to_vec()));
+        let path_b = dir.path().join("B.SchLib");
+        lib.save(&path_b).unwrap();
+        let parsed = parse_result_json(&server.call_diff_libraries(&json!({
+            "filepath_a": path_a.to_string_lossy(),
+            "filepath_b": path_b.to_string_lossy(),
+        })));
+        assert_eq!(parsed["summary"]["modified_count"], 0, "{parsed}");
+        let entry = parsed["stored_only"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["name"] == name.as_str())
+            .unwrap_or_else(|| panic!("{name} is stored-only: {parsed}"));
+        assert_eq!(entry["stored"]["streams_added"], json!(["Future"]));
+
+        let path_a = dir.path().join("A.PcbLib");
+        create_test_pcblib(&path_a);
+        let mut lib = PcbLib::open(&path_a).unwrap();
+        let fp = lib.get_mut("CHIP_0402").unwrap();
+        fp.carried_streams = vec![("PrimitiveParameters".to_string(), b"|NAME=Pitch".to_vec())];
+        fp.carried_streams_sequence = fp.kind_sequence();
+        let path_b = dir.path().join("B.PcbLib");
+        lib.save(&path_b).unwrap();
+        let parsed = parse_result_json(&server.call_diff_libraries(&json!({
+            "filepath_a": path_a.to_string_lossy(),
+            "filepath_b": path_b.to_string_lossy(),
+        })));
+        assert_eq!(parsed["summary"]["modified_count"], 0, "{parsed}");
+        let entry = parsed["stored_only"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["name"] == "CHIP_0402")
+            .unwrap_or_else(|| panic!("CHIP_0402 is stored-only: {parsed}"));
+        assert_eq!(
+            entry["stored"]["streams_added"],
+            json!(["PrimitiveParameters"])
+        );
     }
 
     #[test]
@@ -790,7 +1065,14 @@ mod tests {
             assert!(!r.is_error, "{}", get_result_text(&r));
             let p = parse_result_json(&r);
             assert_eq!(p["summary"]["modified_count"], 1);
-            assert_eq!(p["summary"]["unchanged_count"], 1);
+            assert!(
+                p["modified"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|m| m["name"] != "CHIP_0603"),
+                "CHIP_0603 holds the same model: {p}"
+            );
             let changes = changes_for(&p, "CHIP_0402");
             for expected in [
                 "track_count: 0 -> 1",

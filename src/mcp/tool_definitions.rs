@@ -1588,7 +1588,16 @@ impl McpServer {
                 example: Some(serde_json::json!({"name": "diff_libraries", "arguments": {"filepath_a": "./OldLibrary.PcbLib", "filepath_b": "./NewLibrary.PcbLib"}})),
                 description: Some(
                     "Compare two Altium library files and report differences. Shows added, removed, \
-                     and modified components. Both files must be the same type (.PcbLib or .SchLib)."
+                     and modified components, a component counting as modified when its description, \
+                     designator or count of any primitive kind differs. Each one in both files is \
+                     also compared by the bytes of every stream it is stored in, so a change the \
+                     model does not show is reported too: under modified as stored stream changes, \
+                     or under stored_only when the compared fields are equal. Between a library and \
+                     its own rewrite, a stored_only component is one the rewrite changed without \
+                     being asked; between libraries saved apart, record identities differ and \
+                     stored_only is expected. library_streams lists the library's own streams that \
+                     differ (a PcbLib's Library/Data records its save path and time, so it differs \
+                     after every save). Both files must be the same type (.PcbLib or .SchLib)."
                         .to_string(),
                 ),
                 input_schema: json!({

@@ -36,6 +36,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A 32-bit build reads a crafted length safely.** Lengths read from a library were added to
   offsets in plain arithmetic, which on a 32-bit build (none ships; a source build can be one)
   could wrap and read the wrong bytes or panic. Every such sum now saturates or is checked.
+- **`diff_libraries` sees a change the model does not show (#586).** It compared what the
+  reader models (descriptions, designators, primitive counts), which is the same on both
+  sides of a rewrite that lost something the reader does not model, so a lossy rewrite
+  reported nothing modified. Each component in both libraries is now also compared by the
+  bytes of every stream of its storage: a modified one lists its `stored` stream changes, one
+  whose compared fields are equal but whose bytes are not is listed under `stored_only`, and
+  `library_streams` lists the library's own streams that differ.
 
 Found rewriting an Altium 365-exported library pair (a 143-symbol `SchLib`, an 81-footprint
 `PcbLib`): before these fixes a rewrite that changed nothing changed every symbol's `Data`
