@@ -416,7 +416,17 @@ const POSITIONAL_KEYS: &[&str] = &["IndexInSheet", "OwnerIndex"];
 /// out: left out when the read record lacked it and the value is still the
 /// implicit one, so the file comes back as Altium wrote it; emitted once the
 /// field is edited away from it.
-const IMPLICIT_DEFAULTS: &[(&str, &str)] = &[("LineWidth", "1"), ("Description", "")];
+///
+/// An empty `Text` or `Name` is the same: Altium writes no key for a
+/// designator left blank or a parameter with no name. So is an arc's
+/// `EndAngle` at 0, which the reader takes as the same point, 360.
+const IMPLICIT_DEFAULTS: &[(&str, &str)] = &[
+    ("LineWidth", "1"),
+    ("Description", ""),
+    ("Text", ""),
+    ("Name", ""),
+    ("EndAngle", "360.000"),
+];
 
 /// Every key a content record's encoder can emit — the keys a struct field
 /// stands behind. A read key in this set that the canonical form now omits
@@ -1668,21 +1678,41 @@ fn encode_footprint_model(model: &FootprintModel, owner_index: usize, is_current
     // the footprint; a link built from scratch gets it. Altium itself omits the
     // whole group on a name-only link (the IMPLCHAIN golden), so a read link
     // keeps the group only when it had one or a path was given since.
-    let linked = model.library_path.is_some()
-        || model.raw_params.is_empty()
-        || model
+    let read = |key: &str| {
+        model
             .raw_params
             .iter()
-            .any(|(key, _)| key.eq_ignore_ascii_case("DatafileCount"));
+            .find(|(k, _)| k.eq_ignore_ascii_case(key))
+            .map(|(_, value)| value.as_str())
+    };
+    let linked = model.library_path.is_some()
+        || model.raw_params.is_empty()
+        || read("DatafileCount").is_some();
+    let model_type = model.model_type.as_deref().unwrap_or("PCBLIB");
     let datafiles = if linked {
         let path = model
             .library_path
             .as_deref()
             .map(|p| format!("|ModelDatafile0={p}"))
             .unwrap_or_default();
+        // The group as read while the link names what it was read with: a
+        // simulation model can list more datafiles than one, and a 3D
+        // model's kind is `PCB3DLib`. A renamed link names its new model.
+        let count = read("DatafileCount")
+            .filter(|count| count.trim() != "0" || model.library_path.is_none())
+            .unwrap_or("1");
+        let entity = read("ModelDatafileEntity0")
+            .filter(|_| read("ModelName") == Some(model.name.as_str()))
+            .unwrap_or(&model.name);
+        let kind = read("ModelDatafileKind0").unwrap_or_else(|| {
+            if model.is_footprint() {
+                "PCBLib"
+            } else {
+                model_type
+            }
+        });
         format!(
-            "|DatafileCount=1{path}|ModelDatafileEntity0={}|ModelDatafileKind0=PCBLib",
-            model.name
+            "|DatafileCount={count}{path}|ModelDatafileEntity0={entity}|ModelDatafileKind0={kind}"
         )
     } else {
         String::new()
@@ -1691,10 +1721,11 @@ fn encode_footprint_model(model: &FootprintModel, owner_index: usize, is_current
     // from-scratch model gets a fresh one.
     let unique_id = model.unique_id.clone().unwrap_or_else(generate_unique_id);
     format!(
-        "|RECORD=45|OwnerIndex={}|IndexInSheet=-1|Description={}|ModelName={}|ModelType=PCBLIB{}{}|UniqueID={}",
+        "|RECORD=45|OwnerIndex={}|IndexInSheet=-1|{}|ModelName={}|ModelType={}{}{}|UniqueID={}",
         owner_index,
-        model.description,
+        text_field("Description", &model.description),
         model.name,
+        model_type,
         datafiles,
         if is_current { "|IsCurrent=T" } else { "" },
         unique_id
@@ -1831,8 +1862,10 @@ pub fn encode_data_stream(symbol: &Symbol) -> crate::altium::error::AltiumResult
         index_counter += 1;
     }
 
-    // 15. Designator (system record, IndexInSheet=-1 — no counter slot).
-    if !symbol.designator.is_empty() {
+    // 15. Designator (system record, IndexInSheet=-1 — no counter slot). A
+    // read one goes back even when empty: Altium keeps the record, with its
+    // position and identity, for a designator left blank.
+    if !symbol.designator.is_empty() || !symbol.designator_params.is_empty() {
         let record = encode_designator(symbol);
         write_text_record(&mut data, &record)?;
     }
@@ -1864,7 +1897,17 @@ pub fn encode_data_stream(symbol: &Symbol) -> crate::altium::error::AltiumResult
     // read-modify-write. Only when NO model claims currency (a from-scratch
     // list, where the field defaults false) does the first model take it, which
     // is what Altium's own editor does on the first assignment.
-    let has_current = symbol.footprints.iter().any(|m| m.is_current);
+    // Currency is per model type, so the fallback looks at footprints only:
+    // a current simulation model leaves a list with no current footprint to
+    // its first footprint.
+    let has_current = symbol
+        .footprints
+        .iter()
+        .any(|m| m.is_current && m.is_footprint());
+    let first_footprint = symbol
+        .footprints
+        .iter()
+        .position(FootprintModel::is_footprint);
     for (i, model) in symbol.footprints.iter().enumerate() {
         // The RECORD=45 is owned by the RECORD=44; its RECORD=46/48 children are
         // in turn owned by the RECORD=45 (its own stream-index).
@@ -1875,7 +1918,7 @@ pub fn encode_data_stream(symbol: &Symbol) -> crate::altium::error::AltiumResult
                 &encode_footprint_model(
                     model,
                     impl_index,
-                    model.is_current || (!has_current && i == 0),
+                    model.is_current || (!has_current && Some(i) == first_footprint),
                 ),
                 &model.raw_params,
             ),
@@ -2082,6 +2125,110 @@ mod tests {
     // parameter owned by its 48; a five-point Bezier. Each must come back from
     // a rewrite byte for byte. The layout follows the records of an Altium 365
     // export; the values are synthetic.
+    /// What a desktop-authored library carries beyond footprints and named
+    /// records (#584): every record goes back as read through a rewrite.
+    mod model_kinds_and_bare_records {
+        use super::*;
+        use crate::altium::schlib::PinSymbol;
+
+        /// The records past the pin, each as Altium stores it.
+        fn records() -> Vec<String> {
+            let twin = crate::altium::encode_utf8_param_value("R\u{e9}sistance 1 \u{b5}F");
+            let plain = crate::altium::plain_text_value("R\u{e9}sistance 1 \u{b5}F");
+            vec![
+                // An arc ending at 0: Altium writes no EndAngle.
+                "|RECORD=12|IsNotAccesible=T|IndexInSheet=1|OwnerPartId=1|Location.X=10|Radius=5|StartAngle=270.000|LineWidth=1|Color=128|UniqueID=GGGGGGGG".to_string(),
+                // A designator left empty: no Text key.
+                "|RECORD=34|IndexInSheet=-1|OwnerPartId=-1|Location.X=-30|Location.Y=20|Color=8388608|FontID=1|Name=Designator|ReadOnlyState=1|UniqueID=HHHHHHHH".to_string(),
+                "|RECORD=44".to_string(),
+                // A footprint whose description leaves ASCII.
+                format!("|RECORD=45|OwnerIndex=4|IndexInSheet=-1|%UTF8%Description={twin}|||Description={plain}|ModelName=R0603|ModelType=PCBLIB|DatafileCount=1|ModelDatafileEntity0=R0603|ModelDatafileKind0=PCBLib|IsCurrent=T|UniqueID=JJJJJJJJ"),
+                "|RECORD=46|OwnerIndex=5".to_string(),
+                "|RECORD=48|OwnerIndex=5".to_string(),
+                // A simulation model, current beside the current footprint.
+                "|RECORD=45|OwnerIndex=4|IndexInSheet=-1|Description=Potentiometer|ModelName=POT|ModelType=SIM|IsCurrent=T|IntegratedModel=T|DatabaseModel=T|UniqueID=KKKKKKKK".to_string(),
+                "|RECORD=46|OwnerIndex=8".to_string(),
+                "|RECORD=48|OwnerIndex=8".to_string(),
+                // A simulation model with two datafiles.
+                "|RECORD=45|OwnerIndex=4|IndexInSheet=-1|Description=Op-amp|ModelName=OPA|ModelType=SIM|DatafileCount=2|ModelDatafileEntity0=OPA|ModelDatafileKind0=mdl|ModelDatafileEntity1=OPA|ModelDatafileKind1=ckt|UniqueID=LLLLLLLL".to_string(),
+                "|RECORD=46|OwnerIndex=11".to_string(),
+                "|RECORD=48|OwnerIndex=11".to_string(),
+                // A 3D model.
+                "|RECORD=45|OwnerIndex=4|IndexInSheet=-1|Description=8-Pin SOIC|ModelName=SO8|ModelType=PCB3DLib|DatafileCount=1|ModelDatafileEntity0=SO8|ModelDatafileKind0=PCB3DLib|IsCurrent=T|UniqueID=MMMMMMMM".to_string(),
+                "|RECORD=46|OwnerIndex=14".to_string(),
+                "|RECORD=48|OwnerIndex=14".to_string(),
+            ]
+        }
+
+        fn stream() -> Vec<u8> {
+            let mut data = Vec::new();
+            write_text_record(
+                &mut data,
+                "|RECORD=1|LibReference=BARE|ComponentDescription=Bare|PartCount=2|DisplayModeCount=1|IndexInSheet=-1|OwnerPartId=-1|CurrentPartId=1|SourceLibraryName=*|TargetFileName=*|AllPinCount=1|AreaColor=11599871|Color=128|PartIDLocked=F",
+            )
+            .expect("component");
+            let mut pin = Pin::new("A", "1", -20, 0, 10, PinOrientation::Left);
+            pin.symbol_outside = PinSymbol::from_id(33);
+            write_binary_pin(&mut data, &pin).expect("pin");
+            for record in records() {
+                write_text_record(&mut data, &record).expect("record");
+            }
+            data
+        }
+
+        fn read(data: &[u8]) -> Symbol {
+            let mut symbol = Symbol::new("BARE");
+            crate::altium::schlib::reader::parse_data_stream(&mut symbol, data);
+            symbol
+        }
+
+        #[test]
+        fn every_record_goes_back_as_read() {
+            let written = encode_data_stream(&read(&stream())).expect("encode");
+            let text = crate::altium::decode_windows1252(&written);
+            for record in records() {
+                assert!(text.contains(&record), "{record}\n---\n{text}");
+            }
+        }
+
+        #[test]
+        fn the_models_keep_their_kinds_and_the_pin_its_symbol() {
+            let symbol = read(&stream());
+            let kinds: Vec<Option<&str>> = symbol
+                .footprints
+                .iter()
+                .map(|m| m.model_type.as_deref())
+                .collect();
+            assert_eq!(kinds, [None, Some("SIM"), Some("SIM"), Some("PCB3DLib")]);
+            assert_eq!(
+                symbol.footprints[0].description,
+                "R\u{e9}sistance 1 \u{b5}F"
+            );
+            assert_eq!(
+                symbol.pins[0].symbol_outside,
+                PinSymbol::LeftRightSignalFlow
+            );
+            assert_eq!(symbol.designator, "");
+            let written = encode_data_stream(&symbol).expect("encode");
+            assert_eq!(read(&written).pins[0].symbol_outside.to_id(), 33);
+        }
+
+        #[test]
+        fn a_pin_symbol_past_the_table_is_kept() {
+            let mut pin = Pin::new("A", "1", 0, 0, 10, PinOrientation::Left);
+            pin.symbol_inside = PinSymbol::from_id(200);
+            assert_eq!(pin.symbol_inside, PinSymbol::Other(200));
+            assert_eq!(pin.symbol_inside.to_id(), 200);
+            let json = serde_json::to_value(pin.symbol_inside).expect("json");
+            assert_eq!(json, serde_json::json!(200), "the bare id");
+            let back: PinSymbol = serde_json::from_value(json).expect("back");
+            assert_eq!(back, PinSymbol::Other(200));
+            let named: PinSymbol =
+                serde_json::from_value(serde_json::json!("open_collector")).expect("named");
+            assert_eq!(named.to_id(), 9, "Altium's TIeeeSymbol id");
+        }
+    }
+
     mod owned_and_system_records {
         use super::*;
 

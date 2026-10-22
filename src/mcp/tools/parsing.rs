@@ -317,18 +317,31 @@ pub mod accepted {
         "active_low_input",
         "analog_signal_in",
         "not_logic_connection",
+        "shift_right",
         "postponed_output",
         "open_collector",
         "hi_z",
         "high_current",
         "pulse",
         "schmitt",
+        "delay",
+        "group_line",
+        "group_binary",
         "active_low_output",
+        "pi",
+        "greater_equal",
+        "less_equal",
+        "sigma",
         "open_collector_pull_up",
         "open_emitter",
         "open_emitter_pull_up",
         "digital_signal_in",
+        "and",
+        "invertor",
+        "or",
+        "xor",
         "shift_left",
+        "input_output",
         "open_output",
         "left_right_signal_flow",
         "bidirectional_signal_flow",
@@ -370,6 +383,9 @@ pub mod accepted {
         ("postponed", "postponed_output"),
         ("highimpedance", "hi_z"),
         ("schmitttrigger", "schmitt"),
+        ("opencircuitoutput", "open_output"),
+        ("inverter", "invertor"),
+        ("exclusiveor", "xor"),
     ];
     /// Spellings accepted besides [`HOLE_SHAPES`].
     pub const HOLE_SHAPE_SYNONYMS: &[(&str, &str)] = &[("circle", "round"), ("circular", "round")];
@@ -1078,6 +1094,13 @@ impl McpServer {
                         .get("is_current")
                         .and_then(Value::as_bool)
                         .unwrap_or(false);
+                    // A simulation, signal-integrity or 3D model link keeps
+                    // its type; a footprint has none.
+                    fp.model_type = fp_json
+                        .get("model_type")
+                        .and_then(Value::as_str)
+                        .filter(|kind| !kind.eq_ignore_ascii_case("PCBLIB"))
+                        .map(str::to_string);
                     fp.unique_id = fp_json
                         .get("unique_id")
                         .and_then(Value::as_str)
@@ -2750,8 +2773,14 @@ impl McpServer {
             .unwrap_or(true);
         let owner_part_id = json_i32(json, "owner_part_id").unwrap_or(1);
 
-        // The four decorations, each by its serde name or a synonym.
+        // The four decorations, each by its serde name, a synonym or the
+        // id Altium stores (read_schlib emits an id it does not name as one).
         let pin_symbol = |key: &str| -> Result<PinSymbol, String> {
+            if let Some(id) = json.get(key).and_then(Value::as_u64) {
+                return u8::try_from(id)
+                    .map(PinSymbol::from_id)
+                    .map_err(|_| format!("{} must be 0-255, got {id}", pin_field(key)));
+            }
             Ok(enum_field(
                 json,
                 key,

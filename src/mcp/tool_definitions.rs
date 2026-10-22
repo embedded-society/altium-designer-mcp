@@ -733,10 +733,10 @@ impl McpServer {
                             "swap_id_group": { "type": "string", "description": "Pin swap-id group, for pin-swap. Default: empty" },
                             "part_and_sequence": { "type": "string", "description": "Pin part-and-sequence swap id. Default: '|&|'" },
                             "default_value": { "type": "string", "description": "Pin default value. Default: empty" },
-                            "symbol_inner_edge": { "type": "string", "enum": accepted::PIN_SYMBOLS, "description": "Decoration on the INNER edge (nearest the body), e.g. 'dot' (inversion bubble), 'clock'. Default: none" },
-                            "symbol_outer_edge": { "type": "string", "enum": accepted::PIN_SYMBOLS, "description": "Decoration on the OUTER edge (furthest from the body), e.g. 'dot', 'clock'. Default: none" },
-                            "symbol_inside": { "type": "string", "enum": accepted::PIN_SYMBOLS, "description": "Decoration drawn inside the pin line, e.g. 'postponed_output', 'open_collector'. Default: none" },
-                            "symbol_outside": { "type": "string", "enum": accepted::PIN_SYMBOLS, "description": "Decoration drawn outside the pin line, e.g. 'right_left_signal_flow', 'analog_signal_in'. Default: none" },
+                            "symbol_inner_edge": { "type": ["string", "integer"], "minimum": 0, "maximum": 255, "anyOf": [{ "type": "string", "enum": accepted::PIN_SYMBOLS }, { "type": "integer", "minimum": 0, "maximum": 255 }], "description": "Decoration on the INNER edge (nearest the body), e.g. 'dot' (inversion bubble), 'clock'. Default: none" },
+                            "symbol_outer_edge": { "type": ["string", "integer"], "minimum": 0, "maximum": 255, "anyOf": [{ "type": "string", "enum": accepted::PIN_SYMBOLS }, { "type": "integer", "minimum": 0, "maximum": 255 }], "description": "Decoration on the OUTER edge (furthest from the body), e.g. 'dot', 'clock'. Default: none" },
+                            "symbol_inside": { "type": ["string", "integer"], "minimum": 0, "maximum": 255, "anyOf": [{ "type": "string", "enum": accepted::PIN_SYMBOLS }, { "type": "integer", "minimum": 0, "maximum": 255 }], "description": "Decoration drawn inside the pin line, e.g. 'postponed_output', 'open_collector'. Default: none" },
+                            "symbol_outside": { "type": ["string", "integer"], "minimum": 0, "maximum": 255, "anyOf": [{ "type": "string", "enum": accepted::PIN_SYMBOLS }, { "type": "integer", "minimum": 0, "maximum": 255 }], "description": "Decoration drawn outside the pin line, e.g. 'right_left_signal_flow', 'analog_signal_in'. Every slot takes any of Altium's IEEE symbol names, or the stored id (0-255) — read_schlib emits an id past its table as the bare number. Default: none" },
                             "owner_part_display_mode": { "type": "integer", "minimum": 0, "description": "Pin's alternate-view (display-mode) index in the binary pin record. Default: 0" },
                             "symbol_line_width": { "type": "integer", "minimum": 0, "description": "Pin symbol line-width index. Non-zero writes a PinSymbolLineWidth auxiliary stream; 0 (default) writes none." },
                             "frac": { "type": "object", "description": "Fractional pin coordinates for off-grid pins, in 1/100000 schematic-unit steps. Non-zero writes a PinFrac auxiliary stream; omit for on-grid pins.", "properties": { "x": { "type": "integer" }, "y": { "type": "integer" }, "length": { "type": "integer", "minimum": 0 } } },
@@ -1209,7 +1209,8 @@ impl McpServer {
                             "name": { "type": "string", "description": "Footprint name (entity in the PcbLib)" },
                             "description": { "type": "string", "description": "Model description" },
                             "library_path": { "type": "string", "description": "Optional absolute path to the .PcbLib containing the footprint, written as ModelDatafile0 so Altium resolves/previews the model. Omit to link by name only (requires the library to be installed/in the project)." },
-                            "is_current": { "type": "boolean", "description": "Whether this is the current (default) footprint model (IsCurrent=T). Read-preserved; on write the first model is emitted as current. Default: false" },
+                            "is_current": { "type": "boolean", "description": "Whether this is the current (default) model of its type (IsCurrent=T). Read-preserved; when no footprint is current, the first footprint is written as current. Default: false" },
+                            "model_type": { "type": "string", "description": "The link's ModelType when it is not a footprint, as read_schlib emitted it: SIM (a simulation model), SI (signal integrity), PCB3DLib (a 3D model). Such a link is carried as Altium stored it and is not a footprint: manage_schlib_footprints add/remove leave it alone. Pass back unchanged; omit for a footprint." },
                             "unique_id": { "type": "string", "description": "8-char Altium unique ID of the model link; preserved on read-modify-write, auto-generated if omitted" },
                             "raw_params": { "type": "array", "description": "The model link's (RECORD=45) segments as [key, value] string pairs in stored order, exactly as read_schlib emitted them; the writer replays them verbatim unless the field behind one was edited, so the record comes back as Altium wrote it (the UI omits LineWidth=1, a script does not). Pass back unchanged; omit when authoring (the canonical form is written).", "items": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 2 } },
                             "datafile_link_records": { "type": "array", "description": "Text records owned by the link's datafile record (RECORD=46), such as a RECORD=47 pin-map definer, each an array of [key, value] string pairs, as read_schlib emitted them. Pass back unchanged; omit when authoring.", "items": { "type": "array", "items": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 2 } } },
@@ -1587,7 +1588,16 @@ impl McpServer {
                 example: Some(serde_json::json!({"name": "diff_libraries", "arguments": {"filepath_a": "./OldLibrary.PcbLib", "filepath_b": "./NewLibrary.PcbLib"}})),
                 description: Some(
                     "Compare two Altium library files and report differences. Shows added, removed, \
-                     and modified components. Both files must be the same type (.PcbLib or .SchLib)."
+                     and modified components, a component counting as modified when its description, \
+                     designator or count of any primitive kind differs. Each one in both files is \
+                     also compared by the bytes of every stream it is stored in, so a change the \
+                     model does not show is reported too: under modified as stored stream changes, \
+                     or under stored_only when the compared fields are equal. Between a library and \
+                     its own rewrite, a stored_only component is one the rewrite changed without \
+                     being asked; between libraries saved apart, record identities differ and \
+                     stored_only is expected. library_streams lists the library's own streams that \
+                     differ (a PcbLib's Library/Data records its save path and time, so it differs \
+                     after every save). Both files must be the same type (.PcbLib or .SchLib)."
                         .to_string(),
                 ),
                 input_schema: json!({

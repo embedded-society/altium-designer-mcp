@@ -293,7 +293,9 @@ Flags byte at `15+N`:
 ### Pin Symbols
 
 Pin symbol decorations appear at four positions on the pin (bytes 8-11) to indicate electrical
-characteristics:
+characteristics. Each byte is Altium's `TIeeeSymbol` id, the enumeration an
+[IEEE symbol record](#ieee-symbol-record3) uses, so the ids run with gaps. These are the
+decorations Altium's pin dialog offers:
 
 | ID | Symbol | Description |
 |----|--------|-------------|
@@ -304,21 +306,26 @@ characteristics:
 | 4 | ActiveLowInput | Active low input bar |
 | 5 | AnalogSignalIn | Analog signal input |
 | 6 | NotLogicConnection | Not a logic connection |
-| 7 | PostponedOutput | Postponed output |
-| 8 | OpenCollector | Open collector output |
-| 9 | HiZ | High impedance |
-| 10 | HighCurrent | High current |
-| 11 | Pulse | Pulse |
-| 12 | Schmitt | Schmitt trigger input |
-| 13 | ActiveLowOutput | Active low output bar |
-| 14 | OpenCollectorPullUp | Open collector with pull-up |
-| 15 | OpenEmitter | Open emitter output |
-| 16 | OpenEmitterPullUp | Open emitter with pull-up |
-| 17 | DigitalSignalIn | Digital signal input |
-| 18 | ShiftLeft | Shift left |
-| 19 | OpenOutput | Open output |
-| 20 | LeftRightSignalFlow | Left-to-right signal flow arrow |
-| 21 | BidirectionalSignalFlow | Bidirectional signal flow |
+| 8 | PostponedOutput | Postponed output |
+| 9 | OpenCollector | Open collector output |
+| 10 | HiZ | High impedance |
+| 11 | HighCurrent | High current |
+| 12 | Pulse | Pulse |
+| 13 | Schmitt | Schmitt trigger input |
+| 17 | ActiveLowOutput | Active low output bar |
+| 22 | OpenCollectorPullUp | Open collector with pull-up |
+| 23 | OpenEmitter | Open emitter output |
+| 24 | OpenEmitterPullUp | Open emitter with pull-up |
+| 25 | DigitalSignalIn | Digital signal input |
+| 30 | ShiftLeft | Shift left |
+| 32 | OpenOutput | Open circuit output |
+| 33 | LeftRightSignalFlow | Left-to-right signal flow arrow |
+| 34 | BidirectionalSignalFlow | Bidirectional signal flow |
+
+A slot can hold any `TIeeeSymbol` glyph, and this crate names every id from 0 to 34 (`shift_right`,
+`delay`, `group_line`, `group_binary`, `pi`, `greater_equal`, `less_equal`, `sigma`, `and`,
+`invertor`, `or`, `xor`, `input_output` fill the gaps). An id past 34 is kept as stored and
+appears in JSON as the bare number.
 
 ### Pin Constraints
 
@@ -750,7 +757,7 @@ A filled circular sector.
 | `Location.X` / `Location.Y` | coord | Centre |
 | `Radius` | coord | Arc radius |
 | `LineWidth` | int | Line width (before the angles, per the ARCS golden) |
-| `StartAngle` / `EndAngle` | float | Degrees, 3-decimal form (`EndAngle=360.000`); `StartAngle` omitted at 0, `EndAngle` always written (defaults 0.0 / 360.0 = full circle on read) |
+| `StartAngle` / `EndAngle` | float | Degrees, 3-decimal form (`EndAngle=360.000`); `StartAngle` omitted at 0, `EndAngle` written except on a read arc that omitted it (Altium leaves out an `EndAngle` of 0, read as the same point, 360) (defaults 0.0 / 360.0 = full circle on read) |
 | `Color` / `AreaColor` | int | Line / fill colour (BGR; omit at 0) |
 
 ### Line (RECORD=13)
@@ -830,7 +837,7 @@ A parameter-record variant selected by `Name=Designator`. As written by this cra
 | `Location.X` / `Location.Y` | Designator position, modelled on the symbol (golden default -5 / 5; zero keys omitted) |
 | `Color` | 8388608 (dark blue) |
 | `FontID` | 1 |
-| `Text` / `%UTF8%Text` | Designator text (e.g. `R?`) |
+| `Text` / `%UTF8%Text` | Designator text (e.g. `R?`); Altium writes no key for a designator left empty, and a read one goes back without it |
 | `Name` | `Designator` |
 | `ReadOnlyState` | 1 |
 | `UniqueID` | 8-char id, preserved from read (generated only when absent) |
@@ -848,7 +855,7 @@ A parameter-record variant selected by `Name=Designator`. As written by this cra
 | `FontID` | int | Font reference (always written) |
 | `IsHidden` | bool | Emit only when `T` |
 | `Text` / `%UTF8%Text` | string | Parameter value; omit when empty |
-| `Name` | string | Parameter name (always written) |
+| `Name` | string | Parameter name (written whenever set; Altium stores a nameless text, a hidden `*` say, with no `Name` key, read under the empty name and written back without it) |
 | `ReadOnlyState` | int | Omit at 0 (after `Name`, per real Altium output) |
 | `ParamType` | int | 0=String, 1=Boolean, 2=Integer, 3=Float; omit at 0 |
 | `ShowName` / `HideName` / `IsConfigurable` | bool | Emit only when `T` |
@@ -865,14 +872,14 @@ A parameter-record variant selected by `Name=Designator`. As written by this cra
   |----------|------|-------------|
   | `OwnerIndex` | int | Stream-index of the owning RECORD=44 |
   | `IndexInSheet` | int | -1 |
-  | `Description` | string | Model description |
+  | `Description` | string | Model description (with a `%UTF8%Description` twin when it leaves ASCII) |
   | `ModelName` | string | Footprint name |
-  | `ModelType` | string | `PCBLIB` (also `SIM` / `SI` in the wild) |
-  | `DatafileCount` | int | Number of datafile links (this crate writes 1) |
+  | `ModelType` | string | `PCBLIB` for a footprint; also `SIM` (simulation), `SI` (signal integrity) and `PCB3DLib` (3D model), kept as read (`model_type`) |
+  | `DatafileCount` | int | Number of datafile links (a simulation model can list two, `ModelDatafileEntity1` / `ModelDatafileKind1` after the first); kept as read, 1 for a link built from scratch |
   | `ModelDatafile0` | string | Optional `.PcbLib` path — what lets Altium resolve the footprint directly |
   | `ModelDatafileEntity0` | string | Footprint entity (resolution key) |
-  | `ModelDatafileKind0` | string | `PCBLib` |
-  | `IsCurrent` | bool | `T` on the default footprint; omitted on every other (never `F`) |
+  | `ModelDatafileKind0` | string | `PCBLib` for a footprint, `PCB3DLib` for a 3D model; kept as read |
+  | `IsCurrent` | bool | `T` on the current model of its type (a symbol can have a current footprint and a current simulation model); omitted on every other (never `F`) |
 
   The record is carried and replayed like every content record (`raw_params`, see
   [Component Header Record](#component-header-record1)): some Altium-authored links also carry
@@ -944,7 +951,7 @@ parameters keep the `-1` sentinel and consume no slot):
 16. IEEE symbols (RECORD=3)
 17. User parameters (RECORD=41, `OwnerPartId >= 1`) — after the graphic content, matching the
     golden stream order (JUSTIFY stores labels at slots 0-3, user parameters at 4-5)
-18. Designator (RECORD=34, when non-empty)
+18. Designator (RECORD=34, when non-empty or read from the file)
 19. System parameters (RECORD=41, `OwnerPartId = -1`) — after the designator, as the golden
     orders them
 20. Implementation list (RECORD=44), then per footprint model: RECORD=45 + RECORD=46 + RECORD=48
