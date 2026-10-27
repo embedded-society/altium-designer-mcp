@@ -62,7 +62,7 @@ bitflags! {
     /// keep-out zones, and solder mask tenting.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
     #[serde(transparent)]
-    pub struct PcbFlags: u16 {
+    pub struct PcbFlags: u32 {
         /// Primitive is locked and cannot be moved/edited.
         const LOCKED = 0x0001;
         /// Primitive is part of a polygon pour.
@@ -99,6 +99,11 @@ bitflags! {
         const DISK_BIT_14 = 0x4000;
         /// On-disk flag bit 15, carried verbatim (see [`Self::DISK_BIT_0`]).
         const DISK_BIT_15 = 0x8000;
+        /// On-disk flag bit 3 (`FlagSaved`) found clear. Altium sets it on every
+        /// primitive it saves, and this crate does on every one it writes,
+        /// but older hand-authored footprints hold tracks without it; this
+        /// carries the clear bit back.
+        const DISK_BIT_3_CLEAR = 0x0001_0000;
     }
 }
 

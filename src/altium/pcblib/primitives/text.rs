@@ -114,7 +114,8 @@ pub struct Text {
     /// Text rendering kind (Stroke, TrueType, or `BarCode`).
     #[serde(default)]
     pub kind: TextKind,
-    /// Stroke font type (only applies when `kind` is `Stroke`).
+    /// Stroke font type. It draws the text while `kind` is `Stroke`; a
+    /// TrueType or barcode text keeps the one it switches back to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stroke_font: Option<StrokeFont>,
     /// TrueType italic style (Altium `FontItalic`, geometry offset 45). Only

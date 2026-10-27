@@ -623,6 +623,7 @@ impl McpServer {
                     additional_parameters: Vec::new(),
                     flags: crate::altium::pcblib::PcbFlags::empty(),
                     model_type: None,
+                    mil_values_as_read: Vec::new(),
                     param_key_order: Vec::new(),
                 });
                 true
@@ -1522,6 +1523,7 @@ mod tests {
             additional_parameters: Vec::new(),
             flags: crate::altium::pcblib::PcbFlags::empty(),
             model_type: None,
+            mil_values_as_read: Vec::new(),
             param_key_order: Vec::new(),
         };
 

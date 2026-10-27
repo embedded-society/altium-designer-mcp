@@ -471,6 +471,68 @@ pub fn to_ansi_wire_text(value: &str, encoding: &'static encoding_rs::Encoding) 
     decode_windows1252(&bytes)
 }
 
+/// Whether `wire` is an ANSI form of `value` in `encoding`, as Altium may
+/// write it.
+///
+/// That is [`to_ansi_wire_text`], except that a character the page cannot
+/// hold may stand as an ASCII byte per UTF-16 unit rather than `?` — Windows
+/// writes its best fit, `-` for U+2212 MINUS SIGN, say. A byte past ASCII
+/// there is another page's character, not a best fit.
+#[must_use]
+pub fn is_ansi_wire_text_of(
+    wire: &str,
+    value: &str,
+    encoding: &'static encoding_rs::Encoding,
+) -> bool {
+    let bytes = encode_windows1252(wire);
+    let mut rest = bytes.as_slice();
+    let mut buf = [0u8; 4];
+    for ch in value.chars() {
+        let (encoded, _, had_errors) = encoding.encode(ch.encode_utf8(&mut buf));
+        let taken = if had_errors {
+            let units = ch.len_utf16();
+            if !rest.get(..units).is_some_and(<[u8]>::is_ascii) {
+                return false;
+            }
+            units
+        } else {
+            if !rest.starts_with(&encoded) {
+                return false;
+            }
+            encoded.len()
+        };
+        let Some(after) = rest.get(taken..) else {
+            return false;
+        };
+        rest = after;
+    }
+    rest.is_empty()
+}
+
+#[cfg(test)]
+mod ansi_best_fit_tests {
+    #[test]
+    fn a_best_fit_byte_stands_for_a_character_the_page_lacks() {
+        let page = encoding_rs::WINDOWS_1250;
+        let value = "TO\u{2212}92";
+        assert!(
+            super::is_ansi_wire_text_of("TO-92", value, page),
+            "best fit"
+        );
+        assert!(
+            super::is_ansi_wire_text_of("TO?92", value, page),
+            "the strict form"
+        );
+        // Another page's byte is no best fit, and the rest must still match.
+        assert!(!super::is_ansi_wire_text_of("TO\u{b3}92", value, page));
+        assert!(!super::is_ansi_wire_text_of("TO-93", value, page));
+        assert!(!super::is_ansi_wire_text_of("TO-9", value, page));
+        // A character the page holds must be its own byte.
+        assert!(super::is_ansi_wire_text_of("\u{b3}", "\u{142}", page));
+        assert!(!super::is_ansi_wire_text_of("l", "\u{142}", page));
+    }
+}
+
 /// The storage name Altium derives for a name past the 31-unit cap.
 ///
 /// Altium cuts the name's ANSI bytes at the cap and reads them back through

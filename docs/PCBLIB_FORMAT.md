@@ -512,7 +512,7 @@ fill byte-identically.
 | Bit | Flag | Meaning |
 |-----|------|---------|
 | `0x0004` | Unlocked | **Inverted** — set = unlocked, clear = locked |
-| `0x0008` | Saved | Set on a saved primitive |
+| `0x0008` | Saved | Set on a saved primitive. Older hand-authored footprints hold tracks without it (`0x0004`); a primitive read so keeps it clear (`PcbFlags::DISK_BIT_3_CLEAR`), and one written here sets it |
 | `0x0020` | TentingTop | Solder-mask tented on top |
 | `0x0040` | TentingBottom | Solder-mask tented on bottom |
 | `0x0080` | TestPointTop | Fabrication test point, top |
@@ -1109,7 +1109,10 @@ Altium embeds 3D models in the library file:
 embedded models.
 
 **Data stream format:** a sequence of C-string parameter blocks — **NO leading pipe** (the record
-starts at `EMBED=`, matching AltiumSharp's `string.Join` and every `BODY_3D` golden):
+starts at `EMBED=`, matching AltiumSharp's `string.Join` and every `BODY_3D` golden). Desktop
+libraries hold older records that differ: one starting `|UNICODE=EXISTSEMBED=TRUE|…` (a leading
+pipe, and the `UNICODE=EXISTS` pair run into `EMBED`), with `UNICODE__NAME` (decimal UTF-16 units)
+beside a `NAME` in the library's code page:
 
 ```text
 [block_len:4 LE]["EMBED=TRUE|MODELSOURCE=Undefined|ID={GUID}|ROTX=0.000|ROTY=0.000|ROTZ=0.000|DZ=0|CHECKSUM=0|NAME=model.step" + \x00]
@@ -1126,13 +1129,16 @@ Block length includes the null terminator.
 | `ROTX`, `ROTY`, `ROTZ` | The body's `MODEL.3D.ROTX/ROTY/ROTZ`, in degrees, `%.3f` |
 | `DZ` | The body's `MODEL.3D.DZ` in whole internal units (1/10000 mil: 452.7559 mil is `4527559`) |
 | `CHECKSUM` | The body's `MODEL.CHECKSUM` as a signed 32-bit integer (3253077088 is `-1041890208`); see below |
-| `NAME` | Model filename (e.g. `model.step`) |
+| `NAME` | Model filename (e.g. `model.step`), in the library's code page; the name is the `UNICODE__NAME` twin where there is one |
 
 Altium mirrors the placement and checksum of the body that references a model into its record
-(#555). The reader keeps each record as read; the writer replays it and rewrites only a value
-that no longer means the first referencing body's, so an unchanged library writes its index
-back byte for byte, and a moved or re-rotated body carries its record along. A model added by
-this crate starts from the template above.
+(#555). It can index the same `ID` twice, for the same payload placed with two rotations, and
+each such record has its own stream (#594). The reader keeps every record, in stream order, as
+read, bytes included; the writer mirrors each from a referencing body that already agrees with
+it where there is one (else the first), rewrites only a value that no longer means that body's,
+and writes a record that comes out unchanged back as its bytes. An unchanged library writes its
+index back byte for byte, and a moved or re-rotated body carries its record along. A model added
+by this crate starts from the template above.
 
 The record's position (0, 1, 2, ...) corresponds to the numbered model stream index. The
 numbered streams (`/Library/Models/0`, ...) are the raw model bytes with a standard **zlib**

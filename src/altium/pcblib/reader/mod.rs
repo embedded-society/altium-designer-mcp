@@ -43,13 +43,10 @@ use crate::altium::error::AltiumError;
 mod models;
 mod parsers;
 
-pub use models::{
-    parse_embedded_models, parse_model_data_stream, parse_model_header_stream,
-    parse_model_index_records,
-};
-pub use parsers::parse_mil_value;
+pub use models::{parse_embedded_models, parse_model_data_stream, parse_model_header_stream};
 #[allow(clippy::wildcard_imports)] // tightly-coupled reader split
 use parsers::*;
+pub use parsers::{model_index_name, parse_mil_value};
 
 /// Result type for internal parse functions.
 ///
@@ -407,8 +404,8 @@ fn read_string_from_block(block: &[u8]) -> String {
 
 // Flag bits shared with the writer via `super::flags`.
 use super::flags::{
-    ALT_FLAG_KEEPOUT, ALT_FLAG_TENTING_BOTTOM, ALT_FLAG_TENTING_TOP, ALT_FLAG_TESTPOINT_BOTTOM,
-    ALT_FLAG_TESTPOINT_TOP, ALT_FLAG_UNLOCKED,
+    ALT_FLAG_KEEPOUT, ALT_FLAG_SAVED, ALT_FLAG_TENTING_BOTTOM, ALT_FLAG_TENTING_TOP,
+    ALT_FLAG_TESTPOINT_BOTTOM, ALT_FLAG_TESTPOINT_TOP, ALT_FLAG_UNLOCKED,
 };
 
 /// Reads PCB flags from the common header bytes 1-2.
@@ -440,6 +437,9 @@ fn read_flags(data: &[u8]) -> PcbFlags {
     }
     if bits & ALT_FLAG_KEEPOUT != 0 {
         flags |= PcbFlags::KEEPOUT;
+    }
+    if bits & ALT_FLAG_SAVED == 0 {
+        flags |= PcbFlags::DISK_BIT_3_CLEAR;
     }
     // Bits nothing models are carried verbatim, not dropped.
     for (disk_bit, carrier) in PcbFlags::DISK_BITS {
@@ -889,8 +889,7 @@ mod tests {
         // Both skips lose a 3D body, which is why each logs: the library still
         // opens, and the footprint simply has no model, so a silent drop would
         // look like the model was never there.
-        let mut index = ModelIndex::new();
-        index.insert("GUID-1".to_string(), (0, "part.step".to_string()));
+        let index = vec![ModelRecord::for_test(0, "GUID-1", "part.step")];
 
         // Stream index 7 has no entry in the index.
         let unmapped = parse_embedded_models(
@@ -1331,14 +1330,16 @@ mod tests {
 
         let index = parse_model_data_stream(&data);
 
-        assert_eq!(index.len(), 2);
+        let entries: Vec<(usize, &str, &str)> = index
+            .iter()
+            .map(|r| (r.stream_index, r.id.as_str(), r.name.as_str()))
+            .collect();
         assert_eq!(
-            index.get("{GUID-1234}"),
-            Some(&(0, "model1.step".to_string()))
-        );
-        assert_eq!(
-            index.get("{GUID-5678}"),
-            Some(&(1, "model2.step".to_string()))
+            entries,
+            [
+                (0, "{GUID-1234}", "model1.step"),
+                (1, "{GUID-5678}", "model2.step")
+            ]
         );
     }
 
@@ -1363,7 +1364,14 @@ mod tests {
         let index = parse_model_data_stream(&data);
 
         assert_eq!(index.len(), 1);
-        assert_eq!(index.get("{ABC-DEF}"), Some(&(0, "test.step".to_string())));
+        assert_eq!(
+            (
+                index[0].stream_index,
+                index[0].id.as_str(),
+                index[0].name.as_str()
+            ),
+            (0, "{ABC-DEF}", "test.step")
+        );
     }
 
     #[test]
@@ -1396,9 +1404,10 @@ mod tests {
         use std::io::Write;
 
         // Create mock model index with (index, name) tuples
-        let mut model_index = ModelIndex::new();
-        model_index.insert("{GUID-A}".to_string(), (0, "model_a.step".to_string()));
-        model_index.insert("{GUID-B}".to_string(), (1, "model_b.step".to_string()));
+        let model_index = vec![
+            ModelRecord::for_test(0, "{GUID-A}", "model_a.step"),
+            ModelRecord::for_test(1, "{GUID-B}", "model_b.step"),
+        ];
 
         // Create compressed model data
         let step_data_a = b"STEP model A content";

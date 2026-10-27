@@ -875,9 +875,10 @@ pub(super) fn parse_text(
             .ok_or_else(|| AltiumError::parse_error(offset + 21, "failed to read Text height"))?,
     );
 
-    // Stroke font ID - offset 25-26 (u16)
-    // Only meaningful when kind is Stroke
-    let stroke_font = if geometry_block.len() > 26 && kind == TextKind::Stroke {
+    // Stroke font ID - offset 25-26 (u16). Read whatever the kind: Altium
+    // keeps a TrueType or barcode text's stroke font for when it is switched
+    // back to Stroke.
+    let stroke_font = if geometry_block.len() > 26 {
         let font_id = read_u16(geometry_block, 25).unwrap_or(1);
         // The default stroke font is index 1; only a non-default selection is
         // surfaced as an explicit `StrokeFont`.
@@ -1625,6 +1626,14 @@ pub(super) fn parse_component_body(data: &[u8], offset: usize) -> ParseResult<Co
             .map(|(key, _)| key)
             .collect()
     });
+    // The mil values as written, for the writer to keep their text.
+    let mil_values_as_read: Vec<(String, String)> =
+        block_str.find("V7_LAYER").map_or_else(Vec::new, |start| {
+            crate::altium::parse_pipe_params_ordered(&block_str[start..])
+                .into_iter()
+                .filter(|(_, value)| value.ends_with("mil"))
+                .collect()
+        });
 
     // Extract key values
     let model_id = params.get("MODELID").cloned().unwrap_or_default();
@@ -1770,6 +1779,7 @@ pub(super) fn parse_component_body(data: &[u8], offset: usize) -> ParseResult<Co
         component_index,
         additional_parameters,
         param_key_order,
+        mil_values_as_read,
         flags: read_flags(block0),
         model_type: params
             .get("MODEL.MODELTYPE")
@@ -1912,13 +1922,62 @@ pub fn parse_mil_value(s: Option<&str>) -> f64 {
 // 3D Model Parsing
 // =============================================================================
 
-/// A mapping of model GUID to stream index.
+/// One record of the `/Library/Models/Data` index.
 ///
-/// The `/Library/Models/Data` stream contains entries that map GUIDs to
-/// the numeric index of the model stream (e.g., `/Library/Models/0`) and the model name.
-///
-/// The value is a tuple of (`stream_index`, `model_name`).
-pub type ModelIndex = HashMap<String, (usize, String)>;
+/// The record at position `n` describes the model stream `/Library/Models/n`.
+/// Records are kept in stream order, one per stream: Altium can index the
+/// same model `ID` twice (the same payload placed with two rotations), and
+/// each such record has a stream and a rotation of its own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelRecord {
+    /// The model stream the record describes (`/Library/Models/{n}`).
+    pub stream_index: usize,
+    /// The model's GUID (`ID`).
+    pub id: String,
+    /// The model's name ([`model_index_name`]).
+    pub name: String,
+    /// Every pair of the record, in the order read.
+    pub params: Vec<(String, String)>,
+    /// The record's bytes as read.
+    pub raw: Vec<u8>,
+}
+
+/// The `/Library/Models/Data` index, in stream order.
+pub type ModelIndex = Vec<ModelRecord>;
+
+#[cfg(test)]
+impl ModelRecord {
+    /// A record naming `id` and `name` for stream `stream_index`.
+    pub fn for_test(stream_index: usize, id: &str, name: &str) -> Self {
+        Self {
+            stream_index,
+            id: id.to_string(),
+            name: name.to_string(),
+            params: vec![
+                ("ID".to_string(), id.to_string()),
+                ("NAME".to_string(), name.to_string()),
+            ],
+            raw: Vec::new(),
+        }
+    }
+}
+
+/// A model index record's name: its `UNICODE__NAME` twin where it has one —
+/// the plain `NAME` holds the library's code-page bytes, `?` for a character
+/// the page lacks — and its `NAME` otherwise.
+#[must_use]
+pub fn model_index_name(params: &[(String, String)]) -> String {
+    let value = |key: &str| {
+        params
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(key))
+            .map(|(_, v)| v.as_str())
+    };
+    value("UNICODE__NAME")
+        .and_then(crate::altium::text_from_utf16_units)
+        .or_else(|| value("NAME").map(str::to_string))
+        .unwrap_or_default()
+}
 
 // =============================================================================
 // Tests
@@ -2750,7 +2809,7 @@ mod tests {
     }
 
     #[test]
-    fn text_kind_at_offset_160_governs_whether_a_stroke_font_is_surfaced() {
+    fn the_stroke_font_at_offset_25_is_read_whatever_the_kind() {
         // @160 is the authoritative text kind and @25 the stroke-font index. A
         // non-default stroke font must survive the read; losing it silently
         // swaps the silkscreen typeface, and the different glyph widths push
@@ -2767,13 +2826,13 @@ mod tests {
         let (text, _) = parse_text(&block(&b), 0, None).unwrap();
         assert!(text.stroke_font.is_none());
 
-        // A TrueType text has no stroke font at all, whatever @25 holds.
+        // A TrueType text keeps the stroke font it would switch back to.
         let mut b = text_geometry(161);
         b[25..27].copy_from_slice(&3_u16.to_le_bytes());
         b[160] = 1;
         let (text, _) = parse_text(&block(&b), 0, None).unwrap();
         assert_eq!(text.kind, TextKind::TrueType);
-        assert!(text.stroke_font.is_none());
+        assert_eq!(text.stroke_font, Some(StrokeFont::Serif));
 
         // BarCode is the third documented kind.
         let mut b = text_geometry(161);
