@@ -51,6 +51,14 @@ pub struct EmbeddedModel {
     #[serde(skip)]
     pub index_params: Vec<(String, String)>,
 
+    /// The same record's bytes as read, written back verbatim while the
+    /// record would come out unchanged: Altium writes its text in the
+    /// library's code page and, in places, without the leading `|` or with
+    /// two pairs run together (`UNICODE=EXISTSEMBED=TRUE`), none of which a
+    /// rebuilt record keeps. Empty for a model added by this crate.
+    #[serde(skip)]
+    pub index_raw: Vec<u8>,
+
     /// The model's stream exactly as read, written back while it still
     /// inflates to [`Self::data`]: a model another writer's zlib compressed
     /// keeps its bytes (Altium's own this crate reproduces anyway). Empty for
@@ -69,6 +77,7 @@ impl EmbeddedModel {
             compressed_size: 0,
             data,
             index_params: Vec::new(),
+            index_raw: Vec::new(),
             compressed: Vec::new(),
         }
     }
@@ -304,6 +313,14 @@ pub struct ComponentBody {
     /// [`Self::additional_parameters`]) rather than becoming an extrusion.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_type: Option<u8>,
+
+    /// The parameter block's mil values as read (`OVERALLHEIGHT=11.8898mil`),
+    /// so a modelled length goes back in Altium's text while it still holds
+    /// the same value: the millimetre fields round a value to 6 decimal
+    /// places on its way through JSON, which would otherwise come back as
+    /// `11.889803mil`. Empty for a from-scratch body.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mil_values_as_read: Vec<(String, String)>,
     /// The keys of the parameter block in the order they were read, canonical
     /// and unmodelled alike, so the writer emits them in Altium's order — a
     /// UI-authored body stores `BODYOVERRIDECOLOR=TRUE` right after
@@ -392,6 +409,7 @@ impl ComponentBody {
             additional_parameters: Vec::new(),
             flags: PcbFlags::empty(),
             model_type: None,
+            mil_values_as_read: Vec::new(),
             param_key_order: Vec::new(),
         }
     }

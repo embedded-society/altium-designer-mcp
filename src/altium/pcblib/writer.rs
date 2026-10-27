@@ -254,11 +254,16 @@ use super::flags::{
 
 /// Encodes our internal `PcbFlags` into Altium's on-disk flag word.
 ///
-/// `FlagSaved` (bit 3) is always set on a saved primitive and `FlagUnlocked`
-/// (bit 2) is set unless the primitive is locked — a normal pad is therefore
-/// `0x000C`, not `0x0000`. `read_flags` in the reader performs the inverse.
+/// `FlagSaved` (bit 3) is set on a saved primitive unless it was read clear
+/// ([`PcbFlags::DISK_BIT_3_CLEAR`]), and `FlagUnlocked` (bit 2) is set unless
+/// the primitive is locked — a normal pad is therefore `0x000C`, not `0x0000`.
+/// `read_flags` in the reader performs the inverse.
 const fn encode_altium_flags(flags: PcbFlags) -> u16 {
-    let mut f = ALT_FLAG_SAVED;
+    let mut f = if flags.contains(PcbFlags::DISK_BIT_3_CLEAR) {
+        0
+    } else {
+        ALT_FLAG_SAVED
+    };
     if !flags.contains(PcbFlags::LOCKED) {
         f |= ALT_FLAG_UNLOCKED;
     }
@@ -2017,17 +2022,17 @@ fn build_component_body_params(body: &ComponentBody) -> String {
     ));
     params.push(format!(
         "CAVITYHEIGHT={}",
-        format_mil_coord(body.cavity_height)
+        body_mil(body, "CAVITYHEIGHT", body.cavity_height)
     ));
     // Use the canonical trimmed mil formatting (as the region encoder does) rather
     // than raw {} float formatting, so body heights match Altium's own output shape.
     params.push(format!(
         "STANDOFFHEIGHT={}",
-        format_mil_coord(body.standoff_height)
+        body_mil(body, "STANDOFFHEIGHT", body.standoff_height)
     ));
     params.push(format!(
         "OVERALLHEIGHT={}",
-        format_mil_coord(body.overall_height)
+        body_mil(body, "OVERALLHEIGHT", body.overall_height)
     ));
     params.push(format!("BODYPROJECTION={}", body.body_projection));
     // Altium repeats ARCRESOLUTION after BODYPROJECTION (verbatim shape from the
@@ -2093,13 +2098,22 @@ fn build_component_body_params(body: &ComponentBody) -> String {
             if body.embedded { "TRUE" } else { "FALSE" }
         ));
         params.push(format!("MODEL.NAME={}", body.model_name));
-        params.push(format!("MODEL.2D.X={}", format_mil_coord(body.model_2d_x)));
-        params.push(format!("MODEL.2D.Y={}", format_mil_coord(body.model_2d_y)));
+        params.push(format!(
+            "MODEL.2D.X={}",
+            body_mil(body, "MODEL.2D.X", body.model_2d_x)
+        ));
+        params.push(format!(
+            "MODEL.2D.Y={}",
+            body_mil(body, "MODEL.2D.Y", body.model_2d_y)
+        ));
         params.push(format!("MODEL.2D.ROTATION={:.3}", body.model_2d_rotation));
         params.push(format!("MODEL.3D.ROTX={:.3}", body.rotation_x));
         params.push(format!("MODEL.3D.ROTY={:.3}", body.rotation_y));
         params.push(format!("MODEL.3D.ROTZ={:.3}", body.rotation_z));
-        params.push(format!("MODEL.3D.DZ={}", format_mil_coord(body.z_offset)));
+        params.push(format!(
+            "MODEL.3D.DZ={}",
+            body_mil(body, "MODEL.3D.DZ", body.z_offset)
+        ));
         push_model_type(&mut params, body, extruded);
     }
 
@@ -2126,6 +2140,23 @@ fn build_component_body_params(body: &ComponentBody) -> String {
     replay_body_key_order(&params, &additional, &body.param_key_order)
 }
 
+/// A body length (mm) as its `key` parameter: the text read for that key
+/// while it holds the same value at the 6-decimal precision the millimetre
+/// fields keep through JSON ([`ComponentBody::mil_values_as_read`]), else
+/// [`format_mil_coord`].
+fn body_mil(body: &ComponentBody, key: &str, mm: f64) -> String {
+    let micro = |value: f64| (value * 1_000_000.0).round();
+    body.mil_values_as_read
+        .iter()
+        .find(|(k, _)| k == key)
+        .map(|(_, text)| text)
+        .filter(|text| {
+            (micro(super::reader::parse_mil_value(Some(text.as_str()))) - micro(mm)).abs() < 0.5
+        })
+        .cloned()
+        .unwrap_or_else(|| format_mil_coord(mm))
+}
+
 /// A body's `MODEL.MODELTYPE` and what goes with it: the type as read, or,
 /// from scratch, extruded for a body with no model file. Only an extrusion
 /// carries the Z range and only a model file the source; a cylinder or
@@ -2137,11 +2168,11 @@ fn push_model_type(params: &mut Vec<String>, body: &ComponentBody, extruded: boo
         0 => {
             params.push(format!(
                 "MODEL.EXTRUDED.MINZ={}",
-                format_mil_coord(body.standoff_height)
+                body_mil(body, "MODEL.EXTRUDED.MINZ", body.standoff_height)
             ));
             params.push(format!(
                 "MODEL.EXTRUDED.MAXZ={}",
-                format_mil_coord(body.overall_height)
+                body_mil(body, "MODEL.EXTRUDED.MAXZ", body.overall_height)
             ));
         }
         1 => params.push("MODEL.MODELSOURCE=Undefined".to_string()),
@@ -2236,7 +2267,8 @@ fn carried_param<'a>(footprint: &'a Footprint, key: &str) -> Option<&'a str> {
 
 /// Whether a carried plain key and its `UNICODE__` twin still describe
 /// `value` in `encoding`: the pair reads as `value`, and when there is a twin,
-/// the plain bytes are what `encoding` writes for the text the twin holds. The
+/// the plain bytes are what `encoding` writes for the text the twin holds
+/// (Altium's best fit for a character the page lacks included). The
 /// second test is what keeps a footprint copied from a library of another code
 /// page from carrying that page's bytes into this one.
 fn carried_pair_is_current(
@@ -2250,8 +2282,10 @@ fn carried_pair_is_current(
     }
     // Unfolded: a script-authored twin holds the value widened through the
     // authoring page, and it is that text the plain key was written from.
+    // Where the page lacks a character, Altium's best-fit byte stands as well
+    // as `?`.
     twin.and_then(crate::altium::text_from_utf16_units)
-        .is_none_or(|held| crate::altium::to_ansi_wire_text(&held, encoding) == plain)
+        .is_none_or(|held| crate::altium::is_ansi_wire_text_of(plain, &held, encoding))
 }
 
 /// Whether the carried `PATTERN` and `UNICODE__PATTERN` entries still describe
@@ -2562,33 +2596,67 @@ pub fn encode_model_header_stream(model_count: usize) -> Vec<u8> {
 /// or the template for a model added here. Altium mirrors the placement of
 /// the body that references the model into it — `EMBED`, `ROTX`/`ROTY`/
 /// `ROTZ` (`%.3f`), `DZ` (whole internal units) and `CHECKSUM` (the body's,
-/// as a signed 32-bit integer) — so those follow the first referencing body
-/// in `footprints`. A value is rewritten only when it no longer means the
-/// body's, so a record read back unchanged keeps Altium's exact text.
+/// as a signed 32-bit integer) — so those follow a referencing body in
+/// `footprints`: one that already agrees with the record where there is one
+/// (Altium indexes the same model twice for two placements of it), else the
+/// first. A value is rewritten only when it no longer means the body's, and a
+/// record that comes out unchanged goes back as the bytes it was read as
+/// ([`EmbeddedModel::index_raw`]).
 pub fn encode_model_data_stream(models: &[EmbeddedModel], footprints: &[Footprint]) -> Vec<u8> {
     let mut output = Vec::new();
 
     for model in models {
-        let body = footprints
+        let bodies: Vec<&ComponentBody> = footprints
             .iter()
             .flat_map(|fp| &fp.component_bodies)
-            .find(|b| b.model_id.eq_ignore_ascii_case(&model.id));
-        let record = model_index_record(model, body);
-        // C-string parameter block (length includes the null terminator).
-        write_cstring_param_block(&mut output, record.as_bytes());
+            .filter(|b| b.model_id.eq_ignore_ascii_case(&model.id))
+            .collect();
+        let body = bodies
+            .iter()
+            .find(|b| model_index_params(model, Some(b)) == model.index_params)
+            .or_else(|| bodies.first())
+            .copied();
+        let params = model_index_params(model, body);
+        let unchanged = !model.index_raw.is_empty()
+            && params == model.index_params
+            && super::reader::model_index_name(&model.index_params) == model.name;
+        if unchanged {
+            // The record as read, terminator included.
+            output.extend_from_slice(
+                &u32::try_from(model.index_raw.len())
+                    .unwrap_or(u32::MAX)
+                    .to_le_bytes(),
+            );
+            output.extend_from_slice(&model.index_raw);
+        } else {
+            // C-string parameter block (length includes the null terminator).
+            write_cstring_param_block(&mut output, model_index_text(&params).as_bytes());
+        }
     }
 
     output
 }
 
-/// One `/Library/Models/Data` record: pipe-delimited, NO leading pipe (every
-/// Altium-written record starts at `EMBED=`). See [`encode_model_data_stream`].
+/// A `/Library/Models/Data` record as text: pipe-delimited, NO leading pipe
+/// (every record Altium writes afresh starts at `EMBED=`).
+fn model_index_text(params: &[(String, String)]) -> String {
+    params
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
+/// One `/Library/Models/Data` record's pairs. See [`encode_model_data_stream`].
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
     clippy::cast_sign_loss
 )] // the index holds the checksum as 32 signed bits
-fn model_index_record(model: &EmbeddedModel, body: Option<&ComponentBody>) -> String {
+fn model_index_params(
+    model: &EmbeddedModel,
+    body: Option<&ComponentBody>,
+) -> Vec<(String, String)> {
     let mut params: Vec<(String, String)> = if model.index_params.is_empty() {
         [
             ("EMBED", "TRUE"),
@@ -2608,17 +2676,38 @@ fn model_index_record(model: &EmbeddedModel, body: Option<&ComponentBody>) -> St
         model.index_params.clone()
     };
 
+    let has_name_twin = params.iter().any(|(k, _)| k == "UNICODE__NAME");
     // Sets `key` to `value` unless the current value already means the same.
-    let mut set = |key: &str, value: String, same: &dyn Fn(&str) -> bool| match params
-        .iter_mut()
-        .find(|(k, _)| k == key)
-    {
-        Some((_, current)) if same(current) => {}
-        Some((_, current)) => *current = value,
-        None => params.push((key.to_string(), value)),
+    // Altium can run a pair into the one before it (`UNICODE=EXISTSEMBED=TRUE`,
+    // read as `UNICODE` holding `EXISTSEMBED=TRUE`); such a pair counts as
+    // present and is left alone while it holds the value.
+    let mut set = |key: &str, value: String, same: &dyn Fn(&str) -> bool| {
+        let glued = format!("{key}=");
+        if let Some((_, current)) = params.iter_mut().find(|(k, _)| k == key) {
+            if !same(current) {
+                *current = value;
+            }
+        } else if !params
+            .iter()
+            .any(|(_, v)| v.split_once(&glued).is_some_and(|(_, held)| same(held)))
+        {
+            params.push((key.to_string(), value));
+        }
     };
     set("ID", model.id.clone(), &|v| v == model.id);
-    set("NAME", model.name.clone(), &|v| v == model.name);
+    if super::reader::model_index_name(&model.index_params) != model.name {
+        // A renamed model: the plain name, and its twin where it had one.
+        set("NAME", model.name.clone(), &|v| v == model.name);
+        if has_name_twin {
+            let units = model
+                .name
+                .encode_utf16()
+                .map(|unit| unit.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            set("UNICODE__NAME", units.clone(), &|v| v == units);
+        }
+    }
     if let Some(body) = body {
         let flag = if body.embedded { "TRUE" } else { "FALSE" };
         set("EMBED", flag.to_string(), &|v| v.eq_ignore_ascii_case(flag));
@@ -2640,12 +2729,7 @@ fn model_index_record(model: &EmbeddedModel, body: Option<&ComponentBody>) -> St
             v.parse::<i64>().is_ok_and(|c| c as u32 as i32 == checksum)
         });
     }
-
     params
-        .iter()
-        .map(|(k, v)| format!("{k}={v}"))
-        .collect::<Vec<_>>()
-        .join("|")
 }
 
 /// Prepares models for writing by compressing and indexing them.
@@ -2857,20 +2941,18 @@ fn guid_bytes_from_string(guid: &str) -> Option<[u8; 16]> {
 
 /// Whether a text primitive gets a `WideStrings` entry of its own.
 ///
-/// An empty text has nothing to carry. A text read from a library keeps what
-/// it had there — its geometry's index field @115 is the entry number, or -1
-/// for none — since Altium gives some special strings an entry (`.Designator`
-/// in the #555 library) and the rewrite must not drop it. A text built here
-/// gets one unless it is a special string, which Altium resolves at draw time.
+/// A text read from a library keeps what it had there — its geometry's index
+/// field @115 is the entry number, or -1 for none — since Altium gives some
+/// special strings an entry (`.Designator` in the #555 library) and an empty
+/// free text an empty one, and the rewrite must drop neither. A text built
+/// here gets one unless it is empty, with nothing to carry, or a special
+/// string, which Altium resolves at draw time.
 fn carries_wide_string(text: &Text) -> bool {
-    if text.text.is_empty() {
-        return false;
-    }
     text.raw_geometry
         .as_deref()
         .and_then(|raw| raw.get(115..119))
         .map_or_else(
-            || !text.text.starts_with('.'),
+            || !text.text.is_empty() && !text.text.starts_with('.'),
             |field| i32::from_le_bytes([field[0], field[1], field[2], field[3]]) >= 0,
         )
 }
@@ -2987,6 +3069,143 @@ fn count_unique_ids(footprint: &Footprint) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ============ what a desktop-authored library carries (#594) ============
+
+    mod desktop_library {
+        use super::*;
+
+        /// A text read from a library: its geometry with the `WideStrings`
+        /// index @115 set as read.
+        fn read_text(content: &str, wide_index: i32) -> Text {
+            let mut text = Text::new(0.0, 0.0, content, 1.0, Layer::TopOverlay);
+            let mut raw = encode_text_geometry(&text, None);
+            raw[115..119].copy_from_slice(&wide_index.to_le_bytes());
+            text.raw_geometry = Some(raw);
+            text
+        }
+
+        #[test]
+        fn an_empty_text_read_with_an_entry_keeps_it_and_the_numbering() {
+            let mut fp = Footprint::new("RELAY");
+            fp.add_text(read_text("", 0));
+            fp.add_text(read_text("A", 1));
+            fp.add_text(read_text("B", 2));
+            assert_eq!(wide_string_indices(&fp), [Some(0), Some(1), Some(2)]);
+            let stream = encode_component_wide_strings(&fp);
+            assert_eq!(
+                &stream[4..stream.len() - 1],
+                b"|ENCODEDTEXT0=|ENCODEDTEXT1=65|ENCODEDTEXT2=66"
+            );
+            // A text built here with nothing in it still gets no entry.
+            let mut fresh = Footprint::new("FRESH");
+            fresh.add_text(Text::new(0.0, 0.0, "", 1.0, Layer::TopOverlay));
+            assert_eq!(wide_string_indices(&fresh), [None]);
+        }
+
+        /// The index records of a library holding one model twice (two
+        /// rotations) and a record Altium wrote in Windows-1250 with no
+        /// leading `|` before `EMBED`.
+        fn index_stream() -> Vec<u8> {
+            let records: [&[u8]; 3] = [
+                b"EMBED=TRUE|MODELSOURCE=Undefined|ID={A}|ROTX=90.000|ROTY=0.000|ROTZ=360.000|DZ=0|CHECKSUM=5|NAME=chip.STEP",
+                b"EMBED=TRUE|MODELSOURCE=Undefined|ID={A}|ROTX=90.000|ROTY=0.000|ROTZ=180.000|DZ=0|CHECKSUM=5|NAME=chip.STEP",
+                b"|UNICODE=EXISTSEMBED=TRUE|MODELSOURCE=Undefined|ID={B}|ROTX=0.000|ROTY=0.000|ROTZ=0.000|DZ=0|CHECKSUM=7|NAME=\xb3.STEP|UNICODE__NAME=322,46,83,84,69,80|UNICODE=EXISTS",
+            ];
+            let mut out = Vec::new();
+            for record in records {
+                write_cstring_param_block(&mut out, record);
+            }
+            out
+        }
+
+        fn body(id: &str, rotation_z: f64, checksum: i64) -> ComponentBody {
+            let mut body = ComponentBody::new(id, "chip.STEP");
+            body.rotation_x = 90.0;
+            body.rotation_z = rotation_z;
+            body.model_checksum = checksum;
+            body
+        }
+
+        #[test]
+        fn a_model_indexed_twice_and_a_code_page_name_go_back_as_read() {
+            let source = index_stream();
+            let index = super::super::super::reader::parse_model_data_stream(&source);
+            let read: Vec<(usize, &str, &str)> = index
+                .iter()
+                .map(|r| (r.stream_index, r.id.as_str(), r.name.as_str()))
+                .collect();
+            assert_eq!(
+                read,
+                [
+                    (0, "{A}", "chip.STEP"),
+                    (1, "{A}", "chip.STEP"),
+                    (2, "{B}", "\u{142}.STEP")
+                ],
+                "each record keeps its stream; a name reads from its twin"
+            );
+            let models: Vec<EmbeddedModel> = index
+                .iter()
+                .map(|record| {
+                    let mut model = EmbeddedModel::new(&record.id, &record.name, vec![1]);
+                    model.index_params.clone_from(&record.params);
+                    model.index_raw.clone_from(&record.raw);
+                    model
+                })
+                .collect();
+
+            let mut fp = Footprint::new("R0603");
+            fp.component_bodies.push(body("{A}", 360.0, 5));
+            let mut other = Footprint::new("R0603_ROT");
+            other.component_bodies.push(body("{A}", 180.0, 5));
+            let mut block = Footprint::new("TERMINAL");
+            let mut terminal = body("{B}", 0.0, 7);
+            terminal.rotation_x = 0.0;
+            block.component_bodies.push(terminal);
+            assert_eq!(
+                encode_model_data_stream(&models, &[fp, other, block]),
+                source,
+                "every record as read, each against the body that agrees with it"
+            );
+        }
+
+        #[test]
+        fn an_edited_placement_or_a_renamed_model_rebuilds_its_record() {
+            let source = index_stream();
+            let index = super::super::super::reader::parse_model_data_stream(&source);
+            let mut model = EmbeddedModel::new(&index[2].id, "\u{17c}.STEP", vec![1]);
+            model.index_params.clone_from(&index[2].params);
+            model.index_raw.clone_from(&index[2].raw);
+            let written = encode_model_data_stream(&[model], &[]);
+            let reread = super::super::super::reader::parse_model_data_stream(&written);
+            assert_eq!(
+                reread[0].name, "\u{17c}.STEP",
+                "the twin follows the rename"
+            );
+
+            let mut model = EmbeddedModel::new(&index[0].id, &index[0].name, vec![1]);
+            model.index_params.clone_from(&index[0].params);
+            model.index_raw.clone_from(&index[0].raw);
+            let mut fp = Footprint::new("R0603");
+            fp.component_bodies.push(body("{A}", 90.0, 5));
+            let written = encode_model_data_stream(&[model], &[fp]);
+            assert!(
+                String::from_utf8_lossy(&written).contains("ROTZ=90.000"),
+                "the edited rotation is mirrored"
+            );
+        }
+
+        #[test]
+        fn a_body_length_keeps_its_read_text_through_json_rounding() {
+            let mut body = ComponentBody::new("{A}", "chip.STEP");
+            // 11.8898 mil read, rounded to 6 decimals of a millimetre by JSON.
+            body.overall_height = 0.302_001;
+            body.mil_values_as_read = vec![("OVERALLHEIGHT".to_string(), "11.8898mil".to_string())];
+            assert!(build_component_body_params(&body).contains("|OVERALLHEIGHT=11.8898mil|"));
+            body.overall_height = 0.5;
+            assert!(build_component_body_params(&body).contains("|OVERALLHEIGHT=19.685039mil|"));
+        }
+    }
 
     // ================= what an Altium 365 export carries ====================
 
@@ -4642,15 +4861,18 @@ mod tests {
         let parsed = super::super::reader::parse_model_data_stream(&data);
         assert_eq!(parsed.len(), 2);
 
-        // Check GUID-1 maps to stream index 0
-        let (idx1, name1) = parsed.get("{GUID-1}").expect("Should have GUID-1");
-        assert_eq!(*idx1, 0);
-        assert_eq!(name1, "model1.step");
-
-        // Check GUID-2 maps to stream index 1
-        let (idx2, name2) = parsed.get("{GUID-2}").expect("Should have GUID-2");
-        assert_eq!(*idx2, 1);
-        assert_eq!(name2, "model2.step");
+        // Each model's record names its stream, in order.
+        let entries: Vec<(usize, &str, &str)> = parsed
+            .iter()
+            .map(|r| (r.stream_index, r.id.as_str(), r.name.as_str()))
+            .collect();
+        assert_eq!(
+            entries,
+            [
+                (0, "{GUID-1}", "model1.step"),
+                (1, "{GUID-2}", "model2.step")
+            ]
+        );
     }
 
     #[test]
@@ -4893,19 +5115,22 @@ mod tests {
     }
 
     /// A flag word with bits nothing models — a hand-authored pin header's
-    /// tracks carry `0x001C` — comes back exactly, and so does every word
-    /// Altium can write: all sixteen bits, modelled or not.
+    /// tracks carry `0x001C`, an older footprint's tracks `0x0004` (no
+    /// `FlagSaved`) — comes back exactly, and so does every word Altium can
+    /// write: all sixteen bits, modelled or not.
     #[test]
     fn unmodelled_flag_bits_round_trip_verbatim() {
         use crate::altium::pcblib::reader::read_flags_for_test;
         assert_eq!(encode_altium_flags(read_flags_for_test(0x001C)), 0x001C);
-        // Every saved word (bit 3 set) whose unlocked/test-point combination
-        // Altium itself writes round-trips bit for bit.
+        assert_eq!(encode_altium_flags(read_flags_for_test(0x0004)), 0x0004);
+        // A primitive built here is saved.
+        assert_eq!(encode_altium_flags(PcbFlags::empty()), 0x000C);
+        // Every word whose unlocked/test-point combination Altium itself
+        // writes round-trips bit for bit, `FlagSaved` set or clear.
         for word in 0u16..=0xFFFF {
-            let saved = word & ALT_FLAG_SAVED != 0;
             let testpoint = word & (ALT_FLAG_TESTPOINT_TOP | ALT_FLAG_TESTPOINT_BOTTOM) != 0;
             let unlocked = word & ALT_FLAG_UNLOCKED != 0;
-            if saved && !(testpoint && unlocked) {
+            if !(testpoint && unlocked) {
                 assert_eq!(
                     encode_altium_flags(read_flags_for_test(word)),
                     word,

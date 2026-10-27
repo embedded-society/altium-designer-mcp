@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+Found rewriting a desktop-authored production `PcbLib` (#594): after 1.3.0 a write to any
+footprint still rewrote the same 11 others. Reported by @RSO-KME.
+
+- **The 3D model index keeps a model indexed twice.** Altium can list the same model `ID` twice,
+  for the same payload placed with two rotations, each with its own model stream. The index
+  was read by `ID`, so the second record replaced the first, its stream went unread, and a
+  rewrite lost one record and its rotation and renumbered every model stream after it. The
+  index is now read in stream order, one model per record, and each record is matched to the
+  body whose placement it carries.
+- **A model index record goes back as Altium wrote it.** A record in the library's code page
+  (a name with `ł`, `ż` on a Windows-1250 machine) was written back as UTF-8, and an older
+  record's leading `|` and its run-together `UNICODE=EXISTSEMBED=TRUE` gained a second `EMBED`.
+  A record that comes out unchanged is now written back as its bytes, and a model's name reads
+  from its `UNICODE__NAME` twin where it has one.
+- **A track without `FlagSaved` keeps its flag word.** Older footprints hold tracks with the
+  flag word `0x0004`; the writer set bit 3 on every primitive, writing `0x000C`. A primitive
+  read without it keeps it clear (`DISK_BIT_3_CLEAR`); one built here still sets it.
+- **An empty free text keeps its `WideStrings` entry.** Altium gives an empty text an empty
+  `ENCODEDTEXT{n}=` entry; the writer dropped it and renumbered the other texts' entries.
+- **A TrueType text keeps its stroke font**, the one it switches back to: it was read only for a
+  stroke text and written as the default.
+- **A footprint description keeps Altium's best-fit character.** Saving on a code page that
+  lacks a character, Altium writes its best fit (`-` for U+2212 MINUS SIGN); the writer took
+  that for a stale description and rebuilt it with `?`.
+- **A no-op `update_component` leaves the footprint as read.** Through JSON, a 3D body's mil
+  values came back with 6 decimals (`11.889803mil` for `11.8898mil`), and the footprint's
+  `PrimitiveGuids` stream was re-sorted into primitive order. A body now carries its mil
+  values as read (`mil_values_as_read`), and the footprint its `PrimitiveGuids` stream
+  (`primitive_guids_as_read`).
+
 ## [1.3.0] - 2026-10-22
 
 A fidelity release: a rewrite keeps what libraries from Altium 365 and production desktop

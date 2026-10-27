@@ -115,7 +115,7 @@ fn json_flags(json: &Value) -> crate::altium::pcblib::PcbFlags {
         // Convenience shape: a raw bitmask integer.
         Some(Value::Number(n)) => n
             .as_u64()
-            .and_then(|v| u16::try_from(v).ok())
+            .and_then(|v| u32::try_from(v).ok())
             .map_or_else(PcbFlags::empty, PcbFlags::from_bits_truncate),
         _ => PcbFlags::empty(),
     }
@@ -1442,6 +1442,7 @@ impl McpServer {
                         additional_parameters: Vec::new(),
                         flags: crate::altium::pcblib::PcbFlags::empty(),
                         model_type: None,
+                        mil_values_as_read: Vec::new(),
                         param_key_order: Vec::new(),
                     });
                 }
@@ -1546,6 +1547,9 @@ impl McpServer {
                 .and_then(|v| serde_json::from_value(v).ok())
                 .unwrap_or_default();
         }
+        // The PrimitiveGuids stream as read, which goes back in Altium's own
+        // record order while it holds the records the primitives carry.
+        footprint.primitive_guids_as_read = json_base64(fp_json, "primitive_guids_as_read");
         // The storage the footprint was read from, so a read-modify-write
         // through JSON keeps it where Altium looks for it (#507).
         footprint.storage_name = fp_json
@@ -2460,6 +2464,11 @@ impl McpServer {
                 .get("model_type")
                 .and_then(Value::as_u64)
                 .and_then(|v| u8::try_from(v).ok()),
+            mil_values_as_read: body_json
+                .get("mil_values_as_read")
+                .cloned()
+                .and_then(|v| serde_json::from_value(v).ok())
+                .unwrap_or_default(),
             param_key_order: Self::parse_key_order(body_json),
         })
     }

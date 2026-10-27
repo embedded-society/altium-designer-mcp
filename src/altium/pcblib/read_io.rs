@@ -590,7 +590,6 @@ impl PcbLib {
         let data_path = models_storage.join("Data");
         let index_data = crate::altium::read_stream_opt(cfb, &data_path).unwrap_or_default();
         let model_index = reader::parse_model_data_stream(&index_data);
-        let mut index_records = reader::parse_model_index_records(&index_data);
 
         if model_index.is_empty() {
             tracing::debug!("No model index found in /Library/Models/Data");
@@ -606,8 +605,8 @@ impl PcbLib {
         // never drive the loop — a crafted count would otherwise force an
         // unbounded stream scan (DoS). Treat it as advisory only.
         let max_index = model_index
-            .values()
-            .map(|(idx, _)| idx.saturating_add(1))
+            .iter()
+            .map(|record| record.stream_index.saturating_add(1))
             .max()
             .unwrap_or(0);
         if model_count != max_index {
@@ -632,10 +631,7 @@ impl PcbLib {
             // Don't break early - indices might not be sequential
         }
 
-        let mut models = reader::parse_embedded_models(&model_index, &model_data, budget)?;
-        for model in &mut models {
-            model.index_params = index_records.remove(&model.id).unwrap_or_default();
-        }
+        let models = reader::parse_embedded_models(&model_index, &model_data, budget)?;
         tracing::debug!(count = models.len(), "Parsed embedded 3D models");
         Ok(models)
     }

@@ -5,7 +5,7 @@ use super::*;
 use crate::altium::inflate::Budget;
 use crate::altium::pcblib::primitives::EmbeddedModel;
 
-/// Parses the `/Library/Models/Data` stream to extract GUID-to-index mapping.
+/// Parses the `/Library/Models/Data` index into its records, in stream order.
 ///
 /// # Format
 ///
@@ -18,16 +18,15 @@ use crate::altium::pcblib::primitives::EmbeddedModel;
 ///
 /// Each record contains pipe-delimited key=value pairs including:
 /// - `ID={GUID}` - The model's unique identifier
-/// - `NAME=filename.step` - The model filename
+/// - `NAME=filename.step` - The model filename (with a `UNICODE__NAME` twin
+///   when it leaves the code page)
 /// - `EMBED=TRUE|FALSE` - Whether the model is embedded
 /// - `CHECKSUM=...` - Model checksum
 ///
 /// The record's position (0, 1, 2, ...) corresponds to the model stream index
-/// (`/Library/Models/0`, `/Library/Models/1`, etc.).
-///
-/// # Returns
-///
-/// A `HashMap` mapping GUID strings to their stream index and filename.
+/// (`/Library/Models/0`, `/Library/Models/1`, etc.). A record without an `ID`
+/// keeps its position but is not returned. The walk stops at the first
+/// unusable length.
 pub fn parse_model_data_stream(data: &[u8]) -> ModelIndex {
     let mut index = ModelIndex::new();
     let mut offset = 0usize;
@@ -54,24 +53,35 @@ pub fn parse_model_data_stream(data: &[u8]) -> ModelIndex {
             break;
         }
 
-        // Parse the record content as UTF-8 (or Latin-1 fallback)
-        let record_data = &data[offset..offset + record_len];
-        let record_text = String::from_utf8(record_data.to_vec())
-            .unwrap_or_else(|_| record_data.iter().map(|&b| b as char).collect());
+        // The record's text short of its terminator: UTF-8 where it decodes
+        // as such (an earlier version of this crate wrote it so), else one
+        // char per byte.
+        let raw = &data[offset..offset + record_len];
+        let text = raw.strip_suffix(&[0]).unwrap_or(raw);
+        let record_text = String::from_utf8(text.to_vec())
+            .unwrap_or_else(|_| text.iter().map(|&b| char::from(b)).collect());
+        let params = crate::altium::parse_pipe_params_ordered(&record_text);
+        let id = params
+            .iter()
+            .find(|(k, _)| k == "ID")
+            .map(|(_, v)| v.clone())
+            .unwrap_or_default();
 
-        // Extract ID (GUID) and NAME from the record
-        let params = crate::altium::parse_pipe_params_raw(&record_text);
-        let guid = params.get("ID").cloned().unwrap_or_default();
-        let name = params.get("NAME").cloned().unwrap_or_default();
-
-        if !guid.is_empty() {
+        if !id.is_empty() {
+            let name = super::parsers::model_index_name(&params);
             tracing::trace!(
                 stream_index,
-                guid = %guid,
+                guid = %id,
                 name = %name,
                 "Parsed model record from Data stream"
             );
-            index.insert(guid, (stream_index, name));
+            index.push(ModelRecord {
+                stream_index,
+                id,
+                name,
+                params,
+                raw: raw.to_vec(),
+            });
         }
 
         // Move past record content and null terminator
@@ -85,35 +95,6 @@ pub fn parse_model_data_stream(data: &[u8]) -> ModelIndex {
 
     tracing::debug!(count = index.len(), "Parsed model index from Data stream");
     index
-}
-
-/// The records of a `/Library/Models/Data` stream by model GUID, each with
-/// its keys in the order Altium wrote them — what a rewrite replays.
-#[must_use]
-pub fn parse_model_index_records(data: &[u8]) -> HashMap<String, Vec<(String, String)>> {
-    let mut records = HashMap::new();
-    let mut offset = 0usize;
-    while let Some(len_bytes) = data.get(offset..offset + 4) {
-        let len =
-            u32::from_le_bytes([len_bytes[0], len_bytes[1], len_bytes[2], len_bytes[3]]) as usize;
-        offset += 4;
-        let Some(record) = data.get(offset..offset + len).filter(|_| len > 0) else {
-            break;
-        };
-        let text = String::from_utf8(record.to_vec())
-            .unwrap_or_else(|_| record.iter().map(|&b| char::from(b)).collect());
-        let params = crate::altium::parse_pipe_params_ordered(&text);
-        if let Some((_, guid)) = params.iter().find(|(k, _)| k == "ID") {
-            if !guid.is_empty() {
-                records.insert(guid.clone(), params.clone());
-            }
-        }
-        offset += len;
-        if data.get(offset) == Some(&0) {
-            offset += 1;
-        }
-    }
-    records
 }
 
 /// Parses the `/Library/Models/Header` stream to get the model count.
@@ -157,7 +138,7 @@ pub const MAX_DECOMPRESSED_MODEL_BYTES: usize = 256 * 1024 * 1024; // 256 MiB
 ///
 /// # Arguments
 ///
-/// * `model_index` - Mapping of GUID to stream index
+/// * `model_index` - The index records, each naming its stream
 /// * `model_data` - Vector of (index, `compressed_data`) pairs
 /// * `budget` - What the library read may still inflate
 ///
@@ -175,17 +156,18 @@ pub fn parse_embedded_models(
 ) -> crate::altium::AltiumResult<Vec<EmbeddedModel>> {
     let mut models = Vec::new();
 
-    // Create reverse mapping: index -> (GUID, name)
-    let index_to_info: HashMap<usize, (&String, &String)> = model_index
+    // Each stream's record, by stream index.
+    let records: HashMap<usize, &ModelRecord> = model_index
         .iter()
-        .map(|(guid, (idx, name))| (*idx, (guid, name)))
+        .map(|record| (record.stream_index, record))
         .collect();
 
     for (idx, compressed) in model_data {
-        let Some((guid, name)) = index_to_info.get(idx) else {
+        let Some(record) = records.get(idx) else {
             tracing::debug!(index = idx, "Model stream has no GUID mapping");
             continue;
         };
+        let (guid, name) = (&record.id, &record.name);
 
         let Some(decompressed) = budget
             .inflate(compressed, MAX_DECOMPRESSED_MODEL_BYTES)?
@@ -201,11 +183,12 @@ pub fn parse_embedded_models(
         };
 
         let model = EmbeddedModel {
-            id: (*guid).clone(),
-            name: (*name).clone(),
+            id: guid.clone(),
+            name: name.clone(),
             data: decompressed,
             compressed_size: compressed.len(),
-            index_params: Vec::new(),
+            index_params: record.params.clone(),
+            index_raw: record.raw.clone(),
             compressed: compressed.clone(),
         };
 
@@ -269,8 +252,7 @@ mod tests {
         // The index names the model, so dropping it silently is the only way
         // the rest of the library still loads — but it must not appear with
         // empty data, which would write a corrupt model back out.
-        let mut index = super::ModelIndex::new();
-        index.insert("{AAAA}".to_string(), (0, "part.step".to_string()));
+        let index = vec![super::ModelRecord::for_test(0, "{AAAA}", "part.step")];
         let data = vec![(0usize, vec![0xFF, 0xFE, 0xFD, 0xFC])];
 
         let models = with_tracing(|| {

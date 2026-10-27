@@ -905,6 +905,7 @@ fn test_component_body_roundtrip() {
         additional_parameters: Vec::new(),
         flags: altium_designer_mcp::altium::pcblib::PcbFlags::empty(),
         model_type: None,
+        mil_values_as_read: Vec::new(),
         param_key_order: Vec::new(),
     };
     fp.component_bodies.push(body);
@@ -979,6 +980,7 @@ fn test_component_body_with_rotation() {
         additional_parameters: Vec::new(),
         flags: altium_designer_mcp::altium::pcblib::PcbFlags::empty(),
         model_type: None,
+        mil_values_as_read: Vec::new(),
         param_key_order: Vec::new(),
     };
     fp.component_bodies.push(body);
@@ -2841,6 +2843,7 @@ fn test_component_body_external_model_reference() {
         additional_parameters: Vec::new(),
         flags: altium_designer_mcp::altium::pcblib::PcbFlags::empty(),
         model_type: None,
+        mil_values_as_read: Vec::new(),
         param_key_order: Vec::new(),
     };
     fp.component_bodies.push(body);

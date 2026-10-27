@@ -213,7 +213,11 @@ pub struct Footprint {
     /// the stream goes back as read while it holds exactly the records the
     /// writer would emit; otherwise they are written in primitive order.
     /// `None` for a footprint built from scratch or without the stream.
-    #[serde(skip)]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::altium::base64_opt"
+    )]
     pub primitive_guids_as_read: Option<Vec<u8>>,
 
     /// The streams of the footprint's storage this crate does not read, by
@@ -1309,6 +1313,18 @@ impl PcbLib {
 
 #[cfg(test)]
 mod tests {
+    /// The `PrimitiveGuids` stream as read travels through JSON, so a
+    /// read-modify-write through the tools keeps Altium's record order.
+    #[test]
+    fn the_primitive_guids_as_read_survive_json() {
+        let mut fp = super::Footprint::new("FP");
+        fp.primitive_guids_as_read = Some(vec![1, 2, 3, 250]);
+        let json = serde_json::to_value(&fp).expect("json");
+        assert_eq!(json["primitive_guids_as_read"], "AQID+g==");
+        let back: super::Footprint = serde_json::from_value(json).expect("back");
+        assert_eq!(back.primitive_guids_as_read, Some(vec![1, 2, 3, 250]));
+    }
+
     /// A renamed footprint no longer belongs to its old storage: the
     /// carrier is dropped so the next save derives the new name's storage.
     #[test]
@@ -3210,6 +3226,7 @@ mod tests {
             additional_parameters: Vec::new(),
             flags: PcbFlags::empty(),
             model_type: None,
+            mil_values_as_read: Vec::new(),
             param_key_order: Vec::new(),
         };
         original.add_component_body(body);
@@ -3294,6 +3311,7 @@ mod tests {
                 additional_parameters: Vec::new(),
                 flags: PcbFlags::empty(),
                 model_type: None,
+                mil_values_as_read: Vec::new(),
                 param_key_order: Vec::new(),
             });
         }
