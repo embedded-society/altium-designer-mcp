@@ -668,18 +668,36 @@ impl PcbLib {
         // Altium stores, so it goes on the wire the same way.
         let filename = crate::altium::to_wire_text(self.filepath.as_deref().unwrap_or(""));
         let now = chrono::Local::now();
-        let (date, time) = (
-            now.format("%d. %m. %Y").to_string(),
-            now.format("%H:%M:%S").to_string(),
-        );
+        let fixed_date = now.format("%d. %m. %Y").to_string();
+        let time = now.format("%H:%M:%S").to_string();
 
         if let Some(stored) = self.metadata.library_params.as_deref() {
+            // Altium writes the date in the machine's short-date format
+            // (`20.10.2026`, `16. 03. 2025`, `2025-03-16`); a library read
+            // from a file keeps the format its date was written in.
+            let date = Self::param_value(stored, "DATE")
+                .and_then(|read| date_in_format_of(&read, now.date_naive()))
+                .unwrap_or(fixed_date);
             let block = Self::override_param(stored, "FILENAME", &filename);
             let block = Self::override_param(&block, "DATE", &date);
             return Self::override_param(&block, "TIME", &time);
         }
 
-        crate::altium::encode_windows1252(&Self::template_library_params(&filename, &date, &time))
+        crate::altium::encode_windows1252(&Self::template_library_params(
+            &filename,
+            &fixed_date,
+            &time,
+        ))
+    }
+
+    /// The value of `key` in a raw `|KEY=VALUE|` block, as wire text.
+    fn param_value(block: &[u8], key: &str) -> Option<String> {
+        block.split(|&b| b == b'|').find_map(|seg| {
+            let eq = seg.iter().position(|&b| b == b'=')?;
+            seg[..eq]
+                .eq_ignore_ascii_case(key.as_bytes())
+                .then(|| crate::altium::decode_windows1252(&seg[eq + 1..]))
+        })
     }
 
     /// Replaces one key's value inside a raw `|KEY=VALUE|` block, leaving every
@@ -906,6 +924,72 @@ impl PcbLib {
     }
 }
 
+/// `today` in the format of `read`, a date Altium wrote in the machine's
+/// short-date format: its three numbers in the same order, separators and
+/// widths. The year is the four-digit number (or, at two digits, the one
+/// at either end); of the other two, a number past 12 is the day, and
+/// otherwise the day comes first after a leading year's month and before a
+/// trailing year, as in `2025-03-16` and `16.03.2025`. `None` when `read`
+/// is not three numbers apart.
+fn date_in_format_of(read: &str, today: chrono::NaiveDate) -> Option<String> {
+    use chrono::Datelike as _;
+    use std::fmt::Write as _;
+    // The date as runs of digits and of everything else.
+    let mut parts: Vec<(bool, String)> = Vec::new();
+    for ch in read.chars() {
+        let digit = ch.is_ascii_digit();
+        match parts.last_mut() {
+            Some((was_digit, run)) if *was_digit == digit => run.push(ch),
+            _ => parts.push((digit, ch.to_string())),
+        }
+    }
+    let numbers: Vec<usize> = (0..parts.len()).filter(|&i| parts[i].0).collect();
+    let [first, second, third] = numbers[..] else {
+        return None;
+    };
+    let value = |i: usize| parts[i].1.parse::<u32>().ok();
+    let width = |i: usize| parts[i].1.len();
+    let (year, a, b) = if width(first) == 4 {
+        (first, second, third)
+    } else if width(third) == 4 || width(third) == 2 {
+        (third, first, second)
+    } else {
+        return None;
+    };
+    // Which of the other two is the day.
+    let year_first = year == first;
+    let a_is_day = if value(a)? > 12 {
+        true
+    } else if value(b)? > 12 {
+        false
+    } else {
+        !year_first
+    };
+    let (day, month) = if a_is_day { (a, b) } else { (b, a) };
+    let mut out = String::new();
+    for (i, (digit, run)) in parts.iter().enumerate() {
+        if !digit {
+            out.push_str(run);
+            continue;
+        }
+        let number = if i == year {
+            if width(year) == 2 {
+                today.year().rem_euclid(100)
+            } else {
+                today.year()
+            }
+        } else if i == day {
+            i32::try_from(today.day()).ok()?
+        } else if i == month {
+            i32::try_from(today.month()).ok()?
+        } else {
+            return None;
+        };
+        let _ = write!(out, "{number:0w$}", w = width(i));
+    }
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::altium::pcblib::{writer, Footprint, Pad, PcbLib};
@@ -1042,6 +1126,28 @@ mod tests {
             toc.contains("Name=TALL|Pad Count=0|Height=35.4331|"),
             "{toc}"
         );
+    }
+
+    #[test]
+    fn the_save_date_keeps_the_format_altium_wrote() {
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 10, 28).expect("date");
+        for (read, written) in [
+            ("20.10.2026", "28.10.2026"),
+            ("16. 03. 2025", "28. 10. 2026"),
+            ("2025-03-16", "2026-10-28"),
+            ("3/16/2025", "10/28/2026"),
+            ("16/3/2025", "28/10/2026"),
+            ("1.3.25", "28.10.26"),
+        ] {
+            assert_eq!(
+                super::date_in_format_of(read, today).as_deref(),
+                Some(written),
+                "{read}"
+            );
+        }
+        for read in ["", "today", "2026-10", "1.2.3.4"] {
+            assert!(super::date_in_format_of(read, today).is_none(), "{read}");
+        }
     }
 
     fn temp_dir() -> tempfile::TempDir {
