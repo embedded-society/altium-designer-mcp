@@ -40,6 +40,10 @@ footprint still rewrote the same 11 others. Reported by @RSO-KME.
   `PrimitiveGuids` stream was re-sorted into primitive order. A body now carries its mil
   values as read (`mil_values_as_read`), and the footprint its `PrimitiveGuids` stream
   (`primitive_guids_as_read`).
+- **A footprint library's save date keeps the format Altium wrote it in.** Altium writes
+  `/Library/Data`'s `DATE` in the machine's short-date format (`20.10.2026` on a Polish
+  machine); every save wrote `28. 10. 2026`. A library read from a file now keeps the order,
+  separators and widths of the date it was read with.
 
 ## [1.3.0] - 2026-10-22
 
