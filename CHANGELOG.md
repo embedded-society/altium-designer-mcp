@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-10-29
+
+A fidelity patch for footprint libraries. A write to one footprint of a desktop-authored
+library no longer changes any other: on the ~485-footprint production library behind #594, its
+reporter confirmed every untouched footprint and every 3D model stream byte-identical after a
+write, where 1.3.0 rewrote 11 footprints and merged the 3D model index. The library's save date
+also keeps the format Altium wrote it in.
+
 ### Fixed
 
 Found rewriting a desktop-authored production `PcbLib` (#594): after 1.3.0 a write to any
