@@ -139,6 +139,21 @@ pub struct Pin {
     /// symbol's own parameters.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub owned_records: Vec<Vec<(String, String)>>,
+    /// The pin's functions, in order: the peripheral roles a microcontroller
+    /// pin can take (`UART1_TX`, `TIM2_CH1`, …), from which a schematic picks
+    /// the one it uses. Altium's Functions property, stored in the symbol's
+    /// `PinFunctionData` stream. Empty for a pin with none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub functions: Vec<String>,
+    /// The pin's `PinFunctionData` entry as read, every `(key, value)` pair in
+    /// stored order: the defined functions above, and what else Altium keeps
+    /// there — the function a schematic selected
+    /// (`PINSELECTEDFUNCTIONSCOUNT`, `PINSELECTEDFUNCTIONn`), say. The entry
+    /// goes back as read while [`Self::functions`] still holds what it
+    /// defined; otherwise the defined functions are rebuilt and the other
+    /// pairs kept. Empty for a pin built from scratch.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub function_params: Vec<(String, String)>,
 }
 
 /// Fractional companion coordinates for a [`Pin`].
@@ -216,6 +231,8 @@ impl Pin {
             frac: None,
             name_code_page: None,
             owned_records: Vec::new(),
+            functions: Vec::new(),
+            function_params: Vec::new(),
         }
     }
 }

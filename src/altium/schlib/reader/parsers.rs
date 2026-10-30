@@ -125,6 +125,8 @@ pub(super) fn parse_binary_pin(data: &[u8]) -> Option<Pin> {
         frac: None,
         name_code_page: None,
         owned_records: Vec::new(),
+        functions: Vec::new(),
+        function_params: Vec::new(),
     })
 }
 

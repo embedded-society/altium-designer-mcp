@@ -113,6 +113,13 @@ impl SchLib {
             if let Some(wide) = pin_aux::encode_pin_wide_text(&symbol.pins)? {
                 crate::altium::write_stream(&mut cfb, &format!("/{ole_name}/PinWideText"), &wide)?;
             }
+            if let Some(functions) = pin_aux::encode_pin_functions(&symbol.pins)? {
+                crate::altium::write_stream(
+                    &mut cfb,
+                    &format!("/{ole_name}/PinFunctionData"),
+                    &functions,
+                )?;
+            }
             // Streams read but not understood go back as they were: each a
             // plain name beside the symbol's own, never one already written.
             for (name, bytes) in &symbol.extra_streams {

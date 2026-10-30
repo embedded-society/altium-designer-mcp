@@ -180,6 +180,16 @@ fn json_raw_params(json: &Value) -> Vec<(String, String)> {
         .unwrap_or_default()
 }
 
+/// Reads `(key, value)` pairs (`key`) in the `[[key, value], …]` form
+/// `read_schlib` emits; anything else is no pairs, like every other carrier
+/// this parser reads leniently.
+fn json_raw_params_at(json: &Value, key: &str) -> Vec<(String, String)> {
+    json.get(key)
+        .cloned()
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default()
+}
+
 /// Reads a list of owned text records (`key`) — each a record's `(key,
 /// value)` segments, as `read_schlib` emits a pin's `owned_records` or a
 /// footprint link's `datafile_link_records` / `implementation_records` — so
@@ -2867,6 +2877,36 @@ impl McpServer {
             .and_then(|v| u32::try_from(v).ok())
             .filter(|&page| crate::altium::ansi_encoding_for(page).is_some());
 
+        // The pin's functions, in order. A `|` would end the field Altium
+        // stores each in, so it is refused rather than written broken.
+        let functions: Vec<String> = match json.get("functions") {
+            None | Some(Value::Null) => Vec::new(),
+            Some(Value::Array(items)) => items
+                .iter()
+                .map(|item| match item.as_str() {
+                    Some("") => Err(format!(
+                        "{} cannot hold an empty function",
+                        pin_field("functions")
+                    )),
+                    Some(f) if f.contains('|') => Err(format!(
+                        "{} '{f}' contains '|', which Altium cannot store in a function name",
+                        pin_field("functions")
+                    )),
+                    Some(f) => Ok(f.to_string()),
+                    None => Err(format!(
+                        "{} must hold strings, got {item}",
+                        pin_field("functions")
+                    )),
+                })
+                .collect::<Result<_, _>>()?,
+            Some(other) => {
+                return Err(format!(
+                    "{} must be an array of strings, got {other}",
+                    pin_field("functions")
+                ))
+            }
+        };
+
         Ok(Pin {
             name: name.to_string(),
             designator: designator.to_string(),
@@ -2896,6 +2936,8 @@ impl McpServer {
             frac,
             name_code_page,
             owned_records: json_owned_records(json, "owned_records"),
+            functions,
+            function_params: json_raw_params_at(json, "function_params"),
         })
     }
 
@@ -4815,6 +4857,29 @@ mod tests {
                 json.as_object_mut().unwrap().remove(field);
                 rejects(McpServer::parse_pad(&json), field);
             }
+        }
+
+        #[test]
+        fn parse_schlib_pin_takes_functions_in_order_and_refuses_a_pipe() {
+            let base = json!({
+                "designator": "1", "name": "PA9", "x": 0, "y": 0, "length": 10,
+                "orientation": "left",
+            });
+            let mut json = base.clone();
+            json["functions"] = json!(["USART1_TX", "TIM1_CH2"]);
+            assert_eq!(
+                McpServer::parse_schlib_pin(&json).expect("pin").functions,
+                ["USART1_TX", "TIM1_CH2"]
+            );
+            for bad in [json!(["A|B"]), json!([""]), json!([3]), json!("A")] {
+                let mut json = base.clone();
+                json["functions"] = bad.clone();
+                assert!(McpServer::parse_schlib_pin(&json).is_err(), "{bad}");
+            }
+            assert!(McpServer::parse_schlib_pin(&base)
+                .expect("pin")
+                .functions
+                .is_empty());
         }
 
         #[test]

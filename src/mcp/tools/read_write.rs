@@ -2257,8 +2257,7 @@ mod tests {
             assert_eq!(link["library_path"], "Lib.PcbLib", "{link}");
         }
 
-        /// A stream this crate does not read (a newer Altium's
-        /// `PinFunctionData`) crosses the JSON boundary as `read_schlib`
+        /// A stream this crate does not read (a `PinTextData`) crosses the JSON boundary as `read_schlib`
         /// emits it and is written back; a malformed carrier is no streams,
         /// not an error, like the other carriers.
         #[test]
@@ -2270,7 +2269,7 @@ mod tests {
                 "filepath": out.to_string_lossy(),
                 "symbols": [{
                     "name": "X",
-                    "extra_streams": [["PinFunctionData", "AQD/fg=="]],
+                    "extra_streams": [["PinTextData", "AQD/fg=="]],
                 }],
             }));
             assert!(!written.is_error, "{}", get_result_text(&written));
@@ -2278,13 +2277,13 @@ mod tests {
             let symbol = parse_result_json(&back)["symbols"][0].clone();
             assert_eq!(
                 symbol["extra_streams"],
-                json!([["PinFunctionData", "AQD/fg=="]]),
+                json!([["PinTextData", "AQD/fg=="]]),
                 "{symbol}"
             );
 
             let written = server.call_write_schlib(&json!({
                 "filepath": out.to_string_lossy(),
-                "symbols": [{ "name": "X", "extra_streams": [["PinFunctionData", "not base64!"]] }],
+                "symbols": [{ "name": "X", "extra_streams": [["PinTextData", "not base64!"]] }],
             }));
             assert!(!written.is_error, "{}", get_result_text(&written));
             let back = server.call_read_schlib(&json!({ "filepath": out.to_string_lossy() }));
