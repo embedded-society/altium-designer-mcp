@@ -522,7 +522,7 @@ pub struct Symbol {
     pub header_params: Vec<(String, String)>,
 
     /// Streams of the symbol's storage this crate does not read — a
-    /// `PinFunctionData` from a newer Altium, say — carried verbatim and
+    /// `PinTextData`, say — carried verbatim and
     /// written back beside the ones it does, so nothing Altium stored is
     /// dropped for being unknown.
     #[serde(
@@ -2557,13 +2557,14 @@ mod tests {
 
     #[test]
     fn streams_this_crate_does_not_read_go_back_as_they_were() {
-        // A newer Altium adds streams beside Data (a `PinFunctionData`); a
-        // rewrite carries them verbatim rather than dropping what it does not
-        // understand, and a reopen offers them back the same way.
+        // Altium keeps streams beside Data this crate does not read (a
+        // `PinTextData`); a rewrite carries them verbatim rather than dropping
+        // what it does not understand, and a reopen offers them back the same
+        // way.
         let mut symbol = Symbol::new("U1");
         symbol.add_pin(Pin::new("1", "A", -10, 0, 10, PinOrientation::Right));
         symbol.extra_streams = vec![
-            ("PinFunctionData".to_string(), vec![0x01, 0x00, 0xFF, 0x7E]),
+            ("PinTextData".to_string(), vec![0x01, 0x00, 0xFF, 0x7E]),
             ("Future".to_string(), b"|FUTURE=1".to_vec()),
         ];
         let mut lib = SchLib::new();
@@ -2574,7 +2575,7 @@ mod tests {
         buffer.set_position(0);
         let mut cfb = cfb::CompoundFile::open(buffer).expect("cfb");
         let mut stream = cfb
-            .open_stream("/U1/PinFunctionData")
+            .open_stream("/U1/PinTextData")
             .expect("the stream is written");
         let mut bytes = Vec::new();
         std::io::Read::read_to_end(&mut stream, &mut bytes).expect("read");
@@ -2590,7 +2591,7 @@ mod tests {
             carried,
             vec![
                 ("Future".to_string(), b"|FUTURE=1".to_vec()),
-                ("PinFunctionData".to_string(), vec![0x01, 0x00, 0xFF, 0x7E]),
+                ("PinTextData".to_string(), vec![0x01, 0x00, 0xFF, 0x7E]),
             ]
         );
         // The streams this crate reads are not doubled up as extras.

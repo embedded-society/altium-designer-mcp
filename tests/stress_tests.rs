@@ -1475,6 +1475,8 @@ fn test_schlib_rename_component() {
         frac: None,
         name_code_page: None,
         owned_records: Vec::new(),
+        functions: Vec::new(),
+        function_params: Vec::new(),
     });
     lib.add(sym);
     lib.save(&file_path).expect("Failed to write");
@@ -1708,6 +1710,8 @@ fn test_schlib_copy_cross_library() {
         frac: None,
         name_code_page: None,
         owned_records: Vec::new(),
+        functions: Vec::new(),
+        function_params: Vec::new(),
     });
     source_lib.add(sym);
     source_lib
@@ -1803,6 +1807,7 @@ fn test_pcblib_json_roundtrip() {
 
 /// Tests `SchLib` round-trip through JSON export/import format.
 #[test]
+#[allow(clippy::too_many_lines)] // spells out every field of the pin it round-trips
 fn test_schlib_json_roundtrip() {
     use altium_designer_mcp::altium::schlib::{
         Pin, PinElectricalType, PinOrientation, Rectangle, Symbol,
@@ -1863,6 +1868,8 @@ fn test_schlib_json_roundtrip() {
         frac: None,
         name_code_page: None,
         owned_records: Vec::new(),
+        functions: Vec::new(),
+        function_params: Vec::new(),
     });
     lib.add(sym);
     lib.save(&original_path).expect("Failed to write original");
@@ -2143,6 +2150,8 @@ fn test_schlib_merge_libraries() {
         frac: None,
         name_code_page: None,
         owned_records: Vec::new(),
+        functions: Vec::new(),
+        function_params: Vec::new(),
     });
     lib2.add(sym2);
     lib2.save(&source2_path).expect("Failed to write source2");
@@ -2465,6 +2474,8 @@ fn test_schlib_get_component() {
         frac: None,
         name_code_page: None,
         owned_records: Vec::new(),
+        functions: Vec::new(),
+        function_params: Vec::new(),
     });
     lib.add(sym1);
 

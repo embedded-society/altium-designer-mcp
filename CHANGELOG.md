@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Pin functions.** Altium's Functions property, the peripheral roles a microcontroller pin can
+  take (`USART1_TX`, `TIM1_CH2`, …) from which a schematic picks the one it uses, is now a
+  pin's `functions` list: read by `read_schlib` and `get_component`, written by `write_schlib`
+  and `update_component`. It is stored in the symbol's `PinFunctionData` stream, which was
+  carried verbatim before; a library Altium wrote still comes back byte for byte, and what else
+  an entry holds (an older library's selected function) is kept. A function name may not be
+  empty or contain `|`. Proposed, with the stream decoded and test libraries
+  from Altium Designer 26.11, by @AndVo-GH (discussion #597).
+
 ## [1.3.1] - 2026-10-29
 
 A fidelity patch for footprint libraries. A write to one footprint of a desktop-authored

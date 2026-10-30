@@ -1,5 +1,5 @@
 //! Per-component pin auxiliary OLE streams (`PinFrac`, `PinSymbolLineWidth`,
-//! `PinWideText`).
+//! `PinWideText`, `PinFunctionData`).
 //!
 //! Alongside a symbol's `Data` stream, Altium may store optional sibling
 //! streams that carry data the binary pin record cannot hold:
@@ -13,6 +13,10 @@
 //!   description leaves ASCII (`|NAME=<text>`, `|DESC=<text>`): the text's
 //!   authoritative wide form, since the binary record narrows it through the
 //!   writing machine's ANSI code page.
+//! - **`PinFunctionData`** — a Unicode parameter block per pin that has
+//!   functions (Altium's Functions property): `|PINDEFINEDFUNCTIONSCOUNT=n`,
+//!   then `|PINDEFINEDFUNCTION1=…` to `|PINDEFINEDFUNCTIONn=…`, in order. A pin
+//!   with none has no entry, and `Weight` counts the entries (AD 26.11).
 //!
 //! Both use Altium's *compressed-storage* framing (shared with the embedded
 //! icon-image `/Storage` stream — see [`super::storage`] for the byte layout);
@@ -221,6 +225,129 @@ pub(super) fn apply_pin_wide_text(
     })
 }
 
+/// Whether a `PinFunctionData` key belongs to the defined functions, which
+/// [`Pin::functions`] models.
+fn is_defined_function_key(key: &str) -> bool {
+    const PREFIX: &str = "PINDEFINEDFUNCTION";
+    key.eq_ignore_ascii_case("PINDEFINEDFUNCTIONSCOUNT")
+        || (key
+            .get(..PREFIX.len())
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case(PREFIX))
+            && key[PREFIX.len()..].bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// The defined functions a `PinFunctionData` entry's pairs hold, in order;
+/// the count is held to the pairs there are.
+fn defined_functions(pairs: &[(String, String)]) -> Vec<String> {
+    let value = |key: &str| {
+        pairs
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(key))
+            .map(|(_, v)| v.clone())
+    };
+    let count = value("PINDEFINEDFUNCTIONSCOUNT")
+        .and_then(|n| n.trim().parse::<usize>().ok())
+        .unwrap_or(0)
+        .min(pairs.len());
+    (1..=count)
+        .filter_map(|n| value(&format!("PINDEFINEDFUNCTION{n}")))
+        .collect()
+}
+
+/// A pin's `PinFunctionData` entry: the pairs read while they still define
+/// its functions, else its functions rebuilt ahead of the other pairs read.
+/// `None` when there is nothing to store.
+fn pin_function_pairs(pin: &Pin) -> Option<Vec<(String, String)>> {
+    if !pin.function_params.is_empty() && defined_functions(&pin.function_params) == pin.functions {
+        return Some(pin.function_params.clone());
+    }
+    let mut pairs = Vec::new();
+    if !pin.functions.is_empty() {
+        pairs.push((
+            "PINDEFINEDFUNCTIONSCOUNT".to_string(),
+            pin.functions.len().to_string(),
+        ));
+        for (n, function) in pin.functions.iter().enumerate() {
+            pairs.push((format!("PINDEFINEDFUNCTION{}", n + 1), function.clone()));
+        }
+    }
+    pairs.extend(
+        pin.function_params
+            .iter()
+            .filter(|(key, _)| !is_defined_function_key(key))
+            .cloned(),
+    );
+    (!pairs.is_empty()).then_some(pairs)
+}
+
+/// Encodes the `PinFunctionData` stream for `pins`, or `None` when no pin has
+/// an entry — in which case Altium writes no stream.
+///
+/// # Errors
+///
+/// When an entry cannot be framed.
+pub(super) fn encode_pin_functions(
+    pins: &[Pin],
+) -> crate::altium::error::AltiumResult<Option<Vec<u8>>> {
+    use std::fmt::Write as _;
+    let entries: Vec<(usize, String)> = pins
+        .iter()
+        .enumerate()
+        .filter_map(|(i, p)| {
+            pin_function_pairs(p).map(|pairs| {
+                let block = pairs.iter().fold(String::new(), |mut block, (key, value)| {
+                    let _ = write!(block, "|{key}={value}");
+                    block
+                });
+                (i, block)
+            })
+        })
+        .collect();
+    if entries.is_empty() {
+        return Ok(None);
+    }
+
+    let mut out = storage::start_stream("PinFunctionData", entries.len());
+    for (index, block) in entries {
+        storage::write_entry(
+            &mut out,
+            &index.to_string(),
+            &encode_unicode_param_block(&block),
+        )?;
+    }
+    Ok(Some(out))
+}
+
+/// Applies a parsed `PinFunctionData` stream onto `pins`, keyed by pin
+/// ordinal: each entry's pairs as read, and the functions they define. The
+/// count is held to the fields the entry carries, so a crafted one cannot
+/// drive the walk.
+///
+/// # Errors
+///
+/// When the entries inflate past what the read's `budget` allows.
+pub(super) fn apply_pin_functions(
+    pins: &mut [Pin],
+    raw: &[u8],
+    budget: &mut Budget,
+) -> AltiumResult<()> {
+    for_each_entry(raw, budget, |idx, payload| {
+        let Some(text) = decode_unicode_param_block(payload) else {
+            return;
+        };
+        // Every pair verbatim, in stored order.
+        let pairs: Vec<(String, String)> = text
+            .split('|')
+            .filter_map(|part| part.split_once('='))
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect();
+        if let Some(pin) = pins.get_mut(idx) {
+            pin.functions = defined_functions(&pairs);
+            pin.function_params = pairs;
+        }
+    })
+}
+
 /// Encodes a Unicode (UTF-16LE) parameter block: `[u32 LE byte_len][utf16le]`.
 /// The length counts the UTF-16 byte count (not including its own 4 bytes),
 /// matching `AltiumSharp`'s `WriteUnicodeParameterBlock` / `ReadUnicodeParameterBlock`.
@@ -310,6 +437,85 @@ mod tests {
 
     fn pin() -> Pin {
         Pin::new("A", "1", 0, 0, 10, PinOrientation::Right)
+    }
+
+    /// Altium's Functions property (AD 26.11, discussion #597): an entry per
+    /// pin that has functions, keyed by pin ordinal, `Weight` the entry
+    /// count, a pin with none left out.
+    #[test]
+    fn pin_functions_round_trip_in_order_and_skip_a_pin_with_none() {
+        let mut pins = [pin(), pin(), pin()];
+        pins[0].functions = vec!["FN3".into(), "FN3_1".into(), "FN3_2".into(), "FN3_3".into()];
+        pins[1].functions = vec!["FN2".into()];
+        let stream = encode_pin_functions(&pins)
+            .expect("encode")
+            .expect("two entries");
+        assert!(
+            stream.starts_with(b"!   |HEADER=PinFunctionData|Weight=2 "),
+            "{:?}",
+            &stream[..37]
+        );
+
+        let mut back = [pin(), pin(), pin()];
+        apply_pin_functions(&mut back, &stream, &mut Budget::default()).expect("apply");
+        assert_eq!(back[0].functions, pins[0].functions);
+        assert_eq!(back[1].functions, ["FN2"]);
+        assert!(back[2].functions.is_empty());
+
+        // No pin with a function, no stream.
+        assert!(encode_pin_functions(&[pin()]).expect("encode").is_none());
+    }
+
+    /// An older library stores the function a schematic selected
+    /// (`PINSELECTEDFUNCTION…`) in the same stream, with no defined ones. It
+    /// goes back as read, and an edit to the defined functions keeps it.
+    #[test]
+    fn a_selected_function_survives_and_rides_along_an_edit() {
+        let mut out = storage::start_stream("PinFunctionData", 1);
+        let read = "|PINSELECTEDFUNCTIONSCOUNT=1|PINSELECTEDFUNCTION1=PC13";
+        storage::write_entry(&mut out, "1", &encode_unicode_param_block(read)).expect("entry");
+        let mut pins = [pin(), pin()];
+        apply_pin_functions(&mut pins, &out, &mut Budget::default()).expect("apply");
+        assert!(pins[1].functions.is_empty());
+        assert_eq!(
+            encode_pin_functions(&pins).expect("encode").as_deref(),
+            Some(out.as_slice()),
+            "as read"
+        );
+
+        pins[1].functions = vec!["TAMPER".into()];
+        let edited = encode_pin_functions(&pins)
+            .expect("encode")
+            .expect("stream");
+        let mut back = [pin(), pin()];
+        apply_pin_functions(&mut back, &edited, &mut Budget::default()).expect("apply");
+        assert_eq!(back[1].functions, ["TAMPER"]);
+        assert_eq!(
+            back[1].function_params,
+            [
+                ("PINDEFINEDFUNCTIONSCOUNT".to_string(), "1".to_string()),
+                ("PINDEFINEDFUNCTION1".to_string(), "TAMPER".to_string()),
+                ("PINSELECTEDFUNCTIONSCOUNT".to_string(), "1".to_string()),
+                ("PINSELECTEDFUNCTION1".to_string(), "PC13".to_string()),
+            ]
+        );
+    }
+
+    /// The count is held to the fields the entry carries.
+    #[test]
+    fn a_crafted_function_count_reads_only_what_is_there() {
+        let mut out = storage::start_stream("PinFunctionData", 1);
+        storage::write_entry(
+            &mut out,
+            "0",
+            &encode_unicode_param_block(
+                "|PINDEFINEDFUNCTIONSCOUNT=4000000000|PINDEFINEDFUNCTION1=A|PINDEFINEDFUNCTION3=C",
+            ),
+        )
+        .expect("entry");
+        let mut pins = [pin()];
+        apply_pin_functions(&mut pins, &out, &mut Budget::default()).expect("apply");
+        assert_eq!(pins[0].functions, ["A", "C"]);
     }
 
     #[test]

@@ -350,13 +350,24 @@ fn apply_pin_aux_streams<R: Read + Seek>(
     {
         pin_aux::apply_pin_wide_text(&mut symbol.pins, &wide, budget)?;
     }
+    if let Some(functions) =
+        crate::altium::read_stream_opt(&mut *cfb, format!("{comp_name}/PinFunctionData"))
+    {
+        pin_aux::apply_pin_functions(&mut symbol.pins, &functions, budget)?;
+    }
     Ok(())
 }
 
 /// The streams of the component's storage this crate does not read — a
-/// `PinFunctionData` from a newer Altium — are the names beside `Data` and
+/// `PinTextData`, say — are the names beside `Data` and
 /// the pin auxiliaries, kept verbatim as [`Symbol::extra_streams`].
-const READ_STREAMS: &[&str] = &["Data", "PinFrac", "PinSymbolLineWidth", "PinWideText"];
+const READ_STREAMS: &[&str] = &[
+    "Data",
+    "PinFrac",
+    "PinSymbolLineWidth",
+    "PinWideText",
+    "PinFunctionData",
+];
 
 /// Carries every stream of the component's storage that nothing above reads.
 fn carry_extra_streams<R: Read + Seek>(

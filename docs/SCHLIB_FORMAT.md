@@ -22,15 +22,15 @@ SchLib files are OLE Compound Documents (CFB format, OLE v3) containing:
     ├── PinFrac             # OPTIONAL: fractional pin coordinates (compressed storage)
     ├── PinSymbolLineWidth  # OPTIONAL: per-pin symbol line widths (compressed storage)
     ├── PinWideText         # OPTIONAL: wide form of non-ASCII pin names
-    └── PinFunctionData     # OPTIONAL: written by newer Altium; carried verbatim, not read
+    └── PinFunctionData     # OPTIONAL: per-pin functions (Altium's Functions property)
 ```
 
 The pin auxiliary streams are emitted only when at least one pin needs them (see
 [Pin auxiliary streams](#pin-auxiliary-streams)); a symbol with on-grid, default-width,
 ASCII-named pins has only its `Data` stream, byte-identical to Altium's own output. Any other
-stream a symbol's storage holds — a `PinFunctionData` from a newer Altium — is carried as read
-(`Symbol::extra_streams`, base64 in JSON) and written back beside the ones this crate does
-read, so nothing Altium stored is dropped for being unknown.
+stream a symbol's storage holds is carried as read (`Symbol::extra_streams`, base64 in JSON) and
+written back beside the ones this crate does read, so nothing Altium stored is dropped for being
+unknown.
 
 ## Cross-Cutting Conventions
 
@@ -372,8 +372,8 @@ Derived from the Rotated and Flipped flags:
 
 ### Pin auxiliary streams
 
-Three optional per-component OLE streams carry data the binary pin record cannot hold
-(`PinWideText`, the third, is described above). All use the
+Four optional per-component OLE streams carry data the binary pin record cannot hold
+(`PinWideText` is described above). All use the
 [compressed-storage framing](#compressed-storage-framing) with each entry keyed by the **pin
 ordinal** as an ASCII-decimal Pascal string:
 
@@ -382,13 +382,24 @@ ordinal** as an ASCII-decimal Pascal string:
   text-record `_Frac` keys.
 - **`PinSymbolLineWidth`** — a per-pin symbol line width. Payload: a Unicode parameter block
   `[u32 LE byte_len][UTF-16LE "|SYMBOL_LINEWIDTH=N"]`.
+- **`PinFunctionData`** — a pin's functions, Altium's Functions property (the peripheral roles
+  a microcontroller pin can take, from which a schematic picks one). Payload: a Unicode
+  parameter block `|PINDEFINEDFUNCTIONSCOUNT=n|PINDEFINEDFUNCTION1=…|…|PINDEFINEDFUNCTIONn=…`,
+  the functions in order (`Pin::functions`). A pin with none has no entry, and the header's
+  `Weight` counts the entries: in AD 26.11's libraries (discussion #597), a symbol whose pins
+  hold 4, 1 and no functions stores two entries, `0` and `1`, under `Weight=2`. A function name
+  cannot hold `|`, which ends the field. An older library's entry holds the function a schematic
+  selected instead (`|PINSELECTEDFUNCTIONSCOUNT=1|PINSELECTEDFUNCTION1=PC13`, an STM32 symbol in
+  the reference collection); every pair of an entry is kept as read (`Pin::function_params`),
+  so editing the defined functions leaves the others in place.
 
-A symbol whose pins are all on-grid, default-width and ASCII-named emits **none** of them.
+A symbol whose pins are all on-grid, default-width, ASCII-named and without functions emits
+**none** of them.
 
 ## Compressed-Storage Framing
 
-Four stream families share one byte layout: `PinFrac`, `PinSymbolLineWidth`, `PinWideText` and
-the root `/Storage` stream:
+Five stream families share one byte layout: `PinFrac`, `PinSymbolLineWidth`, `PinWideText`,
+`PinFunctionData` and the root `/Storage` stream:
 
 ```text
 [u32 LE header_len][header_len header bytes]         # C-string param block
