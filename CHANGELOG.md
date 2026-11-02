@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-02
+
+A feature release: pin functions. A schematic symbol's pins can now carry Altium's Functions
+property, the peripheral roles a microcontroller pin can take, read and written as a list per
+pin, along with the functions preselected for new placements, which Altium's own pin dialog
+cannot set. Libraries Altium wrote with pin functions still come back byte for byte.
+
 ### Added
 
 - **Pin functions.** Altium's Functions property, the peripheral roles a microcontroller pin can
