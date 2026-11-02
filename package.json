@@ -7,7 +7,7 @@
         "lint:md": "markdownlint-cli2 \"**/*.md\""
     },
     "devDependencies": {
-        "markdownlint-cli2": "^0.23.3"
+        "markdownlint-cli2": "^0.24.0"
     },
     "comment:overrides": "Force patched transitive deps of markdownlint-cli2 to clear Dependabot advisories (dev-tooling only; not shipped in the Rust binary).",
     "overrides": {
