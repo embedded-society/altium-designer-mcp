@@ -1476,6 +1476,7 @@ fn test_schlib_rename_component() {
         name_code_page: None,
         owned_records: Vec::new(),
         functions: Vec::new(),
+        selected_functions: Vec::new(),
         function_params: Vec::new(),
     });
     lib.add(sym);
@@ -1711,6 +1712,7 @@ fn test_schlib_copy_cross_library() {
         name_code_page: None,
         owned_records: Vec::new(),
         functions: Vec::new(),
+        selected_functions: Vec::new(),
         function_params: Vec::new(),
     });
     source_lib.add(sym);
@@ -1869,6 +1871,7 @@ fn test_schlib_json_roundtrip() {
         name_code_page: None,
         owned_records: Vec::new(),
         functions: Vec::new(),
+        selected_functions: Vec::new(),
         function_params: Vec::new(),
     });
     lib.add(sym);
@@ -2151,6 +2154,7 @@ fn test_schlib_merge_libraries() {
         name_code_page: None,
         owned_records: Vec::new(),
         functions: Vec::new(),
+        selected_functions: Vec::new(),
         function_params: Vec::new(),
     });
     lib2.add(sym2);
@@ -2475,6 +2479,7 @@ fn test_schlib_get_component() {
         name_code_page: None,
         owned_records: Vec::new(),
         functions: Vec::new(),
+        selected_functions: Vec::new(),
         function_params: Vec::new(),
     });
     lib.add(sym1);

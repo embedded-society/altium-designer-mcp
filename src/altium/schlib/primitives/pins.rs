@@ -145,13 +145,18 @@ pub struct Pin {
     /// `PinFunctionData` stream. Empty for a pin with none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub functions: Vec<String>,
+    /// The functions preselected for the pin, in order: active on every new
+    /// placement of the symbol until a schematic picks others. Altium's pin
+    /// dialog offers no way to set them; a library made from a schematic
+    /// (Design → Make Schematic Library) keeps what that schematic selected.
+    /// Empty for a pin with none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub selected_functions: Vec<String>,
     /// The pin's `PinFunctionData` entry as read, every `(key, value)` pair in
-    /// stored order: the defined functions above, and what else Altium keeps
-    /// there — the function a schematic selected
-    /// (`PINSELECTEDFUNCTIONSCOUNT`, `PINSELECTEDFUNCTIONn`), say. The entry
-    /// goes back as read while [`Self::functions`] still holds what it
-    /// defined; otherwise the defined functions are rebuilt and the other
-    /// pairs kept. Empty for a pin built from scratch.
+    /// stored order. The entry goes back as read while [`Self::functions`]
+    /// and [`Self::selected_functions`] still hold what it did; otherwise both
+    /// are rebuilt, in Altium's order, and any other pair is kept. Empty for a
+    /// pin built from scratch.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub function_params: Vec<(String, String)>,
 }
@@ -232,6 +237,7 @@ impl Pin {
             name_code_page: None,
             owned_records: Vec::new(),
             functions: Vec::new(),
+            selected_functions: Vec::new(),
             function_params: Vec::new(),
         }
     }

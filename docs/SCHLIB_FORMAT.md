@@ -384,14 +384,23 @@ ordinal** as an ASCII-decimal Pascal string:
   `[u32 LE byte_len][UTF-16LE "|SYMBOL_LINEWIDTH=N"]`.
 - **`PinFunctionData`** — a pin's functions, Altium's Functions property (the peripheral roles
   a microcontroller pin can take, from which a schematic picks one). Payload: a Unicode
-  parameter block `|PINDEFINEDFUNCTIONSCOUNT=n|PINDEFINEDFUNCTION1=…|…|PINDEFINEDFUNCTIONn=…`,
-  the functions in order (`Pin::functions`). A pin with none has no entry, and the header's
-  `Weight` counts the entries: in AD 26.11's libraries (discussion #597), a symbol whose pins
-  hold 4, 1 and no functions stores two entries, `0` and `1`, under `Weight=2`. A function name
-  cannot hold `|`, which ends the field. An older library's entry holds the function a schematic
-  selected instead (`|PINSELECTEDFUNCTIONSCOUNT=1|PINSELECTEDFUNCTION1=PC13`, an STM32 symbol in
-  the reference collection); every pair of an entry is kept as read (`Pin::function_params`),
-  so editing the defined functions leaves the others in place.
+  parameter block holding two lists, each in order — the **preselected** functions
+  (`|PINSELECTEDFUNCTIONSCOUNT=n|PINSELECTEDFUNCTION1=…`, `Pin::selected_functions`), then the
+  **defined** ones (`|PINDEFINEDFUNCTIONSCOUNT=n|PINDEFINEDFUNCTION1=…`, `Pin::functions`);
+  a list that is empty is left out. A pin with neither has no entry, and the header's `Weight`
+  counts the entries: in AD 26.11's libraries (discussion #597, the
+  `manual/pin_functions_*.SchLib` fixtures), a symbol whose pins hold 4, 1 and no functions
+  stores two entries, `0` and `1`, under `Weight=2`.
+
+  A preselected function is active on every new placement of the symbol until a schematic picks
+  others. A schematic's own choice is never written back to its library, and Altium's pin dialog
+  offers no way to set one; a library made from a schematic (**Design → Make Schematic
+  Library**) keeps what that schematic selected. An older library can hold a preselected function
+  and no defined ones (`|PINSELECTEDFUNCTIONSCOUNT=1|PINSELECTEDFUNCTION1=PC13`, an STM32 symbol
+  in the reference collection). Every pair of an entry is kept as read (`Pin::function_params`):
+  the entry goes back as read while both lists are unchanged, and an edit rebuilds the two lists
+  in this order and keeps any other pair. A function name cannot hold `|`, which ends the
+  field.
 
 A symbol whose pins are all on-grid, default-width, ASCII-named and without functions emits
 **none** of them.
