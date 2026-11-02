@@ -14,9 +14,11 @@
 //!   authoritative wide form, since the binary record narrows it through the
 //!   writing machine's ANSI code page.
 //! - **`PinFunctionData`** — a Unicode parameter block per pin that has
-//!   functions (Altium's Functions property): `|PINDEFINEDFUNCTIONSCOUNT=n`,
-//!   then `|PINDEFINEDFUNCTION1=…` to `|PINDEFINEDFUNCTIONn=…`, in order. A pin
-//!   with none has no entry, and `Weight` counts the entries (AD 26.11).
+//!   functions (Altium's Functions property): the preselected ones first
+//!   (`|PINSELECTEDFUNCTIONSCOUNT=n|PINSELECTEDFUNCTION1=…`), then the
+//!   defined ones (`|PINDEFINEDFUNCTIONSCOUNT=n|PINDEFINEDFUNCTION1=…`), each
+//!   in order. A pin with neither has no entry, and `Weight` counts the
+//!   entries (AD 26.11).
 //!
 //! Both use Altium's *compressed-storage* framing (shared with the embedded
 //! icon-image `/Storage` stream — see [`super::storage`] for the byte layout);
@@ -225,56 +227,67 @@ pub(super) fn apply_pin_wide_text(
     })
 }
 
-/// Whether a `PinFunctionData` key belongs to the defined functions, which
-/// [`Pin::functions`] models.
-fn is_defined_function_key(key: &str) -> bool {
-    const PREFIX: &str = "PINDEFINEDFUNCTION";
-    key.eq_ignore_ascii_case("PINDEFINEDFUNCTIONSCOUNT")
+/// The two function lists of a `PinFunctionData` entry, by key stem, in the
+/// order Altium writes them: the preselected functions, then the defined.
+const SELECTED: &str = "PINSELECTEDFUNCTION";
+const DEFINED: &str = "PINDEFINEDFUNCTION";
+
+/// Whether a `PinFunctionData` key belongs to the list `stem` names: its
+/// `{stem}SCOUNT` or a `{stem}{n}`.
+fn is_function_key(key: &str, stem: &str) -> bool {
+    key.eq_ignore_ascii_case(&format!("{stem}SCOUNT"))
         || (key
-            .get(..PREFIX.len())
-            .is_some_and(|prefix| prefix.eq_ignore_ascii_case(PREFIX))
-            && key[PREFIX.len()..].bytes().all(|b| b.is_ascii_digit()))
+            .get(..stem.len())
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case(stem))
+            && key.len() > stem.len()
+            && key[stem.len()..].bytes().all(|b| b.is_ascii_digit()))
 }
 
-/// The defined functions a `PinFunctionData` entry's pairs hold, in order;
-/// the count is held to the pairs there are.
-fn defined_functions(pairs: &[(String, String)]) -> Vec<String> {
+/// The list `stem` names in a `PinFunctionData` entry's pairs, in order; the
+/// count is held to the pairs there are.
+fn function_list(pairs: &[(String, String)], stem: &str) -> Vec<String> {
     let value = |key: &str| {
         pairs
             .iter()
             .find(|(k, _)| k.eq_ignore_ascii_case(key))
             .map(|(_, v)| v.clone())
     };
-    let count = value("PINDEFINEDFUNCTIONSCOUNT")
+    let count = value(&format!("{stem}SCOUNT"))
         .and_then(|n| n.trim().parse::<usize>().ok())
         .unwrap_or(0)
         .min(pairs.len());
     (1..=count)
-        .filter_map(|n| value(&format!("PINDEFINEDFUNCTION{n}")))
+        .filter_map(|n| value(&format!("{stem}{n}")))
         .collect()
 }
 
-/// A pin's `PinFunctionData` entry: the pairs read while they still define
-/// its functions, else its functions rebuilt ahead of the other pairs read.
-/// `None` when there is nothing to store.
+/// A pin's `PinFunctionData` entry: the pairs read while they still hold its
+/// functions, else both lists rebuilt in Altium's order, preselected first,
+/// ahead of any other pair read. `None` when there is nothing to store.
 fn pin_function_pairs(pin: &Pin) -> Option<Vec<(String, String)>> {
-    if !pin.function_params.is_empty() && defined_functions(&pin.function_params) == pin.functions {
+    if !pin.function_params.is_empty()
+        && function_list(&pin.function_params, DEFINED) == pin.functions
+        && function_list(&pin.function_params, SELECTED) == pin.selected_functions
+    {
         return Some(pin.function_params.clone());
     }
     let mut pairs = Vec::new();
-    if !pin.functions.is_empty() {
-        pairs.push((
-            "PINDEFINEDFUNCTIONSCOUNT".to_string(),
-            pin.functions.len().to_string(),
-        ));
-        for (n, function) in pin.functions.iter().enumerate() {
-            pairs.push((format!("PINDEFINEDFUNCTION{}", n + 1), function.clone()));
+    for (stem, list) in [
+        (SELECTED, &pin.selected_functions),
+        (DEFINED, &pin.functions),
+    ] {
+        if list.is_empty() {
+            continue;
+        }
+        pairs.push((format!("{stem}SCOUNT"), list.len().to_string()));
+        for (n, function) in list.iter().enumerate() {
+            pairs.push((format!("{stem}{}", n + 1), function.clone()));
         }
     }
     pairs.extend(
         pin.function_params
             .iter()
-            .filter(|(key, _)| !is_defined_function_key(key))
+            .filter(|(key, _)| !is_function_key(key, SELECTED) && !is_function_key(key, DEFINED))
             .cloned(),
     );
     (!pairs.is_empty()).then_some(pairs)
@@ -342,7 +355,8 @@ pub(super) fn apply_pin_functions(
             .map(|(key, value)| (key.to_string(), value.to_string()))
             .collect();
         if let Some(pin) = pins.get_mut(idx) {
-            pin.functions = defined_functions(&pairs);
+            pin.functions = function_list(&pairs, DEFINED);
+            pin.selected_functions = function_list(&pairs, SELECTED);
             pin.function_params = pairs;
         }
     })
@@ -451,7 +465,7 @@ mod tests {
             .expect("encode")
             .expect("two entries");
         assert!(
-            stream.starts_with(b"!   |HEADER=PinFunctionData|Weight=2 "),
+            stream.starts_with(b"!\0\0\0|HEADER=PinFunctionData|Weight=2\0"),
             "{:?}",
             &stream[..37]
         );
@@ -466,17 +480,18 @@ mod tests {
         assert!(encode_pin_functions(&[pin()]).expect("encode").is_none());
     }
 
-    /// An older library stores the function a schematic selected
-    /// (`PINSELECTEDFUNCTION…`) in the same stream, with no defined ones. It
-    /// goes back as read, and an edit to the defined functions keeps it.
+    /// An older library stores a preselected function with no defined ones.
+    /// It reads as such, goes back as read, and an edit writes both lists in
+    /// Altium's order, preselected first.
     #[test]
-    fn a_selected_function_survives_and_rides_along_an_edit() {
+    fn a_preselected_function_survives_and_an_edit_keeps_altiums_order() {
         let mut out = storage::start_stream("PinFunctionData", 1);
         let read = "|PINSELECTEDFUNCTIONSCOUNT=1|PINSELECTEDFUNCTION1=PC13";
         storage::write_entry(&mut out, "1", &encode_unicode_param_block(read)).expect("entry");
         let mut pins = [pin(), pin()];
         apply_pin_functions(&mut pins, &out, &mut Budget::default()).expect("apply");
         assert!(pins[1].functions.is_empty());
+        assert_eq!(pins[1].selected_functions, ["PC13"]);
         assert_eq!(
             encode_pin_functions(&pins).expect("encode").as_deref(),
             Some(out.as_slice()),
@@ -490,13 +505,14 @@ mod tests {
         let mut back = [pin(), pin()];
         apply_pin_functions(&mut back, &edited, &mut Budget::default()).expect("apply");
         assert_eq!(back[1].functions, ["TAMPER"]);
+        assert_eq!(back[1].selected_functions, ["PC13"]);
         assert_eq!(
             back[1].function_params,
             [
-                ("PINDEFINEDFUNCTIONSCOUNT".to_string(), "1".to_string()),
-                ("PINDEFINEDFUNCTION1".to_string(), "TAMPER".to_string()),
                 ("PINSELECTEDFUNCTIONSCOUNT".to_string(), "1".to_string()),
                 ("PINSELECTEDFUNCTION1".to_string(), "PC13".to_string()),
+                ("PINDEFINEDFUNCTIONSCOUNT".to_string(), "1".to_string()),
+                ("PINDEFINEDFUNCTION1".to_string(), "TAMPER".to_string()),
             ]
         );
     }

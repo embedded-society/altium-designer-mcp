@@ -2877,35 +2877,34 @@ impl McpServer {
             .and_then(|v| u32::try_from(v).ok())
             .filter(|&page| crate::altium::ansi_encoding_for(page).is_some());
 
-        // The pin's functions, in order. A `|` would end the field Altium
-        // stores each in, so it is refused rather than written broken.
-        let functions: Vec<String> = match json.get("functions") {
-            None | Some(Value::Null) => Vec::new(),
-            Some(Value::Array(items)) => items
-                .iter()
-                .map(|item| match item.as_str() {
-                    Some("") => Err(format!(
-                        "{} cannot hold an empty function",
-                        pin_field("functions")
-                    )),
-                    Some(f) if f.contains('|') => Err(format!(
-                        "{} '{f}' contains '|', which Altium cannot store in a function name",
-                        pin_field("functions")
-                    )),
-                    Some(f) => Ok(f.to_string()),
-                    None => Err(format!(
-                        "{} must hold strings, got {item}",
-                        pin_field("functions")
-                    )),
-                })
-                .collect::<Result<_, _>>()?,
-            Some(other) => {
-                return Err(format!(
+        // The pin's functions and preselected functions, in order. A `|`
+        // would end the field Altium stores each in, so it is refused rather
+        // than written broken.
+        let function_names = |key: &str| -> Result<Vec<String>, String> {
+            match json.get(key) {
+                None | Some(Value::Null) => Ok(Vec::new()),
+                Some(Value::Array(items)) => items
+                    .iter()
+                    .map(|item| match item.as_str() {
+                        Some("") => {
+                            Err(format!("{} cannot hold an empty function", pin_field(key)))
+                        }
+                        Some(f) if f.contains('|') => Err(format!(
+                            "{} '{f}' contains '|', which Altium cannot store in a function name",
+                            pin_field(key)
+                        )),
+                        Some(f) => Ok(f.to_string()),
+                        None => Err(format!("{} must hold strings, got {item}", pin_field(key))),
+                    })
+                    .collect(),
+                Some(other) => Err(format!(
                     "{} must be an array of strings, got {other}",
-                    pin_field("functions")
-                ))
+                    pin_field(key)
+                )),
             }
         };
+        let functions = function_names("functions")?;
+        let selected_functions = function_names("selected_functions")?;
 
         Ok(Pin {
             name: name.to_string(),
@@ -2937,6 +2936,7 @@ impl McpServer {
             name_code_page,
             owned_records: json_owned_records(json, "owned_records"),
             functions,
+            selected_functions,
             function_params: json_raw_params_at(json, "function_params"),
         })
     }

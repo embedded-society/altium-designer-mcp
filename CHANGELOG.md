@@ -15,10 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   take (`USART1_TX`, `TIM1_CH2`, …) from which a schematic picks the one it uses, is now a
   pin's `functions` list: read by `read_schlib` and `get_component`, written by `write_schlib`
   and `update_component`. It is stored in the symbol's `PinFunctionData` stream, which was
-  carried verbatim before; a library Altium wrote still comes back byte for byte, and what else
-  an entry holds (an older library's selected function) is kept. A function name may not be
-  empty or contain `|`. Proposed, with the stream decoded and test libraries
-  from Altium Designer 26.11, by @AndVo-GH (discussion #597).
+  carried verbatim before; a library Altium wrote still comes back byte for byte. A pin's
+  **preselected** functions, active on every new placement until a schematic picks others, are
+  its `selected_functions`: Altium's pin dialog cannot set them, so this is the way to
+  preselect a function without making the library from a schematic. A function name may not be
+  empty or contain `|`. Proposed, with the stream decoded and five test libraries from Altium
+  Designer 26.11 now among the fixtures, by @AndVo-GH (discussion #597).
 
 ## [1.3.1] - 2026-10-29
 

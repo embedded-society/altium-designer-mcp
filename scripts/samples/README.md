@@ -312,6 +312,31 @@ python -c "import olefile,re,sys;f=olefile.OleFileIO(sys.argv[1]);d=b''.join(f.o
 `NotAutoPosition` and `Justification` must both appear on `TestParam`, or step 3 did not
 take.
 
+### `manual/pin_functions_*.SchLib`
+
+Five libraries made in Altium Designer 26.11.1 by @AndVo-GH, who decoded the stream and
+contributed them (discussion #597; originally `FN-Test_NoFN`, `_OneFN`, `_MoreFN`,
+`_MixedFN` and `FN-Test_SelectedFunctions`). Each holds one symbol with three pins and pins
+Altium's **Functions** property, stored in the symbol's `PinFunctionData` stream:
+
+| File | Pin 1 | Pin 2 | Pin 3 |
+|------|-------|-------|-------|
+| `pin_functions_none` | — | — | — (no stream at all) |
+| `pin_functions_one` | `FN1` | `FN2` | `FN3` |
+| `pin_functions_more` | 3 functions | 2 functions | 4 functions |
+| `pin_functions_mixed` | — | `FN2` | 4 functions |
+| `pin_functions_selected` | — | `FN2`, preselected | 4 functions, `FN3_2` and `FN3_3` preselected |
+
+`samples_manual_pin_functions_read_exactly` in `tests/samples_schlib.rs` pins every pin's
+functions and preselected functions, and `manual_schlibs_survive_a_round_trip` the
+byte-identical rewrite.
+
+**To rebuild them:** in a new schematic library, draw a symbol with three pins and, in each
+pin's Properties, add the functions in the table. Altium's pin dialog cannot preselect a
+function, so for `pin_functions_selected`: place the symbol on a schematic sheet, select the
+functions there, and make a library from the sheet (**Design → Make Schematic Library**); a
+symbol placed from that library starts with them selected.
+
 ## `section_keys/` — a stream from an Altium Designer 21 library
 
 `AD21_PCB_Lib.SectionKeys.bin` is the root `SectionKeys` stream (1305 bytes, 17 entries) that Altium

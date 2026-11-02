@@ -2422,3 +2422,75 @@ fn samples_schlib_manual_intlib_sourced_footprint_link() {
     let back = SchLib::read(&mut buffer).expect("read back");
     assert_eq!(flags(&back), expected);
 }
+
+/// The `manual/pin_functions_*.SchLib` libraries (Altium Designer 26.11, from
+/// @AndVo-GH, discussion #597): one three-pin symbol each, its pins' defined
+/// and preselected functions read in order, by designator. Their
+/// byte-identical rewrite is `manual_schlibs_survive_a_round_trip`'s.
+#[test]
+fn samples_manual_pin_functions_read_exactly() {
+    type Pins<'a> = [(&'a str, &'a [&'a str], &'a [&'a str]); 3];
+    let cases: [(&str, Pins); 5] = [
+        ("none", [("3", &[], &[]), ("2", &[], &[]), ("1", &[], &[])]),
+        (
+            "one",
+            [
+                ("3", &["FN3"], &[]),
+                ("2", &["FN2"], &[]),
+                ("1", &["FN1"], &[]),
+            ],
+        ),
+        (
+            "more",
+            [
+                ("3", &["FN3", "FN3_1", "FN3_2", "FN3_3"], &[]),
+                ("2", &["FN2", "FN2_1"], &[]),
+                ("1", &["FN1", "FN1_1", "FN1_2"], &[]),
+            ],
+        ),
+        (
+            "mixed",
+            [
+                ("3", &["FN3", "FN3_1", "FN3_2", "FN3_3"], &[]),
+                ("2", &["FN2"], &[]),
+                ("1", &[], &[]),
+            ],
+        ),
+        (
+            "selected",
+            [
+                (
+                    "3",
+                    &["FN3", "FN3_1", "FN3_2", "FN3_3"],
+                    &["FN3_2", "FN3_3"],
+                ),
+                ("2", &["FN2"], &["FN2"]),
+                ("1", &[], &[]),
+            ],
+        ),
+    ];
+    for (case, expected) in cases {
+        let file = format!("manual/pin_functions_{case}.SchLib");
+        let lib = SchLib::open(sample(&file)).unwrap_or_else(|e| panic!("{file}: {e}"));
+        let symbol = lib
+            .iter()
+            .next()
+            .unwrap_or_else(|| panic!("{file}: no symbol"));
+        let read: Vec<(&str, Vec<&str>, Vec<&str>)> = symbol
+            .pins
+            .iter()
+            .map(|p| {
+                (
+                    p.designator.as_str(),
+                    p.functions.iter().map(String::as_str).collect(),
+                    p.selected_functions.iter().map(String::as_str).collect(),
+                )
+            })
+            .collect();
+        let expected: Vec<(&str, Vec<&str>, Vec<&str>)> = expected
+            .iter()
+            .map(|(d, f, s)| (*d, f.to_vec(), s.to_vec()))
+            .collect();
+        assert_eq!(read, expected, "{file}");
+    }
+}
