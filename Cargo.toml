@@ -54,7 +54,7 @@ thiserror = "2.0"
 dirs = "7.0"
 
 # OLE Compound File Binary format (for Altium files)
-cfb = "0.15"
+cfb = "0.16"
 
 # CSV handling for component database
 csv = "1.3"
